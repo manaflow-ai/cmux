@@ -45,10 +45,11 @@ def assert_areas(
 def github_actions_path_matches(path: str, pattern: str) -> bool:
     """Match the glob subset used by GitHub Actions path filters.
 
-    GitHub's single-star and question-mark wildcards do not cross a slash,
-    while ``**`` does. The workflow's filters use only these constructs, so a
-    small local compiler keeps this guard dependency-free and aligned with the
-    documented path-filter semantics instead of relying on Python's fnmatch.
+    GitHub's single-star wildcard does not cross a slash, while ``**`` does;
+    ``?`` makes the preceding character optional. The workflow's filters use
+    only these constructs, so a small local compiler keeps this guard
+    dependency-free and aligned with the documented path-filter semantics
+    instead of relying on Python's fnmatch.
     """
     pieces: list[str] = []
     index = 0
@@ -63,7 +64,16 @@ def github_actions_path_matches(path: str, pattern: str) -> bool:
             pieces.append("[^/]*")
             index += 1
         elif pattern[index] == "?":
-            pieces.append("[^/]")
+            # GitHub documents ``?`` as a postfix quantifier (for example,
+            # ``*.jsx?`` matches both ``page.js`` and ``page.jsx``), rather
+            # than the exactly-one-character wildcard used by fnmatch.
+            if pieces:
+                pieces[-1] = f"(?:{pieces[-1]})?"
+            else:
+                # A leading question mark has no preceding character to
+                # quantify; preserve it as a literal instead of inventing a
+                # wildcard match.
+                pieces.append(re.escape("?"))
             index += 1
         else:
             pieces.append(re.escape(pattern[index]))
@@ -115,6 +125,9 @@ def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
     assert not github_actions_path_matches("nested/ios/a.swift", "ios/**")
     assert github_actions_path_matches("README.fr.md", "README*.md")
     assert not github_actions_path_matches("docs/ci.md", "README*.md")
+    assert github_actions_path_matches("page.js", "*.jsx?")
+    assert github_actions_path_matches("page.jsx", "*.jsx?")
+    assert not github_actions_path_matches("page.j", "*.jsx?")
 
 
 def test_docs_only_skips_expensive_areas() -> None:
