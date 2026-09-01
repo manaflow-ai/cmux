@@ -44,7 +44,8 @@ struct TerminalKeyboardFullHeightPinTests {
                 reservedToolbarHeight: 34,
                 toolbarFrameHeight: 34,
                 bottomSafeAreaInset: 34,
-                chromeHidden: chromeHidden
+                chromeHidden: chromeHidden,
+                topContentInset: 0
             ))
         }
         let down = snap(0)
@@ -74,6 +75,42 @@ struct TerminalKeyboardFullHeightPinTests {
         #expect(hiddenUp.layoutViewportRect.height == 874)
         #expect(hiddenUp.keyboardOccupancy == 336)
         #expect(snap(0, chromeHidden: true).keyboardOccupancy == 0)
+    }
+
+    @Test("scroll-edge band shifts the viewport down without changing the grid")
+    func scrollEdgeBandViewportPlacement() {
+        let coordinator = TerminalViewportCoordinator()
+        let topInset: CGFloat = 106
+        func snap(bounds: CGSize, topInset: CGFloat) -> TerminalViewportSnapshot {
+            coordinator.snapshot(inputs: TerminalViewportInputs(
+                bounds: bounds,
+                keyboardHeight: 0,
+                composerBandHeight: 44,
+                reservedToolbarHeight: 34,
+                toolbarFrameHeight: 34,
+                bottomSafeAreaInset: 34,
+                chromeHidden: false,
+                topContentInset: topInset
+            ))
+        }
+        // The surface bounds grew upward by the band; the container (grid
+        // area) is identical to the un-expanded layout, and the viewport
+        // starts below the band. The dock chrome still stacks directly
+        // under the viewport.
+        let banded = snap(
+            bounds: CGSize(width: 402, height: 874 + topInset),
+            topInset: topInset
+        )
+        let flat = snap(bounds: CGSize(width: 402, height: 874), topInset: 0)
+        #expect(banded.containerSize == flat.containerSize)
+        #expect(banded.layoutViewportRect.minY == topInset)
+        #expect(banded.layoutViewportRect.height == flat.layoutViewportRect.height)
+        #expect(banded.toolbarFrame.minY == banded.layoutViewportRect.maxY)
+
+        // The render stays bottom-pinned inside the shifted viewport.
+        let renderSize = CGSize(width: 402, height: banded.layoutViewportRect.height)
+        #expect(banded.renderRect(forRenderSize: renderSize).maxY == banded.layoutViewportRect.maxY)
+        #expect(banded.renderRect(forRenderSize: renderSize).minY == topInset)
     }
 
     /// End-to-end host contract on a real surface: the dock seat rides a
