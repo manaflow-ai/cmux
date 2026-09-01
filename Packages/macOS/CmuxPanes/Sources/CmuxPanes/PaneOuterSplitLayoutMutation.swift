@@ -432,54 +432,19 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         in pane: PaneID,
         controller: BonsplitController
     ) {
-        let initialTabs = controller.tabs(inPane: pane)
-        var currentTabIds = initialTabs.map(\.id)
-        var indexByTabId = Dictionary(
-            uniqueKeysWithValues: currentTabIds.enumerated().map { ($0.element, $0.offset) }
-        )
-        let pinnedByTabId = Dictionary(
-            uniqueKeysWithValues: initialTabs.map { ($0.id, $0.isPinned) }
-        )
-        let totalPinnedCount = initialTabs.reduce(into: 0) { count, tab in
-            if tab.isPinned { count += 1 }
+        let currentTabIds = controller.tabs(inPane: pane).map(\.id)
+        guard currentTabIds.count == desiredTabIds.count,
+              Set(currentTabIds) == Set(desiredTabIds),
+              currentTabIds != desiredTabIds else {
+            return
         }
 
+        // Work from the leading edge: after each iteration, the prefix before
+        // the current index is final, so the desired tab can only be at or
+        // after that index. Bonsplit's pinned-tab clamping preserves the same
+        // valid pinned/unpinned partition captured above.
         for (desiredIndex, tabId) in desiredTabIds.enumerated() {
-            guard let currentIndex = indexByTabId[tabId] else {
-                continue
-            }
-            guard currentIndex != desiredIndex else { continue }
-            let destinationIndex = currentIndex < desiredIndex
-                ? desiredIndex + 1
-                : desiredIndex
-            guard controller.reorderTab(tabId, toIndex: destinationIndex) else {
-                continue
-            }
-
-            // Mirror Bonsplit's post-removal pinned-tab clamping locally. This
-            // keeps subsequent lookups indexed without rescanning the pane's
-            // complete tab collection for every desired item.
-            let movedTab = currentTabIds.remove(at: currentIndex)
-            let pinnedCountAfterRemoval = totalPinnedCount -
-                (pinnedByTabId[movedTab] == true ? 1 : 0)
-            let requestedIndex = destinationIndex > currentIndex
-                ? destinationIndex - 1
-                : destinationIndex
-            let adjustedIndex = pinnedByTabId[movedTab] == true
-                ? min(requestedIndex, pinnedCountAfterRemoval)
-                : max(requestedIndex, pinnedCountAfterRemoval)
-            let insertionIndex = min(
-                max(0, adjustedIndex),
-                currentTabIds.count
-            )
-            currentTabIds.insert(movedTab, at: insertionIndex)
-            let firstAffectedIndex = min(currentIndex, insertionIndex)
-            let lastAffectedIndex = max(currentIndex, insertionIndex)
-            if !currentTabIds.isEmpty {
-                for index in firstAffectedIndex...lastAffectedIndex {
-                    indexByTabId[currentTabIds[index]] = index
-                }
-            }
+            _ = controller.reorderTab(tabId, toIndex: desiredIndex)
         }
     }
 }
