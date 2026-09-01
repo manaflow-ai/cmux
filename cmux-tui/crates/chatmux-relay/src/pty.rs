@@ -2331,11 +2331,15 @@ impl Inner {
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
             || server_roots.is_some_and(|r| !r.is_empty());
         if roots_scoped {
-            let control = self
-                .deps
-                .connect_control(&ensured.socket_path, cancellation.token())
-                .await
-                .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
+            let control = tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => {
+                    return Err("terminal open cancelled".to_owned());
+                }
+                result = self.deps.connect_control(&ensured.socket_path, cancellation.token()) => {
+                    result.map_err(|_| "cannot inspect existing daemon cwd".to_owned())?
+                }
+            };
             let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
             if cancellation.is_cancelled() {
                 return Err("terminal open cancelled".to_owned());
@@ -3550,8 +3554,13 @@ impl Inner {
         home: &str,
         cancellation: CancellationToken,
     ) -> Vec<(String, String)> {
-        let Ok(control) = self.deps.connect_control(socket_path, cancellation.clone()).await else {
-            return Vec::new();
+        let control = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return Vec::new(),
+            result = self.deps.connect_control(socket_path, cancellation.clone()) => {
+                let Ok(control) = result else { return Vec::new() };
+                control
+            }
         };
         let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
         let identify = tokio::select! {
