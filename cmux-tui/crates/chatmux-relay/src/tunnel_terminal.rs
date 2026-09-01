@@ -289,6 +289,7 @@ struct Connection {
     /// token so mandatory error/exit frames can flush before socket close.
     done: CancellationToken,
     writer_done: CancellationToken,
+    writer_gate: std::sync::Mutex<()>,
 }
 
 impl Connection {
@@ -297,6 +298,7 @@ impl Connection {
     }
 
     fn enqueue(&self, message: WriterMessage) {
+        let _gate = self.writer_gate.lock().expect("writer gate");
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
@@ -311,9 +313,22 @@ impl Connection {
     /// session lives on for a later re-attach, the same rule a dropped
     /// relay-socket viewer follows).
     fn finish(&self) {
+        let _gate = self.writer_gate.lock().expect("writer gate");
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
+        let _ = self.writer_tx.send(WriterMessage::End);
+        self.done.cancel();
+    }
+
+    fn finish_with_control(&self, frame: &Value) {
+        let _gate = self.writer_gate.lock().expect("writer gate");
+        if self.finished.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let encoded = encode_control_frame(frame);
+        self.pending_out.fetch_add(encoded.len() as u64, Ordering::SeqCst);
+        let _ = self.writer_tx.send(WriterMessage::Frame(encoded));
         let _ = self.writer_tx.send(WriterMessage::End);
         self.done.cancel();
     }
@@ -322,8 +337,7 @@ impl Connection {
         if self.finished.load(Ordering::SeqCst) {
             return;
         }
-        self.send_control(&json!({ "t": "error", "code": code, "message": message }));
-        self.finish();
+        self.finish_with_control(&json!({ "t": "error", "code": code, "message": message }));
     }
 
     /// The manager's reply sink (FrameContext::send). Synchronous: enqueue
@@ -371,8 +385,7 @@ impl Connection {
             }
             Some("pty_exit") => {
                 let code = frame.get("code").and_then(Value::as_i64).unwrap_or(0);
-                self.send_control(&json!({ "t": "exit", "code": code }));
-                self.finish();
+                self.finish_with_control(&json!({ "t": "exit", "code": code }));
             }
             Some("pty_error") => {
                 let code =
@@ -489,6 +502,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         finished: AtomicBool::new(false),
         done: done.clone(),
         writer_done: CancellationToken::new(),
+        writer_gate: std::sync::Mutex::new(()),
     });
     let context = connection.frame_context();
 

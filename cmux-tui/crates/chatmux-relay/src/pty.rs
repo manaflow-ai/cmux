@@ -336,6 +336,7 @@ struct Attachment {
     actor_id: String,
     /// Transport that opened this attachment (see FrameContext::transport_id).
     transport_id: Option<String>,
+    generation: u64,
 }
 
 struct Inner {
@@ -351,6 +352,7 @@ struct Inner {
     opening_state: Mutex<OpeningState>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
+    next_generation: AtomicU64,
 }
 
 #[derive(Default)]
@@ -408,6 +410,7 @@ impl PtyManager {
                 opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
+                next_generation: AtomicU64::new(1),
             }),
         }
     }
@@ -432,6 +435,7 @@ impl PtyManager {
                 opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
+                next_generation: AtomicU64::new(1),
             }),
         }
     }
@@ -532,13 +536,13 @@ impl PtyManager {
     fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
         // Openings first: close() records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
-        let mut ids: Vec<String> = {
+        let mut ids: Vec<(String, Option<String>)> = {
             let opening = self.inner.opening_state.lock().expect("opening state lock");
             opening
                 .ids
                 .iter()
                 .filter(|(_, owner)| owns(owner.as_deref()))
-                .map(|(id, _)| id.clone())
+                .map(|(id, owner)| (id.clone(), owner.clone()))
                 .collect()
         };
         {
@@ -547,11 +551,11 @@ impl PtyManager {
                 attachments
                     .iter()
                     .filter(|(_, attachment)| owns(attachment.transport_id.as_deref()))
-                    .map(|(id, _)| id.clone()),
+                    .map(|(id, attachment)| (id.clone(), attachment.transport_id.clone())),
             );
         }
-        for id in ids {
-            self.inner.close(&id);
+        for (id, owner) in ids {
+            self.inner.close_if_transport(&id, owner.as_deref());
         }
     }
 }
@@ -802,6 +806,7 @@ impl Inner {
                 control: opened.control,
                 actor_id: actor.to_owned(),
                 transport_id: context.transport_id.clone(),
+                generation: opened.generation,
             },
         );
         if let Some(previous) = previous {
@@ -831,27 +836,52 @@ impl Inner {
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
-    fn sinks(self: &Arc<Self>, pty_id: &str, context: &FrameContext) -> (DataSink, ExitSink) {
+    fn sinks(
+        self: &Arc<Self>,
+        pty_id: &str,
+        context: &FrameContext,
+        generation: u64,
+    ) -> (DataSink, ExitSink) {
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context))
-                as Arc<dyn Fn(Bytes) + Send + Sync>
+            Arc::new(move |chunk: Bytes| {
+                inner.emit_output_for_generation(&pty_id, &chunk, &context, generation)
+            }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context))
-                as Arc<dyn Fn(i64) + Send + Sync>
+            Arc::new(move |code: i64| {
+                inner.emit_exit_for_generation(&pty_id, code, &context, generation)
+            }) as Arc<dyn Fn(i64) + Send + Sync>
         };
         (on_data, on_exit)
     }
 
-    fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
+    fn emit_output_for_generation(
+        &self,
+        pty_id: &str,
+        chunk: &Bytes,
+        context: &FrameContext,
+        generation: u64,
+    ) {
+        if !self
+            .attachments
+            .lock()
+            .expect("attach lock")
+            .get(pty_id)
+            .is_some_and(|a| a.generation == generation)
+        {
+            return;
+        }
         let auth = Self::auth_snapshot(context);
-        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
+        if self
+            .authorize_snapshot_for_generation(pty_id, &auth, context, "output", generation)
+            .is_none()
+        {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -864,7 +894,7 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            self.close(pty_id);
+            self.close_if_generation(pty_id, generation);
             send_pty_error(
                 context,
                 pty_id,
@@ -884,14 +914,25 @@ impl Inner {
         }));
     }
 
-    fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
+    fn emit_exit_for_generation(
+        &self,
+        pty_id: &str,
+        code: i64,
+        context: &FrameContext,
+        generation: u64,
+    ) {
         let auth = Self::auth_snapshot(context);
-        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
+        if self
+            .authorize_snapshot_for_generation(pty_id, &auth, context, "exit", generation)
+            .is_none()
+        {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
         match attachments.get(pty_id) {
-            Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
+            Some(attachment)
+                if attachment.generation == generation
+                    && !attachment.closing.load(Ordering::SeqCst) => {}
             _ => return,
         }
         attachments.remove(pty_id);
@@ -921,6 +962,25 @@ impl Inner {
         }
     }
 
+    fn close_if_transport(&self, pty_id: &str, transport_id: Option<&str>) {
+        let mut opening = self.opening_state.lock().expect("opening state lock");
+        if let Some(owner) = opening.ids.get(pty_id) {
+            if owner.as_deref() == transport_id {
+                opening.cancelled.insert(pty_id.to_owned());
+            }
+            return;
+        }
+        drop(opening);
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let Some(attachment) = attachments.get(pty_id) else { return };
+        if attachment.transport_id.as_deref() != transport_id {
+            return;
+        }
+        let attachment = attachments.remove(pty_id).expect("attachment still present");
+        attachment.closing.store(true, Ordering::SeqCst);
+        attachment.control.kill();
+    }
+
     /// Frame-level transport fence. Unknown ids retain the protocol's silent
     /// no-op behavior; once an id is reserved or attached, a different
     /// transport may not act on it. A `None` caller owns everything (legacy).
@@ -948,7 +1008,24 @@ impl Inner {
         context: &FrameContext,
         action: &str,
     ) -> Option<Attachment> {
+        self.authorize_snapshot_for_generation(pty_id, auth, context, action, 0)
+    }
+
+    fn authorize_snapshot_for_generation(
+        &self,
+        pty_id: &str,
+        auth: &AuthSnapshot,
+        context: &FrameContext,
+        action: &str,
+        generation: u64,
+    ) -> Option<Attachment> {
         let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
+        if generation != 0 && attachment.generation != generation {
+            return None;
+        }
+        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
+            return None;
+        }
         let owner = auth.owner_user_id.as_deref();
         let allowed = !auth.trust.is_empty()
             && (auth.trust != "observe"
@@ -956,7 +1033,11 @@ impl Inner {
         if allowed {
             Some(attachment)
         } else {
-            self.close(pty_id);
+            if generation == 0 {
+                self.close(pty_id);
+            } else {
+                self.close_if_generation(pty_id, generation);
+            }
             send_pty_error(
                 context,
                 pty_id,
@@ -968,8 +1049,29 @@ impl Inner {
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
-        let _ = self.authorize(pty_id, context, "close");
-        self.close(pty_id);
+        let auth = Self::auth_snapshot(context);
+        if self.authorize_snapshot_for_generation(pty_id, &auth, context, "close", 0).is_none() {
+            return;
+        }
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let Some(attachment) = attachments.get(pty_id) else { return };
+        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
+            return;
+        }
+        let attachment = attachments.remove(pty_id).expect("attachment still present");
+        attachment.closing.store(true, Ordering::SeqCst);
+        attachment.control.kill();
+    }
+
+    fn close_if_generation(&self, pty_id: &str, generation: u64) {
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let Some(attachment) = attachments.get(pty_id) else { return };
+        if attachment.generation != generation {
+            return;
+        }
+        let attachment = attachments.remove(pty_id).expect("attachment still present");
+        attachment.closing.store(true, Ordering::SeqCst);
+        attachment.control.kill();
     }
 }
 
@@ -979,6 +1081,7 @@ struct Opened {
     surface: Option<String>,
     control: Arc<dyn PtyControl>,
     closing: Arc<AtomicBool>,
+    generation: u64,
     start: Box<dyn FnOnce() + Send>,
 }
 
@@ -1157,12 +1260,14 @@ impl Inner {
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        let (on_data, on_exit) = self.sinks(pty_id, context, generation);
         Ok(Opened {
             created: ensured.created,
             surface: None,
             control,
             closing: Arc::new(AtomicBool::new(false)),
+            generation,
             start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
         })
     }
@@ -1302,7 +1407,8 @@ impl Inner {
         let viewer_id = next_viewer_id();
         let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        let (on_data, on_exit) = self.sinks(pty_id, context, generation);
 
         // The per-attachment control proxies onto the session pty but its
         // kill() only unhooks this viewer (release), never the session.
@@ -1341,7 +1447,7 @@ impl Inner {
             }
         });
 
-        Ok(Opened { created, surface: None, control: proxy, closing, start })
+        Ok(Opened { created, surface: None, control: proxy, closing, generation, start })
     }
 }
 
@@ -1882,14 +1988,15 @@ impl Inner {
 
         let proxy =
             Arc::new(ControlTerminalControl { control: control_guard.disarm(), surface_id });
-        let (on_data, _) = self.sinks(pty_id, context);
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        let (on_data, _) = self.sinks(pty_id, context, generation);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
         let stream_for_exit = Arc::clone(&stream);
         let on_exit: ExitSink = Arc::new(move |code| {
             if stream_for_exit.overflowed() {
-                relay.close(&pty_id_for_exit);
+                relay.close_if_generation(&pty_id_for_exit, generation);
                 send_pty_error(
                     &context_for_exit,
                     &pty_id_for_exit,
@@ -1897,7 +2004,12 @@ impl Inner {
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
             } else {
-                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit);
+                relay.emit_exit_for_generation(
+                    &pty_id_for_exit,
+                    code,
+                    &context_for_exit,
+                    generation,
+                );
             }
         });
         let start_stream = Arc::clone(&stream);
@@ -1906,6 +2018,7 @@ impl Inner {
             surface: Some(surface_ref.to_owned()),
             control: proxy,
             closing: Arc::new(AtomicBool::new(false)),
+            generation,
             start: Box::new(move || start_stream.go_live(on_data, on_exit)),
         }))
     }
