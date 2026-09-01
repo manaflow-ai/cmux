@@ -31,6 +31,7 @@ const dockerfile = read("Dockerfile");
 const bashrc = read("cmux-bashrc");
 const agentConfig = read("agent-config.sh");
 const devboxBoot = read("cmux-devbox-boot");
+const freestyleBuilder = readScript("build-devbox-freestyle.ts");
 
 // Comment/blank stripping: the devbox copies of the Blaxel-shared files may
 // differ only in their header comments (each names its parity source).
@@ -154,6 +155,20 @@ describe("devbox image template", () => {
     for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
+  });
+
+  test("all devbox providers bake and seed the same ble.sh TERM caches", () => {
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+      expect(freestyleBuilder).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
+    expect(dockerfile).toContain("chmod 755 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000");
+    expect(freestyleBuilder).toContain(
+      "chmod 755 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000",
+    );
+    expect(freestyleBuilder).toContain('"blesh-cache"');
   });
 
   test("stays within the E2B Dockerfile-parser restrictions", () => {

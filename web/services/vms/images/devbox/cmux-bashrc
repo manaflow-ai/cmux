@@ -31,12 +31,17 @@ if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
     [ -f "$__cmux_seed" ] || continue
     __cmux_dst="$__cmux_cache_base/${__cmux_seed#/etc/cmux/blesh-cache-seed/}"
     if [ ! -f "$__cmux_dst" ] || [ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]; then
-      mkdir -p "${__cmux_dst%/*}" 2>/dev/null \
-        && cp "$__cmux_seed" "$__cmux_dst" 2>/dev/null \
-        || true
+      __cmux_tmp="${__cmux_dst}.tmp.$$"
+      if mkdir -p "${__cmux_dst%/*}" 2>/dev/null \
+        && cp "$__cmux_seed" "$__cmux_tmp" 2>/dev/null \
+        && mv -f "$__cmux_tmp" "$__cmux_dst" 2>/dev/null; then
+        :
+      else
+        rm -f "$__cmux_tmp" 2>/dev/null || true
+      fi
     fi
   done
-  unset __cmux_cache_base __cmux_seed __cmux_dst
+  unset __cmux_cache_base __cmux_seed __cmux_dst __cmux_tmp
 fi
 
 if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
