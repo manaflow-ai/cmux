@@ -190,7 +190,7 @@ RUN bash -n /etc/cmux/bashrc \
 # chown: E2B/Daytona/Freestyle each name that user differently).
 RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && for term in xterm-256color screen-256color tmux-256color linux; do \
-       printf 'exit\n' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
          script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
      done \
   && rm -rf /tmp/blesh-seed-home \
