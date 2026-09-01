@@ -900,6 +900,8 @@
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
 		C0DE43000000000000000003 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */; };
 		C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */; };
+		C74090020000000000000003 /* CmuxSVGSecurityInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74090010000000000000003 /* CmuxSVGSecurityInspector.swift */; };
+		C74090030000000000000003 /* CmuxSVGSecurityInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74090010000000000000003 /* CmuxSVGSecurityInspector.swift */; };
 		C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED000000000000000C3 /* CmuxSwiftRender */; };
 		C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED000000000000000C3 /* CmuxSwiftRender */; };
 		C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
@@ -3898,6 +3900,7 @@
 		C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSSHURLRequestTests.swift; sourceTree = "<group>"; };
 		C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSurfaceTabBarBuiltInAction+Codable.swift"; sourceTree = "<group>"; };
 		C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSurfaceTabBarBuiltInAction.swift; sourceTree = "<group>"; };
+		C74090010000000000000003 /* CmuxSVGSecurityInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSVGSecurityInspector.swift; sourceTree = "<group>"; };
 		0A1107110000000000000017 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift"; sourceTree = "<group>"; };
 		906901000000000000000003 /* CmuxTaskManagerMemoryAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryAttribution.swift; sourceTree = "<group>"; };
 		906901000000000000000005 /* CmuxTaskManagerMemoryGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryGroup.swift; sourceTree = "<group>"; };
@@ -7997,6 +8000,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A5001651 /* CmuxConfig.swift */,
+				C74090010000000000000003 /* CmuxSVGSecurityInspector.swift */,
 				C74090010000000000000001 /* CmuxValidatedImageAsset.swift */,
 				468110000000000000000002 /* CmuxNotificationHookCache.swift */,
 				468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */,
@@ -10065,6 +10069,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */,
 				C0DE43000000000000000003 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift in Sources */,
 				C10D00030000000000000003 /* CmuxSurfaceTabBarBuiltInAction.swift in Sources */,
+				C74090020000000000000003 /* CmuxSVGSecurityInspector.swift in Sources */,
 				0A1107110000000000000016 /* CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift in Sources */,
 				906901000000000000000004 /* CmuxTaskManagerMemoryAttribution.swift in Sources */,
 				906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */,
@@ -11694,6 +11699,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F4350A120000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */,
 				D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */,
 				C74090030000000000000002 /* AppIconImageResolver.swift in Sources */,
+				C74090030000000000000003 /* CmuxSVGSecurityInspector.swift in Sources */,
 				C74090030000000000000001 /* CmuxValidatedImageAsset.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
