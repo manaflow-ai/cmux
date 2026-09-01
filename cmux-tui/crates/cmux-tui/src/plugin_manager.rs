@@ -641,6 +641,7 @@ fn read_manifest(dir: &Path, kind: PluginKind) -> anyhow::Result<PluginManifest>
     parse_manifest_for_kind(&text, kind)
 }
 
+#[cfg(test)]
 fn parse_manifest(text: &str) -> anyhow::Result<PluginManifest> {
     parse_manifest_for_kind(text, PluginKind::Sidebar)
 }
@@ -1261,10 +1262,12 @@ fn validate_plugin_id_for(id: &str, kind: PluginKind) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn random_plugin_id() -> anyhow::Result<String> {
     random_plugin_id_for(PluginKind::Sidebar)
 }
 
+#[cfg(test)]
 fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
     validate_plugin_id_for(id, PluginKind::Sidebar)
 }

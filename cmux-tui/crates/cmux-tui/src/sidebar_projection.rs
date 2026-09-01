@@ -151,10 +151,11 @@ pub(crate) fn rows_cached(
         agents.iter().map(|agent| (agent.surface, agent)).collect();
     // Tabs and other resource views keep tree order. Do not walk the full
     // topology to prepare an agent index when this view has no agent level.
-    let agent_order = spec
-        .includes(SidebarResourceKind::Agents)
-        .then(|| order_cache.ordered_surfaces(agents))
-        .unwrap_or(&[]);
+    let agent_order = if spec.includes(SidebarResourceKind::Agents) {
+        order_cache.ordered_surfaces(agents)
+    } else {
+        &[]
+    };
     append_level(
         &mut rows,
         &spec.levels,
