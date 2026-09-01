@@ -518,7 +518,6 @@ struct SidebarWorkspaceTableTests {
         let offsetAfter = table.rect(ofRow: nextAnchorIndex).minY - table.visibleRect.minY
         #expect(abs(offsetAfter - offsetBefore) < 0.5)
     }
-
     @Test
     @MainActor
     func unreadRefreshKeepsTableHeightInLockstepWithTheReconfiguredCell() async throws {
@@ -840,6 +839,7 @@ struct SidebarWorkspaceTableTests {
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
                 as? SidebarWorkspaceRowTableCellView
         )
+        #expect(cell.currentModelForMeasurement?.latestNotificationText == pumpModel.latestNotificationText)
         let initialPumpHeight = controller.tableView(container.tableView, heightOfRow: 0)
         let baseHeight = ceil(
             cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
