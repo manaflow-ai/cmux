@@ -177,10 +177,10 @@ enum TuiManualIOPumpPolicy {
                     localized: "tui.overlay.reconnecting.title",
                     defaultValue: "Reconnecting to the terminal session"
                 ),
-                detail: String(
+                detail: String(format: String(
                     localized: "tui.overlay.reconnecting.detail",
-                    defaultValue: "The session daemon is unreachable (attempt \(attempt)). The terminal shows its last state; input is paused."
-                ),
+                    defaultValue: "The session daemon is unreachable (attempt %lld). The terminal shows its last state; input is paused."
+                ), Int64(attempt)),
                 showsProgress: true,
                 showsReconnectButton: true
             )
