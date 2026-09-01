@@ -20,14 +20,11 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956"
 # The privileged workflow is an explicit reviewed policy, not an extensible
-# script. A digest of its parsed document prevents a PR from adding a command,
-# secret reference, action input, or permission while retaining the fragments
-# checked below. Policy changes require a separate, reviewed update to this
-# base-controlled guard, followed by the workflow change.
-EXPECTED_WORKFLOW_DIGEST = "d4db98df5a1b1e6f3b006a82639761a0513eeeaf153a9eb2b98d42d1af782145"
+# script. Its parsed document is compared with the trusted base revision, so a
+# policy change requires trusted review without a fragile follow-up hash bump.
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "cb08e6837d8065897016f12cf30c85e0153fc5c3c2d9ca1e6b409f4237541bc4"
-EXPECTED_GUARD_SCRIPT_DIGEST = "fba44dda662ef1ea91b0e840e8988d12a3856813b9bdd6ced72dc0d4dad81b2e"
+EXPECTED_GUARD_SCRIPT_DIGEST = "c83d3eb0092b562896157e542f0b638d5ab540c55d9bb88589bc5c72ef2a6c4c"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -124,6 +121,20 @@ def canonical(value)
   else
     value
   end
+end
+
+def parse_workflow(raw)
+  document = YAML.safe_load(raw, aliases: false)
+  fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
+  document
+rescue Psych::Exception => error
+  fail!("CLA workflow YAML is invalid: #{error.message.lines.first.to_s.strip}")
+end
+
+def workflow_digest(raw)
+  # Hash the parsed document so formatting-only edits do not trigger a
+  # privileged policy review.
+  Digest::SHA256.hexdigest(JSON.generate(canonical(parse_workflow(raw))))
 end
 
 def guard_script_digest(raw)
@@ -241,12 +252,12 @@ def run_trusted_cla_regression_matrix!
 
   add.call("author-recheck", {}, :admitted)
   add.call("exact-sign", { comment_body: CLA_SIGN_PHRASE }, :admitted)
-  add.call("non-author-sign", {
+  add.call("other-contributor-sign", {
     comment_body: CLA_SIGN_PHRASE,
     comment_author_id: "301",
     comment_author_login: "reviewer",
     comment_author_association: "MEMBER"
-  }, :ordinary)
+  }, :admitted)
   add.call("legacy-sign", { comment_body: "I have read the CLA Document and I hereby sign the CLA" }, :ordinary)
   add.call("uppercase-recheck", { comment_body: "RECHECK" }, :ordinary)
   add.call("padded-sign", { comment_body: " #{CLA_SIGN_PHRASE} " }, :ordinary)
@@ -286,11 +297,10 @@ def run_trusted_cla_regression_matrix!
   puts "PASS: trusted CLA regression matrix (#{cases.length} cases)"
 end
 
-def validate_workflow(raw)
-  document = YAML.safe_load(raw, aliases: false)
-  fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
-  digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
-  require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA")) unless digest == EXPECTED_WORKFLOW_DIGEST
+def validate_workflow(raw, trusted_base_digest)
+  document = parse_workflow(raw)
+  candidate_digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
+  require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA")) unless candidate_digest == trusted_base_digest
 
   triggers = document["on"] || document[true]
   fail!("CLA workflow has no mapping of triggers") unless triggers.is_a?(Hash)
@@ -321,9 +331,9 @@ def validate_workflow(raw)
   admission_step = steps(gate, "CLACommentGate").find { |step| step.is_a?(Hash) && step["id"] == "admission" }
   admission_run = admission_step && admission_step["run"]
   fail!("CLACommentGate admission implementation is missing") unless admission_run.is_a?(String)
-  fail!("CLA signing must require the pull-request opener") unless admission_run.match?(
-    /if \[\[ "\$\{COMMENT_AUTHOR_ID\}" != "\$\{PR_AUTHOR_ID\}" \]\]; then\s+printf 'admitted=false\\n'/
-  )
+  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?:\n\s*fi)/m]
+  fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
+  fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
   assert_permission(assistant, "CLAAssistant", "contents", "write")
   assert_permission(assistant, "CLAAssistant", "issues", "write")
   assert_permission(assistant, "CLAAssistant", "pull-requests", "write")
@@ -380,11 +390,14 @@ def validate_workflow(raw)
     "if: success()",
     "issues: write"
   ].each { |fragment| assert_text(raw, fragment) }
+  [gate["if"], assistant["if"]].each do |expression|
+    fail!("CLA signing trigger is missing from a signer job") unless expression.is_a?(String) && expression.include?(CLA_SIGN_PHRASE)
+  end
   sign_author_guard = Regexp.new(
-    "github\\.event\\.comment\\.body == '#{Regexp.escape(CLA_SIGN_PHRASE)}'\\s*&&\\s*" \
-    "github\\.event\\.comment\\.user\\.id == github\\.event\\.issue\\.user\\.id"
+    "github\\.event\\.comment\\.body\\s*==\\s*'#{Regexp.escape(CLA_SIGN_PHRASE)}'\\s*&&\\s*" \
+    "github\\.event\\.comment\\.user\\.id\\s*==\\s*github\\.event\\.issue\\.user\\.id"
   )
-  fail!("CLA signing trigger does not require the pull-request opener") unless raw.match?(sign_author_guard)
+  fail!("CLA signing trigger must admit authenticated contributors") if [gate["if"], assistant["if"], rerun["if"]].any? { |expression| expression.to_s.match?(sign_author_guard) }
   fail!("CLA workflow may not checkout a pull-request ref") if raw.match?(/ref:\s*\$\{\{\s*github\.event\.pull_request/)
 
   uses = []
@@ -452,7 +465,10 @@ def validate_guard_script(raw)
     require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
   end
   [
-    "EXPECTED_WORKFLOW_DIGEST",
+    "def parse_workflow",
+    "def workflow_digest",
+    "base_workflow_digest",
+    "validate_workflow(head_workflow, base_workflow_digest)",
     "def validate_workflow",
     "base_workflow != head_workflow",
     "guard_changed && policy_changed",
@@ -520,7 +536,8 @@ begin
   end
   if base_workflow != head_workflow
     fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
-    validate_workflow(head_workflow)
+    base_workflow_digest = workflow_digest(base_workflow)
+    validate_workflow(head_workflow, base_workflow_digest)
   end
   validate_script(head_script) unless head_script.nil?
 
