@@ -6678,13 +6678,27 @@ extension SessionPersistenceTests {
             let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let startupInput = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+            let recoveryTitle = String(
+                localized: "sessionRestore.recoveryNeeded.title",
+                defaultValue: "Recovery needed"
+            )
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
-            XCTAssertEqual(
-                startupInput,
-                " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex session-duplicate-turn\n"
+            XCTAssertFalse(
+                startupInput.contains(" restore codex session-duplicate-turn"),
+                "a missing saved cwd must not queue the restore executable"
             )
-            XCTAssertFalse(startupInput.contains(missingCwd.path))
+            XCTAssertTrue(startupInput.contains(recoveryTitle), startupInput)
+            XCTAssertTrue(startupInput.contains(missingCwd.path), startupInput)
+            XCTAssertTrue(startupInput.contains("--cwd \"$PWD\" codex session-duplicate-turn"), startupInput)
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .manualResumeAvailable
+            )
+            XCTAssertEqual(
+                restored.resolvedPanelTitle(panelId: restoredPanelId, fallback: "GPU work"),
+                "⚠︎ \(recoveryTitle) · GPU work"
+            )
         }
     }
 
