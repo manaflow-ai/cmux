@@ -1130,6 +1130,10 @@ struct AgentRosterHost {
     needs_projection_rebuild: bool,
 }
 
+fn retained_journal_tail_has_gap(cursor: u64, first_sequence: Option<u64>) -> bool {
+    first_sequence.is_some_and(|sequence| sequence != cursor.saturating_add(1))
+}
+
 /// Restore the roster from its persisted snapshot and fold the journal tail
 /// committed after the cursor. A reducer-version mismatch discards the
 /// snapshot and re-folds from the journal head. Deltas produced here are
@@ -1222,6 +1226,19 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 return Ok(AgentRosterHost { ordering_token, ..AgentRosterHost::default() });
             }
             break;
+        }
+        if retained_journal_tail_has_gap(host.cursor, page.records.first().map(|r| r.sequence)) {
+            eprintln!(
+                "cmux-tui: agent roster cursor {} is not contiguous with retained journal tail {}; resetting",
+                host.cursor, page.records[0].sequence
+            );
+            let empty_snapshot = AgentRoster::default().snapshot().to_string();
+            let ordering_token = registry.clear_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                &empty_snapshot,
+            )?;
+            return Ok(AgentRosterHost { ordering_token, ..AgentRosterHost::default() });
         }
         for record in &page.records {
             if !host.roster.apply(&RosterEvent::from_record(record)).is_empty() {
@@ -24354,6 +24371,15 @@ mod tests {
 
         drop(registry);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retained_journal_tail_gap_is_detected_even_when_tail_is_non_empty() {
+        assert!(!retained_journal_tail_has_gap(0, Some(1)));
+        assert!(!retained_journal_tail_has_gap(41, Some(42)));
+        assert!(retained_journal_tail_has_gap(0, Some(2)));
+        assert!(retained_journal_tail_has_gap(41, Some(43)));
+        assert!(!retained_journal_tail_has_gap(42, None));
     }
 
     #[test]
