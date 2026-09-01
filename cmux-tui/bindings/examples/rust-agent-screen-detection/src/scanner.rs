@@ -40,12 +40,81 @@ const PROCESS_ACQUISITION_FAST_WINDOW: Duration = Duration::from_millis(1_500);
 const PROCESS_ACQUISITION_WINDOW: Duration = Duration::from_secs(8);
 const PROCESS_ACQUISITION_FAST_RECHECK: Duration = Duration::from_millis(500);
 const PROCESS_ACQUISITION_SLOW_RECHECK: Duration = Duration::from_secs(2);
+const RETRY_BACKOFF_MIN: Duration = Duration::from_millis(250);
+const RETRY_BACKOFF_MAX: Duration = Duration::from_secs(5);
 const PLUGIN_VERSION: u32 = 1;
+
+/// An exact journal request retained after an uncertain transport outcome.
+/// Keeping the envelope and key together is required by the journal's
+/// idempotency contract: rebuilding it later would change its fingerprint.
+#[derive(Clone, Debug)]
+struct PendingAppend {
+    emission: crate::detect::ScreenDetectEmission,
+    ingress: JournalIngress,
+    idempotency_key: String,
+    attempts: u32,
+    retry_not_before: Instant,
+}
+
+#[derive(Debug)]
+struct ScannerState {
+    tracker: ScreenDetectTracker,
+    process_cache: ProcessGroupCache,
+    process_info_cache: ProcessInfoCache,
+    pending_appends: HashMap<String, PendingAppend>,
+    emission_nonce: String,
+    emission_sequence: u64,
+}
+
+impl ScannerState {
+    fn new() -> Self {
+        Self {
+            tracker: ScreenDetectTracker::default(),
+            process_cache: ProcessGroupCache::default(),
+            process_info_cache: ProcessInfoCache::default(),
+            pending_appends: HashMap::new(),
+            emission_nonce: format!("{}-{}", std::process::id(), now_nanos()),
+            emission_sequence: 0,
+        }
+    }
+
+    fn retain_terminals(&mut self, live: &HashSet<String>) {
+        self.tracker.retain_terminals(|terminal_id| live.contains(terminal_id));
+        self.process_cache.retain_terminals(|terminal_id| live.contains(terminal_id));
+        self.process_info_cache.retain_terminals(|terminal_id| live.contains(terminal_id));
+        self.pending_appends.retain(|terminal_id, _| live.contains(terminal_id));
+    }
+}
+
+#[derive(Debug)]
+enum AppendError {
+    Definite(String),
+    Uncertain(String),
+}
+
+impl AppendError {
+    fn message(&self) -> &str {
+        match self {
+            Self::Definite(message) | Self::Uncertain(message) => message,
+        }
+    }
+
+    fn is_uncertain(&self) -> bool {
+        matches!(self, Self::Uncertain(_))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PublishResult {
+    Committed,
+    Deferred,
+}
 
 /// Runs until the daemon closes the socket or the process is terminated.
 pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), String> {
     let plugin_generation =
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
+    let mut state = ScannerState::new();
     loop {
         let config = Config::from_socket_path(socket);
         match Client::connect(config) {
@@ -56,7 +125,8 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
                     thread::sleep(RECONNECT_INTERVAL);
                     continue;
                 }
-                match scan_connection(&session, plugin_id, plugin_generation.as_deref()) {
+                match scan_connection(&session, plugin_id, plugin_generation.as_deref(), &mut state)
+                {
                     Ok(()) => return Ok(()),
                     Err(error) => eprintln!(
                         "cmux-agent-screen-detection: {session_name} connection ended: {error}"
@@ -139,6 +209,7 @@ fn scan_connection(
     session: &Session,
     plugin_id: &str,
     plugin_generation: Option<&str>,
+    state: &mut ScannerState,
 ) -> Result<(), String> {
     let mut manifests = match ManifestSet::from_environment() {
         Ok(manifests) => manifests,
@@ -148,14 +219,6 @@ fn scan_connection(
         }
     };
     let mut manifests_checked_at = Instant::now();
-    let mut tracker = ScreenDetectTracker::default();
-    let mut process_cache = ProcessGroupCache::default();
-    let mut process_info_cache = ProcessInfoCache::default();
-    // A connection nonce prevents two emissions in one millisecond from
-    // sharing a key, while the sequence makes each attempted emission unique
-    // even when the process and terminal stay unchanged.
-    let emission_nonce = format!("{}-{}", std::process::id(), now_nanos());
-    let mut emission_sequence = 0_u64;
     loop {
         let now = Instant::now();
         if now.duration_since(manifests_checked_at) >= MANIFEST_RELOAD_INTERVAL {
@@ -175,23 +238,12 @@ fn scan_connection(
             .iter()
             .map(|snapshot| snapshot.id.as_str().to_string())
             .collect::<HashSet<_>>();
-        tracker.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
-        process_cache.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
-        process_info_cache.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
+        state.retain_terminals(&live_ids);
         for snapshot in snapshots {
             let terminal = session.terminal(snapshot.id.clone());
-            if let Err(error) = scan_terminal(
-                &terminal,
-                &snapshot,
-                plugin_id,
-                &manifests,
-                &mut tracker,
-                &mut process_cache,
-                &mut process_info_cache,
-                plugin_generation,
-                &emission_nonce,
-                &mut emission_sequence,
-            ) {
+            if let Err(error) =
+                scan_terminal(&terminal, &snapshot, plugin_id, &manifests, plugin_generation, state)
+            {
                 // A terminal may disappear between the catalog read and the
                 // screen read. Keep scanning the remaining terminals.
                 eprintln!("cmux-agent-screen-detection: terminal scan skipped: {error}");
@@ -419,45 +471,50 @@ fn scan_terminal(
     snapshot: &cmux::TerminalSnapshot,
     plugin_id: &str,
     manifests: &ManifestSet,
-    tracker: &mut ScreenDetectTracker,
-    process_cache: &mut ProcessGroupCache,
-    process_info_cache: &mut ProcessInfoCache,
     plugin_generation: Option<&str>,
-    emission_nonce: &str,
-    emission_sequence: &mut u64,
+    state: &mut ScannerState,
 ) -> Result<(), String> {
     let terminal_id = snapshot.id.as_str().to_string();
+    // A transport failure after dispatch leaves the mutation outcome
+    // uncertain. Replay the retained envelope before taking a new process or
+    // screen sample, otherwise a newer edge could overtake the old one.
+    if retry_pending_append(terminal, &terminal_id, &mut state.tracker, &mut state.pending_appends)?
+    {
+        return Ok(());
+    }
     let now = Instant::now();
     if !snapshot.running {
         // A terminal can remain in the catalog briefly after its PTY exits.
         // Close the plugin-owned emission now instead of waiting for catalog
         // pruning, so the roster does not show a dead agent during that gap.
-        if let Some(emission) = tracker.record_detection_at(&terminal_id, None, now, true, true) {
+        if let Some(emission) =
+            state.tracker.record_detection_at(&terminal_id, None, now, true, true)
+        {
             // The process query is expected to fail after a PTY exits. Keep
             // the terminal identity as the source session for this final
             // event instead of issuing a second, racy process read.
-            append_emission(
-                terminal,
-                plugin_id,
-                plugin_generation,
-                &emission,
-                None,
-                emission_nonce,
-                emission_sequence,
-            )?;
+            if publish_emission(terminal, plugin_id, plugin_generation, &emission, None, state)?
+                == PublishResult::Deferred
+            {
+                return Ok(());
+            }
         }
         return Ok(());
     }
-    let process =
-        process_info_cache.get_or_refresh(terminal, &terminal_id, snapshot.stream_revision, now)?;
-    let job = process_cache.job_for(&terminal_id, &process, snapshot.stream_revision, now);
+    let process = state.process_info_cache.get_or_refresh(
+        terminal,
+        &terminal_id,
+        snapshot.stream_revision,
+        now,
+    )?;
+    let job = state.process_cache.job_for(&terminal_id, &process, snapshot.stream_revision, now);
     // `stream_revision` is a cheap coalesced PTY counter. New daemons expose
     // it on the terminal snapshot, so unchanged screens do not cross the
     // socket or invoke the terminal parser. Older daemons fall back to a
     // local text hash below.
     let revision_due = snapshot
         .stream_revision
-        .map(|revision| tracker.observe_revision(&terminal_id, revision, now));
+        .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
     let manifest = process_discovery::identify_job(manifests, &job)
         .map(|(manifest, _)| manifest)
         .or_else(|| {
@@ -468,36 +525,38 @@ fn scan_terminal(
                 .or_else(|| process.argv.first().map(String::as_str))
                 .and_then(|name| manifests.identify(name))
         });
-    let identity_edge = tracker.note_foreground_job_at(
+    let identity_edge = state.tracker.note_foreground_job_at(
         &terminal_id,
         manifest.map(|item| item.id()),
-        process_cache.authoritative_group_id(&terminal_id),
+        state.process_cache.authoritative_group_id(&terminal_id),
         now,
     );
-    process_cache.mark_identified(&terminal_id, manifest.is_some(), now);
-    process_info_cache.mark_identified(&terminal_id, manifest.is_some(), now);
+    state.process_cache.mark_identified(&terminal_id, manifest.is_some(), now);
+    state.process_info_cache.mark_identified(&terminal_id, manifest.is_some(), now);
     if manifest.is_none() {
         // Process inspection is best effort. The tracker keeps a known agent
         // through a bounded miss-confirmation window, so do not emit Done or
         // read a stale screen until it confirms the identity disappeared.
-        if tracker.foreground_agent(&terminal_id).is_some() {
+        if state.tracker.foreground_agent(&terminal_id).is_some() {
             return Ok(());
         }
         if !identity_edge {
             return Ok(());
         }
         if let Some(emission) =
-            tracker.record_detection_at(&terminal_id, None, now, identity_edge, true)
+            state.tracker.record_detection_at(&terminal_id, None, now, identity_edge, true)
         {
-            append_emission(
+            if publish_emission(
                 terminal,
                 plugin_id,
                 plugin_generation,
                 &emission,
                 Some(process.pid),
-                emission_nonce,
-                emission_sequence,
-            )?;
+                state,
+            )? == PublishResult::Deferred
+            {
+                return Ok(());
+            }
         }
         return Ok(());
     }
@@ -506,22 +565,25 @@ fn scan_terminal(
     // startup grace window, do not read the viewport because it can still be
     // the shell's old prompt or the previous agent's screen. The first
     // post-grace read is forced even when the PTY revision did not change.
-    if identity_edge {
-        let agent = manifest.expect("checked above").id();
-        if let Some(emission) = tracker.record_identity_presence_at(&terminal_id, agent, now) {
-            append_emission(
+    let agent = manifest.expect("checked above").id();
+    if identity_edge || state.tracker.needs_identity_presence(&terminal_id, agent) {
+        if let Some(emission) = state.tracker.record_identity_presence_at(&terminal_id, agent, now)
+        {
+            if publish_emission(
                 terminal,
                 plugin_id,
                 plugin_generation,
                 &emission,
                 Some(process.pid),
-                emission_nonce,
-                emission_sequence,
-            )?;
+                state,
+            )? == PublishResult::Deferred
+            {
+                return Ok(());
+            }
         }
     }
-    let grace_finished = tracker.finish_startup_grace(&terminal_id, now);
-    if tracker.startup_grace_active(&terminal_id, now) {
+    let grace_finished = state.tracker.finish_startup_grace(&terminal_id, now);
+    if state.tracker.startup_grace_active(&terminal_id, now) {
         return Ok(());
     }
     if revision_due == Some(false) && !identity_edge && !grace_finished {
@@ -532,7 +594,7 @@ fn scan_terminal(
         let mut hasher = DefaultHasher::new();
         screen.text.hash(&mut hasher);
         let revision = hasher.finish();
-        let due = tracker.observe_revision(&terminal_id, revision, now);
+        let due = state.tracker.observe_revision(&terminal_id, revision, now);
         if !due && !identity_edge {
             return Ok(());
         }
@@ -548,32 +610,34 @@ fn scan_terminal(
     // win in the core roster reducer.
     if !detection.skip_state_update
         && detection.state == crate::manifest::ScreenState::Idle
-        && tracker.output_active(&terminal_id, now)
+        && state.tracker.output_active(&terminal_id, now)
     {
         detection.state = crate::manifest::ScreenState::Working;
-        tracker.note_activity_upgrade(&terminal_id);
+        state.tracker.note_activity_upgrade(&terminal_id);
     }
-    if let Some(emission) = tracker.record_detection_at(
+    if let Some(emission) = state.tracker.record_detection_at(
         &terminal_id,
         Some((manifest.id(), detection)),
         now,
         identity_edge,
         false,
     ) {
-        append_emission(
+        if publish_emission(
             terminal,
             plugin_id,
             plugin_generation,
             &emission,
             Some(process.pid),
-            emission_nonce,
-            emission_sequence,
-        )?;
+            state,
+        )? == PublishResult::Deferred
+        {
+            return Ok(());
+        }
     }
     Ok(())
 }
 
-fn append_emission(
+fn prepare_emission(
     terminal: &Terminal,
     plugin_id: &str,
     plugin_generation: Option<&str>,
@@ -581,7 +645,7 @@ fn append_emission(
     process_pid: Option<u32>,
     emission_nonce: &str,
     emission_sequence: &mut u64,
-) -> Result<JournalAppendResult, String> {
+) -> Result<PendingAppend, String> {
     let terminal_id = terminal
         .id()
         .ok_or_else(|| "terminal selector did not resolve to an id".to_string())?
@@ -632,14 +696,148 @@ fn append_emission(
         causation_id: None,
         correlation_id: None,
     };
+    Ok(PendingAppend {
+        emission: emission.clone(),
+        ingress,
+        idempotency_key,
+        attempts: 0,
+        retry_not_before: Instant::now(),
+    })
+}
+
+fn append_prepared(
+    terminal: &Terminal,
+    pending: &PendingAppend,
+) -> Result<JournalAppendResult, AppendError> {
+    let mutation = MutationOptions::new(pending.idempotency_key.clone())
+        .map_err(|error| AppendError::Definite(error.to_string()))?;
     terminal
         .session()
-        .append_journal_event(
-            &ingress,
-            MutationOptions::new(idempotency_key).map_err(|error| error.to_string())?,
-        )
+        .append_journal_event(&pending.ingress, mutation)
         .map(|result| result.value)
-        .map_err(|error| error.to_string())
+        .map_err(|error| {
+            let uncertain = matches!(&error, cmux::Error::MutationTransport { .. });
+            let message = error.to_string();
+            if uncertain { AppendError::Uncertain(message) } else { AppendError::Definite(message) }
+        })
+}
+
+fn retry_backoff(attempts: u32) -> Duration {
+    match attempts {
+        0 | 1 => RETRY_BACKOFF_MIN,
+        2 => Duration::from_millis(500),
+        3 => Duration::from_secs(1),
+        4 => Duration::from_secs(2),
+        _ => RETRY_BACKOFF_MAX,
+    }
+}
+
+/// Retry one retained envelope before the scanner observes a newer state.
+/// Returns `true` while the terminal remains blocked on that retry.
+fn retry_pending_append(
+    terminal: &Terminal,
+    terminal_id: &str,
+    tracker: &mut ScreenDetectTracker,
+    pending_appends: &mut HashMap<String, PendingAppend>,
+) -> Result<bool, String> {
+    let Some(pending) = pending_appends.get(terminal_id).cloned() else {
+        return Ok(false);
+    };
+    if Instant::now() < pending.retry_not_before {
+        return Ok(true);
+    }
+    match append_prepared(terminal, &pending) {
+        Ok(_) => {
+            pending_appends.remove(terminal_id);
+            tracker.commit_emission(&pending.emission);
+            Ok(false)
+        }
+        Err(error) if error.is_uncertain() => {
+            if let Some(current) = pending_appends.get_mut(terminal_id) {
+                current.attempts = current.attempts.saturating_add(1);
+                current.retry_not_before = Instant::now() + retry_backoff(current.attempts);
+            }
+            eprintln!(
+                "cmux-agent-screen-detection: journal append uncertain for {terminal_id}; retrying: {}",
+                error.message()
+            );
+            Ok(true)
+        }
+        Err(error) => {
+            pending_appends.remove(terminal_id);
+            tracker.discard_emission(&pending.emission);
+            Err(error.message().to_string())
+        }
+    }
+}
+
+/// Publish one edge and commit the tracker's in-memory state only after the
+/// journal accepts it. An uncertain transport result keeps the exact request
+/// for idempotent replay.
+fn publish_emission(
+    terminal: &Terminal,
+    plugin_id: &str,
+    plugin_generation: Option<&str>,
+    emission: &crate::detect::ScreenDetectEmission,
+    process_pid: Option<u32>,
+    state: &mut ScannerState,
+) -> Result<PublishResult, String> {
+    let terminal_id = emission.terminal_id.clone();
+    if let Some(existing) = state.pending_appends.get(&terminal_id) {
+        if existing.emission != *emission {
+            return Err(format!(
+                "terminal {terminal_id} has a different journal emission waiting for replay"
+            ));
+        }
+    } else {
+        let pending = match prepare_emission(
+            terminal,
+            plugin_id,
+            plugin_generation,
+            emission,
+            process_pid,
+            &state.emission_nonce,
+            &mut state.emission_sequence,
+        ) {
+            Ok(pending) => pending,
+            Err(error) => {
+                state.tracker.rollback_emission(emission);
+                state.tracker.discard_emission(emission);
+                return Err(error);
+            }
+        };
+        state.pending_appends.insert(terminal_id.clone(), pending);
+    }
+    let pending = state
+        .pending_appends
+        .get(&terminal_id)
+        .cloned()
+        .expect("pending emission was inserted above");
+    match append_prepared(terminal, &pending) {
+        Ok(_) => {
+            state.pending_appends.remove(&terminal_id);
+            state.tracker.commit_emission(emission);
+            Ok(PublishResult::Committed)
+        }
+        Err(error) => {
+            state.tracker.rollback_emission(emission);
+            if error.is_uncertain() {
+                if let Some(current) = state.pending_appends.get_mut(&terminal_id) {
+                    current.attempts = current.attempts.saturating_add(1);
+                    current.retry_not_before = Instant::now() + retry_backoff(current.attempts);
+                }
+                eprintln!(
+                    "cmux-agent-screen-detection: journal append uncertain for {terminal_id}; retrying: {}",
+                    error.message()
+                );
+                Ok(PublishResult::Deferred)
+            } else {
+                state.pending_appends.remove(&terminal_id);
+                state.tracker.discard_emission(emission);
+                Err(error.message().to_string())
+            }
+        }
+    }
 }
 
 fn now_ms() -> u64 {

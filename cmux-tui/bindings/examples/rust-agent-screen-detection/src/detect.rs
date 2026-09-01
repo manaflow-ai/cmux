@@ -75,10 +75,65 @@ pub(crate) const AGENT_STARTUP_GRACE_MS: u64 = 3_000;
 /// treating the identity as an exit.
 pub(crate) const AGENT_MISS_CONFIRMATION_ATTEMPTS: u8 = 6;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct PendingIdle {
     started_at: Option<Instant>,
     confirmations: u8,
+}
+
+/// The part of a tracked terminal that an emission mutates. The scanner
+/// records this snapshot before it appends to the journal. If admission fails,
+/// the snapshot is restored so the next scan can publish the same edge.
+#[derive(Debug, Clone)]
+struct TrackerSnapshot {
+    emitted: Option<(String, AgentState)>,
+    visible_idle: bool,
+    visible_blocker: bool,
+    visible_working: bool,
+    last_visible_blocker_refresh: Option<Instant>,
+    pending_idle: PendingIdle,
+}
+
+impl TrackerSnapshot {
+    fn capture(entry: &TrackedTerminal) -> Self {
+        Self {
+            emitted: entry.emitted.clone(),
+            visible_idle: entry.visible_idle,
+            visible_blocker: entry.visible_blocker,
+            visible_working: entry.visible_working,
+            last_visible_blocker_refresh: entry.last_visible_blocker_refresh,
+            pending_idle: entry.pending_idle.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PendingEmission {
+    emission: ScreenDetectEmission,
+    before: TrackerSnapshot,
+    after: TrackerSnapshot,
+}
+
+impl PendingEmission {
+    fn arm(entry: &mut TrackedTerminal, before: TrackerSnapshot, emission: ScreenDetectEmission) {
+        let after = TrackerSnapshot::capture(entry);
+        entry.pending_emission = Some(Self { emission, before, after });
+    }
+
+    fn matches(&self, emission: &ScreenDetectEmission) -> bool {
+        self.emission == *emission
+    }
+}
+
+impl TrackerSnapshot {
+    fn restore(self, entry: &mut TrackedTerminal) {
+        entry.emitted = self.emitted;
+        entry.visible_idle = self.visible_idle;
+        entry.visible_blocker = self.visible_blocker;
+        entry.visible_working = self.visible_working;
+        entry.last_visible_blocker_refresh = self.last_visible_blocker_refresh;
+        entry.pending_idle = self.pending_idle;
+    }
 }
 
 impl PendingIdle {
@@ -162,6 +217,12 @@ struct TrackedTerminal {
     visible_working: bool,
     last_visible_blocker_refresh: Option<Instant>,
     pending_idle: PendingIdle,
+    /// The pre-emission state until the scanner confirms journal admission.
+    /// Only one emission is in flight because appends are synchronous.
+    pending_emission: Option<PendingEmission>,
+    /// A failed transport keeps the exact edge available for idempotent
+    /// replay. The scanner retries this before evaluating a newer screen.
+    retry_emission: Option<PendingEmission>,
 }
 
 /// Pure edge-trigger state for the scanner. All timing is passed in, so
@@ -239,6 +300,16 @@ impl ScreenDetectTracker {
     /// that has not been closed out by an exit emission.
     pub fn has_live_emission(&self, terminal_id: &str) -> bool {
         self.terminals.get(terminal_id).is_some_and(|entry| entry.emitted.is_some())
+    }
+
+    /// Return whether the process identity still needs a durable presence
+    /// edge. This stays true after a failed append, including when the
+    /// foreground agent changed while an older agent row was live.
+    pub(crate) fn needs_identity_presence(&self, terminal_id: &str, agent: &str) -> bool {
+        self.terminals
+            .get(terminal_id)
+            .and_then(|entry| entry.emitted.as_ref())
+            .is_none_or(|(current_agent, _)| current_agent != agent)
     }
 
     /// Record which agent the foreground process currently matches. Returns
@@ -366,6 +437,11 @@ impl ScreenDetectTracker {
         _now: Instant,
     ) -> Option<ScreenDetectEmission> {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        entry.pending_emission = None;
+        // A direct tracker caller may advance state without the scanner. In
+        // that case an old retry is superseded; the scanner retries first.
+        entry.retry_emission = None;
+        let before = TrackerSnapshot::capture(entry);
         entry.pending_idle.clear();
         entry.visible_idle = false;
         entry.visible_blocker = false;
@@ -376,7 +452,7 @@ impl ScreenDetectTracker {
             return None;
         }
         entry.emitted = Some(next);
-        Some(ScreenDetectEmission {
+        let emission = ScreenDetectEmission {
             terminal_id: terminal_id.to_string(),
             agent: agent.to_string(),
             state: AgentState::Idle,
@@ -384,7 +460,9 @@ impl ScreenDetectTracker {
             visible_idle: false,
             visible_blocker: false,
             visible_working: false,
-        })
+        };
+        PendingEmission::arm(entry, before, emission.clone());
+        Some(emission)
     }
 
     /// Fold one evaluated detection. `None` detection means the foreground
@@ -410,6 +488,11 @@ impl ScreenDetectTracker {
         process_exited: bool,
     ) -> Option<ScreenDetectEmission> {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        entry.pending_emission = None;
+        // See the identity-presence path above. A scanner retry is handled
+        // before this method is called, so a fresh direct fold can replace it.
+        entry.retry_emission = None;
+        let before = TrackerSnapshot::capture(entry);
         if process_exited {
             // A terminal exit is authoritative. Do not retain the identity
             // or its startup grace when the PTY has gone away.
@@ -426,7 +509,7 @@ impl ScreenDetectTracker {
             entry.visible_working = false;
             entry.last_visible_blocker_refresh = None;
             let (agent, _) = entry.emitted.take()?;
-            return Some(ScreenDetectEmission {
+            let emission = ScreenDetectEmission {
                 terminal_id: terminal_id.to_string(),
                 agent,
                 state: AgentState::Done,
@@ -434,7 +517,9 @@ impl ScreenDetectTracker {
                 visible_idle: false,
                 visible_blocker: false,
                 visible_working: false,
-            });
+            };
+            PendingEmission::arm(entry, before, emission.clone());
+            return Some(emission);
         };
         let asserted = if detection.skip_state_update {
             // Agent-owned viewer (transcript scroll etc.): keep prior state.
@@ -489,7 +574,7 @@ impl ScreenDetectTracker {
         entry.visible_blocker = visible_blocker;
         entry.visible_working = visible_working;
         entry.last_visible_blocker_refresh = visible_blocker.then_some(now);
-        Some(ScreenDetectEmission {
+        let emission = ScreenDetectEmission {
             terminal_id: terminal_id.to_string(),
             agent: agent.to_string(),
             state,
@@ -497,7 +582,72 @@ impl ScreenDetectTracker {
             visible_idle,
             visible_blocker,
             visible_working,
-        })
+        };
+        PendingEmission::arm(entry, before, emission.clone());
+        Some(emission)
+    }
+
+    /// Mark an emission durable. The tracker keeps no pending transaction
+    /// after a successful journal append.
+    pub(crate) fn commit_emission(&mut self, emission: &ScreenDetectEmission) {
+        let Some(entry) = self.terminals.get_mut(&emission.terminal_id) else { return };
+        if let Some(pending) = entry.pending_emission.take() {
+            if pending.matches(emission) {
+                // The initial append already left the tracker in this state.
+                // The restore also makes this method correct for a replayed
+                // retry.
+                pending.after.restore(entry);
+                return;
+            }
+            // A late callback for another edge must not consume the current
+            // transaction.
+            entry.pending_emission = Some(pending);
+        }
+        if let Some(retry) = entry.retry_emission.take() {
+            if retry.matches(emission) {
+                retry.after.restore(entry);
+                return;
+            }
+            // A late callback for another edge must not consume the retry.
+            entry.retry_emission = Some(retry);
+        }
+    }
+
+    /// Undo an edge when journal admission fails. The next scan must be able
+    /// to emit the same transition again instead of treating it as delivered.
+    pub(crate) fn rollback_emission(&mut self, emission: &ScreenDetectEmission) {
+        let Some(entry) = self.terminals.get_mut(&emission.terminal_id) else { return };
+        if let Some(pending) = entry.pending_emission.take() {
+            if pending.matches(emission) {
+                pending.before.clone().restore(entry);
+                entry.retry_emission = Some(pending);
+                // Force a fresh evaluation even when the PTY revision did not
+                // move. The retry remains pending until its exact envelope
+                // is accepted or explicitly discarded.
+                entry.evaluated_revision = None;
+                return;
+            }
+            entry.pending_emission = Some(pending);
+        }
+        if entry.retry_emission.as_ref().is_some_and(|pending| pending.matches(emission)) {
+            entry.evaluated_revision = None;
+            return;
+        }
+        // Keep the retry safe if a caller supplies an emission created by an
+        // older tracker that did not retain a snapshot.
+        entry.evaluated_revision = None;
+    }
+
+    /// Drop an emission after a definite admission failure. Uncertain
+    /// transport failures use `rollback_emission` and retain the retry.
+    pub(crate) fn discard_emission(&mut self, emission: &ScreenDetectEmission) {
+        let Some(entry) = self.terminals.get_mut(&emission.terminal_id) else { return };
+        if entry.pending_emission.as_ref().is_some_and(|pending| pending.matches(emission)) {
+            entry.pending_emission = None;
+        }
+        if entry.retry_emission.as_ref().is_some_and(|pending| pending.matches(emission)) {
+            entry.retry_emission = None;
+        }
     }
 
     /// Drop terminals that left the session. Closed terminals are retired

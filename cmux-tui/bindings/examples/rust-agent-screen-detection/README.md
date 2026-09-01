@@ -45,8 +45,12 @@ plugin if they call `setsid`.
 The generation fence protects journal state when a stopped process writes late.
 It does not remove the normal Unix process-group identifier reuse race, so the
 host treats process identity as authoritative only when the platform reports a
-current foreground group. A userland plugin must use its own generation and
-idempotency keys for every event.
+current foreground group. The scanner commits an edge only after journal
+admission. A transport result with an uncertain outcome keeps the exact event
+envelope and idempotency key, then retries it with bounded backoff; a definite
+admission failure rolls the in-memory edge back so a later scan can try again.
+A userland plugin must use its own generation and idempotency keys for every
+event.
 
 The reference package currently targets macOS and Linux. Its Rust SDK
 transport is Unix-only, and its native process backends cover macOS and Linux.
