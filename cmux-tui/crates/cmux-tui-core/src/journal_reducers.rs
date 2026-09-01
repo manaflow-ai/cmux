@@ -540,4 +540,23 @@ mod tests {
         assert!(roster.apply(&foreign).is_empty());
         assert!(!roster.entries.is_empty());
     }
+
+    #[test]
+    fn restore_rejects_semantically_invalid_entries() {
+        let invalid_snapshots = [
+            // Unknown state and source spellings must not be reinterpreted.
+            r#"{"entries":{"term_a":{"state":"running","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            r#"{"entries":{"term_a":{"state":"working","source":"poll","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            // Done rows are removed during folding and cannot be a live snapshot.
+            r#"{"entries":{"term_a":{"state":"done","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            // Detected rows must identify the adapter that produced them.
+            r#"{"entries":{"term_a":{"state":"working","source":"detected","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            // A blank terminal identity cannot be addressed by later events.
+            r#"{"entries":{"":{"state":"working","source":"hook","session":null,"agent":null,"updated_at_ms":1}}}"#,
+        ];
+
+        for snapshot in invalid_snapshots {
+            assert!(AgentRoster::restore(snapshot).is_none(), "snapshot was accepted: {snapshot}");
+        }
+    }
 }
