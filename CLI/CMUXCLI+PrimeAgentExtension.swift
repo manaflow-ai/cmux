@@ -225,6 +225,7 @@ interface HookQueue {
   worker: Promise<void> | null;
   active: RunningHook | null;
   activeSubcommand: string | null;
+  shutdownRequested: boolean;
 }
 
 interface SessionLifecycleState {
@@ -232,7 +233,32 @@ interface SessionLifecycleState {
 }
 
 const maxQueuedHooks = 32;
-const hookShutdownDeadlineMs = 2000;
+
+type HookDeadlineOutcome = "expired" | "cancelled";
+
+interface HookDeadline {
+  completion: Promise<HookDeadlineOutcome>;
+  cancel: () => void;
+}
+
+// The only wall-clock primitive in this extension is this cancellable deadline
+// for an external hook process. Normal completion comes from child `close` or
+// `error`; lifecycle shutdown calls `cancel` explicitly before awaiting it.
+function createHookDeadline(durationMs: number): HookDeadline {
+  let settle = (_outcome: HookDeadlineOutcome) => {};
+  let settled = false;
+  const timer = setTimeout(() => settle("expired"), durationMs);
+  timer.unref();
+  const completion = new Promise<HookDeadlineOutcome>((resolve) => {
+    settle = (outcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(outcome);
+    };
+  });
+  return { completion, cancel: () => settle("cancelled") };
+}
 
 function startHook(invocation: QueuedHook): RunningHook {
   const cmux = process.env.CMUX_PRIME_AGENT_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
@@ -248,18 +274,29 @@ function startHook(invocation: QueuedHook): RunningHook {
   let child: ReturnType<typeof spawn> | null = null;
   let settle = () => {};
   let settled = false;
-  const timeout = setTimeout(() => {
-    if (child && !child.killed) child.kill("SIGKILL");
-    settle();
-  }, 5000);
-  timeout.unref();
+  const terminate = () => {
+    if (!child) {
+      settle();
+      return;
+    }
+    try {
+      if (!child.kill("SIGKILL")) settle();
+    } catch (_) {
+      settle();
+    }
+  };
+  const deadline = createHookDeadline(5000);
   const completion = new Promise<void>((resolve) => {
     settle = () => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      deadline.cancel();
       resolve();
     };
+    void deadline.completion.then((outcome) => {
+      if (outcome !== "expired") return;
+      terminate();
+    });
     try {
       child = spawn(cmux, ["hooks", "prime-agent", invocation.subcommand], {
         env: launchEnvironment(invocation.root.cwd),
@@ -276,8 +313,7 @@ function startHook(invocation: QueuedHook): RunningHook {
   return {
     completion,
     cancel: () => {
-      if (child && !child.killed) child.kill("SIGKILL");
-      settle();
+      terminate();
     },
   };
 }
@@ -299,7 +335,13 @@ function createHookQueue(): {
     get(key) {
       let queue = queues.get(key);
       if (!queue) {
-        queue = { items: [], worker: null, active: null, activeSubcommand: null };
+        queue = {
+          items: [],
+          worker: null,
+          active: null,
+          activeSubcommand: null,
+          shutdownRequested: false,
+        };
         queues.set(key, queue);
       }
       return queue;
@@ -331,35 +373,18 @@ function startHookWorker(queue: HookQueue): void {
   queue.worker = worker;
   void worker.finally(() => {
     if (queue.worker === worker) queue.worker = null;
-    if (queue.items.length > 0) startHookWorker(queue);
+    if (queue.items.length > 0 && !queue.shutdownRequested) startHookWorker(queue);
   });
-}
-
-async function waitForHookWorker(worker: Promise<void>, timeoutMs: number): Promise<boolean> {
-  let completed = false;
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  await Promise.race([
-    worker.then(() => { completed = true; }),
-    new Promise<void>((resolve) => { timeout = setTimeout(resolve, timeoutMs); }),
-  ]);
-  if (timeout) clearTimeout(timeout);
-  return completed;
 }
 
 async function awaitHookQueueDrain(queue: HookQueue): Promise<void> {
   // Prompt submissions are useful while the agent is alive but should never
   // delay the final stop event during process teardown.
-  queue.items = queue.items.filter((item) => item.subcommand !== "prompt-submit");
+  queue.shutdownRequested = true;
+  queue.items = queue.items.filter((item) => item.subcommand === "stop");
   const worker = queue.worker;
   if (!worker) return;
-  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
-
-  queue.items = queue.items.filter((item) => item.subcommand === "stop");
   if (queue.activeSubcommand !== "stop") queue.active?.cancel();
-  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
-
-  queue.items = [];
-  queue.active?.cancel();
   await worker;
 }
 
@@ -369,6 +394,7 @@ function enqueueHook(
   subcommand: string,
   extra: Record<string, unknown>,
 ): void {
+  if (queue.shutdownRequested) return;
   const duplicate = queue.items.findIndex((item) => item.subcommand === subcommand);
   if (duplicate >= 0) queue.items.splice(duplicate, 1);
   if (queue.items.length >= maxQueuedHooks) {

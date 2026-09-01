@@ -69,8 +69,9 @@ public enum PrimeAgentResumeArgv {
     }
 
     private static func replayTail(capturedExecutable: String, tail: [String]) -> [String] {
+        let scriptMatcher = PrimeAgentScriptMatch()
         guard isJavaScriptRuntime(capturedExecutable),
-              let scriptIndex = tail.firstIndex(where: PrimeAgentScriptMatch.matches) else {
+              let scriptIndex = tail.firstIndex(where: scriptMatcher.matches) else {
             return tail
         }
         // Runtime flags before the script (for example `node --no-warnings`)

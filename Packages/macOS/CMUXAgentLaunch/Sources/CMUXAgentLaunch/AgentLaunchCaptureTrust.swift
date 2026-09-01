@@ -146,7 +146,10 @@ public enum AgentLaunchCaptureTrust {
             }) {
                 descriptors.insert("campfire")
             }
-            if arguments.dropFirst().contains(where: PrimeAgentScriptMatch.matches) {
+            if PrimeAgentProcessIdentity().matchesRuntimeProcess(
+                processName: nameBase,
+                arguments: arguments
+            ) {
                 descriptors.insert("prime-agent")
             }
             return descriptors

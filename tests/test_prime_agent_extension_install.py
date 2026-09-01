@@ -189,6 +189,9 @@ cat >> "$FAKE_PRIME_CMUX_STDIN_LOG"
 printf '\\n---\\n' >> "$FAKE_PRIME_CMUX_STDIN_LOG"
 printf 'kind=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-}" >> "$FAKE_PRIME_CMUX_ENV_LOG"
 printf 'argv=%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-}" >> "$FAKE_PRIME_CMUX_ENV_LOG"
+if [[ "${FAKE_PRIME_CMUX_HANG-}" == "1" ]]; then
+  while :; do sleep 1; done
+fi
 """,
         )
         lifecycle_env = env.copy()
@@ -325,6 +328,18 @@ if (envLines.filter((line) => line === "kind=prime-agent").length !== 6
   || envLines.some((line) => line === "argv=stale-capture")) {
   throw new Error(`root launch capture was not normalized: ${lines(process.env.FAKE_PRIME_CMUX_ENV_LOG)}`);
 }
+
+// Shutdown cancellation must terminate an active hook and still drain the
+// queued stop event. The first fake child deliberately never closes; the stop
+// child is allowed to complete after the active one is cancelled.
+process.env.FAKE_PRIME_CMUX_HANG = "1";
+const cancellationHandlers = await loadExtension("3005");
+process.env.CMUX_SURFACE_ID = "prime-cancel-surface";
+await cancellationHandlers.get("session_start")({ reason: "startup" }, rootCtx);
+await waitForLines(process.env.FAKE_PRIME_CMUX_ARGS_LOG, 7);
+delete process.env.FAKE_PRIME_CMUX_HANG;
+await cancellationHandlers.get("session_shutdown")({ reason: "quit" }, rootCtx);
+await waitForLines(process.env.FAKE_PRIME_CMUX_ARGS_LOG, 8);
 """
         lifecycle = subprocess.run(
             ["bun", "--eval", lifecycle_source],

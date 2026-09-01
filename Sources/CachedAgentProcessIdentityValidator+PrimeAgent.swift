@@ -2,8 +2,6 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CachedAgentProcessIdentityValidator {
-    private static let primeAgentRuntimeNames: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
-
     /// Applies the Prime-specific executable identity rule used by both the
     /// cached validator and the broader live-process scanner. A bare runtime
     /// basename is not enough: an unrelated Node process must not keep a
@@ -13,18 +11,9 @@ extension CachedAgentProcessIdentityValidator {
         recordedExecutable: String,
         arguments: [String]
     ) -> Bool {
-        let liveBase = (liveExecutable as NSString).lastPathComponent.lowercased()
-        let recordedBase = (recordedExecutable as NSString).lastPathComponent.lowercased()
-        if liveBase == "prime-agent" && recordedBase == "prime-agent" {
-            return true
-        }
-        guard primeAgentRuntimeNames.contains(liveBase)
-            || primeAgentRuntimeNames.contains(recordedBase) else {
-            return false
-        }
-        return livePrimeAgentProcessExecutableMatches(
-            kind: .primeAgent,
-            liveExecutable: liveBase,
+        PrimeAgentProcessIdentity().matchesRecordedProcess(
+            liveExecutable: liveExecutable,
+            recordedExecutable: recordedExecutable,
             arguments: arguments
         )
     }
@@ -39,10 +28,9 @@ extension CachedAgentProcessIdentityValidator {
         arguments: [String]
     ) -> Bool {
         guard kind == .primeAgent else { return false }
-        let runtimeNames: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
-        guard runtimeNames.contains((liveExecutable as NSString).lastPathComponent.lowercased()) else {
-            return false
-        }
-        return arguments.dropFirst().contains(where: PrimeAgentScriptMatch.matches)
+        return PrimeAgentProcessIdentity().matchesRuntimeProcess(
+            processName: liveExecutable,
+            arguments: arguments
+        )
     }
 }
