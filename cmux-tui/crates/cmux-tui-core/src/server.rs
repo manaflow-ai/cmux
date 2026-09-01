@@ -82,7 +82,7 @@ use crate::{
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
-const MAX_JSON_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
@@ -4834,6 +4834,62 @@ fn prepare_explicit_socket_directory(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Prepare the parent directory before any client creates coordination files.
+/// Derived runtime paths receive the daemon-owned private-directory checks;
+/// explicit paths keep their caller-managed permissions.
+pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()> {
+    if is_derived {
+        if let Some(dir) = path.parent() {
+            prepare_runtime_socket_directory(dir)?;
+        }
+    } else {
+        prepare_explicit_socket_directory(path)?;
+    }
+    Ok(())
+}
+
+/// Exclusive lock serializing every local server start for one socket path:
+/// foreground `server start`, in-process TUI hosting, and detached-owner
+/// spawns. The stale-socket recovery below (probe, unlink, bind) is not
+/// atomic, so two unserialized starts can both classify a socket as stale,
+/// and the second unlink disconnects the first starter's freshly bound
+/// socket while its process keeps running unreachably. The lock file lives
+/// next to the socket and is left in place: unlinking it would reopen the
+/// very race it exists to close. The OS releases the lock when the holder
+/// exits, so a crashed starter never wedges the session.
+pub struct SocketStartLock {
+    _file: std::fs::File,
+}
+
+impl SocketStartLock {
+    pub fn acquire(socket: &Path, deadline: Instant) -> std::io::Result<Self> {
+        let mut name = socket.file_name().unwrap_or_default().to_os_string();
+        name.push(".spawn-lock");
+        let path = socket.with_file_name(name);
+        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        loop {
+            match fs4::FileExt::try_lock(&file) {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(fs4::TryLockError::WouldBlock) => {}
+                Err(fs4::TryLockError::Error(error)) => return Err(error),
+            }
+            if Instant::now() >= deadline {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "timed out waiting for a concurrent session-server start",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
+/// How long a server start may wait for a concurrent starter of the same
+/// socket. Holders keep the lock only across probe, unlink, and bind, so a
+/// healthy contender clears in milliseconds; the bound exists to surface a
+/// wedged holder as an error instead of a hang.
+const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
+
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let (path, is_derived) = match path {
@@ -4843,13 +4899,8 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     // Only harden directories selected by the daemon. An explicit socket path
     // is authoritative, so its parent may be a shared or pre-configured path
     // such as /tmp and must not be chmod'ed or ownership-checked.
-    if is_derived {
-        if let Some(dir) = path.parent() {
-            prepare_runtime_socket_directory(dir)?;
-        }
-    } else {
-        prepare_explicit_socket_directory(&path)?;
-    }
+    prepare_socket_parent(&path, is_derived)?;
+    let start_lock = SocketStartLock::acquire(&path, Instant::now() + START_LOCK_DEADLINE)?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
         match transport::connect(&path) {
@@ -4861,6 +4912,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     }
     let listener = transport::listen(&path)?;
+    drop(start_lock);
     if let Err(error) = platform::restrict_file(&path) {
         cleanup(&path);
         return Err(error.into());
@@ -5767,11 +5819,7 @@ fn trusted_local_resource_client(
     if mux.control_clients.is_unix(client) {
         Ok(())
     } else {
-        let operation = serde_json::to_value(operation)
-            .expect("resource operations serialize")
-            .as_str()
-            .expect("resource operations serialize as strings")
-            .to_string();
+        let operation = operation.wire_name().to_owned();
         Err(ResourceError::operation_failed(
             operation,
             "operation requires a trusted local connection",
@@ -13299,6 +13347,33 @@ mod tests {
         drop(pending);
         assert!(directory.is_dir());
         assert!(!socket.exists());
+    }
+
+    /// Stale-socket recovery (probe, unlink, bind) is not atomic, so
+    /// unserialized concurrent starts could both classify the socket as
+    /// stale and the second unlink would strand the first starter on an
+    /// unreachable socket. The start lock makes exactly one starter win
+    /// while the winner stays reachable.
+    #[test]
+    fn serve_paused_serializes_concurrent_starts_over_a_stale_socket() {
+        // Short names keep the socket under the unix path-length cap even in
+        // deep macOS temp directories, unlike this module's sibling tests.
+        let root = TestSocketDir::create("race");
+        let socket = root.path().join("m.sock");
+        std::fs::write(&socket, b"stale").unwrap();
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    let socket = socket.clone();
+                    scope.spawn(move || serve_paused(test_mux(), Some(socket)))
+                })
+                .collect();
+            handles.into_iter().map(|handle| handle.join().unwrap()).collect()
+        });
+        let winners = results.iter().filter(|result| result.is_ok()).count();
+        assert_eq!(winners, 1, "exactly one concurrent starter may bind a stale socket");
+        assert!(transport::connect(&socket).is_ok(), "the winner must stay reachable");
+        drop(results);
     }
 
     #[cfg(unix)]
@@ -21727,6 +21802,140 @@ mod tests {
             let error = handle_command(&mux, client, command, &writer).unwrap_err();
             assert_eq!(error.to_string(), "workspace revision conflict: expected 1, current 2");
         }
+    }
+
+    /// Regression test for the packaged-browser alt+n wedge (cmux-browser
+    /// issue #417): a receipted resource `workspace.create` advanced the
+    /// reported `workspace_revision` without advancing the legacy workspace
+    /// ledger, so every later legacy CAS mutation failed with
+    /// "workspace revision conflict: expected 1, current 0" forever.
+    #[test]
+    fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        // The packaged browser bootstraps its first workspace through the
+        // receipted resource API (workspace.create, initial_content=empty).
+        let selectors = crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            ..crate::ResourceSelectors::default()
+        };
+        let before = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let before_revision = before["workspace_revision"].as_u64().unwrap();
+        let created = mux
+            .resource_create_empty_workspace_selected(
+                selectors,
+                Some("bootstrap".into()),
+                "bootstrap-receipt-00000001",
+                None,
+                &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+            )
+            .unwrap();
+        assert!(!created.replayed);
+
+        // The browser then snapshots the registry and sends its alt+n create
+        // with the reported revision, exactly like SyncWorkspaceRegistry.
+        let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let revision = listed["workspace_revision"].as_u64().unwrap();
+        // A real registry change must advance the reported revision: clients
+        // gate delta application and snapshot refreshes on it.
+        assert_eq!(revision, before_revision + 1);
+        let response = handle_command(
+            &mux,
+            client,
+            Command::CreateWorkspace {
+                name: Some("alt-n".into()),
+                key: Some("018f6e21-7b70-7e70-8000-0000000000aa".into()),
+                mutation: MutationRequest {
+                    origin: Some("chrome-gui".into()),
+                    mutation_id: Some("alt-n-create".into()),
+                    expected_generation: None,
+                    expected_revision: Some(revision),
+                },
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(response["replayed"], false);
+        let after = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        assert_eq!(after["workspace_revision"].as_u64().unwrap(), revision + 1);
+    }
+
+    /// Same ledger invariant for the resource rename and move paths: the
+    /// revision the daemon reports must stay usable as a legacy CAS expected
+    /// value after every workspace-projection mutation.
+    #[test]
+    fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.create_empty_workspace(
+            Some("first".into()),
+            Some("018f6e21-7b70-7e70-8000-0000000000b1".into()),
+            None,
+        )
+        .unwrap();
+        mux.create_empty_workspace(
+            Some("second".into()),
+            Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+            None,
+        )
+        .unwrap();
+        let first_id = mux.with_state(|state| state.workspaces[0].public_id.clone());
+
+        mux.resource_rename_workspace(
+            &first_id,
+            "renamed".into(),
+            None,
+            None,
+            &WorkspaceMutation::new("resource-rename", "resource-api").unwrap(),
+        )
+        .unwrap();
+        let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let revision = listed["workspace_revision"].as_u64().unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::RenameWorkspace {
+                workspace: None,
+                key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+                name: "legacy-rename".into(),
+                mutation: MutationRequest {
+                    expected_revision: Some(revision),
+                    ..Default::default()
+                },
+            },
+            &writer,
+        )
+        .expect("legacy CAS rename must accept the reported revision");
+
+        mux.resource_move_workspace(
+            &first_id,
+            1,
+            None,
+            None,
+            &WorkspaceMutation::new("resource-move", "resource-api").unwrap(),
+        )
+        .unwrap();
+        let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let revision = listed["workspace_revision"].as_u64().unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::MoveWorkspace {
+                workspace: None,
+                key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+                index: 0,
+                mutation: MutationRequest {
+                    expected_revision: Some(revision),
+                    ..Default::default()
+                },
+            },
+            &writer,
+        )
+        .expect("legacy CAS move must accept the reported revision");
     }
 
     #[test]

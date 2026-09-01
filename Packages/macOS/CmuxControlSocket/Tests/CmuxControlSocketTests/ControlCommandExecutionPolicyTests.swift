@@ -36,6 +36,7 @@ struct ControlCommandExecutionPolicyTests {
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.next_transport.pair",
             "mobile.terminal.set_font", "mobile.task.models.list",
+            "mobile.compatible_tags.get", "mobile.compatible_tags.set",
             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",
             // JavaScript-evaluating browser methods block on page JS and must

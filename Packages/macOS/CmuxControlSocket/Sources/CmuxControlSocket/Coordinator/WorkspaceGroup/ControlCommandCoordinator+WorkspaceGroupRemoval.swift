@@ -12,6 +12,13 @@ extension ControlCommandCoordinator {
         ) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        guard keptCount != -2 else {
+            return .err(
+                code: "invalid_request",
+                message: workspaceGroupStrings().emptyPinnedCannotUngroup,
+                data: .object(["group_id": .string(groupID.uuidString)])
+            )
+        }
         guard keptCount >= 0 else {
             return .err(code: "not_found", message: "Group not found", data: .object([
                 "group_id": .string(groupID.uuidString),

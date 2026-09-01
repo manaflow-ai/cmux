@@ -18,14 +18,17 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
-    static func reconnectAction(
-        connectionRequiresReauth: Bool,
-        reconnect: @escaping () -> Void
-    ) -> (() -> Void)? {
-        connectionRequiresReauth ? nil : reconnect
+    /// Whether the title menu offers manual Reconnect: only once the
+    /// connection is unavailable (an active reconnect needs no manual entry),
+    /// and never during reauthentication, whose blocking banner owns
+    /// recovery.
+    static func canReconnectFromTitleMenu(
+        effectiveConnectionStatus: MobileMacConnectionStatus,
+        connectionRequiresReauth: Bool
+    ) -> Bool {
+        effectiveConnectionStatus == .unavailable && !connectionRequiresReauth
     }
 
-    let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
@@ -192,6 +195,10 @@ struct WorkspaceDetailView: View {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
                 store.refreshWorkspaceSelection()
+                restoreLocalBrowserTabIfRequested()
+            }
+            .onChange(of: store.pendingLocalBrowserTabRestoreWorkspaceID) { _, _ in
+                restoreLocalBrowserTabIfRequested()
             }
             .onChange(of: browserStreamStore.panelDiscoveryRevision(in: workspace.rpcWorkspaceID.rawValue)) { _, _ in
                 store.refreshWorkspaceSelection()
@@ -409,6 +416,12 @@ struct WorkspaceDetailView: View {
 
     private var workspaceTitleToolbarMenu: some View {
         let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
+        // Reconnect lives in the title menu now that no pill covers the
+        // terminal; reauthentication keeps its own blocking banner.
+        let canReconnect = Self.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: effectiveConnectionStatus,
+            connectionRequiresReauth: store.connectionRequiresReauth
+        )
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
@@ -417,13 +430,14 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
             hadTrailingCollapse: trailingToolbarCollapseDetected,
-            isEnabled: hasTitleMenuActions,
+            isEnabled: hasTitleMenuActions || canReconnect,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
             canCustomizeWorkspace: customizeWorkspace != nil,
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
+            canReconnect: canReconnect,
             labelToken: toolbarTitleLabelToken,
             terminalTheme: store.activeTerminalTheme
         )
@@ -437,16 +451,22 @@ struct WorkspaceDetailView: View {
                     canRenameWorkspace: value.canRenameWorkspace,
                     canToggleReadState: value.canToggleReadState,
                     canCloseWorkspace: value.canCloseWorkspace,
+                    canReconnect: value.canReconnect,
                     presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
-                    requestClose: requestCloseWorkspaceFromMenu
+                    requestClose: requestCloseWorkspaceFromMenu,
+                    reconnect: reconnectToWorkspaceMac
                 )
             },
             label: {
                 switch value.labelToken {
-                case .standard(let title, let subtitle):
-                    WorkspaceToolbarTitleView(title: title, subtitle: subtitle)
+                case .standard(let title, let subtitle, let connectionStatus):
+                    WorkspaceToolbarTitleView(
+                        title: title,
+                        subtitle: subtitle,
+                        connectionStatus: connectionStatus
+                    )
                 }
             }
         )
@@ -454,20 +474,34 @@ struct WorkspaceDetailView: View {
     }
 
     private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
+        let connectionStatus = effectiveConnectionStatus
         if let browser = activeBrowser {
             // Browser-style surfaces keep the workspace as the pill's title,
             // like the terminal; the surface's own title (the page or tab)
             // rides the subtitle line.
-            return .standard(title: workspace.name, subtitle: browser.title)
+            return .standard(
+                title: workspace.name,
+                subtitle: browser.title,
+                connectionStatus: connectionStatus
+            )
         } else if let browser = activeBrowserStream {
-            return .standard(title: workspace.name, subtitle: browser.title)
+            return .standard(
+                title: workspace.name,
+                subtitle: browser.title,
+                connectionStatus: connectionStatus
+            )
         } else if let simulator = activeSimulatorStream {
             return .standard(
                 title: workspace.name,
-                subtitle: simulator.selectedDeviceName ?? simulator.title
+                subtitle: simulator.selectedDeviceName ?? simulator.title,
+                connectionStatus: connectionStatus
             )
         } else {
-            return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
+            return .standard(
+                title: workspace.name,
+                subtitle: selectedToolbarSubtitle,
+                connectionStatus: connectionStatus
+            )
         }
     }
     #endif
@@ -488,9 +522,11 @@ struct WorkspaceDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
-        // The disconnected terminal stays visible; block interaction so
-        // keystrokes aren't silently dropped by the disconnected drain path.
-        // The status pill attaches after this modifier and stays tappable.
+        // The unavailable terminal stays visible; block interaction so
+        // keystrokes aren't silently dropped once reconnect attempts stop.
+        // A terminal that is merely reconnecting stays interactive (see
+        // `terminalInputIsBlocked`). The status pill attaches after this
+        // modifier and stays tappable.
         .allowsHitTesting(!terminalInputIsBlocked)
         #if os(iOS)
         // Hit-testing only blocks new touches: a terminal focused before the
@@ -508,21 +544,10 @@ struct WorkspaceDetailView: View {
         }
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .topLeading) {
-            // The terminal's only connection chrome: last-known content stays
-            // visible and scrollable underneath while the pill shows the
-            // reconnect progress (or offers Reconnect once attempts stop).
-            MobileMacConnectionStatusPill(
-                host: host,
-                status: effectiveConnectionStatus,
-                reconnect: Self.reconnectAction(
-                    connectionRequiresReauth: store.connectionRequiresReauth,
-                    reconnect: { reconnectToWorkspaceMac() }
-                )
-            )
-                .padding(.top, 10)
-                .padding(.leading, 10)
-        }
+        // No terminal-covering connection chrome: reconnecting is the title
+        // bar's spinner, disconnected is the title's red dot + subtitle with
+        // Reconnect in the title menu, and last-known content stays visible
+        // throughout.
         #if os(iOS)
         .overlay(alignment: .topTrailing) {
             if let terminalID = selectedTerminal?.id.rawValue,
@@ -601,11 +626,11 @@ struct WorkspaceDetailView: View {
     }
 
     /// Same-client foreground recovery flips the store's recovery flags while
-    /// `workspace.macConnectionStatus` stays `.connected`; the pill reflects
-    /// the recovery. Input gating deliberately does NOT use this (see
-    /// `terminalInputIsBlocked`): a probe's "Reconnecting" display coexists
-    /// with a working keyboard. Hidden retained details keep their raw
-    /// status: the guard only applies to the selected workspace on the
+    /// `workspace.macConnectionStatus` stays `.connected`; the title bar's
+    /// spinner reflects the recovery. Input gating deliberately does NOT use
+    /// this (see `terminalInputIsBlocked`): a probe's reconnecting display
+    /// coexists with a working keyboard. Hidden retained details keep their
+    /// raw status: the guard only applies to the selected workspace on the
     /// foreground connection.
     var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
@@ -620,23 +645,20 @@ struct WorkspaceDetailView: View {
         return connectionStatus
     }
 
-    /// Input viability is narrower than the displayed status: a same-client
-    /// probe reads "Reconnecting" while the transport is still connected and
-    /// the RPC client still carries keystrokes, so blocking or resigning
-    /// there would dismiss a working keyboard mid-typing. Block only when
-    /// the workspace status itself is disconnected or foreground recovery
-    /// actually failed. Internal so the +Surfaces chrome-return refocus can
-    /// share the same policy.
+    /// Input follows the effective (recovery-aware) status, not the raw row
+    /// status: the redial path downgrades the retained row to unavailable in
+    /// the same turn it marks the recovery as reconnecting, and gating on the
+    /// raw value would resign a working keyboard right as the spinner starts.
+    /// The terminal stays fully interactive while a reconnect is in flight so
+    /// the user can finish typing a thought — keystrokes ride the send
+    /// buffer, and a send that races the dead window fails visibly through
+    /// the send-status pill instead of the keyboard dropping mid-word. Block
+    /// only once the connection is unavailable (attempts stopped or
+    /// foreground recovery failed, which `effectiveConnectionStatus` folds
+    /// in). Internal so the +Surfaces chrome-return refocus can share the
+    /// same policy.
     var terminalInputIsBlocked: Bool {
-        if connectionStatus != .connected {
-            return true
-        }
-        if store.selectedWorkspaceID == workspace.id,
-           store.selectedWorkspaceUsesForegroundConnection,
-           store.connectionRecoveryFailed {
-            return true
-        }
-        return false
+        effectiveConnectionStatus == .unavailable
     }
 
     #if os(iOS)
@@ -1064,6 +1086,7 @@ struct WorkspaceDetailView: View {
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
         _ = browserStore.openBrowser(for: workspaceID)
         store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
+        store.recordLastOpenedLocalBrowserTab(in: workspace.id)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
         store.selectedMacSurfaceID = nil
@@ -1081,6 +1104,7 @@ struct WorkspaceDetailView: View {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
         }
         _ = browserStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
+        store.recordLastOpenedBrowserStreamTab(panelID: panelID, in: workspace.id)
         Task { await store.startMobileBrowserStream(panelID: panelID) }
     }
 
@@ -1100,6 +1124,7 @@ struct WorkspaceDetailView: View {
             simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
         }
         _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
+        store.recordLastOpenedSimulatorStreamTab(panelID: panelID, in: workspace.id)
         // One task, stop awaited before start: two independent tasks have no
         // ordering guarantee, and the reversed order would tear down the new
         // stream (or churn host sessions) right after it started.
@@ -1115,6 +1140,15 @@ struct WorkspaceDetailView: View {
                 workspaceID: workspaceID
             )
         }
+    }
+
+    /// Reopens the phone-local browser pane when the store's last-opened-tab
+    /// restore asked for it. The local browser lives in this view layer's
+    /// `BrowserSurfaceStore`, so the composite hands the reopen here as a
+    /// one-shot intent; opening is idempotent for an already-open pane.
+    private func restoreLocalBrowserTabIfRequested() {
+        guard store.consumeLocalBrowserTabRestore(for: workspace.id) else { return }
+        _ = browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
     private func stopActiveBrowserStream() {
