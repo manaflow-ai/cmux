@@ -11,7 +11,10 @@ enum KeyboardShortcutSettings {
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
     static var settingsFileStore: KeyboardShortcutSettingsFileStore = .appLive {
-        didSet { notifySettingsFileDidChange() }
+        didSet {
+            invalidateLegacyDefaultResolutionCache()
+            notifySettingsFileDidChange()
+        }
     }
     #if DEBUG
     static var shortcutLookupObserver: ((Action) -> Void)?
@@ -1024,6 +1027,7 @@ enum KeyboardShortcutSettings {
         center: NotificationCenter = .default,
         sourceURL: URL? = nil
     ) {
+        invalidateLegacyDefaultResolutionCache()
         center.post(name: didChangeNotification, object: sourceURL)
     }
 
@@ -1045,6 +1049,7 @@ enum KeyboardShortcutSettings {
         action: Action? = nil,
         center: NotificationCenter = .default
     ) {
+        invalidateLegacyDefaultResolutionCache()
         var userInfo: [AnyHashable: Any] = [:]
         if let action {
             userInfo[actionUserInfoKey] = action.rawValue

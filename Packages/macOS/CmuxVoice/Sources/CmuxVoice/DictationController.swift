@@ -46,6 +46,7 @@ public final class DictationController {
     /// may retain this task after a timeout; keeping the slot occupied prevents
     /// repeated retries from accumulating additional retained engines.
     private var finishTask: Task<Void, Never>?
+    private var deferredStartTask: Task<Void, Never>?
     private var stopRecoveryTask: Task<Void, Never>?
     private var sessionGeneration = 0
     private var insertionSessionActive = false
@@ -99,10 +100,34 @@ public final class DictationController {
 
     /// Starts a new session. No-op while one is active.
     public func start() {
-        // Do not start another engine while a timed-out finish is still
-        // unwinding. This bounds retained transcribers to one and lets the
-        // existing finish task clear the slot when its underlying API returns.
-        guard !isActive, finishTask == nil else { return }
+        guard !isActive, deferredStartTask == nil else { return }
+
+        // A normal stop can settle the outward session before the engine's
+        // asynchronous cleanup task returns. Queue the next start behind that
+        // task instead of allowing two engines to overlap. Terminal failures
+        // remain opt-in: the caller may retry after the failed engine has
+        // finished unwinding, but a timeout must not silently start a new one.
+        if let finishTask {
+            guard phase == .idle else { return }
+            let barrier = finishTask
+            deferredStartTask = Task { @MainActor [weak self, barrier] in
+                await barrier.value
+                guard let self,
+                      !Task.isCancelled,
+                      self.finishTask == nil,
+                      self.phase == .idle else {
+                    return
+                }
+                self.deferredStartTask = nil
+                self.beginSession()
+            }
+            return
+        }
+
+        beginSession()
+    }
+
+    private func beginSession() {
         stopRecoveryTask?.cancel()
         stopRecoveryTask = nil
         sessionGeneration += 1
@@ -126,7 +151,7 @@ public final class DictationController {
             // hypothesis instead of letting finishTranscribing flush it.
             sessionTask?.cancel()
         }
-        requestFinish(for: sessionGeneration)
+        requestFinish()
         armStopRecovery(for: sessionGeneration)
     }
 
@@ -256,7 +281,7 @@ public final class DictationController {
         // re-fire the failure handler.
         guard sessionGeneration == generation, isActive else { return }
         let transcriber = activeTranscriber
-        requestFinish(transcriber: transcriber, generation: generation)
+        requestFinish(transcriber: transcriber)
         sessionTask?.cancel()
         cancelStopRecovery()
         endInsertionSessionIfActive()
@@ -266,14 +291,13 @@ public final class DictationController {
         failureHandler?(failure)
     }
 
-    private func requestFinish(for generation: Int) {
+    private func requestFinish() {
         guard let transcriber = activeTranscriber else { return }
-        requestFinish(transcriber: transcriber, generation: generation)
+        requestFinish(transcriber: transcriber)
     }
 
     private func requestFinish(
-        transcriber: (any SpeechTranscribing)?,
-        generation: Int
+        transcriber: (any SpeechTranscribing)?
     ) {
         guard let transcriber else { return }
         // One finish operation owns the engine shutdown for this generation.
@@ -282,8 +306,10 @@ public final class DictationController {
         guard finishTask == nil else { return }
         finishTask = Task { [weak self] in
             await transcriber.finishTranscribing()
-            guard let self, self.sessionGeneration == generation else { return }
-            self.finishTask = nil
+            // `start()` waits on this exact task before creating a successor,
+            // so clearing the slot is generation-independent and cannot erase
+            // a newer finish operation.
+            self?.finishTask = nil
         }
     }
 

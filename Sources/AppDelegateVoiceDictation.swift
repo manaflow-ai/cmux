@@ -1,32 +1,17 @@
 import AppKit
-import CmuxSettings
 
-// Composition and focus resolution for voice dictation. The stored
-// `voiceDictationCoordinator` property lives in AppDelegate.swift; this
-// extension keeps everything else out of the god file.
+// Composition and focus resolution for voice dictation. The runtime is owned
+// by the SwiftUI composition root; this extension keeps focus resolution out
+// of the AppDelegate god file.
 extension AppDelegate {
-    func makeVoiceDictationCoordinator() -> VoiceDictationCoordinator {
-        VoiceDictationCoordinator(
-            catalog: settingsRuntime?.catalog ?? SettingCatalog(),
-            focusedTerminalPanel: { [weak self] in
-                self?.voiceDictationFocusedTerminalPanel()
-            }
-        )
-    }
-
     /// Resolves the focused terminal panel for the key window, mirroring
     /// the multi-window resolution used by other text-insertion features.
     ///
     /// Fails closed when a non-main window (Settings, a detached panel) is key,
-    /// rather than typing into a terminal the user is not looking at. If no key
-    /// window exists during startup, the app-level fallback remains available.
+    /// or when no key window exists, rather than typing into a terminal the
+    /// user is not looking at.
     func voiceDictationFocusedTerminalPanel() -> TerminalPanel? {
-        guard let window = NSApp.keyWindow else {
-            // There is no window-owned focus state to consult in this narrow
-            // startup/test state; preserve the app-level fallback while still
-            // projecting a remote-tmux container to its active input pane.
-            return tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel
-        }
+        guard let window = NSApp.keyWindow else { return nil }
 
         // The focus controller is authoritative even while AppKit's first
         // responder is still a stale main-terminal view (a common transition

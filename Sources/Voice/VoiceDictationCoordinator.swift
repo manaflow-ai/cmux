@@ -20,7 +20,11 @@ final class VoiceDictationCoordinator {
     private let catalog: SettingCatalog
     private let defaults: UserDefaults
     private let controller: DictationController
-    private let hud: VoiceDictationHUDController
+    private lazy var hud = VoiceDictationHUDController(
+        controller: controller,
+        stopAction: { [weak self] in self?.stopFromHUD() }
+    )
+    private var enabledObserver: NSObjectProtocol?
 
     init(
         catalog: SettingCatalog,
@@ -42,11 +46,25 @@ final class VoiceDictationCoordinator {
             }
         )
         self.controller = controller
-        self.hud = VoiceDictationHUDController(controller: controller)
         controller.failureHandler = { [weak self] failure in
             self?.presentFailure(failure)
         }
+        enabledObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.stopIfDisabled()
+            }
+        }
         hud.activate()
+    }
+
+    deinit {
+        if let enabledObserver {
+            NotificationCenter.default.removeObserver(enabledObserver)
+        }
     }
 
     /// Handles the Toggle Voice Dictation shortcut.
@@ -67,6 +85,19 @@ final class VoiceDictationCoordinator {
         }
         controller.start()
         return true
+    }
+
+    /// Stops an active session from the HUD through the same coordinator-owned
+    /// action path used by the keyboard shortcut.
+    func stopFromHUD() {
+        guard controller.isActive else { return }
+        _ = handleShortcutToggle()
+    }
+
+    private func stopIfDisabled() {
+        guard controller.isActive,
+              !catalog.voice.dictationEnabled.value(in: defaults) else { return }
+        controller.stop()
     }
 
     private func presentSetupDialog() {

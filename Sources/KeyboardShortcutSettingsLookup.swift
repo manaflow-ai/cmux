@@ -3,6 +3,12 @@ import CmuxSettingsUI
 import Foundation
 
 extension KeyboardShortcutSettings {
+    private static let legacyDefaultResolutionCache = KeyboardShortcutLegacyResolutionCache()
+
+    static func invalidateLegacyDefaultResolutionCache() {
+        legacyDefaultResolutionCache.invalidate()
+    }
+
     static func shortcutIfBound(for action: Action) -> StoredShortcut? {
         #if DEBUG
         shortcutLookupObserver?(action)
@@ -23,6 +29,15 @@ extension KeyboardShortcutSettings {
             || (action == .toggleVoiceDictation && !hasExplicitShortcutOverride(for: action)),
            resolvedShortcut == action.defaultShortcut,
            configuredShortcut != resolvedShortcut {
+            if action == .toggleVoiceDictation {
+                let isSuppressed = legacyDefaultResolutionCache.value {
+                    defaultShortcutResolvingLegacyConflicts(
+                        for: action,
+                        explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:)
+                    ) == nil
+                }
+                return isSuppressed ? nil : resolvedShortcut
+            }
             return defaultShortcutResolvingLegacyConflicts(
                 for: action,
                 explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:)

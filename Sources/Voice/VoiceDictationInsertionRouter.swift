@@ -59,17 +59,20 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     func beginSession() async -> Bool {
         let responder = NSApp.keyWindow?.firstResponder
         let textView = responder as? NSTextView
-        let fieldEditorOwner = textView?.isFieldEditor == true
-            ? textView?.delegate as? NSTextField
-            : nil
+        let directTextField = responder as? NSTextField
+        let fieldEditorOwner = textView.flatMap(Self.verifiedFieldEditorOwner)
+        let isUnverifiedFieldEditor = textView?.isFieldEditor == true
+            && fieldEditorOwner == nil
         let isSecureNativeInput = responder is NSSecureTextField
             || fieldEditorOwner is NSSecureTextField
         let webView = (responder as? NSView).flatMap(Self.enclosingWebView(of:))
         let terminalPanel = focusedTerminalPanel()
+        let nativeTextView = textView ?? directTextField?.currentEditor() as? NSTextView
         let nativeTextInputIsEditable = webView == nil
-            && textView?.isEditable == true
+            && !isUnverifiedFieldEditor
+            && (textView?.isEditable == true
+                || (directTextField?.isEditable == true && nativeTextView != nil))
             && !isSecureNativeInput
-            && (textView?.isFieldEditor != true || fieldEditorOwner != nil)
         let webViewIsEditable = if let webView {
             await Self.pinWebViewEditableTarget(webView)
         } else {
@@ -82,14 +85,17 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
             // A browser responder is an exclusive focus domain. If its active
             // element is read-only, secure, or otherwise rejected by the
             // probe, fail closed instead of typing into a stale workspace PTY.
-            hasFocusedTerminalSurface: webView == nil && terminalPanel != nil
+            hasFocusedTerminalSurface: webView == nil
+                && !isUnverifiedFieldEditor
+                && terminalPanel != nil
         ) else { return false }
 
         activeRoute = route
         switch route {
         case .nativeTextResponder:
-            pinnedTextView = textView
+            pinnedTextView = nativeTextView
             pinnedTextField = fieldEditorOwner
+                ?? (directTextField?.isEditable == true ? directTextField : nil)
         case .webViewEditable:
             pinnedWebView = webView
         case .terminalSurface:
@@ -174,6 +180,38 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         while let candidate = current {
             if let webView = candidate as? WKWebView { return webView }
             current = candidate.superview
+        }
+        return nil
+    }
+
+    /// Resolves a field editor's owner through the live `currentEditor()`
+    /// relationship. A field editor's delegate is commonly an external
+    /// delegate object, so treating the delegate as the owning field can route
+    /// dictation into a terminal or misclassify secure fields.
+    private static func verifiedFieldEditorOwner(_ editor: NSTextView) -> NSTextField? {
+        guard editor.isFieldEditor else { return nil }
+
+        if let owner = cmuxFieldEditorOwnerView(editor) as? NSTextField,
+           owner.currentEditor() === editor {
+            return owner
+        }
+
+        guard let root = editor.window?.contentView else { return nil }
+        return findTextFieldOwningEditor(editor, in: root)
+    }
+
+    private static func findTextFieldOwningEditor(
+        _ editor: NSTextView,
+        in view: NSView
+    ) -> NSTextField? {
+        if let field = view as? NSTextField,
+           field.currentEditor() === editor {
+            return field
+        }
+        for subview in view.subviews {
+            if let owner = findTextFieldOwningEditor(editor, in: subview) {
+                return owner
+            }
         }
         return nil
     }

@@ -5,7 +5,8 @@ import SwiftUI
 /// recording dot, the live transcript (volatile tail included), and a
 /// click-to-stop button.
 struct VoiceDictationHUDView: View {
-    let controller: DictationController
+    let snapshot: VoiceDictationHUDSnapshot
+    let stopAction: @MainActor () -> Void
 
     @State private var pulsing = false
 
@@ -25,7 +26,7 @@ struct VoiceDictationHUDView: View {
             }
             .frame(minWidth: 130, maxWidth: 360, alignment: .leading)
             Button {
-                controller.toggle()
+                stopAction()
             } label: {
                 Image(systemName: "stop.circle.fill")
                     .font(.system(size: 16))
@@ -59,10 +60,10 @@ struct VoiceDictationHUDView: View {
             )
     }
 
-    private var isListening: Bool { controller.phase == .listening }
+    private var isListening: Bool { snapshot.phase == .listening }
 
     private var statusText: String {
-        switch controller.phase {
+        switch snapshot.phase {
         case .requestingAuthorization:
             return String(
                 localized: "voice.hud.status.requestingAccess",
@@ -82,7 +83,5 @@ struct VoiceDictationHUDView: View {
         }
     }
 
-    private var transcriptTail: String {
-        String(controller.transcript.displayText.suffix(60))
-    }
+    private var transcriptTail: String { snapshot.transcriptTail }
 }
