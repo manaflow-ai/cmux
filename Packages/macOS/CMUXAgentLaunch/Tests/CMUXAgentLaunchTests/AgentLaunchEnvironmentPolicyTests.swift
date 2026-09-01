@@ -50,6 +50,37 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected == ["NODE_OPTIONS": nodeOptions])
     }
 
+    @Test(
+        "Drops a cmux preload written in any --require spelling, with its paired heap cap",
+        arguments: [
+            "--require=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096",
+            "--require /tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size 4096",
+            "-r /tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096",
+            "-r=/tmp/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size 4096",
+        ]
+    )
+    func dropsPreloadInEverySpelling(injected: String) {
+        // A persisted environment can carry either spelling, and a surviving dead preload is the
+        // MODULE_NOT_FOUND crash this mechanism exists to prevent.
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["NODE_OPTIONS": "\(injected) --trace-warnings"],
+            kind: "claude"
+        )
+
+        #expect(selected == ["NODE_OPTIONS": "--trace-warnings"])
+    }
+
+    @Test("Keeps a caller preload written in the space-separated form")
+    func keepsCallerPreloadInSpaceForm() {
+        let nodeOptions = "--require /opt/vendor/instrument.cjs --trace-warnings"
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["NODE_OPTIONS": nodeOptions],
+            kind: "claude"
+        )
+
+        #expect(selected == ["NODE_OPTIONS": nodeOptions])
+    }
+
     @Test("Keeps a heap cap the caller chose while dropping the one cmux injected")
     func keepsCallerHeapCapAndDropsInjectedOne() {
         let modulePath = "/Users/someone/.local/state/cmux/node-options/restore-node-options.cjs"

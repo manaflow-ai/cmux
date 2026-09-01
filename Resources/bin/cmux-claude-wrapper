@@ -885,10 +885,9 @@ cmux_node_options_dir() {
 # the name and tail checks only recognise copies left by another process or an older build. Only
 # the --require=<path> form is checked; cmux writes no other. Mirrors
 # ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath — keep the two in step.
-is_cmux_restore_module_require() {
-    local token="$1"
-    [[ "$token" == --require=*/"$CMUX_NODE_OPTIONS_MODULE_NAME" ]] || return 1
-    local module_path="${token#--require=}"
+is_cmux_restore_module_path() {
+    local module_path="$1"
+    [[ "$module_path" == */"$CMUX_NODE_OPTIONS_MODULE_NAME" ]] || return 1
     local parent_dir="${module_path%/*}"
     if [[ -n "${CMUX_NODE_OPTIONS_ACTIVE_DIR:-}" && "$parent_dir" == "$CMUX_NODE_OPTIONS_ACTIVE_DIR" ]]; then
         return 0
@@ -899,6 +898,26 @@ is_cmux_restore_module_require() {
         return 0
     fi
     [[ "$parent_dir" == */"$CMUX_NODE_OPTIONS_STATE_TAIL" ]]
+}
+
+# Tokens occupied by a cmux-owned --require at this position, or 0. Both --require=<path> and
+# --require <path> (plus the -r spellings) count: a persisted launch environment can carry either,
+# and missing the space-separated one leaves a dead preload in NODE_OPTIONS — the very failure
+# this mechanism exists to avoid.
+cmux_owned_require_width() {
+    local token="${1:-}"
+    local next="${2:-}"
+    case "$token" in
+        --require=*|-r=*)
+            if is_cmux_restore_module_path "${token#*=}"; then printf 1; else printf 0; fi
+            ;;
+        --require|-r)
+            if [[ -n "$next" ]] && is_cmux_restore_module_path "$next"; then printf 2; else printf 0; fi
+            ;;
+        *)
+            printf 0
+            ;;
+    esac
 }
 
 # Resolved once: the predicate above runs per token, and this never changes within a launch.
@@ -954,7 +973,8 @@ merge_node_options() {
     local -a filtered=()
     local -a tokens=()
     local token
-    local skip_next=0
+    local index=0
+    local owned_require_width
 
     if [[ -z "$module_path" ]]; then
         printf '%s' "$existing"
@@ -962,22 +982,23 @@ merge_node_options() {
     fi
 
     read -r -a tokens <<<"$existing"
-    for token in "${tokens[@]}"; do
-        if (( skip_next )); then
-            skip_next=0
-            continue
-        fi
+    while (( index < ${#tokens[@]} )); do
+        token="${tokens[$index]}"
         if [[ "$token" == "--max-old-space-size" ]]; then
-            skip_next=1
+            index=$((index + 2))
             continue
         fi
         if [[ "$token" == --max-old-space-size=* ]]; then
+            index=$((index + 1))
             continue
         fi
-        if is_cmux_restore_module_require "$token"; then
+        owned_require_width="$(cmux_owned_require_width "$token" "${tokens[$((index + 1))]:-}")"
+        if (( owned_require_width > 0 )); then
+            index=$((index + owned_require_width))
             continue
         fi
         filtered+=("$token")
+        index=$((index + 1))
     done
 
     if (( ${#filtered[@]} == 0 )); then
@@ -994,6 +1015,7 @@ normalize_node_options_for_restore() {
     local -a normalized=()
     local token
     local index=0
+    local owned_require_width
 
     read -r -a tokens <<<"$existing"
     while (( index < ${#tokens[@]} )); do
@@ -1003,8 +1025,9 @@ normalize_node_options_for_restore() {
             index=$((index + 2))
             continue
         fi
-        if is_cmux_restore_module_require "$token"; then
-            index=$((index + 1))
+        owned_require_width="$(cmux_owned_require_width "$token" "${tokens[$((index + 1))]:-}")"
+        if (( owned_require_width > 0 )); then
+            index=$((index + owned_require_width))
             # cmux writes the restore module and its heap cap as a pair, so a cap sitting right
             # after it is cmux's own. Restoring that to children would hand them cmux's 4GB as if
             # the caller had asked for it; a cap the caller chose sits elsewhere and survives.

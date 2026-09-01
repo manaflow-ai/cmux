@@ -89,6 +89,29 @@ public struct ClaudeNodeOptionsRestoreModule: Sendable {
         return parent.pathComponents.suffix(stateDirectoryTail.count).elementsEqual(stateDirectoryTail)
     }
 
+    /// How many tokens a cmux-owned `--require` occupies at `index`, or `0` when the token there
+    /// is not one.
+    ///
+    /// Both `--require=<path>` and `--require <path>` (and the `-r` spellings) have to be
+    /// recognised: a persisted launch environment can carry either shape, and missing the
+    /// space-separated one leaves a dead preload in `NODE_OPTIONS` — the failure this whole
+    /// mechanism exists to avoid.
+    public static func ownedRequireTokenWidth(
+        _ tokens: [String],
+        index: Int,
+        moduleDirectory: URL? = nil
+    ) -> Int {
+        guard index < tokens.count else { return 0 }
+        let token = tokens[index]
+
+        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
+            let path = String(token.dropFirst(prefix.count))
+            return isCmuxOwnedPath(path, moduleDirectory: moduleDirectory) ? 1 : 0
+        }
+        guard token == "--require" || token == "-r", index + 1 < tokens.count else { return 0 }
+        return isCmuxOwnedPath(tokens[index + 1], moduleDirectory: moduleDirectory) ? 2 : 0
+    }
+
     /// Whether the token at `index` is the heap cap cmux injects, rather than one the caller chose.
     public static func isInjectedHeapCap(_ tokens: [String], index: Int) -> Bool {
         guard index < tokens.count else { return false }
@@ -294,15 +317,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             }
             shouldDropInjectedHeapCap = false
 
-            if isRequireOption(token), index + 1 < tokens.count,
-               ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(path) {
-                index += 1
+            let ownedRequireWidth = ClaudeNodeOptionsRestoreModule.ownedRequireTokenWidth(tokens, index: index)
+            if ownedRequireWidth > 0 {
+                index += ownedRequireWidth
                 shouldDropInjectedHeapCap = true
                 continue
             }
@@ -322,17 +339,6 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             return nil
         }
         return trimmed
-    }
-
-    private func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
     }
 
 }

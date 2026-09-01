@@ -2733,6 +2733,57 @@ def test_live_socket_keeps_caller_preload_that_resembles_the_cmux_location(failu
     )
 
 
+def test_live_socket_replaces_reaped_module_in_every_require_spelling(failures: list[str]) -> None:
+    """A persisted environment can carry `--require <path>` as well as `--require=<path>`.
+
+    Missing the space-separated spelling leaves the dead preload in NODE_OPTIONS, which is the
+    MODULE_NOT_FOUND crash this whole mechanism exists to prevent.
+    """
+    for spelling in ("--require={path}", "--require {path}", "-r {path}", "-r={path}"):
+        with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-spelling-") as td:
+            sandbox = Path(td)
+            reaped = sandbox / "reaped" / "cmux-claude-node-options" / "restore-node-options.cjs"
+            module_dir = sandbox / "state" / "cmux" / "node-options"
+            injected = spelling.format(path=reaped)
+            code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+                socket_state="live",
+                argv=["hello"],
+                node_options=f"{injected} --trace-warnings",
+                node_options_dir=str(module_dir),
+            )
+            expect(code == 0, f"spelling {spelling!r}: wrapper exited {code}: {stderr}", failures)
+            expect(
+                str(reaped) not in node_options,
+                f"spelling {spelling!r}: dead preload survived, got {node_options!r}",
+                failures,
+            )
+            expect(
+                child_node_options == "--trace-warnings",
+                f"spelling {spelling!r}: expected only the caller's flags in the child, got {child_node_options!r}",
+                failures,
+            )
+
+
+def test_live_socket_keeps_caller_preload_in_space_separated_form(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-space-caller-") as td:
+        sandbox = Path(td)
+        caller_preload = sandbox / "vendor" / "instrument.cjs"
+        caller_preload.parent.mkdir(parents=True, exist_ok=True)
+        caller_preload.write_text("// the caller's own preload\n", encoding="utf-8")
+        code, _, _, stderr, _, _, _, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=f"--require {caller_preload} --trace-warnings",
+            node_options_dir=str(sandbox / "state" / "cmux" / "node-options"),
+        )
+    expect(code == 0, f"space-form caller preload: wrapper exited {code}: {stderr}", failures)
+    expect(
+        child_node_options == f"--require {caller_preload} --trace-warnings",
+        f"space-form caller preload: expected it preserved, got {child_node_options!r}",
+        failures,
+    )
+
+
 def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="missing",
@@ -2910,6 +2961,8 @@ def main() -> int:
     test_live_socket_creates_restore_module_directory_private(failures)
     test_live_socket_does_not_weaken_an_existing_module_directory(failures)
     test_live_socket_keeps_caller_preload_that_resembles_the_cmux_location(failures)
+    test_live_socket_replaces_reaped_module_in_every_require_spelling(failures)
+    test_live_socket_keeps_caller_preload_in_space_separated_form(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)

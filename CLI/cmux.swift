@@ -23286,17 +23286,17 @@ struct CMUXCLI {
         return root
     }
 
-    /// A `--require` for a cmux-written restore module, including one an older build left under
-    /// `$TMPDIR`. That path may already be reaped, so it must never be carried forward into
-    /// `NODE_OPTIONS` or into the saved original.
-    private func isClaudeNodeOptionsRestoreModuleRequire(_ token: String) -> Bool {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath(
-                String(token.dropFirst(prefix.count)),
-                moduleDirectory: claudeNodeOptionsDirectory()
-            )
-        }
-        return false
+    /// Tokens occupied by a `--require` for a cmux-written restore module at `index`, or `0`.
+    ///
+    /// Such a path may already be reaped, so it must never be carried forward into `NODE_OPTIONS`
+    /// or into the saved original. Both the `=` and space-separated spellings count: a persisted
+    /// launch environment can carry either.
+    private func claudeNodeOptionsRestoreModuleRequireWidth(_ tokens: [String], index: Int) -> Int {
+        ClaudeNodeOptionsRestoreModule.ownedRequireTokenWidth(
+            tokens,
+            index: index,
+            moduleDirectory: claudeNodeOptionsDirectory()
+        )
     }
 
     private func claudeNodeOptionsDirectory() -> URL {
@@ -30868,8 +30868,9 @@ struct CMUXCLI {
                 index += 1
                 continue
             }
-            if isClaudeNodeOptionsRestoreModuleRequire(token) {
-                index += 1
+            let ownedRequireWidth = claudeNodeOptionsRestoreModuleRequireWidth(tokens, index: index)
+            if ownedRequireWidth > 0 {
+                index += ownedRequireWidth
                 continue
             }
             filtered.append(token)
@@ -30900,8 +30901,9 @@ struct CMUXCLI {
                 index += 2
                 continue
             }
-            if isClaudeNodeOptionsRestoreModuleRequire(token) {
-                index += 1
+            let ownedRequireWidth = claudeNodeOptionsRestoreModuleRequireWidth(tokens, index: index)
+            if ownedRequireWidth > 0 {
+                index += ownedRequireWidth
                 shouldDropInjectedHeapCap = true
                 continue
             }
