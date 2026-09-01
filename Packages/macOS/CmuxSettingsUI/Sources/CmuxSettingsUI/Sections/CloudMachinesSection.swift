@@ -18,7 +18,7 @@ public struct CloudMachinesSection: View {
     public var body: some View {
         if hostActions.isCloudMachinesAvailable {
             SettingsSectionHeader(
-                String(localized: "settings.section.cloudMachines", defaultValue: "Cloud Machines"),
+                String(localized: "settings.section.cloudMachines", defaultValue: "Cloud"),
                 section: .cloudMachines
             )
             SettingsCard {

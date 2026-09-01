@@ -97,6 +97,7 @@ struct WorkstreamEventTests {
     func codexLifecycleFeedEventsDecode() throws {
         let cases: [(String, WorkstreamEvent.HookEventName)] = [
             ("PostToolUse", .postToolUse),
+            ("PostToolUseFailure", .postToolUseFailure),
             ("PreCompact", .preCompact),
             ("PostCompact", .postCompact),
             ("SubagentStart", .subagentStart),

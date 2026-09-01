@@ -19,6 +19,7 @@ extension MobileWorkspacePreview {
             previewAt: remote.previewAt.map { Date(timeIntervalSince1970: $0) },
             lastActivityAt: remote.lastActivityAt.map { Date(timeIntervalSince1970: $0) },
             hasUnread: remote.hasUnread ?? false,
+            unreadCount: remote.unreadCount,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             },
@@ -51,7 +52,10 @@ extension MobileWorkspaceGroupPreview {
             isCollapsed: remote.isCollapsed,
             isPinned: remote.isPinned,
             iconSymbol: remote.iconSymbol,
-            anchorWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.anchorWorkspaceID)
+            anchorWorkspaceID: remote.anchorWorkspaceID.map {
+                MobileWorkspacePreview.ID(rawValue: $0)
+            },
+            isEmpty: remote.isEmpty
         )
     }
 }

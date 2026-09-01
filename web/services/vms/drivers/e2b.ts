@@ -1,36 +1,80 @@
 import { Sandbox } from "e2b";
+import { randomBytes } from "node:crypto";
 import {
   ProviderError,
   type AttachEndpoint,
   type AttachOptions,
+  type AttachTransport,
+  type CmuxRemoteApprovalResult,
+  type CmuxRemoteAttachOptions,
+  type CmuxRemoteEndpoint,
   type CreateOptions,
   type ExecResult,
   type SSHEndpoint,
-  type WebSocketPtyEndpoint,
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
 } from "./types";
 import { withVmSpan } from "../telemetry";
 import {
-  isReusableRpcLease,
-  ensurePrivateDirectoryCommand,
-  leaseClientMetadata,
-  makeWebSocketAttachmentId,
-  makeWebSocketLease,
-  shellArgValue,
-  shellQuote,
-  type ReusableRpcLease,
-} from "./wsLease";
+  CMUX_TUI_INSTALL_TIMEOUT_MS,
+  CMUX_TUI_PORT,
+  CMUX_TUI_SESSION,
+  approveCmuxTuiEnrollment,
+  cmuxTuiDaemonBuild,
+  cmuxTuiDaemonCommand,
+  cmuxTuiInstallCommand,
+  cmuxTuiPinCheckCommand,
+  isCmuxTuiDeviceEnrolled,
+  mintCmuxTuiInvitation,
+  resolveCmuxTuiSource,
+  waitForCmuxTuiReady,
+  type CmuxTuiInvoke,
+} from "./cmuxTuiDaemon";
 
-const CMUXD_WS_PORT = 7777;
-const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
-const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
-const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
-const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
-const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
-const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
+// E2B sandboxes attach through the cmux-tui remote daemon (transport `cmux-remote`,
+// docs/cloud-cmux-tui-daemon.md), the machine's only session daemon — same model as
+// Blaxel. `create` installs the pinned files.cmux.com build (sha256-verified, fetched
+// by the sandbox itself) and starts the daemon as a background command; E2B
+// pause/resume snapshots memory, so the daemon survives lifecycle transitions, and
+// every attach re-verifies pin + liveness (ensureCmuxTuiRunning) exactly like the
+// Blaxel driver.
+//
+// Ingress: E2B proxies `https://<port>-<sandbox-id>.e2b.app` per port. Its only
+// request auth is the `e2b-traffic-access-token` HEADER, which the cmux-tui dialer
+// cannot send (it dials the route verbatim, adding only a User-Agent), so sandboxes
+// are created with public port traffic and the daemon's Noise device enrollment is
+// the session gate — the same trust model as Blaxel's raw preview, where the route
+// token "only gates reachability". Sandboxes created by the old cmuxd-remote driver
+// (allowPublicTraffic: false, no cmux-tui) cannot serve this transport and need
+// recreation.
+const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
+const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+// envd is E2B's in-VM control plane (process exec + filesystem): the SDK reaches
+// it through the SAME public port proxy on 49983, so an inbound firewall MUST
+// keep it open or every commands.run/attach breaks (researched live 2026-08-28:
+// ss shows `envd` listening on *:49983; a default-deny INPUT that allows 49983 +
+// 1337 kept control and attach alive while a port-3000 dev server became
+// unreachable externally). ConnectionConfig.envdPort in the e2b SDK is the same
+// constant.
+export const ENVD_CONTROL_PORT = 49983;
+// A dedicated INPUT chain that ends in DROP, hooked once. Reversible (flush the
+// chain) and idempotent (re-hook only if absent), unlike flipping INPUT's policy.
+// allowPublicTraffic exposes every listening port at `<port>-<id>.e2b.app`; this
+// closes all of them except the cmux-tui daemon (1337) and envd (49983), so a
+// user's dev server on 3000 is not silently world-reachable.
+export const INBOUND_FIREWALL_COMMAND = [
+  "command -v iptables >/dev/null 2>&1 || exit 0",
+  "iptables -w -N CMUX_FW 2>/dev/null || iptables -w -F CMUX_FW",
+  "iptables -w -A CMUX_FW -i lo -j ACCEPT",
+  "iptables -w -A CMUX_FW -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+  "iptables -w -A CMUX_FW -p icmp -j ACCEPT",
+  `iptables -w -A CMUX_FW -p tcp --dport ${ENVD_CONTROL_PORT} -j ACCEPT`,
+  `iptables -w -A CMUX_FW -p tcp --dport ${CMUX_TUI_PORT} -j ACCEPT`,
+  "iptables -w -A CMUX_FW -j DROP",
+  "iptables -w -C INPUT -j CMUX_FW 2>/dev/null || iptables -w -I INPUT 1 -j CMUX_FW",
+].join(" && ");
 
 export class E2BProvider implements VMProvider {
   readonly id = "e2b" as const;
@@ -49,11 +93,24 @@ export class E2BProvider implements VMProvider {
       },
       async (span) => {
         try {
+          // options.envs carries the coderouter model-plane env minted at
+          // create (see CreateOptions.envs); it goes to the provider call
+          // only, never into persisted handle metadata.
           const sandbox = await Sandbox.create(image, {
-            envs: DEFAULT_SANDBOX_ENVS,
-            network: { allowPublicTraffic: false },
+            envs: { ...DEFAULT_SANDBOX_ENVS, ...(options.envs ?? {}) },
+            // Public port traffic: see the ingress note at the top of this file.
+            network: { allowPublicTraffic: true },
           });
           span.setAttribute("cmux.vm.id", sandbox.sandboxId);
+          try {
+            await this.bootstrapCmuxTui(sandbox);
+          } catch (err) {
+            // A sandbox that failed to bootstrap must not survive as an orphan.
+            await Sandbox.kill(sandbox.sandboxId).catch((cleanupErr) => {
+              console.error(`[e2b] create rollback failed; sandbox ${sandbox.sandboxId} may be orphaned`, cleanupErr);
+            });
+            throw err;
+          }
           return {
             provider: "e2b",
             providerVmId: sandbox.sandboxId,
@@ -62,7 +119,7 @@ export class E2BProvider implements VMProvider {
             createdAt: Date.now(),
           };
         } catch (err) {
-          throw new ProviderError("e2b", `create(${image}) failed`, err);
+          throw err instanceof ProviderError ? err : new ProviderError("e2b", `create(${image}) failed`, err);
         }
       },
     );
@@ -157,9 +214,13 @@ export class E2BProvider implements VMProvider {
       async (span) => {
         const sbx = await Sandbox.create(snapshotId, {
           envs: DEFAULT_SANDBOX_ENVS,
-          network: { allowPublicTraffic: false },
+          network: { allowPublicTraffic: true },
         });
         span.setAttribute("cmux.vm.id", sbx.sandboxId);
+        // The snapshot carries the installed binary but boots with no processes;
+        // start the daemon now so the machine is attach-ready. Failures are left
+        // to the attach path's ensureCmuxTuiRunning rather than failing restore.
+        await this.ensureCmuxTuiRunning(sbx).catch(() => undefined);
         return {
           provider: "e2b",
           providerVmId: sbx.sandboxId,
@@ -171,105 +232,82 @@ export class E2BProvider implements VMProvider {
     );
   }
 
+  /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
+  readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
+
+  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
+    void options;
+    throw new ProviderError(
+      "e2b",
+      `openAttach(${vmId}) is not supported: E2B machines attach through the cmux-tui remote daemon (transport cmux-remote).`,
+    );
+  }
+
   async openSSH(vmId: string): Promise<SSHEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_ssh",
       { "cmux.vm.provider": "e2b", "cmux.vm.operation": "open_ssh", "cmux.vm.id": vmId },
       async () => {
-        // E2B sandboxes expose ports only via https://<port>-<sandbox-id>.e2b.app — they don't
-        // route raw TCP/22 from outside, so mac client can't SSH directly into an E2B VM.
-        // cmux's interactive paths (`cmux vm new` shell, `cmux vm new --workspace`) require
-        // direct SSH + cmuxd-remote, so we surface a user-facing error. Use --provider freestyle
-        // for interactive work, or `cmux vm new --provider e2b --detach` for scratch exec.
+        // E2B exposes ports only through its HTTPS proxy — no raw TCP/22 — so SSH
+        // can never be served. Machines attach through the cmux-tui remote daemon.
         throw new ProviderError(
           "e2b",
-          "E2B sandboxes don't support interactive attach (no raw TCP egress). " +
-            "Use `cmux vm new` without `--provider e2b` (Blaxel is the default), " +
-            "or `cmux vm new --provider e2b --detach` to create without attach, " +
-            "then `cmux vm exec <id> -- <cmd>`.",
+          "E2B machines do not support SSH (no raw TCP ingress); attach through the cmux-tui remote daemon (transport cmux-remote).",
         );
       },
     );
   }
 
-  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
-    const endpoint = await this.openWebSocketPty(vmId, options);
-    if (options?.requireDaemon && !endpoint.daemon) {
-      throw new ProviderError(
-        "e2b",
-        `openAttach(${vmId}) requires a cmuxd RPC endpoint, but this sandbox image only exposes the PTY WebSocket. Rebuild it with the current cmuxd-remote image.`,
-      );
-    }
-    return endpoint;
-  }
-
-  async openWebSocketPty(vmId: string, options?: AttachOptions): Promise<WebSocketPtyEndpoint> {
+  async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
     return withVmSpan(
-      "cmux.vm.provider.open_websocket_pty",
-      { "cmux.vm.provider": "e2b", "cmux.vm.operation": "open_websocket_pty", "cmux.vm.id": vmId },
+      "cmux.vm.provider.open_cmux_remote",
+      { "cmux.vm.provider": "e2b", "cmux.vm.operation": "open_cmux_remote", "cmux.vm.id": vmId },
       async (span) => {
         try {
           const sandbox = await Sandbox.connect(vmId);
-          const trafficAccessToken = sandbox.trafficAccessToken?.trim();
-          if (!trafficAccessToken) {
-            throw new Error("sandbox is missing a traffic access token; recreate it with the cmuxd WebSocket image");
+          await this.ensureCmuxTuiRunning(sandbox);
+          const invoke = this.cmuxTuiInvoke(sandbox);
+          // The E2B proxy has no URL-carriable ingress auth (header-only), so the
+          // route is the bare public host and this token exists only for the
+          // lease ledger; the daemon's Noise enrollment is the session gate.
+          const token = `cmux-e2b-route-${randomBytes(32).toString("hex")}`;
+          const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
+          const route = `wss://${sandbox.getHost(CMUX_TUI_PORT)}/v1/link`;
+          let invitation: CmuxRemoteEndpoint["invitation"];
+          const enrolled = options?.deviceFingerprint
+            ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
+            : false;
+          if (!enrolled) {
+            invitation = await mintCmuxTuiInvitation(invoke, "e2b", vmId);
           }
-          const service = await readWebSocketService(sandbox);
-          const pty = makeWebSocketLease("e2b", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
-          const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("e2b");
-          const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
-          const commands = [
-            ensurePrivateDirectoryCommand(service.ptyLeasePath),
-            `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(service.ptyLeasePath)}`,
-            `chmod 600 ${shellQuote(service.ptyLeasePath)}`,
-          ];
-          let daemon: ReusableRpcLease | null = null;
-          let daemonReused = false;
-          if (service.rpcLeasePath) {
-            const existingDaemon = await readReusableRpcLease(sandbox, service.rpcLeasePath);
-            const newDaemon = existingDaemon
-              ? null
-              : makeWebSocketLease("e2b", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
-            daemon = existingDaemon ?? newDaemon!;
-            daemonReused = !!existingDaemon;
-            if (newDaemon) {
-              const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
-              const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
-              commands.push(
-                ensurePrivateDirectoryCommand(service.rpcLeasePath),
-                `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(service.rpcLeasePath)}`,
-                `chmod 600 ${shellQuote(service.rpcLeasePath)}`,
-                `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-                `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-              );
-            }
-          }
-          await sandbox.commands.run(commands.join(" && "), { timeoutMs: 30_000 });
-          span.setAttribute("cmux.vm.attach.transport", "websocket");
-          span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
-          span.setAttribute("cmux.vm.attach.daemon_available", !!daemon);
-          if (daemon) {
-            span.setAttribute("cmux.vm.attach.daemon_expires_at_unix", daemon.expiresAtUnix);
-            span.setAttribute("cmux.vm.attach.daemon_reused", daemonReused);
-          }
+          span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
+          const daemonBuild = await cmuxTuiDaemonBuild(invoke);
           return {
-            transport: "websocket",
-            url: `wss://${sandbox.getHost(CMUXD_WS_PORT)}/terminal`,
-            headers: { "e2b-traffic-access-token": trafficAccessToken },
-            token: pty.token,
-            sessionId: pty.sessionId,
-            attachmentId,
-            expiresAtUnix: pty.expiresAtUnix,
-            daemon: daemon ? {
-              url: `wss://${sandbox.getHost(CMUXD_WS_PORT)}/rpc`,
-              headers: { "e2b-traffic-access-token": trafficAccessToken },
-              token: daemon.token,
-              sessionId: daemon.sessionId,
-              expiresAtUnix: daemon.expiresAtUnix,
-            } : undefined,
+            transport: "cmux-remote",
+            route,
+            token,
+            expiresAtUnix,
+            session: CMUX_TUI_SESSION,
+            ...(daemonBuild ? { daemonBuild } : {}),
+            ...(invitation ? { invitation } : {}),
           };
         } catch (err) {
-          throw new ProviderError("e2b", `openWebSocketPty(${vmId}) failed`, err);
+          throw err instanceof ProviderError ? err : new ProviderError("e2b", `openCmuxRemote(${vmId}) failed`, err);
+        }
+      },
+    );
+  }
+
+  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+    return withVmSpan(
+      "cmux.vm.provider.approve_cmux_remote_enrollment",
+      { "cmux.vm.provider": "e2b", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
+      async () => {
+        try {
+          const sandbox = await Sandbox.connect(vmId);
+          return await approveCmuxTuiEnrollment(this.cmuxTuiInvoke(sandbox), "e2b", vmId, invitationId);
+        } catch (err) {
+          throw err instanceof ProviderError ? err : new ProviderError("e2b", `approveCmuxRemoteEnrollment(${vmId}) failed`, err);
         }
       },
     );
@@ -277,51 +315,85 @@ export class E2BProvider implements VMProvider {
 
   async revokeSSHIdentity(identityHandle: string): Promise<void> {
     void identityHandle;
-    // E2B doesn't mint per-session credentials — openSSH always throws — so there's
-    // nothing to revoke. Defined to satisfy VMProvider; never called against this driver.
+    // openSSH always throws, so there is never an identity to revoke.
   }
-}
 
-async function readWebSocketService(sandbox: Sandbox): Promise<{
-  ptyLeasePath: string;
-  rpcLeasePath: string | null;
-}> {
-  const result = await sandbox.commands.run(
-    "ps auxww | grep cmuxd-remote | grep -v grep || true",
-    { timeoutMs: 30_000 },
-  );
-  const stdout = result.stdout ?? "";
-  return {
-    ptyLeasePath:
-      shellArgValue(stdout, "--auth-lease-file")
-      ?? (stdout.includes(CMUXD_WS_LEGACY_PTY_LEASE_PATH)
-        ? CMUXD_WS_LEGACY_PTY_LEASE_PATH
-        : CMUXD_WS_PTY_LEASE_PATH),
-    rpcLeasePath: shellArgValue(stdout, "--rpc-auth-lease-file"),
-  };
-}
+  /** Installs the pinned binary and starts the daemon (fresh create). */
+  private async bootstrapCmuxTui(sandbox: Sandbox): Promise<void> {
+    const source = await resolveCmuxTuiSource("e2b");
+    const install = await this.rootExec(sandbox, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
+    if (install.exitCode !== 0) {
+      throw new ProviderError("e2b", `cmux-tui install in ${sandbox.sandboxId} failed: ${install.stderr || install.stdout}`);
+    }
+    await this.startCmuxTuiDaemon(sandbox);
+    await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "e2b", sandbox.sandboxId);
+    await this.applyInboundFirewall(sandbox);
+  }
 
-async function readReusableRpcLease(
-  sandbox: Sandbox,
-  rpcLeasePath: string,
-): Promise<ReusableRpcLease | null> {
-  const result = await sandbox.commands.run(
-    [
-      `test -s ${shellQuote(rpcLeasePath)}`,
-      `test -s ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-      `cat ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-    ].join(" && "),
-    { timeoutMs: 30_000 },
-  ).catch(() => null);
-  const raw = result?.stdout.trim();
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isReusableRpcLease(parsed)) return null;
-    const nowUnix = Math.floor(Date.now() / 1000);
-    if (parsed.expiresAtUnix <= nowUnix + CMUXD_WS_RPC_RENEW_BEFORE_SECONDS) return null;
-    return parsed;
-  } catch {
-    return null;
+  /**
+   * Close every externally reachable port except the cmux-tui daemon (1337)
+   * and envd (49983). allowPublicTraffic exposes every listener at
+   * `<port>-<id>.e2b.app`, so without this a user's dev server would be
+   * world-reachable. Best-effort: a firewall failure must not brick a machine
+   * whose daemon is already up, so it is logged, not thrown. Idempotent, so
+   * ensureCmuxTuiRunning re-asserts it after resume/restore.
+   */
+  private async applyInboundFirewall(sandbox: Sandbox): Promise<void> {
+    const result = await this.rootExec(sandbox, INBOUND_FIREWALL_COMMAND).catch(() => null);
+    if (!result || result.exitCode !== 0) {
+      console.error(
+        `[e2b] inbound firewall on ${sandbox.sandboxId} did not apply cleanly; ports other than ${CMUX_TUI_PORT}/${ENVD_CONTROL_PORT} may be publicly reachable`,
+        result?.stderr || result?.stdout || "",
+      );
+    }
+  }
+
+  /**
+   * Attach-time heal, mirroring the Blaxel driver: a running daemon is left
+   * alone; a dead one is restarted, reinstalling first when the binary is
+   * missing or a manifest pin change supersedes it. E2B pause/resume preserves
+   * processes (memory snapshot), so this is normally a no-op.
+   */
+  private async ensureCmuxTuiRunning(sandbox: Sandbox): Promise<void> {
+    const running = await this.rootExec(sandbox, "pgrep -f 'cmux-tui server start' >/dev/null 2>&1").catch(() => null);
+    if (running?.exitCode === 0) return;
+    const source = await resolveCmuxTuiSource("e2b");
+    const pinned = await this.rootExec(sandbox, cmuxTuiPinCheckCommand(source)).catch(() => null);
+    if (pinned?.exitCode !== 0) {
+      const install = await this.rootExec(sandbox, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
+      if (install.exitCode !== 0) {
+        throw new ProviderError("e2b", `cmux-tui install in ${sandbox.sandboxId} failed: ${install.stderr || install.stdout}`);
+      }
+    }
+    await this.startCmuxTuiDaemon(sandbox);
+    await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "e2b", sandbox.sandboxId);
+    // Re-assert the inbound firewall: a fresh restore boots with no rules, and
+    // a resume that somehow lost them is repaired here (idempotent).
+    await this.applyInboundFirewall(sandbox);
+  }
+
+  private async startCmuxTuiDaemon(sandbox: Sandbox): Promise<void> {
+    // A background command is E2B's process supervisor surface; there is no
+    // restart-on-failure flag, so attach-time ensureCmuxTuiRunning is the heal.
+    await sandbox.commands.run(cmuxTuiDaemonCommand(), {
+      background: true,
+      user: "root",
+      timeoutMs: 0,
+    });
+  }
+
+  /** Runs a command as root (the daemon's user; exec defaults to the template user). */
+  private async rootExec(sandbox: Sandbox, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
+    const r = await sandbox.commands.run(command, { timeoutMs, user: "root" }).catch((err: unknown) => {
+      // e2b throws CommandExitError on nonzero exit; unwrap it into an ExecResult.
+      if (err && typeof err === "object" && "exitCode" in err) return err as never;
+      throw err;
+    });
+    return { exitCode: r.exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  }
+
+  private cmuxTuiInvoke(sandbox: Sandbox): CmuxTuiInvoke {
+    return (args, timeoutMs) =>
+      this.rootExec(sandbox, `env HOME=/root /root/.cmux/bin/cmux-tui ${args}`, timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS);
   }
 }

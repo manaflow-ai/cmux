@@ -486,6 +486,59 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
     }
 
+    @Test func surfaceResumeGetRejectsPartialRestoreClaim() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.get",
+            params: ["claim_checkpoint_id": .string("checkpoint")]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "restore claim must be valid",
+            data: nil
+        ))
+    }
+
+    @Test func surfaceResumeGetForwardsAtomicClaimAndReportsOutcome() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let surfaceID = UUID()
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: surfaceID,
+            cleared: false,
+            binding: nil,
+            restoreRecord: nil,
+            resumeClaimed: false
+        ))
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.get",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "claim_checkpoint_id": .string("checkpoint"),
+                "claim_source": .string("agent-hook"),
+                "claim_updated_at": .double(42.5),
+            ]
+        ))
+
+        #expect(context.resumeGetClaim?.checkpointID == "checkpoint")
+        #expect(context.resumeGetClaim?.source == "agent-hook")
+        #expect(context.resumeGetClaim?.updatedAt == 42.5)
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected surface resume claim result")
+            return
+        }
+        #expect(payload["resume_claimed"] == .bool(false))
+    }
+
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -493,9 +546,13 @@ struct ControlCommandCoordinatorSurfaceTests {
         _ = coordinator.handle(ControlRequest(
             id: .int(1),
             method: "surface.resume.clear",
-            params: ["agent_session_ended": .bool(true)]
+            params: [
+                "agent_session_ended": .bool(true),
+                "expected_updated_at": .double(42.5),
+            ]
         ))
         #expect(context.resumeClearAgentSessionEnded == true)
+        #expect(context.resumeClearExpectedUpdatedAt == 42.5)
 
         _ = coordinator.handle(ControlRequest(
             id: .int(2),
