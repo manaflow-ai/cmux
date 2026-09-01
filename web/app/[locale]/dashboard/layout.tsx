@@ -1,9 +1,7 @@
-import { Suspense } from "react";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { isVaultEnabled } from "@/services/vault/config";
-import { DashboardSkeleton } from "./components/dashboard-skeleton";
 import { DashboardQueryProvider } from "./components/query-provider";
 import { DashboardShell } from "./dashboard-shell";
 
@@ -24,19 +22,17 @@ export default async function DashboardLayout({
   }
 
   return (
-    <Suspense fallback={<DashboardSkeleton />}>
-      <StackProvider app={getStackServerApp()}>
-        <StackTheme>
-          <DashboardQueryProvider>
-            {/* Keep the current tab mounted while fresh page data resolves.
-                The route has no loading.tsx boundary, so sibling tab
-                navigations keep this shell visible until the new page commits. */}
-            <DashboardShell vaultEnabled={isVaultEnabled()}>
-              {children}
-            </DashboardShell>
-          </DashboardQueryProvider>
-        </StackTheme>
-      </StackProvider>
-    </Suspense>
+    <StackProvider app={getStackServerApp()}>
+      <StackTheme>
+        <DashboardQueryProvider>
+          {/* Keep the current tab mounted while fresh page data resolves.
+              The route has no loading.tsx boundary, so sibling tab
+              navigations keep this shell visible until the new page commits. */}
+          <DashboardShell vaultEnabled={isVaultEnabled()}>
+            {children}
+          </DashboardShell>
+        </DashboardQueryProvider>
+      </StackTheme>
+    </StackProvider>
   );
 }
