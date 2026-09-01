@@ -68,6 +68,11 @@ public actor IrxPeerEngine {
     private var session: IrxClientSession?
     private var state: IrxSessionState = .idle
     private var dialTask: Task<IrxClientSession, any Error>?
+    /// Monotonic owner token for the dial slot. Cancelling a task does not
+    /// guarantee that its underlying transport stops before its waiter
+    /// resumes, so completion must prove it still owns the slot before it can
+    /// clear or adopt anything.
+    private var dialGeneration: UInt64 = 0
     private var redialTimer: Task<Void, Never>?
     private var terminationWatcher: Task<Void, Never>?
     private var backoff: Duration
@@ -147,8 +152,7 @@ public actor IrxPeerEngine {
             terminationWatcher = nil
             parkedCode = nil
             cooldownUntil = nil
-            dialTask?.cancel()
-            dialTask = nil
+            invalidateDial()
             if let previous {
                 Task {
                     await previous.connection.close(
@@ -160,7 +164,13 @@ public actor IrxPeerEngine {
         }
         if let dialTask {
             record("dial-joined", ["trigger": trigger])
-            return try await dialTask.value
+            let generation = dialGeneration
+            let joined = try await dialTask.value
+            guard dialGeneration == generation else {
+                await joined.connection.close(code: .explicitRedial, origin: .local)
+                throw CancellationError()
+            }
+            return joined
         }
         if !explicit, let cooldownUntil, ContinuousClock.now < cooldownUntil {
             // The scheduled redial owns the next attempt; fail fast instead
@@ -171,22 +181,31 @@ public actor IrxPeerEngine {
         redialTimer = nil
         setState(.connecting)
         record("dial-started", ["trigger": trigger])
+        dialGeneration &+= 1
+        let generation = dialGeneration
         let task = Task<IrxClientSession, any Error> {
             try await self.dialOnce()
         }
         dialTask = task
         do {
             let established = try await task.value
+            guard dialGeneration == generation else {
+                await established.connection.close(
+                    code: .explicitRedial, origin: .local)
+                throw CancellationError()
+            }
             dialTask = nil
             adopt(established)
             return established
         } catch let denial as IrxAdmissionDenied {
+            guard dialGeneration == generation else { throw denial }
             dialTask = nil
             parkedCode = denial.code.rawValue
             setState(.closed(code: denial.code.rawValue))
             record("dial-denied", ["code": denial.code.rawValue])
             throw denial
         } catch {
+            guard dialGeneration == generation else { throw error }
             dialTask = nil
             // Cancellation is always owner-driven (stop(), an explicit
             // replacement, or a hint-race redial); the canceller owns the
@@ -252,8 +271,7 @@ public actor IrxPeerEngine {
             return
         }
         record("hint-race-redial", ["trigger": trigger])
-        dialTask?.cancel()
-        dialTask = nil
+        invalidateDial()
         redialTimer?.cancel()
         redialTimer = nil
         cooldownUntil = nil
@@ -272,8 +290,7 @@ public actor IrxPeerEngine {
     public func stop(code: IrxCloseCode = .userRequested) async {
         redialTimer?.cancel()
         redialTimer = nil
-        dialTask?.cancel()
-        dialTask = nil
+        invalidateDial()
         terminationWatcher?.cancel()
         terminationWatcher = nil
         if let session {
@@ -387,6 +404,12 @@ public actor IrxPeerEngine {
         for continuation in stateContinuations.values {
             continuation.yield(next)
         }
+    }
+
+    private func invalidateDial() {
+        dialGeneration &+= 1
+        dialTask?.cancel()
+        dialTask = nil
     }
 
     private func removeStateContinuation(_ id: Int) {

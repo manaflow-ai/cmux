@@ -19,8 +19,21 @@ public actor IrxServerSessionRegistry {
     public func admit(
         deviceID: String,
         sessionID: String,
-        connection: IrxConnection
-    ) async {
+        connection: IrxConnection,
+        stillAuthorized: @escaping @Sendable (_ remoteEndpointIDHex: String) -> Bool = { _ in true }
+    ) async -> Bool {
+        // Admission and registration are separate async phases. Re-check the
+        // atomically readable list immediately before publishing the session
+        // so a directory revocation that lands between them cannot leave a
+        // newly admitted connection outside the enforcement sweep.
+        guard stillAuthorized(connection.remoteEndpointIDHex) else {
+            journal.record(
+                "registry", "admit-revoked",
+                ["device": deviceID, "session": sessionID]
+            )
+            await connection.close(code: .revoked, origin: .local)
+            return false
+        }
         let previous = sessionsByDevice.updateValue(
             (sessionID, connection), forKey: deviceID)
         if let previous {
@@ -30,6 +43,7 @@ public actor IrxServerSessionRegistry {
             )
             await previous.connection.close(code: .superseded, origin: .local)
         }
+        return true
     }
 
     /// Removes a session when its supervisor exits, unless a newer session

@@ -651,7 +651,20 @@ final class MobileHostIrxRuntime {
                 journal: journal
             )
         else { return }
-        await registry.admit(deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+        let registered = await registry.admit(
+            deviceID: peer.deviceID,
+            sessionID: sessionID,
+            connection: irx,
+            stillAuthorized: { endpointIDHex in
+                do {
+                    _ = try judge.judgment()(nil, endpointIDHex)
+                    return true
+                } catch {
+                    return false
+                }
+            }
+        )
+        guard registered else { return }
         // Automatic path mode: authorize NAT traversal so the admitted session
         // can upgrade to a direct/LAN path make-before-break.
         if !Self.forceRelayOnly {
