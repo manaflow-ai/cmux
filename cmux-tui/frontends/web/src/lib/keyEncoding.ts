@@ -85,7 +85,10 @@ export function browserIsMacPlatform(source?: BrowserPlatformSource): boolean {
       ? undefined
       : (globalThis.navigator as unknown as BrowserPlatformSource)
   );
-  const platform = browser?.userAgentData?.platform ?? browser?.platform ?? browser?.userAgent;
+  // Some privacy-focused browsers expose an empty UA-Client-Hints platform
+  // while still providing the older platform or user-agent fields. Treat an
+  // empty value as unavailable so the later, less-preferred signal can decide.
+  const platform = browser?.userAgentData?.platform || browser?.platform || browser?.userAgent;
   return /mac/i.test(platform ?? "");
 }
 

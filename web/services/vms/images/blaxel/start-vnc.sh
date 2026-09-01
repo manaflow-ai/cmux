@@ -32,6 +32,36 @@ VNC_BIN="$(command -v Xvnc || command -v Xtigervnc)" || exit 0
 
 listening() { ss -tln 2>/dev/null | grep -q ":$1 "; }
 
+# Ghostty on the Linux desktop does not inherit macOS's natural text-editing
+# defaults. Install a legacy config only on a fresh desktop home. Ghostty loads
+# config.ghostty after this file, so an explicit user config keeps precedence.
+ensure_ghostty_defaults() {
+  local config_dir="$HOME/.config/ghostty"
+  local config_file="$config_dir/config"
+  [ -f /etc/cmux/ghostty-defaults.conf ] || return 0
+  [ -e "$config_file" ] && return 0
+  [ -L "$config_dir" ] && return 0
+  if [ -e "$config_dir" ] && [ ! -d "$config_dir" ]; then return 0; fi
+  mkdir -p "$config_dir" 2>/dev/null || return 0
+  [ -O "$config_dir" ] || return 0
+  local tmp
+  tmp="$(mktemp "$config_dir/.cmux-defaults.XXXXXX" 2>/dev/null)" || return 0
+  if ! cp /etc/cmux/ghostty-defaults.conf "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    return 0
+  fi
+  chmod 600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  # A hard link makes creation atomic without replacing a file that appeared
+  # after the existence check. The temporary inode stays in this directory.
+  if ! ln "$tmp" "$config_file" 2>/dev/null; then
+    rm -f "$tmp"
+    return 0
+  fi
+  rm -f "$tmp"
+}
+
+ensure_ghostty_defaults
+
 # TigerVNC on :1, RFB on 5901, loopback only: the sole ingress is Blaxel's
 # tokened preview in front of websockify, so VNC-level auth would be a second
 # password prompt noVNC's autoconnect cannot answer.

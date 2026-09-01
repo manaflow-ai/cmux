@@ -271,6 +271,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # /entrypoint.sh is the path every official Blaxel template uses; the microVM
 # boot command comes from this ENTRYPOINT.
 COPY start-vnc.sh /usr/local/bin/start-vnc.sh
+COPY ghostty-defaults.conf /etc/cmux/ghostty-defaults.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /usr/local/bin/start-vnc.sh /entrypoint.sh /usr/local/bin/sandbox-api \
   && bash -n /usr/local/bin/start-vnc.sh && bash -n /entrypoint.sh
