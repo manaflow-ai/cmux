@@ -940,10 +940,7 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(inlineError["code"] as? String, "invalid_dispatch")
         XCTAssertEqual(
             inlineError["message"] as? String,
-            String(
-                localized: "socket.sidebar.custom.render.asyncRequired",
-                defaultValue: "sidebar.custom.render requires the asynchronous socket dispatcher"
-            )
+            "sidebar.custom.render must run off the main thread"
         )
 
         // A real socket connection uses the async dispatcher and still
