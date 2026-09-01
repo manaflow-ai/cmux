@@ -1126,6 +1126,8 @@ struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
     ordering_token: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
+    needs_projection_rebuild: bool,
 }
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
@@ -1147,7 +1149,12 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             // only meaningful together with the state it follows; retaining
             // it would skip the journal prefix needed to rebuild the roster.
             match AgentRoster::restore(&snapshot) {
-                Some(roster) => AgentRosterHost { roster, cursor, ordering_token },
+                Some(roster) => AgentRosterHost {
+                    roster,
+                    cursor,
+                    ordering_token,
+                    needs_projection_rebuild: false,
+                },
                 None => {
                     reset_persisted_state = true;
                     AgentRosterHost::default()
@@ -1201,7 +1208,9 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             break;
         }
         for record in &page.records {
-            host.roster.apply(&RosterEvent::from_record(record));
+            if !host.roster.apply(&RosterEvent::from_record(record)).is_empty() {
+                host.needs_projection_rebuild = true;
+            }
             host.cursor = host.cursor.max(record.sequence);
             host.ordering_token = host.ordering_token.saturating_add(1);
         }
@@ -2658,6 +2667,7 @@ impl Mux {
                 }
             }
         }
+        mux.rebuild_agent_roster_projections();
         let recovery_deadline = Instant::now() + Duration::from_secs(15);
         while mux.reconcile_interrupted_resource_creations()? {
             if Instant::now() >= recovery_deadline {
@@ -2670,6 +2680,42 @@ impl Mux {
         crate::journal_hooks::start(&mux)?;
         crate::screen_detect::scanner::start(&mux);
         Ok(mux)
+    }
+
+    /// Startup replay can rebuild the roster before resource projections are
+    /// available. Re-fold the journal after materialization when that occurs,
+    /// so screen and hook deltas repair durable projections before exposing
+    /// the restored session.
+    fn rebuild_agent_roster_projections(&self) {
+        let needs_rebuild = self.agent_roster.lock().unwrap().needs_projection_rebuild;
+        if !needs_rebuild {
+            return;
+        }
+        {
+            let mut host = self.agent_roster.lock().unwrap();
+            host.roster = crate::journal_reducers::AgentRoster::default();
+            host.cursor = 0;
+            host.ordering_token = 0;
+            host.needs_projection_rebuild = false;
+        }
+        let ingress = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: "agent.roster.rebuild".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: Vec::new(),
+            sensitivity: Some(crate::JournalSensitivity::Metadata),
+            payload: serde_json::json!({}),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let commit = crate::JournalAppendCommit {
+            sequence: 0,
+            event_id: "roster-rebuild".into(),
+            replayed: true,
+        };
+        self.fold_agent_roster(&ingress, &commit);
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -2717,6 +2763,7 @@ impl Mux {
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
     ) -> anyhow::Result<usize> {
         const ECHO_ORIGIN: &str = "agent-report-echo";
+        const ROSTER_FOLD_ORIGIN: &str = "agent-roster-fold";
         let mut applied = 0;
         for (producer_id, origin, key, sequence, ingress) in pending {
             // Echo rows represent a journal admission that failed after the
@@ -2759,6 +2806,58 @@ impl Mux {
                             );
                         }
                         eprintln!("cmux-tui: retrying the agent echo failed: {error}");
+                    }
+                }
+                continue;
+            }
+            if origin == ROSTER_FOLD_ORIGIN {
+                match self.apply_agent_hook_record(&ingress, sequence) {
+                    Ok(()) => {
+                        let cleared = self
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .clear_agent_hook_pending(&producer_id, &origin, &key)
+                            .is_ok();
+                        if cleared {
+                            let commit = crate::JournalAppendCommit {
+                                sequence,
+                                event_id: key.clone(),
+                                replayed: true,
+                            };
+                            self.fold_agent_roster(&ingress, &commit);
+                            applied += 1;
+                        } else {
+                            self.report_internal_diagnostic("agent roster retry cleanup deferred");
+                        }
+                    }
+                    Err(error) if agent_hook_terminal_gone(&error) => {
+                        let _ = self.workspace_registry.lock().unwrap().clear_agent_hook_pending(
+                            &producer_id,
+                            &origin,
+                            &key,
+                        );
+                    }
+                    Err(error) => {
+                        if self
+                            .workspace_registry
+                            .lock()
+                            .unwrap()
+                            .enqueue_agent_hook_pending(
+                                &producer_id,
+                                &origin,
+                                &key,
+                                sequence,
+                                &ingress,
+                                AGENT_HOOK_RETRY_ERROR,
+                                agent_hook_retry_class(&error),
+                            )
+                            .is_err()
+                        {
+                            self.report_internal_diagnostic(
+                                "agent roster retry bookkeeping deferred",
+                            );
+                        }
                     }
                 }
                 continue;
@@ -5849,19 +5948,29 @@ impl Mux {
                             let screen_detect =
                                 record.payload.get("native_event").and_then(Value::as_str)
                                     == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
-                            deltas_to_apply.push((deltas, record.kind.clone(), screen_detect));
+                            deltas_to_apply.push((
+                                deltas,
+                                record.kind.clone(),
+                                screen_detect,
+                                record.clone(),
+                            ));
                         }
                     }
                     (deltas_to_apply, previous_host, false)
                 }
             };
             let mut side_effects_failed = false;
-            for (deltas, kind, screen_detect) in deltas_to_apply {
+            for (deltas, kind, screen_detect, record) in deltas_to_apply {
+                let mut record_failed = false;
                 for delta in deltas {
                     if let Err(error) = self.apply_roster_delta(delta, &kind, screen_detect) {
                         eprintln!("cmux-tui: agent roster side effect failed: {error}");
                         side_effects_failed = true;
+                        record_failed = true;
                     }
+                }
+                if record_failed {
+                    self.enqueue_agent_roster_retry(&record);
                 }
             }
             if side_effects_failed {
@@ -5889,6 +5998,34 @@ impl Mux {
             if page_was_empty {
                 break;
             }
+        }
+    }
+
+    fn enqueue_agent_roster_retry(&self, record: &crate::workspace_registry::SessionJournalRecord) {
+        const ROSTER_FOLD_ORIGIN: &str = "agent-roster-fold";
+        let ingress = crate::JournalIngress {
+            producer_id: record.producer.id.clone(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: record.kind.clone(),
+            schema_version: record.schema_version,
+            occurred_at_ms: None,
+            subjects: record.subjects.clone(),
+            sensitivity: Some(record.sensitivity),
+            payload: record.payload.clone(),
+            causation_id: record.causation_id.clone(),
+            correlation_id: record.correlation_id.clone(),
+        };
+        let key = format!("agent-roster-fold-{}", record.sequence);
+        if let Err(error) = self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+            &ingress.producer_id,
+            ROSTER_FOLD_ORIGIN,
+            &key,
+            record.sequence,
+            &ingress,
+            AGENT_HOOK_RETRY_ERROR,
+            AgentHookRetryClass::Transient,
+        ) {
+            eprintln!("cmux-tui: staging the failed agent roster fold failed: {error}");
         }
     }
 

@@ -207,7 +207,8 @@ impl AgentRoster {
         } else {
             let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
             let agent = event.adapter_id().map(str::to_string);
-            (state, AgentSource::Hook, None, agent, event.committed_at_ms)
+            let session = event.normalized("agent_session_id").map(str::to_string);
+            (state, AgentSource::Hook, session, agent, event.committed_at_ms)
         };
         // Source arbitration: hook > screen > socket per terminal. Hook
         // events always win. Screen detection may not overwrite an entry a
