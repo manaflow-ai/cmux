@@ -98,7 +98,6 @@ mod unix {
     pub struct UnixControl {
         shared: Arc<Shared>,
         writer_tx: Sender<OutboundLine>,
-        raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
     }
@@ -120,10 +119,6 @@ mod unix {
             .await
             .map_err(|_| format!("cmux-tui control connect timed out ({})", socket_path.display()))?
             .map_err(|error| error.to_string())?;
-        let raw_fd = {
-            use std::os::fd::AsRawFd as _;
-            stream.as_raw_fd()
-        };
         let (read_half, write_half) = stream.into_split();
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
@@ -147,13 +142,7 @@ mod unix {
         let (writer_tx, writer_rx) = mpsc::channel(MAX_WRITER_QUEUE);
         tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
         tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
-        Ok(Arc::new(UnixControl {
-            shared,
-            writer_tx,
-            raw_fd,
-            next_id: AtomicU64::new(1),
-            timeout_ms,
-        }))
+        Ok(Arc::new(UnixControl { shared, writer_tx, next_id: AtomicU64::new(1), timeout_ms }))
     }
 
     #[cfg(test)]
@@ -191,7 +180,20 @@ mod unix {
             }
             let result = {
                 let mut writer = writer.lock().await;
-                writer.write_all(&line.bytes).await
+                let closed = shared.closed_notify.notified();
+                tokio::pin!(closed);
+                closed.as_mut().enable();
+                let (result, closed_by_end) = tokio::select! {
+                    result = writer.write_all(&line.bytes) => (result, false),
+                    _ = closed => (Err(std::io::Error::other("control closed")), true),
+                };
+                if closed_by_end {
+                    if let Some(written) = line.written {
+                        let _ = written.send(false);
+                    }
+                    break;
+                }
+                result
             };
             let succeeded = result.is_ok();
             if let Some(written) = line.written {
@@ -241,9 +243,15 @@ mod unix {
                     _ = closed => break 'read_loop,
                 }
             }
-            let count = match reader.read(&mut chunk).await {
-                Ok(0) | Err(_) => break,
-                Ok(count) => count,
+            let closed = shared.closed_notify.notified();
+            tokio::pin!(closed);
+            closed.as_mut().enable();
+            let count = tokio::select! {
+                result = reader.read(&mut chunk) => match result {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => count,
+                },
+                _ = closed => break,
             };
             buffer.extend_from_slice(&chunk[..count]);
             if buffer.len() > MAX_CONTROL_LINE_BYTES {
@@ -388,13 +396,6 @@ mod unix {
         fn end(&self) {
             self.shared.deliberate.store(true, Ordering::SeqCst);
             self.shared.settle_closed();
-            // Shut both directions so the read loop sees EOF and any blocked
-            // writer unblocks; the halves drop and close the fd afterwards.
-            // SAFETY: shutdown on a socket fd this handle owns for the split
-            // stream's lifetime; a failure (already closed) is harmless.
-            unsafe {
-                libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
-            }
         }
     }
 
