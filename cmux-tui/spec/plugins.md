@@ -306,8 +306,10 @@ application policy into cmux core.
 
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling
-terminal. Generic OSC metadata has no agent-specific reset operation, so the
-scanner's startup grace prevents stale screen classification while the daemon
-retains generic terminal metadata. Network updates are explicit; the scanner
-never fetches data during startup. A different userland plugin can replace the
+terminal. Generic OSC metadata has no agent-specific reset operation. The
+scanner anchors the stream revision at each foreground identity edge and
+ignores retained title and progress until that revision advances. On older
+hosts without a revision, it keeps the conservative startup-grace behavior.
+Network updates are explicit; the scanner never fetches data during startup. A
+different userland plugin can replace the
 reference package and emit the same generic journal envelope.

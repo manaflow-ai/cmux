@@ -80,6 +80,12 @@ includes hidden transaction files and registry metadata, so stale install debris
 cannot turn a list or selector operation into an unbounded scan. Remove stale
 entries before retrying an operation that reports this limit.
 
+The daemon keeps OSC title and progress as generic terminal metadata and may
+retain them across a process change. The scanner records the output revision at
+each identity edge and ignores those fields until a later revision proves that
+the new process produced output. Older daemons without revisions use the
+startup-grace compatibility path.
+
 On Linux, hosts that do not expose a controlling-terminal foreground group can
 opt in to herdr-compatible child-group inference with
 `CMUX_AGENT_PROCESS_DETECTION=child-groups` (the legacy

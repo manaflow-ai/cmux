@@ -207,6 +207,11 @@ struct TrackedTerminal {
     foreground_process_group: Option<u32>,
     /// Deadline for the stale-screen guard after an agent identity edge.
     startup_grace_until: Option<Instant>,
+    /// Output revision observed when the current foreground identity was
+    /// established. The generic host retains OSC metadata across processes;
+    /// a revision change is the userland proof that retained metadata can be
+    /// from the current process.
+    foreground_identity_revision: Option<u64>,
     /// Consecutive process probes that did not identify an agent. A positive
     /// probe resets this counter, so a transient inspection miss cannot close
     /// a live row.
@@ -303,6 +308,25 @@ impl ScreenDetectTracker {
         })
     }
 
+    /// Return whether generic OSC metadata may be attributed to the current
+    /// foreground process. Hosts without a stream revision remain supported,
+    /// but the plugin cannot prove that their retained metadata is fresh.
+    pub(crate) fn metadata_is_fresh(
+        &self,
+        terminal_id: &str,
+        stream_revision: Option<u64>,
+    ) -> bool {
+        let Some(entry) = self.terminals.get(terminal_id) else {
+            return true;
+        };
+        let (Some(identity_revision), Some(stream_revision)) =
+            (entry.foreground_identity_revision, stream_revision)
+        else {
+            return true;
+        };
+        stream_revision > identity_revision
+    }
+
     /// True when this terminal previously journaled a screen-derived state
     /// that has not been closed out by an exit emission.
     pub fn has_live_emission(&self, terminal_id: &str) -> bool {
@@ -349,6 +373,27 @@ impl ScreenDetectTracker {
         process_group_id: Option<u32>,
         now: Instant,
     ) -> bool {
+        self.note_foreground_job_at_with_revision(
+            terminal_id,
+            agent,
+            process_group_id,
+            None,
+            now,
+        )
+    }
+
+    /// Record a foreground identity edge and the host stream revision seen at
+    /// that edge. The revision lets the userland detector reject OSC title or
+    /// progress retained from the previous process without adding agent
+    /// semantics to the host metadata API.
+    pub(crate) fn note_foreground_job_at_with_revision(
+        &mut self,
+        terminal_id: &str,
+        agent: Option<&str>,
+        process_group_id: Option<u32>,
+        stream_revision: Option<u64>,
+        now: Instant,
+    ) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
         match agent {
             Some(agent) => {
@@ -365,6 +410,13 @@ impl ScreenDetectTracker {
                     // probe. Enrich the identity without restarting grace.
                     if process_group_id.is_some() {
                         entry.foreground_process_group = process_group_id;
+                    }
+                    // Likewise, an older daemon can begin exposing the
+                    // revision after the identity was established. Anchor it
+                    // once, so retained metadata is fenced as soon as the
+                    // host provides the evidence needed to fence it.
+                    if entry.foreground_identity_revision.is_none() {
+                        entry.foreground_identity_revision = stream_revision;
                     }
                     return false;
                 }
@@ -385,6 +437,7 @@ impl ScreenDetectTracker {
         }
         entry.foreground_agent = agent.map(str::to_string);
         entry.foreground_process_group = agent.and(process_group_id);
+        entry.foreground_identity_revision = agent.and(stream_revision);
         entry.identity_presence_needed = agent.is_some();
         entry.startup_grace_until =
             agent.map(|_| now + Duration::from_millis(AGENT_STARTUP_GRACE_MS));
@@ -508,6 +561,7 @@ impl ScreenDetectTracker {
             // or its startup grace when the PTY has gone away.
             entry.foreground_agent = None;
             entry.foreground_process_group = None;
+            entry.foreground_identity_revision = None;
             entry.foreground_misses = 0;
             entry.startup_grace_until = None;
             entry.identity_presence_needed = false;
@@ -1160,6 +1214,7 @@ mod tests {
         ));
         assert!(!tracker.metadata_is_fresh("term_a", Some(41)));
         assert!(tracker.metadata_is_fresh("term_a", Some(42)));
+        assert!(!tracker.metadata_is_fresh("term_a", Some(40)));
         // An older daemon has no revision. Keep its metadata usable because
         // the plugin cannot prove that it predates the identity edge.
         assert!(tracker.metadata_is_fresh("term_a", None));

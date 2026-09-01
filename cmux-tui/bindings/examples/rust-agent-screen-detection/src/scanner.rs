@@ -542,10 +542,11 @@ fn scan_terminal(
                 .or_else(|| process.argv.first().map(String::as_str))
                 .and_then(|name| manifests.identify(name))
         });
-    let identity_edge = state.tracker.note_foreground_job_at(
+    let identity_edge = state.tracker.note_foreground_job_at_with_revision(
         &terminal_id,
         manifest.map(|item| item.id()),
         state.process_cache.authoritative_group_id(&terminal_id),
+        snapshot.stream_revision,
         now,
     );
     state.process_cache.mark_identified(&terminal_id, manifest.is_some(), now);
@@ -612,10 +613,23 @@ fn scan_terminal(
         }
     }
     let manifest = manifest.expect("checked above");
+    // The daemon exposes OSC title and progress as generic terminal
+    // metadata. It can retain those values across a foreground-process
+    // change, so the userland plugin must wait for a post-edge output
+    // revision before attributing them to the new agent. Older daemons do
+    // not expose revisions, and the tracker keeps the compatibility path.
+    let metadata_revision = screen.revision.or(snapshot.stream_revision);
+    let metadata_fresh = state.tracker.metadata_is_fresh(&terminal_id, metadata_revision);
+    let osc_title = if metadata_fresh { snapshot.title.as_str() } else { "" };
+    let osc_progress = if metadata_fresh {
+        screen.osc_progress.as_deref().unwrap_or_default()
+    } else {
+        ""
+    };
     let mut detection = manifest.detect(DetectionInput {
         screen: &screen.text,
-        osc_title: snapshot.title.as_str(),
-        osc_progress: screen.osc_progress.as_deref().unwrap_or_default(),
+        osc_title,
+        osc_progress,
     });
     // Flowing PTY output is a working signal for the screen source. It only
     // upgrades an idle read and owes one expiry re-evaluation; hooks still
