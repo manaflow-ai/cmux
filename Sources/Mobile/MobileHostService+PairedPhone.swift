@@ -1,5 +1,6 @@
 import Foundation
 import CmuxAuthRuntime
+import CmuxIrohTransport
 
 @MainActor
 extension MobileHostService {

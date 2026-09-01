@@ -67,7 +67,10 @@ final class MobilePairedPhoneStore {
            existing.source == .authenticatedHandshake,
            existing.accountID == normalizedAccountID,
            existing.handshakeIdentity == normalizedHandshakeIdentity,
-           existing.bundleIdentifier == normalizedBundleIdentifier {
+           existing.bundleIdentifier == normalizedBundleIdentifier,
+           existing.trustedIOSBuildTag == normalizedTrustedIOSBuildTag(
+               trustedIOSBuildTag
+           ) {
             // Host-status heartbeats repeat the same authenticated identity.
             // Treat them as a read so pairedAt, defaults, and downstream
             // re-key notifications stay stable until a new transport pairs.
@@ -99,6 +102,7 @@ final class MobilePairedPhoneStore {
             accountID: normalizedAccountID,
             pairedAt: pairedAt,
             source: .authenticatedHandshake,
+            trustedIOSBuildTag: normalizedTrustedIOSBuildTag(trustedIOSBuildTag),
             handshakeIdentity: normalizedHandshakeIdentity
         )
         guard trimAndPersist() else {
@@ -154,6 +158,7 @@ final class MobilePairedPhoneStore {
             accountID: normalizedAccountID,
             pairedAt: pairedAt,
             source: .legacyCompatibility,
+            trustedIOSBuildTag: normalizedTrustedIOSBuildTag(trustedIOSBuildTag),
             handshakeIdentity: normalizedHandshakeIdentity
         )
         guard trimAndPersist() else {
@@ -176,7 +181,10 @@ final class MobilePairedPhoneStore {
         let candidates = recordsByClientID.values.filter { record in
             (record.source == .authenticatedHandshake
                 || record.source == .legacyCompatibility)
-                && isBundleAllowedForMacLane(record.bundleIdentifier)
+                && isBundleAllowedForMacLane(
+                    record.bundleIdentifier,
+                    trustedIOSBuildTag: record.trustedIOSBuildTag
+                )
                 && record.handshakeIdentity != nil
                 && record.accountID == normalizedAccountID
         }
@@ -207,10 +215,9 @@ final class MobilePairedPhoneStore {
         )?.bundleIdentifier
     }
 
-    /// Historical official Macs used the App Store target when talking to an
-    /// iOS client that predates bundle metadata. This compatibility value is
-    /// reachable only through `recordLegacyCompatibility`, after auth proves a
-    /// real handshake; it is never a standalone runtime fallback.
+    /// Historical Macs used the lane fallback when talking to an iOS client
+    /// that predates bundle metadata. It is used only for the backup-restore
+    /// compatibility path; push routing remains handshake-owned.
     private var legacyCompatibilityBundleIdentifier: String? {
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -272,6 +279,14 @@ final class MobilePairedPhoneStore {
         return namespace.bundleIdentifier
     }
 
+    private func normalizedTrustedIOSBuildTag(_ tag: String?) -> String? {
+        guard let normalizedTag = Self.normalized(tag)?.lowercased(),
+              trustedCrossTagBundleIdentifier(normalizedTag) != nil else {
+            return nil
+        }
+        return normalizedTag
+    }
+
     private static let officialIOSBundleIdentifiers: Set<String> = [
         "com.cmux.app",
         "dev.cmux.app.beta",
@@ -322,6 +337,9 @@ private extension MobilePairedPhoneStore {
                 accountID: normalized(record.accountID),
                 pairedAt: record.pairedAt,
                 source: record.source,
+                trustedIOSBuildTag: normalizedTrustedIOSBuildTag(
+                    record.trustedIOSBuildTag
+                ),
                 handshakeIdentity: normalized(record.handshakeIdentity)
             )
         }

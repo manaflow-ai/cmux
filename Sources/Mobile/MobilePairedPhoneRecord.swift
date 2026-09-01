@@ -7,6 +7,10 @@ struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
     let accountID: String?
     let pairedAt: Date
     let source: MobilePairedPhoneRecordSource
+    /// The authenticated iOS development tag when this phone reached the Mac
+    /// through an explicit cross-tag Iroh grant. `nil` means the exact Mac lane
+    /// or an official release namespace was used.
+    let trustedIOSBuildTag: String?
     /// A stable proof boundary for the authenticated transport that observed
     /// this install. It is intentionally not a bearer token.
     let handshakeIdentity: String?
@@ -17,6 +21,7 @@ struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
         accountID: String?,
         pairedAt: Date,
         source: MobilePairedPhoneRecordSource = .authenticatedHandshake,
+        trustedIOSBuildTag: String? = nil,
         handshakeIdentity: String? = nil
     ) {
         self.clientID = clientID
@@ -24,6 +29,7 @@ struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
         self.accountID = accountID
         self.pairedAt = pairedAt
         self.source = source
+        self.trustedIOSBuildTag = trustedIOSBuildTag
         self.handshakeIdentity = handshakeIdentity
     }
 
@@ -33,6 +39,7 @@ struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
         case accountID
         case pairedAt
         case source
+        case trustedIOSBuildTag
         case handshakeIdentity
     }
 
@@ -48,6 +55,10 @@ struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
                 forKey: .source
             )
                 ?? .authenticatedHandshake,
+            trustedIOSBuildTag: try container.decodeIfPresent(
+                String.self,
+                forKey: .trustedIOSBuildTag
+            ),
             handshakeIdentity: try container.decodeIfPresent(
                 String.self,
                 forKey: .handshakeIdentity
@@ -62,6 +73,7 @@ struct MobilePairedPhoneRecord: Codable, Equatable, Sendable {
         try container.encodeIfPresent(accountID, forKey: .accountID)
         try container.encode(pairedAt, forKey: .pairedAt)
         try container.encode(source, forKey: .source)
+        try container.encodeIfPresent(trustedIOSBuildTag, forKey: .trustedIOSBuildTag)
         try container.encodeIfPresent(handshakeIdentity, forKey: .handshakeIdentity)
     }
 }

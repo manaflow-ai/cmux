@@ -123,14 +123,14 @@ final class MacPairedMacBackupPublisher {
             guard !Task.isCancelled, self.auth === auth else { return }
             for await identity in auth.authenticatedSessionIdentities() {
                 guard !Task.isCancelled, self.auth === auth else { return }
-                guard identity != nil else {
+                guard let identity else {
                     self.lastPublishedRoutes = []
                     self.lastPublishedBundleIdentifier = nil
                     continue
                 }
                 let routes = MobileHostService.shared.statusSnapshot().routes
                 let targetBundleIdentifier = MobileHostService.shared
-                    .pairedPhoneBackupBundleIdentifier(accountID: identity?.accountID)
+                    .pairedPhoneBackupBundleIdentifier(accountID: identity.accountID)
                 guard !routes.isEmpty,
                       targetBundleIdentifier != self.lastPublishedBundleIdentifier
                         || routes != self.lastPublishedRoutes else {

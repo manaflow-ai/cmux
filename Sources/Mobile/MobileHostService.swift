@@ -425,6 +425,31 @@ final class MobileHostService {
                 authenticatedSessionIdentity: nil
             )
         }
+        #if DEBUG
+        // The accepted DEBUG dev token is the intentional loopback/simulator
+        // credential and remains usable when Stack sign-in is absent. Preserve
+        // its identity-bearing status response, but do not manufacture an
+        // account identity for paired-phone persistence or production routing.
+        let debugTokenAuthorized = await MainActor.run {
+            MobileHostService.shared.devStackTokenAuthorized(request)
+        }
+        if debugTokenAuthorized {
+            let phonePushStatus = await MainActor.run {
+                (
+                    PhonePushClient.shared.currentAdmission(),
+                    PhonePushClient.shared.queuePersistenceStatus
+                )
+            }
+            return MobileHostStatusResolution(
+                result: MobileHostPublicStatusCache.result(
+                    includeIdentity: true,
+                    phonePushAdmission: phonePushStatus.0,
+                    phonePushQueuePersistenceStatus: phonePushStatus.1
+                ),
+                authenticatedSessionIdentity: nil
+            )
+        }
+        #endif
         let verifiedIdentity = await MobileHostService.shared.verifiedStackCaller(for: request)
         if verifiedIdentity == nil {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
@@ -1765,8 +1790,9 @@ final class MobileHostService {
         if devStackTokenAuthorized(request) {
             return await authenticatedSessionIdentity()
         }
-        if let cached = await MobileHostStackAuthVerifier.shared
-            .cachedRemoteUserID(auth: request.auth) {
+        let cached = await MobileHostStackAuthVerifier.shared
+            .cachedRemoteUserID(auth: request.auth)
+        if cached.hit {
             guard let cachedRemoteUserID = cached.userID,
                   let identity = await authenticatedSessionIdentity(),
                   cachedRemoteUserID == identity.accountID else {
