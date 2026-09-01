@@ -297,6 +297,7 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     private let writeLock = NSLock()
     private var handle: FileHandle?
     private var lastGeometryClaim: TimeInterval = 0
+    private var needsGeometryClaim = false
     private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
     private var generation: UInt64 = 0
     private var queuedWrites = 0
@@ -312,6 +313,9 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         handle = newHandle
         if newHandle != nil {
             lastGeometryClaim = now
+            needsGeometryClaim = true
+        } else {
+            needsGeometryClaim = false
         }
         lock.unlock()
         writeLock.unlock()
@@ -353,8 +357,9 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         }
         let writeGeneration = generation
         var claim = false
-        if now - lastGeometryClaim >= claimInterval {
+        if needsGeometryClaim || now - lastGeometryClaim >= claimInterval {
             lastGeometryClaim = now
+            needsGeometryClaim = false
             claim = true
         }
         queuedWrites += 1

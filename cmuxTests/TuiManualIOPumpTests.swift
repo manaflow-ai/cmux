@@ -250,10 +250,11 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
-    func userInputReclaimsGeometryOnlyAfterTheThrottleInterval() throws {
+    func userInputReclaimsGeometryOnAttachThenThrottles() throws {
         let pipe = Pipe()
         let channel = TuiManualIOInputChannel()
-        // Attach at t=100: the relay's own attach claim covers this moment.
+        // Attach at t=100: the first user input reclaims in case another
+        // pane took geometry authority immediately after this attachment.
         channel.setHandle(pipe.fileHandleForWriting, now: 100)
         channel.sendUserInput(Data("a\n".utf8), claimInterval: 5, now: 101)
         channel.sendUserInput(Data("b\n".utf8), claimInterval: 5, now: 104)
@@ -265,7 +266,7 @@ struct TuiManualIOPumpTests {
 
         let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         let claim = String(decoding: TuiManualIOPumpPolicy.claimGeometryLine, as: UTF8.self)
-        #expect(text == "a\nb\n\(claim)c\nd\n")
+        #expect(text == "\(claim)a\nb\n\(claim)c\nd\n")
     }
 
     @Test

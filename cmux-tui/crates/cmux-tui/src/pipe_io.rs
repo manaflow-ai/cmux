@@ -295,6 +295,7 @@ fn spawn_stdin_pump(
             let stdin = std::io::stdin();
             let mut reader = stdin.lock();
             let mut line = String::new();
+            let mut transport_lost = false;
             loop {
                 let Ok(has_line) = read_request_line(&mut reader, &mut line) else { break };
                 if !has_line {
@@ -308,6 +309,7 @@ fn spawn_stdin_pump(
                         if handle.write_bytes(&bytes).is_err() {
                             // The transport owns loss reporting; input can
                             // only stop early.
+                            transport_lost = true;
                             break;
                         }
                     }
@@ -355,7 +357,11 @@ fn spawn_stdin_pump(
             // Stdin closure is a lifecycle signal, not terminal output. Keep
             // it on the reserved channel so queued replay bytes cannot delay
             // relay shutdown after the embedder goes away.
-            let _ = lifecycle_sender.try_send(PipeIoEvent::StdinClosed);
+            let _ = lifecycle_sender.try_send(if transport_lost {
+                PipeIoEvent::TransportLost
+            } else {
+                PipeIoEvent::StdinClosed
+            });
         })
         .expect("spawn pipe-io stdin pump");
 }
