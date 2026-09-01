@@ -27716,7 +27716,9 @@ struct CMUXCLI {
                         title: title,
                         subtitle: stopSummary.subtitle,
                         body: stopSummary.body,
-                        meta: AgentHookNotifyCategory.turnComplete.metaSegment(
+                        meta: Self.agentNotificationMeta(
+                            category: abnormalStop == nil ? .turnComplete : .other,
+                            isError: abnormalStop != nil,
                             pending: hasPendingBackgroundWork,
                             agentID: "claude",
                             isSubagent: isNestedAgentSession
