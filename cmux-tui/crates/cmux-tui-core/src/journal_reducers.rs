@@ -299,7 +299,9 @@ impl AgentRoster {
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
-        self.entries.remove(terminal_id).is_some()
+        let removed_entry = self.entries.remove(terminal_id).is_some();
+        let removed_fence = self.ended_hook_sessions.remove(terminal_id).is_some();
+        removed_entry || removed_fence
     }
 
     pub(crate) fn snapshot(&self) -> Value {
@@ -531,6 +533,8 @@ mod tests {
             roster.apply(&stamped_event(4_000, "agent.session.started", &subjects, &session_two));
         assert_eq!(fresh.len(), 1);
         assert_eq!(roster.entries["term_a"].session.as_deref(), Some("session-two"));
+        assert!(roster.retire_terminal("term_a"));
+        assert!(!roster.ended_hook_sessions.contains_key("term_a"));
     }
 
     #[test]
