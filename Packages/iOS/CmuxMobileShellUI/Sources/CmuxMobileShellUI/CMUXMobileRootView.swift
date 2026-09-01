@@ -649,6 +649,9 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
+            // Swaps the root sheet's content from Settings to Computers in
+            // place; the presentation state machine allows this transition.
+            showComputers: showComputers,
             signOut: signOut,
             store: store,
             initialFocus: initialFocus,
