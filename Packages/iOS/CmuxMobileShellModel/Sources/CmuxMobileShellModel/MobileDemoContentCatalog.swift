@@ -303,31 +303,91 @@ public struct MobileDemoContentCatalog: Sendable {
         let cyan = "\u{1B}[36m"
         let reset = "\u{1B}[0m"
 
-        let apiServerFiles = [
-            MobileDemoTerminalFile(name: "src", isDirectory: true),
-            MobileDemoTerminalFile(name: "tests", isDirectory: true),
-            MobileDemoTerminalFile(
+        // Coherent fake project trees so cd/ls/pwd/cat compose: `cd src`,
+        // `ls`, `cat deliver.ts`, `cd ..` all behave like a real checkout.
+        let apiServerTree = MobileDemoDirectory([
+            .directory(name: "src", MobileDemoDirectory([
+                .directory(name: "webhooks", MobileDemoDirectory([
+                    .file(
+                        name: "deliver.ts",
+                        contents: "export async function deliver(event: WebhookEvent) {\n" +
+                            "  const attempt = await queue.nextAttempt(event);\n" +
+                            "  return send(event.endpoint, event.payload, attempt);\n}"
+                    ),
+                    .file(
+                        name: "retry.ts",
+                        contents: "// Exponential backoff with jitter: 1s -> 2s -> 4s,\n" +
+                            "// parking after five failed attempts.\n" +
+                            "export const schedule = backoff({ base: 1_000, factor: 2, maxAttempts: 5 });"
+                    ),
+                ])),
+                .file(
+                    name: "server.ts",
+                    contents: "import { router } from \"./router\";\n\nlisten(router, { port: 8080 });"
+                ),
+            ])),
+            .directory(name: "tests", MobileDemoDirectory([
+                .file(
+                    name: "webhooks.test.ts",
+                    contents: "test(\"retries with exponential backoff after 500\", async () => {\n" +
+                        "  const outcome = await deliverWithFailures(2);\n" +
+                        "  expect(outcome.attempts).toEqual([1_000, 2_000, 4_000]);\n});"
+                ),
+            ])),
+            .file(
                 name: "README.md",
                 contents: "# api-server\n\nWebhook delivery service.\nRun `npm test` before opening a PR."
             ),
-            MobileDemoTerminalFile(name: "package.json", contents: "{\n  \"name\": \"api-server\",\n  \"version\": \"1.8.0\"\n}"),
-        ]
-        let mobileAppFiles = [
-            MobileDemoTerminalFile(name: "Sources", isDirectory: true),
-            MobileDemoTerminalFile(name: "Tests", isDirectory: true),
-            MobileDemoTerminalFile(
+            .file(
+                name: "package.json",
+                contents: "{\n  \"name\": \"api-server\",\n  \"version\": \"1.8.0\"\n}"
+            ),
+        ])
+        let mobileAppTree = MobileDemoDirectory([
+            .directory(name: "Sources", MobileDemoDirectory([
+                .file(
+                    name: "App.swift",
+                    contents: "@main\nstruct MobileApp: App {\n  var body: some Scene { WindowGroup { RootView() } }\n}"
+                ),
+                .file(
+                    name: "PushCoordinator.swift",
+                    contents: "// Uploads the device token only after notifications are enabled."
+                ),
+            ])),
+            .directory(name: "Tests", MobileDemoDirectory([
+                .file(
+                    name: "AppTests.swift",
+                    contents: "@Test func coldLaunchRestoresLastWorkspace() { /* 312 tests total */ }"
+                ),
+            ])),
+            .file(
                 name: "CHANGELOG.md",
                 contents: "## 2.3.1\n- Faster cold launch\n- Webhook delivery metrics"
             ),
-        ]
-        let docsFiles = [
-            MobileDemoTerminalFile(name: "pages", isDirectory: true),
-            MobileDemoTerminalFile(name: "public", isDirectory: true),
-            MobileDemoTerminalFile(
-                name: "getting-started.md",
-                contents: "# Getting started\n\nPair your phone from Settings > Devices."
+        ])
+        let docsTree = MobileDemoDirectory([
+            .directory(name: "pages", MobileDemoDirectory([
+                .file(
+                    name: "getting-started.md",
+                    contents: "# Getting started\n\nPair your phone from Settings > Devices."
+                ),
+                .file(
+                    name: "pairing.md",
+                    contents: "# Pairing\n\nScan the QR code shown on your computer."
+                ),
+                .file(
+                    name: "notifications.md",
+                    contents: "# Notifications\n\nAgents can notify your phone when a task finishes."
+                ),
+            ])),
+            .directory(name: "public", MobileDemoDirectory([
+                .file(name: "logo.svg", contents: nil),
+            ])),
+            .file(
+                name: "package.json",
+                contents: "{\n  \"name\": \"docs\",\n  \"version\": \"0.9.2\"\n}"
             ),
-        ]
+        ])
 
         let agentTranscript = vt("""
         \(prompt("~/code/api-server"))cmux agent "review PR #412: webhook retry with exponential backoff"
@@ -394,37 +454,37 @@ public struct MobileDemoContentCatalog: Sendable {
             MobileDemoTerminalScript(
                 surfaceID: "cmux-demo-term-review-agent",
                 transcript: agentTranscript,
-                prompt: prompt("~/code/api-server"),
                 workingDirectory: "/Users/demo/code/api-server",
-                files: apiServerFiles
+                displayDirectory: "~/code/api-server",
+                fileSystem: apiServerTree
             ),
             MobileDemoTerminalScript(
                 surfaceID: "cmux-demo-term-review-tests",
                 transcript: testsTranscript,
-                prompt: prompt("~/code/api-server"),
                 workingDirectory: "/Users/demo/code/api-server",
-                files: apiServerFiles
+                displayDirectory: "~/code/api-server",
+                fileSystem: apiServerTree
             ),
             MobileDemoTerminalScript(
                 surfaceID: "cmux-demo-term-release-build",
                 transcript: buildTranscript,
-                prompt: prompt("~/code/mobile-app"),
                 workingDirectory: "/Users/demo/code/mobile-app",
-                files: mobileAppFiles
+                displayDirectory: "~/code/mobile-app",
+                fileSystem: mobileAppTree
             ),
             MobileDemoTerminalScript(
                 surfaceID: "cmux-demo-term-release-shell",
                 transcript: shellTranscript,
-                prompt: prompt("~/code/mobile-app"),
                 workingDirectory: "/Users/demo/code/mobile-app",
-                files: mobileAppFiles
+                displayDirectory: "~/code/mobile-app",
+                fileSystem: mobileAppTree
             ),
             MobileDemoTerminalScript(
                 surfaceID: "cmux-demo-term-docs-dev",
                 transcript: docsTranscript,
-                prompt: prompt("~/code/docs"),
                 workingDirectory: "/Users/demo/code/docs",
-                files: docsFiles
+                displayDirectory: "~/code/docs",
+                fileSystem: docsTree
             ),
         ]
     }

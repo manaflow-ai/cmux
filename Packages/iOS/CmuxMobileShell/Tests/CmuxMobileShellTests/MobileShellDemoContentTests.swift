@@ -364,6 +364,46 @@ import Testing
         #expect(reopened?.hasUnread == false)
     }
 
+    /// Owner requirement: EVERY demo workspace opens onto the interactive
+    /// simulated terminal — canned transcript plus a live prompt that answers
+    /// typed commands — not just the first one. Exercises each workspace's
+    /// every terminal through the production open/mount/input paths.
+    @Test func everyDemoWorkspaceOpensAnInteractiveSimulatedTerminal() async throws {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        let demoWorkspaces = store.workspaces.filter {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        }
+        #expect(demoWorkspaces.count == 3)
+
+        for workspace in demoWorkspaces {
+            await store.openWorkspace(workspace.id)
+            #expect(store.selectedWorkspaceID == workspace.id)
+            #expect(!workspace.terminals.isEmpty)
+            for terminal in workspace.terminals {
+                let surfaceID = terminal.id.rawValue
+                var iterator = store.terminalOutputStream(surfaceID: surfaceID)
+                    .makeAsyncIterator()
+                let replay = try #require(await iterator.next())
+                #expect(!replay.data.isEmpty)
+                store.terminalOutputDidProcess(
+                    surfaceID: surfaceID,
+                    streamToken: replay.streamToken
+                )
+
+                await store.submitTerminalRawInput(Data("pwd\r".utf8), surfaceID: surfaceID)
+                let response = try #require(await iterator.next())
+                store.terminalOutputDidProcess(
+                    surfaceID: surfaceID,
+                    streamToken: response.streamToken
+                )
+                let responseText = String(decoding: response.data, as: UTF8.self)
+                #expect(responseText.contains("/Users/demo/"))
+                #expect(responseText.contains("demo@demo-mac"))
+            }
+        }
+    }
+
     @Test func demoTerminalReplaysCannedSessionOnMount() async {
         let (store, _) = makeStore(demonstrationContentEnabled: true)
         store.signIn()

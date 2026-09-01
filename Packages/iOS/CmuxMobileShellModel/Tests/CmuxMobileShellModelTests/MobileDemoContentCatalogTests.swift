@@ -38,7 +38,16 @@ import Testing
         let scriptIDs = Set(catalog.terminalScripts.map(\.surfaceID))
         #expect(terminalIDs == scriptIDs)
         #expect(catalog.terminalScripts.allSatisfy { !$0.transcript.isEmpty })
-        #expect(catalog.terminalScripts.allSatisfy { !$0.prompt.isEmpty })
+        #expect(catalog.terminalScripts.allSatisfy { !$0.displayDirectory.isEmpty })
+        // Every session gets a navigable fake project tree so cd/ls/pwd/cat
+        // have something coherent to compose over.
+        #expect(catalog.terminalScripts.allSatisfy { !$0.fileSystem.entries.isEmpty })
+        #expect(catalog.terminalScripts.allSatisfy { script in
+            script.fileSystem.entries.contains {
+                if case .directory = $0 { return true }
+                return false
+            }
+        })
     }
 
     @Test func notificationsTargetDemoWorkspacesNewestFirst() {
@@ -97,13 +106,23 @@ import Testing
             corpus.append(notification.workspaceTitle ?? "")
             corpus.append(notification.surfaceTitle ?? "")
         }
+        func appendTree(_ directory: MobileDemoDirectory) {
+            for entry in directory.entries {
+                switch entry {
+                case let .directory(name, nested):
+                    corpus.append(name)
+                    appendTree(nested)
+                case let .file(name, contents):
+                    corpus.append(name)
+                    corpus.append(contents ?? "")
+                }
+            }
+        }
         for script in catalog.terminalScripts {
             corpus.append(script.transcript)
             corpus.append(script.workingDirectory)
-            for file in script.files {
-                corpus.append(file.name)
-                corpus.append(file.contents ?? "")
-            }
+            corpus.append(script.displayDirectory)
+            appendTree(script.fileSystem)
         }
         for text in corpus {
             let lowered = text.lowercased()

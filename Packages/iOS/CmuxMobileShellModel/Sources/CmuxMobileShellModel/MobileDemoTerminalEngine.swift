@@ -1,64 +1,107 @@
 public import Foundation
 
+/// A canned directory in a demonstration terminal's fake filesystem.
+///
+/// The tree is immutable session data: `ls`, `cd`, `pwd`, and `cat` compose
+/// over it so the reviewer can move around a plausible project checkout.
+public struct MobileDemoDirectory: Equatable, Sendable {
+    /// Entries in display order.
+    public let entries: [MobileDemoFileSystemEntry]
+
+    /// Creates a directory with the given entries.
+    public init(_ entries: [MobileDemoFileSystemEntry]) {
+        self.entries = entries
+    }
+
+    /// The subdirectory with the given name, if any.
+    func subdirectory(named name: String) -> MobileDemoDirectory? {
+        for case let .directory(entryName, directory) in entries where entryName == name {
+            return directory
+        }
+        return nil
+    }
+
+    /// The file entry with the given name, if any.
+    func file(named name: String) -> MobileDemoFileSystemEntry? {
+        entries.first {
+            if case let .file(entryName, _) = $0 { return entryName == name }
+            return false
+        }
+    }
+}
+
+/// One entry of a demo filesystem directory.
+public enum MobileDemoFileSystemEntry: Equatable, Sendable {
+    /// A nested directory.
+    case directory(name: String, MobileDemoDirectory)
+    /// A file, with optional plain-text `cat` contents.
+    case file(name: String, contents: String?)
+
+    /// The entry's display name.
+    public var name: String {
+        switch self {
+        case let .directory(name, _): name
+        case let .file(name, _): name
+        }
+    }
+}
+
 /// One demonstration terminal's canned starting state.
 ///
 /// `transcript` is raw VT/ANSI text shown as the terminal's existing history;
-/// `prompt` is what the simulated shell prints before reading a command; the
-/// working directory and file table feed the canned command responses.
+/// the filesystem and directory names feed the interactive `cd`/`ls`/`pwd`/
+/// `cat` session that follows it.
 public struct MobileDemoTerminalScript: Equatable, Sendable {
     /// The terminal surface identifier this script backs.
     public let surfaceID: String
     /// Canned VT/ANSI history rendered above the first prompt.
     public let transcript: String
-    /// The simulated shell prompt (may contain ANSI color sequences).
-    public let prompt: String
-    /// The simulated current working directory (`pwd`).
+    /// The absolute path of the session's starting directory (`pwd` at the
+    /// root, e.g. `/Users/demo/code/api-server`).
     public let workingDirectory: String
-    /// File names listed by `ls`, with optional `cat` contents.
-    public let files: [MobileDemoTerminalFile]
+    /// The prompt spelling of the starting directory (e.g. `~/code/api-server`).
+    public let displayDirectory: String
+    /// The fake project tree rooted at ``workingDirectory``.
+    public let fileSystem: MobileDemoDirectory
 
     /// Creates a demo terminal script.
     public init(
         surfaceID: String,
         transcript: String,
-        prompt: String,
         workingDirectory: String,
-        files: [MobileDemoTerminalFile] = []
+        displayDirectory: String,
+        fileSystem: MobileDemoDirectory = MobileDemoDirectory([])
     ) {
         self.surfaceID = surfaceID
         self.transcript = transcript
-        self.prompt = prompt
         self.workingDirectory = workingDirectory
-        self.files = files
+        self.displayDirectory = displayDirectory
+        self.fileSystem = fileSystem
     }
-}
 
-/// One canned file visible to the demo shell's `ls` and `cat`.
-public struct MobileDemoTerminalFile: Equatable, Sendable {
-    /// The file name shown by `ls`.
-    public let name: String
-    /// Whether `ls` colors the entry as a directory.
-    public let isDirectory: Bool
-    /// Plain-text `cat` contents, or `nil` for directories/binaries.
-    public let contents: String?
+    /// The shell prompt for a working path under the root (empty = root).
+    func prompt(atPath path: [String]) -> String {
+        let display = ([displayDirectory] + path).joined(separator: "/")
+        return "\u{1B}[1;32mdemo@demo-mac\u{1B}[0m \u{1B}[1;36m\(display)\u{1B}[0m % "
+    }
 
-    /// Creates a canned file entry.
-    public init(name: String, isDirectory: Bool = false, contents: String? = nil) {
-        self.name = name
-        self.isDirectory = isDirectory
-        self.contents = contents
+    /// The absolute `pwd` for a working path under the root.
+    func absolutePath(atPath path: [String]) -> String {
+        ([workingDirectory] + path).joined(separator: "/")
     }
 }
 
 /// A local, deterministic PTY simulacrum for demonstration terminals.
 ///
 /// The engine renders canned session history and then behaves like a minimal
-/// line-disciplined shell: typed characters echo immediately, backspace erases,
-/// Ctrl-C aborts the line, and Enter runs a small canned command table (`ls`,
-/// `pwd`, `git status`, `echo`, `cat`, …) so App Review sees a terminal that
-/// responds to input exactly where a live Mac session would. All output is
-/// plain VT bytes delivered through the same output stream the real terminal
-/// pipeline uses; nothing here talks to a network.
+/// line-disciplined shell: typed characters echo immediately, backspace
+/// erases, Ctrl-C aborts the line, and Enter runs a command. The engine owns
+/// only the line discipline and the filesystem/session commands (`cd`, `ls`,
+/// `pwd`, `cat`, `clear`) whose behavior depends on per-terminal state; every
+/// other command resolves through ``MobileDemoCommandCatalog``, the single
+/// place showcase commands are added. All output is plain VT bytes delivered
+/// through the same output stream the real terminal pipeline uses; nothing
+/// here talks to a network.
 @MainActor
 public final class MobileDemoTerminalEngine {
     /// Bounds retained per-terminal history so an adversarial typing session
@@ -71,6 +114,8 @@ public final class MobileDemoTerminalEngine {
         var transcript: String
         /// The current, not-yet-executed input line.
         var lineBuffer: String
+        /// The working directory as path components under the script's root.
+        var path: [String] = []
     }
 
     private var sessionsBySurfaceID: [String: SessionState] = [:]
@@ -79,7 +124,8 @@ public final class MobileDemoTerminalEngine {
     /// Creates an engine over the given terminal scripts.
     /// - Parameters:
     ///   - scripts: One script per demo terminal surface.
-    ///   - now: Clock used by the `date` command; injected for deterministic tests.
+    ///   - now: Clock used by time-dependent showcase commands; injected for
+    ///     deterministic tests.
     public init(
         scripts: [MobileDemoTerminalScript],
         now: @escaping @Sendable () -> Date = { Date() }
@@ -104,7 +150,9 @@ public final class MobileDemoTerminalEngine {
     /// exactly what the user last saw.
     public func replayBytes(surfaceID: String) -> Data? {
         guard let session = sessionsBySurfaceID[surfaceID] else { return nil }
-        let screen = session.transcript + session.script.prompt + session.lineBuffer
+        let screen = session.transcript
+            + session.script.prompt(atPath: session.path)
+            + session.lineBuffer
         return Data(screen.utf8)
     }
 
@@ -134,12 +182,14 @@ public final class MobileDemoTerminalEngine {
             case "\u{03}":
                 // Ctrl-C: abort the line like a shell.
                 session.lineBuffer = ""
-                output += "^C\r\n" + session.script.prompt
+                output += "^C\r\n" + session.script.prompt(atPath: session.path)
                 appendToTranscript(&session, "^C\r\n")
             case "\u{0C}":
                 // Ctrl-L: clear the screen, keep the typed line.
                 session.transcript = ""
-                output += "\u{1B}[2J\u{1B}[H" + session.script.prompt + session.lineBuffer
+                output += "\u{1B}[2J\u{1B}[H"
+                    + session.script.prompt(atPath: session.path)
+                    + session.lineBuffer
             case "\u{1B}":
                 // Swallow escape sequences (arrow keys, etc.) instead of
                 // echoing raw control bytes into the canned session.
@@ -158,36 +208,168 @@ public final class MobileDemoTerminalEngine {
         return Data(output.utf8)
     }
 
-    /// Runs the buffered line through the canned command table. Returns the
-    /// bytes to echo (newline, command output, next prompt) and folds the
-    /// exchange into the transcript so replay stays consistent.
+    // MARK: Command execution
+
+    /// Runs the buffered line: engine-owned filesystem/session commands
+    /// first, then the showcase catalog. Returns the bytes to echo (newline,
+    /// command output, next prompt) and folds the exchange into the
+    /// transcript so replay stays consistent.
     private func executeLine(_ session: inout SessionState) -> String {
         let line = session.lineBuffer
         session.lineBuffer = ""
-        let response = MobileDemoCommandResponder.respond(
-            to: line,
-            script: session.script,
-            now: now()
-        )
-        switch response {
-        case .output(let body):
-            let echoed = "\r\n" + body
-            appendToTranscript(&session, line + echoed)
-            return echoed + session.script.prompt
-        case .clearScreen:
-            session.transcript = ""
-            return "\u{1B}[2J\u{1B}[H" + session.script.prompt
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            appendToTranscript(&session, line + "\r\n")
+            return "\r\n" + session.script.prompt(atPath: session.path)
         }
+        let parts = trimmed.split(separator: " ", maxSplits: 1)
+        let command = String(parts.first ?? "")
+        let argument = parts.count > 1
+            ? parts[1].trimmingCharacters(in: .whitespaces)
+            : ""
+
+        let body: String
+        switch command {
+        case "cd":
+            body = changeDirectory(&session, argument: argument)
+        case "ls":
+            body = listDirectory(session, argument: argument)
+        case "pwd":
+            body = session.script.absolutePath(atPath: session.path) + "\r\n"
+        case "cat":
+            body = catFile(session, argument: argument)
+        case "clear":
+            session.transcript = ""
+            return "\u{1B}[2J\u{1B}[H" + session.script.prompt(atPath: session.path)
+        default:
+            body = MobileDemoCommandCatalog.response(
+                command: command,
+                context: MobileDemoCommandCatalog.Context(
+                    arguments: argument,
+                    workingDirectory: session.script.absolutePath(atPath: session.path),
+                    now: now()
+                )
+            ) ?? "zsh: command not found: \(command)\r\n"
+        }
+
+        let echoed = "\r\n" + body
+        appendToTranscript(&session, line + echoed)
+        return echoed + session.script.prompt(atPath: session.path)
     }
+
+    // MARK: Filesystem commands
+
+    /// Resolves a user path argument against the session's working path.
+    /// Supports `~` (root), `.`, `..`, and `/`-separated relative segments.
+    /// Returns the resolved components under the root, or `nil` when a
+    /// segment names no directory.
+    private func resolveDirectoryPath(
+        _ argument: String,
+        session: SessionState
+    ) -> [String]? {
+        var path: [String]
+        var segments = argument.split(separator: "/").map(String.init)
+        if argument.hasPrefix("~") {
+            path = []
+            if segments.first == "~" { segments.removeFirst() }
+        } else {
+            path = session.path
+        }
+        for segment in segments {
+            switch segment {
+            case ".":
+                continue
+            case "..":
+                if !path.isEmpty { path.removeLast() }
+            default:
+                guard directory(at: path, in: session)?
+                    .subdirectory(named: segment) != nil else { return nil }
+                path.append(segment)
+            }
+        }
+        return path
+    }
+
+    /// The directory node at the given components, or `nil` off-tree.
+    private func directory(at path: [String], in session: SessionState) -> MobileDemoDirectory? {
+        var node = session.script.fileSystem
+        for segment in path {
+            guard let next = node.subdirectory(named: segment) else { return nil }
+            node = next
+        }
+        return node
+    }
+
+    private func changeDirectory(_ session: inout SessionState, argument: String) -> String {
+        guard !argument.isEmpty, argument != "~" else {
+            session.path = []
+            return ""
+        }
+        guard let resolved = resolveDirectoryPath(argument, session: session) else {
+            return "cd: no such file or directory: \(argument)\r\n"
+        }
+        session.path = resolved
+        return ""
+    }
+
+    private func listDirectory(_ session: SessionState, argument: String) -> String {
+        let target: MobileDemoDirectory?
+        if argument.isEmpty {
+            target = directory(at: session.path, in: session)
+        } else if let resolved = resolveDirectoryPath(argument, session: session) {
+            target = directory(at: resolved, in: session)
+        } else {
+            return "ls: \(argument): No such file or directory\r\n"
+        }
+        guard let entries = target?.entries, !entries.isEmpty else { return "" }
+        let rendered = entries.map { entry in
+            switch entry {
+            case let .directory(name, _):
+                "\u{1B}[1;34m\(name)\u{1B}[0m"
+            case let .file(name, _):
+                name
+            }
+        }
+        return rendered.joined(separator: "  ") + "\r\n"
+    }
+
+    private func catFile(_ session: SessionState, argument: String) -> String {
+        guard !argument.isEmpty else { return "" }
+        var segments = argument.split(separator: "/").map(String.init)
+        guard let fileName = segments.popLast() else {
+            return "cat: \(argument): No such file or directory\r\n"
+        }
+        let parentPath: [String]?
+        if segments.isEmpty, !argument.hasPrefix("~") {
+            parentPath = session.path
+        } else {
+            let parentArgument = argument.hasPrefix("~") && segments == ["~"]
+                ? "~"
+                : segments.joined(separator: "/")
+            parentPath = resolveDirectoryPath(parentArgument, session: session)
+        }
+        guard let parentPath,
+              let parent = directory(at: parentPath, in: session),
+              case let .file(_, contents)? = parent.file(named: fileName) else {
+            return "cat: \(argument): No such file or directory\r\n"
+        }
+        guard let contents else {
+            return "cat: \(argument): Permission denied\r\n"
+        }
+        let normalized = contents
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\n", with: "\r\n")
+        return normalized.hasSuffix("\r\n") ? normalized : normalized + "\r\n"
+    }
+
+    // MARK: Transcript bookkeeping
 
     private func appendToTranscript(_ session: inout SessionState, _ text: String) {
         session.transcript += text
         // Trim from the front on overflow; the terminal only replays what a
         // real scrollback would still retain.
         while session.transcript.utf8.count > Self.maximumTranscriptUTF8Bytes {
-            session.transcript.removeFirst(
-                session.transcript.count - session.transcript.count * 3 / 4
-            )
+            session.transcript.removeFirst(session.transcript.count / 4)
         }
     }
 
@@ -207,91 +389,6 @@ public final class MobileDemoTerminalEngine {
             if scalars.first != nil { scalars = scalars.dropFirst() }
         default:
             break
-        }
-    }
-}
-
-/// The canned command table behind the demonstration shell.
-enum MobileDemoCommandResponder {
-    enum Response: Equatable {
-        /// Print this VT text (already `\r\n`-terminated unless empty).
-        case output(String)
-        /// Clear the screen and print a fresh prompt.
-        case clearScreen
-    }
-
-    static func respond(
-        to line: String,
-        script: MobileDemoTerminalScript,
-        now: Date
-    ) -> Response {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return .output("") }
-        let parts = trimmed.split(separator: " ", maxSplits: 1)
-        let command = String(parts.first ?? "")
-        let argument = parts.count > 1 ? String(parts[1]) : ""
-
-        switch command {
-        case "ls":
-            let entries = script.files.map { file in
-                file.isDirectory ? "\u{1B}[1;34m\(file.name)\u{1B}[0m" : file.name
-            }
-            guard !entries.isEmpty else { return .output("") }
-            return .output(entries.joined(separator: "  ") + "\r\n")
-        case "pwd":
-            return .output(script.workingDirectory + "\r\n")
-        case "whoami":
-            return .output("demo\r\n")
-        case "date":
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
-            return .output(formatter.string(from: now) + "\r\n")
-        case "echo":
-            return .output(argument + "\r\n")
-        case "clear":
-            return .clearScreen
-        case "cat":
-            guard !argument.isEmpty else { return .output("") }
-            if let file = script.files.first(where: { $0.name == argument }),
-               let contents = file.contents {
-                let normalized = contents
-                    .replacingOccurrences(of: "\r\n", with: "\n")
-                    .replacingOccurrences(of: "\n", with: "\r\n")
-                return .output(normalized.hasSuffix("\r\n") ? normalized : normalized + "\r\n")
-            }
-            return .output("cat: \(argument): No such file or directory\r\n")
-        case "git":
-            return .output(gitResponse(argument: argument))
-        case "uname":
-            return .output("Darwin\r\n")
-        case "hostname":
-            return .output("demo-mac.local\r\n")
-        default:
-            return .output("zsh: command not found: \(command)\r\n")
-        }
-    }
-
-    private static func gitResponse(argument: String) -> String {
-        let subcommand = argument.split(separator: " ").first.map(String.init) ?? ""
-        switch subcommand {
-        case "status":
-            return "On branch main\r\n" +
-                "Your branch is up to date with 'origin/main'.\r\n" +
-                "\r\nnothing to commit, working tree clean\r\n"
-        case "log":
-            return "\u{1B}[33mcommit 4c1f2ab\u{1B}[0m (HEAD -> main, origin/main)\r\n" +
-                "    webhook: retry delivery with exponential backoff\r\n" +
-                "\u{1B}[33mcommit 91d03fe\u{1B}[0m\r\n" +
-                "    tests: cover session-restore race\r\n" +
-                "\u{1B}[33mcommit b7a2c10\u{1B}[0m\r\n" +
-                "    ci: cache package resolution between runs\r\n"
-        case "branch":
-            return "* \u{1B}[32mmain\u{1B}[0m\r\n"
-        case "diff":
-            return "\r\n"
-        default:
-            return "git: '\(subcommand)' is not a git command. See 'git --help'.\r\n"
         }
     }
 }
