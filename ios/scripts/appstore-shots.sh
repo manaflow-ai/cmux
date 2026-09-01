@@ -179,9 +179,9 @@ if best:
     cx=220; cy=680
   fi
   echo "long-pressing notification at $cx,$cy"
-  axe touch --x "$cx" --y "$cy" --down --udid "$udid"
+  axe touch -x "$cx" -y "$cy" --down --udid "$udid"
   sleep 1
-  axe touch --x "$cx" --y "$cy" --up --udid "$udid"
+  axe touch -x "$cx" -y "$cy" --up --udid "$udid"
   sleep 1.5
   axe tap --label "Reply" --udid "$udid" 2>/dev/null || true
   sleep 1.5
