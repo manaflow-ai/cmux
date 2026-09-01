@@ -1,6 +1,6 @@
 # Plugin Contract
 
-This document specifies the mux-side sidebar plugin contract.
+This document specifies the mux-side sidebar and journal plugin contracts.
 
 ## Sidebar Plugins
 
