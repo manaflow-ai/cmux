@@ -1,9 +1,9 @@
 // cmux shim over the vendored iSH usermode-x86 kernel (vendor/ish).
 //
 // This is the ONLY header the Swift side sees. It deliberately exposes no
-// iSH types: sessions are integer handles, output arrives on a C callback
-// from kernel threads (the callback must not block and must not call back
-// into this API synchronously).
+// iSH types: sessions are opaque integer handles, output arrives on a C
+// callback from kernel threads (the callback must not block and must not call
+// back into this API synchronously).
 #ifndef CMUX_ISH_H
 #define CMUX_ISH_H
 
@@ -16,6 +16,16 @@ extern "C" {
 
 // Raw PTY output produced by the emulated slave side. Runs on an emulated
 // task's thread (or, for input echo, the caller of cmux_ish_session_input).
+// `bytes` is borrowed and is valid only for the duration of the callback.
+// A callback must consume or copy it before returning, and must not block.
+//
+// The callback receives one terminal event when the process exits or the
+// session is hung up: `bytes == NULL` and `length == 0`. This is not an output
+// chunk. It is delivered after all ordinary output callbacks, and exactly
+// once for every successfully opened session. A bridge that retained
+// `context` must release that ownership from this terminal event. If opening
+// the session fails, no terminal event is sent and the caller retains the
+// usual responsibility for releasing its context.
 typedef void (*cmux_ish_output_cb)(void *_Nullable context,
                                    const char *_Nullable bytes,
                                    size_t length);
@@ -39,8 +49,10 @@ int cmux_ish_boot(const char *_Nonnull fakefs_data_path,
 
 // Opens a pty pair, spawns `command` (argv, NULL-terminated; envp entries
 // "KEY=VALUE", NULL-terminated, may be NULL for a default TERM) attached to
-// the slave, and returns a session handle >= 0, or a negative Linux errno.
-// Output bytes stream to `cb` until cmux_ish_session_hangup.
+// the slave, and returns an opaque session handle >= 0, or a negative Linux
+// errno. The handle is not a slot index and must not be persisted across
+// process launches. Output bytes stream to `cb` until the terminal event
+// described above.
 int cmux_ish_session_open(const char *_Nullable const *_Nonnull argv,
                           const char *_Nullable const *_Nullable envp,
                           int cols, int rows,
@@ -55,8 +67,12 @@ long cmux_ish_session_input(int session, const char *_Nonnull bytes, size_t leng
 // Updates the tty window size and signals SIGWINCH to the foreground group.
 void cmux_ish_session_resize(int session, int cols, int rows);
 
-// Hangs up the tty (SIGHUP to the session) and detaches the output callback.
-// The handle is invalid afterwards.
+// Hangs up the tty (SIGHUP to the session), sends the terminal event, and
+// waits for callbacks already in flight to return. The handle is invalid
+// afterwards. The terminal event owns context cleanup; callers must not
+// release context a second time after this function returns. Calling this
+// function more than once for the same handle is safe; callbacks must not call
+// it synchronously.
 void cmux_ish_session_hangup(int session);
 
 // Emulated pid of the session leader, or -1.
