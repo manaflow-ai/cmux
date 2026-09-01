@@ -119,6 +119,103 @@ struct GhosttyDECCKMArrowKeyTests {
         )
     }
 
+    @Test
+    func windowKeyEquivalentMacTextEditingChordsReachShell() throws {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let captureReadyMarker = "CMUX_EDIT_READY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let captureMarker = "CMUX_EDIT_HEX_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-editing-capture-\(UUID().uuidString).py")
+        let script = """
+        import os
+        import select
+        import sys
+        import termios
+        import time
+        import tty
+
+        fd = 0
+        sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
+        sys.stdout.flush()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            data = bytearray()
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline and len(data) < 6:
+                if select.select([sys.stdin], [], [], 0.05)[0]:
+                    data.extend(os.read(fd, 64))
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        print("\\r\\n\(captureMarker)=" + data.hex(), flush=True)
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+        let hostedTerminal = try makeHostedTerminalWindow(
+            initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
+        )
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        // The byte assertion needs a live Metal surface. Predicate tests still
+        // cover routing policy on headless runners.
+        guard hostedTerminal.surface.hasLiveSurface else { return }
+        #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
+
+        let readyText = try waitForTerminalText(from: hostedTerminal) {
+            $0.contains(captureReadyMarker)
+        }
+        #expect(readyText.contains(captureReadyMarker), "Expected editing capture harness to become ready")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        let events: [(name: String, flags: NSEvent.ModifierFlags, keyCode: UInt16, characters: String)] = [
+            ("Command+Backspace", [.command], 51, "\u{8}"),
+            ("Command+ForwardDelete", [.command, .function], 117, "\u{f728}"),
+            ("Option+Backspace", [.option], 51, "\u{8}"),
+            ("Option+ForwardDelete", [.option, .function], 117, "\u{f728}"),
+        ]
+        let timestamp = ProcessInfo.processInfo.systemUptime
+
+        try withExtendedLifetime(hostedTerminal.surface) {
+            for (index, item) in events.enumerated() {
+                let event = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: item.flags,
+                    timestamp: timestamp + (Double(index) * 0.001),
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    characters: item.characters,
+                    charactersIgnoringModifiers: item.characters,
+                    isARepeat: false,
+                    keyCode: item.keyCode
+                ))
+
+                #expect(
+                    window.performKeyEquivalent(with: event),
+                    "Terminal \(item.name) should be consumed by the editing route"
+                )
+            }
+        }
+
+        let captureText = try waitForTerminalText(from: hostedTerminal, timeout: 5) {
+            $0.contains(captureMarker)
+        }
+        let markerRange = try #require(captureText.range(of: "\(captureMarker)="))
+        let hexCharacters = Set("0123456789abcdefABCDEF")
+        let capturedHex = captureText[markerRange.upperBound...]
+            .prefix { hexCharacters.contains($0) }
+
+        #expect(
+            String(capturedHex) == "150b1b7f1b64",
+            "macOS line and word delete chords must reach the shell as readline-compatible bytes"
+        )
+    }
+
     @Test(arguments: [123, 124, 125, 126] as [UInt16])
     func terminalArrowPredicateAcceptsUnmodifiedTerminalArrows(keyCode: UInt16) {
         #expect(shouldDispatchTerminalArrowViaFirstResponderKeyDown(
@@ -158,6 +255,45 @@ struct GhosttyDECCKMArrowKeyTests {
             keyCode: 36,
             firstResponderIsTerminal: true,
             flags: [.numericPad, .function]
+        ))
+    }
+
+    @Test(arguments: [51, 117] as [UInt16])
+    func terminalDeletePredicateAcceptsCommandDelete(keyCode: UInt16) {
+        #expect(shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: keyCode,
+            firstResponderIsTerminal: true,
+            flags: [.command, .function, .numericPad]
+        ))
+    }
+
+    @Test
+    func terminalDeletePredicateKeepsForeignAndModifiedDeleteKeysAlone() {
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: false,
+            flags: [.command]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: true,
+            firstResponderHasMarkedText: true,
+            flags: [.command]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: true,
+            flags: [.command, .shift]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: true,
+            flags: [.command, .option]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 36,
+            firstResponderIsTerminal: true,
+            flags: [.command]
         ))
     }
 

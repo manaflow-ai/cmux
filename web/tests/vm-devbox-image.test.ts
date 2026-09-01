@@ -165,6 +165,28 @@ describe("devbox image template", () => {
     for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
+    // Keep all macOS line and word delete spellings as delete actions in both
+    // editing modes. The shared body test below enforces Blaxel parity.
+    for (const bind of [
+      "ble-bind -m emacs -f 'C-u' kill-backward-line",
+      "ble-bind -m emacs -f 'C-k' kill-forward-line",
+      "ble-bind -m emacs -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-BS' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-d' kill-forward-cword",
+      "ble-bind -m emacs -f 'M-delete' kill-forward-cword",
+      "ble-bind -m vi_imap -f 'C-u' kill-backward-line",
+      "ble-bind -m vi_imap -f 'C-k' kill-forward-line",
+      "ble-bind -m vi_imap -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-BS' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-d' kill-forward-cword",
+      "ble-bind -m vi_imap -f 'M-delete' kill-forward-cword",
+    ]) {
+      expect(bashrc).toContain(bind);
+    }
   });
 
   test("stays within the E2B Dockerfile-parser restrictions", () => {

@@ -154,6 +154,34 @@ describe("Blaxel baked image template", () => {
     }
   });
 
+  test("macOS line and word delete bytes have delete actions in ble.sh", () => {
+    // Ghostty emits C-u/C-k for Command delete and ESC DEL/ESC d for Option
+    // delete. Remote clients can also decode the equivalent meta key names.
+    for (const bind of [
+      "ble-bind -m emacs -f 'C-u' kill-backward-line",
+      "ble-bind -m emacs -f 'C-k' kill-forward-line",
+      "ble-bind -m emacs -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-BS' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-d' kill-forward-cword",
+      "ble-bind -m emacs -f 'M-delete' kill-forward-cword",
+      "ble-bind -m vi_imap -f 'C-u' kill-backward-line",
+      "ble-bind -m vi_imap -f 'C-k' kill-forward-line",
+      "ble-bind -m vi_imap -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-BS' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-d' kill-forward-cword",
+      "ble-bind -m vi_imap -f 'M-delete' kill-forward-cword",
+    ]) {
+      expect(bashrc).toContain(bind);
+    }
+    expect(bashrc.indexOf("source /usr/local/share/blesh/ble.sh")).toBeLessThan(
+      bashrc.indexOf("ble-bind -m emacs"),
+    );
+  });
+
   test("agent config generator wires the coderouter model plane per HOME", () => {
     const agentConfig = read("agent-config.sh");
     // Sourced for login/exec shells and every interactive HOME.
