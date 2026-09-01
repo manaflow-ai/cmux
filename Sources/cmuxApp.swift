@@ -254,8 +254,12 @@ struct cmuxApp: App {
         _sidebarState = StateObject(wrappedValue: sidebarState)
         _focusHistoryMenuInvalidator = StateObject(wrappedValue: focusHistoryMenuInvalidator)
         let automationEngine = AutomationEngine(
-            workspaceTagsResolver: { [weak tabManager] workspaceID in
-                guard let workspace = tabManager?.workspacesById[workspaceID] else {
+            workspaceTagsResolver: { workspaceID in
+                // Resolve through the app delegate's live window-context index;
+                // the bootstrap TabManager can be retired when the first real
+                // main window is adopted.
+                guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+                      let workspace = manager.workspacesById[workspaceID] else {
                     return []
                 }
                 return workspace.sidebarStatusEntriesInDisplayOrder().flatMap { entry in
