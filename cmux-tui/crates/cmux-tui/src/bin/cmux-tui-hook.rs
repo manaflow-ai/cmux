@@ -25,12 +25,13 @@ struct Args {
 }
 
 fn main() -> ExitCode {
+    let started = Instant::now();
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if arguments.iter().any(|argument| matches!(argument.as_str(), "-h" | "--help")) {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
-    match parse_args(arguments).and_then(run) {
+    match parse_args(arguments).and_then(|args| run(args, started)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
@@ -39,8 +40,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Args) -> anyhow::Result<()> {
-    let started = Instant::now();
+fn run(args: Args, started: Instant) -> anyhow::Result<()> {
     let timeout = socket_timeout(&args.source, &args.native_event);
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         drain_native_payload()?;
