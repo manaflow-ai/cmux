@@ -2903,13 +2903,13 @@ final class SocketClient {
     private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
-    private var authenticationPassword: String?
+    var authenticationPassword: String?
     /// Deferred password source invoked only after an auth-required reply.
     var authenticationPasswordProvider: ((Date?) -> String?)?
     var authenticationPasswordResolutionAttempted = false
     var authenticationModeEstablished = false
-    private var authenticationInProgress = false
-    private var socketAuthenticated = false
+    var authenticationInProgress = false
+    var socketAuthenticated = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let receiveTimeoutReconfigurationToleranceSeconds: TimeInterval = 0.001
