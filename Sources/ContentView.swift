@@ -5725,7 +5725,7 @@ struct ContentView: View {
         // Keep workspace rows coarse and stable for predictable workspace switching queries.
         let directories = [workspace.presentedCurrentDirectory].compactMap { $0 }
         let branches = [workspace.presentedGitBranch?.branch].compactMap { $0 }
-        let ports = workspace.listeningPorts
+        let ports = workspace.sidebarVisibleListeningPorts
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
             branches: branches,
