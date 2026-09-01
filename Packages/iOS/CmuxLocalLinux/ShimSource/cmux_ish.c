@@ -1561,9 +1561,21 @@ void cmux_ish_session_resize(int handle, int cols, int rows) {
     struct tty *tty = cmux_retain_tty(handle, false, NULL);
     if (tty == NULL)
         return;
+    pid_t_ foreground_group;
     lock(&tty->lock);
-    tty_set_winsize(tty, (struct winsize_) {.col = (word_t) cols, .row = (word_t) rows});
+    // iSH's tty_set_winsize sends SIGWINCH while holding tty->lock. That
+    // signal path takes pids_lock, while the reaper can hold pids_lock and
+    // wait for this tty lock in task_leave_session. Update the dimensions
+    // here, capture the group, and deliver the signal after unlocking to keep
+    // the lock order acyclic.
+    tty->winsize = (struct winsize_) {
+        .col = (word_t) cols,
+        .row = (word_t) rows,
+    };
+    foreground_group = tty->fg_group;
     unlock(&tty->lock);
+    if (foreground_group != 0)
+        (void) send_group_signal(foreground_group, SIGWINCH_, SIGINFO_NIL);
     cmux_release_tty(tty);
 }
 
