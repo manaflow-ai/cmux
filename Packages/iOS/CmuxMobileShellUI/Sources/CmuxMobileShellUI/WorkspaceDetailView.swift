@@ -77,6 +77,11 @@ struct WorkspaceDetailView: View {
     @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
+    /// Top safe-area inset captured just OUTSIDE the terminal leaf's
+    /// top-edge safe-area expansion. Once the leaf underlaps the bar its
+    /// UIKit `safeAreaInsets.top` reads 0, so the surface's scroll-edge band
+    /// height must come from SwiftUI geometry captured before the ignore.
+    @State var terminalCapturedTopInset: CGFloat = 0
     // Rendered content width per trailing toolbar item, keyed by item. The
     // title's width cap subtracts the structurally visible items' widths so
     // they always fit and iOS never folds them into the overflow More menu
@@ -193,7 +198,13 @@ struct WorkspaceDetailView: View {
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
-            .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // With the scroll-edge band active (iOS 26, terminal surface),
+            // the bar stays system glass and the terminal's overscan rows
+            // render under it; other surfaces keep the opaque themed bar.
+            .mobileTerminalNavigationChrome(
+                theme: store.activeTerminalTheme,
+                scrollEdgeGlass: terminalScrollEdgeGlassActive
+            )
             // The browser and chat surfaces scroll; without this the system
             // minimizes the whole bar into a floating "…" pill, unlike the
             // terminal surface, which has no system scroll view.

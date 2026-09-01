@@ -331,7 +331,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
     func refreshThemeColors() {
-        accessoryBarBackgroundView?.backgroundColor = themeBarColor
         dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
         refreshAccessoryButtonStyles()
@@ -346,7 +345,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = themeBarColor
+        // Clear, not the theme bar fill: the scroll-edge band renders live
+        // scrollback rows behind this strip and the host's dock-anchored
+        // fade provides the legibility wash. Everywhere the band is off,
+        // what shows through is the same theme-colored surface this fill
+        // used to match, so nothing changes visually there.
+        backgroundView.backgroundColor = .clear
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         self.accessoryBarBackgroundView = backgroundView
 
@@ -360,6 +364,22 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
+
+        // iOS 26: Liquid Glass circle behind the toggle glyph so it stays
+        // legible over band rows. A SIBLING under the button, not a button
+        // subview: UIButton manages its own subview order and sandwiched
+        // the glyph beneath the glass. Non-interactive; the button — sized
+        // to the same circle, matching the row's control height — owns the
+        // whole tap area.
+        var dismissGlass: UIVisualEffectView?
+        if #available(iOS 26.0, *) {
+            let glass = UIVisualEffectView(effect: UIGlassEffect())
+            glass.isUserInteractionEnabled = false
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            glass.layer.cornerRadius = Self.accessoryButtonHeight / 2
+            glass.clipsToBounds = true
+            dismissGlass = glass
+        }
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
         dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
@@ -419,6 +439,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         self.composerButton = composerButton
 
         container.addSubview(backgroundView)
+        if let dismissGlass {
+            container.addSubview(dismissGlass)
+        }
         container.addSubview(dismissButton)
         container.addSubview(nub)
         container.addSubview(composerButton)
@@ -470,7 +493,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // scroll view.)
             dismissLeadingConstraint,
             dismissButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-            dismissButton.widthAnchor.constraint(equalToConstant: 32),
+            // Sized to the glass capsule: the row's shared control height,
+            // widened so the glyph gets breathing room, and the whole
+            // visible capsule is tappable (the glass tracks these anchors).
+            dismissButton.widthAnchor.constraint(equalToConstant: Self.accessoryButtonHeight + 12),
+            dismissButton.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight),
 
             nub.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 6),
             nub.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
@@ -502,6 +529,15 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
         ])
+
+        if let dismissGlass {
+            NSLayoutConstraint.activate([
+                dismissGlass.centerXAnchor.constraint(equalTo: dismissButton.centerXAnchor),
+                dismissGlass.centerYAnchor.constraint(equalTo: dismissButton.centerYAnchor),
+                dismissGlass.widthAnchor.constraint(equalTo: dismissButton.widthAnchor),
+                dismissGlass.heightAnchor.constraint(equalTo: dismissButton.heightAnchor),
+            ])
+        }
 
         accessoryBackgroundLeadingConstraint = backgroundLeadingConstraint
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
