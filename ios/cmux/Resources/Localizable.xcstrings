@@ -1106,6 +1106,125 @@
         }
       }
     },
+    "mobile.computers.privateAddresses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Addresses"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートアドレス"
+          }
+        }
+      }
+    },
+    "mobile.computers.privateAddresses.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most people do not need private addresses. Add one only when IT provides a route to this computer that automatic LAN, VPN, and relay discovery cannot find."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートアドレスは通常不要です。LAN・VPN・リレーの自動検出で見つからない経路をIT部門から提供された場合にのみ追加してください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.privateAddresses.use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Private Addresses"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートアドレスを使用"
+          }
+        }
+      }
+    },
+    "mobile.settings.allComputers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのコンピュータ"
+          }
+        }
+      }
+    },
+    "mobile.settings.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each computer connects using its own method, shown on the right. Select one to inspect or configure it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各コンピュータは右側に表示される、それぞれの方式で接続します。選択すると詳細の確認や設定ができます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.showMissingFilesCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a workspace's Files list, keep files that were deleted or moved instead of hiding them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの「ファイル」リストで、削除または移動されたファイルを非表示にせず表示し続けます。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.appSwitcher": {
       "extractionState": "manual",
       "localizations": {
@@ -8161,40 +8280,6 @@
         }
       }
     },
-    "mobile.settings.connectionFocused": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focused"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォーカス中"
-          }
-        }
-      }
-    },
-    "mobile.settings.connectionReady": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ready"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "待機中"
-          }
-        }
-      }
-    },
     "mobile.settings.notSignedIn": {
       "extractionState": "manual",
       "localizations": {
@@ -8762,7 +8847,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show missing files"
+            "value": "Show Missing Files"
           }
         },
         "ja": {
