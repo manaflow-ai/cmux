@@ -237,7 +237,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(resources, on: machine, info: info)
         }
-        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
+        // The desktop is served through the same tokened port preview (noVNC on 6901), so
+        // it is prefetched only where the provider can mint one.
+        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image), capabilities.ports {
             prefetchDesktopEndpoint()
         }
         async let stats = sampledStats(client: client)
@@ -405,6 +407,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let port = resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
                 throw SurfaceCatalogError.unsupported("browser \(resource.id) has no port")
             }
+            // Every URL-backed pane is a tokened port preview; a provider that cannot
+            // mint one is refused here, before a pane opens onto a failure page.
+            guard capabilities.ports else {
+                throw SurfaceCatalogError.unsupported(Self.portPreviewUnavailableMessage(machineID: machineID, desktop: desktop))
+            }
             if let url = endpointURL(port: port, desktop: desktop) {
                 created = try SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
             } else {
@@ -554,6 +561,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
     /// noVNC query the `cmux vm desktop` recipe uses.
+    /// The refusal for a provider without port previews (the same sentence the socket's
+    /// `vm.port_open` gives): no implementation flag, one next action.
+    nonisolated static func portPreviewUnavailableMessage(machineID: String, desktop: Bool) -> String {
+        desktop
+            ? "\(machineID)'s provider cannot show its desktop in a pane (no port previews); use a machine kind with a desktop image."
+            : "\(machineID)'s provider cannot open machine ports as previews; reach the service from inside the machine with `cmux vm exec \(machineID) -- …`."
+    }
+
     /// What the connecting/failure screen calls the pane: "<machine> · Desktop" or "<machine>:<port>".
     static func paneLabel(machineID: String, port: Int, desktop: Bool) -> String {
         desktop

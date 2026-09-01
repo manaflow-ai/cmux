@@ -24,7 +24,7 @@
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
-        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a Blaxel machine, which can open ports.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "getStats": "Do not retry. `cmux vm status` still reports the machine's state.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }

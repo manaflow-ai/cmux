@@ -638,6 +638,7 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
         return summary
     }
 
@@ -681,6 +682,7 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
         return summary
     }
 
@@ -701,6 +703,7 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
         }
@@ -779,9 +782,11 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshotID = obj["snapshotId"] as? String
+        var forked = VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        forked.capabilities = VMCapabilities(json: obj["capabilities"])
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+            vm: forked
         )
     }
 
@@ -806,7 +811,9 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        restored.capabilities = VMCapabilities(json: obj["capabilities"])
+        return restored
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {
