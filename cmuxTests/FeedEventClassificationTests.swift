@@ -398,6 +398,28 @@ struct FeedEventClassificationTests {
         )
     }
 
+    @Test func codexApprovalIdentityRequiresDeterministicToolInput() {
+        let rawObject: [String: Any] = [
+            "session_id": "codex-session",
+            "turn_id": "turn-current",
+            "tool_name": "shell",
+        ]
+        #expect(CodexApprovalNotificationIdentity.make(rawObject: rawObject, fallbackSessionID: nil) == nil)
+        var unsupported = rawObject
+        unsupported["tool_input"] = Date()
+        #expect(CodexApprovalNotificationIdentity.make(rawObject: unsupported, fallbackSessionID: nil) == nil)
+    }
+
+    @Test func codexAutoReviewFailsClosedWithoutReadableRolloutTail() {
+        let policy = CodexApprovalNotificationPolicy()
+        let rawObject: [String: Any] = ["approvals_reviewer": "auto_review"]
+        #expect(!policy.isAutoReviewed(rawObject: rawObject, transcriptPath: nil) { _, _ in
+            [#"{"type":"turn_context","payload":{"approvals_reviewer":"auto_review"}}"#]
+        })
+        #expect(!policy.isAutoReviewed(rawObject: rawObject, transcriptPath: "/missing") { _, _ in nil })
+        #expect(!policy.isAutoReviewed(rawObject: rawObject, transcriptPath: "/empty") { _, _ in [] })
+    }
+
     @Test func codexReviewerDoesNotLeakFromAnOlderKnownTurn() {
         let rawObject: [String: Any] = [
             "session_id": "codex-session",

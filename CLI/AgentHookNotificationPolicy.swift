@@ -159,10 +159,11 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
         let toolInput = object["tool_input"]
             ?? object["toolInput"]
             ?? toolCall?["args"]
+        guard let canonicalToolInput = canonicalJSON(toolInput) else { return nil }
         let scopeSeed = "session=\(sessionID)\nturn=\(turnID)"
         let scope = digestPrefix(scopeSeed)
         let request = digestPrefix(
-            "\(scopeSeed)\ntool=\(toolName)\ninput=\(canonicalJSON(toolInput))"
+            "\(scopeSeed)\ntool=\(toolName)\ninput=\(canonicalToolInput)"
         )
         return Self(scope: scope, approvalID: "\(scope).\(request)")
     }
@@ -185,13 +186,13 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
         return nil
     }
 
-    private static func canonicalJSON(_ value: Any?) -> String {
-        guard let value else { return "null" }
+    private static func canonicalJSON(_ value: Any?) -> String? {
+        guard let value else { return nil }
         let wrapped: [String: Any] = ["value": value]
         guard JSONSerialization.isValidJSONObject(wrapped),
               let data = try? JSONSerialization.data(withJSONObject: wrapped, options: [.sortedKeys]),
               let string = String(data: data, encoding: .utf8) else {
-            return String(describing: value)
+            return nil
         }
         return string
     }
@@ -219,6 +220,21 @@ enum CodexApprovalReviewRoute: Equatable, Sendable {
 /// field and fall back to the app-side settle window.
 struct CodexApprovalNotificationPolicy: Sendable {
     static let rolloutTailBytes: UInt64 = 1024 * 1024
+
+    /// Returns true only when a readable bounded rollout tail proves auto-review.
+    func isAutoReviewed(
+        rawObject: [String: Any],
+        transcriptPath: String?,
+        readRolloutLines: (_ path: String, _ maxBytes: UInt64) -> [String]?
+    ) -> Bool {
+        guard let transcriptPath = transcriptPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !transcriptPath.isEmpty,
+              let rolloutLines = readRolloutLines(transcriptPath, Self.rolloutTailBytes),
+              !rolloutLines.isEmpty else {
+            return false
+        }
+        return reviewRoute(rawObject: rawObject, rolloutLines: rolloutLines) == .autoReview
+    }
 
     func reviewRoute(
         rawObject: [String: Any],

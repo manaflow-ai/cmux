@@ -61,7 +61,7 @@ final class AgentApprovalNotificationCoordinator {
     private let deliver: @MainActor (Delivery) -> Void
     private let clear: @MainActor (Clear) -> Void
     private var panes: [UUID: PaneState] = [:]
-    private var exactResolutionTombstones: [ResolutionKey: [TimeInterval]] = [:]
+    private var exactResolutionTombstones: [ResolutionKey: TimeInterval] = [:]
     private var scopeResolutionTombstones: [ResolutionKey: TimeInterval] = [:]
     private var nextSequence: UInt64 = 0
 
@@ -94,9 +94,7 @@ final class AgentApprovalNotificationCoordinator {
         let timestamp = now()
         pruneTombstones(at: timestamp)
         let exactKey = ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
-        if consumeExactResolutionTombstone(for: exactKey) {
-            return
-        }
+        guard exactResolutionTombstones[exactKey] == nil else { return }
         let scopeKey = ResolutionKey(surfaceID: surfaceID, value: approvalID.scope.rawValue)
         guard scopeResolutionTombstones[scopeKey] == nil else { return }
 
@@ -125,16 +123,15 @@ final class AgentApprovalNotificationCoordinator {
         let timestamp = now()
         pruneTombstones(at: timestamp)
         guard var state = panes[surfaceID],
-              let candidate = state.candidates.values
-                  .filter({ $0.approvalID == approvalID })
-                  .min(by: { $0.sequence < $1.sequence }) else {
+              state.candidates.values.contains(where: { $0.approvalID == approvalID }) else {
             exactResolutionTombstones[
-                ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue),
-                default: []
-            ].append(timestamp + tombstoneLifetime)
+                ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
+            ] = timestamp + tombstoneLifetime
             return
         }
-        state.candidates.removeValue(forKey: candidate.sequence)
+        // One correlation id names one logical request; duplicate hook
+        // deliveries must not keep its pane notification alive.
+        state.candidates = state.candidates.filter { $0.value.approvalID != approvalID }
         finishResolution(surfaceID: surfaceID, state: &state, timestamp: timestamp)
     }
 
@@ -287,24 +284,8 @@ final class AgentApprovalNotificationCoordinator {
         ))
     }
 
-    private func consumeExactResolutionTombstone(for key: ResolutionKey) -> Bool {
-        guard var expirations = exactResolutionTombstones[key], !expirations.isEmpty else {
-            return false
-        }
-        expirations.removeFirst()
-        if expirations.isEmpty {
-            exactResolutionTombstones.removeValue(forKey: key)
-        } else {
-            exactResolutionTombstones[key] = expirations
-        }
-        return true
-    }
-
     private func pruneTombstones(at timestamp: TimeInterval) {
-        exactResolutionTombstones = exactResolutionTombstones.compactMapValues { expirations in
-            let liveExpirations = expirations.filter { $0 > timestamp }
-            return liveExpirations.isEmpty ? nil : liveExpirations
-        }
+        exactResolutionTombstones = exactResolutionTombstones.filter { $0.value > timestamp }
         scopeResolutionTombstones = scopeResolutionTombstones.filter { $0.value > timestamp }
     }
 

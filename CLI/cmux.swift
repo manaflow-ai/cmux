@@ -36198,17 +36198,14 @@ export default CMUXSessionRestore;
             }
 
             if def.name == "codex", summary.notifyCategory == .needsPermission {
-                let rolloutLines = (input.transcriptPath ?? mapped?.transcriptPath).flatMap {
-                    readRecentTextFileLines(
-                        path: $0,
-                        maxBytes: CodexApprovalNotificationPolicy.rolloutTailBytes
-                    )
-                } ?? []
-                let reviewRoute = CodexApprovalNotificationPolicy().reviewRoute(
+                let isAutoReviewed = CodexApprovalNotificationPolicy().isAutoReviewed(
                     rawObject: input.rawObject ?? input.object ?? [:],
-                    rolloutLines: rolloutLines
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    readRolloutLines: { path, maxBytes in
+                        readRecentTextFileLines(path: path, maxBytes: maxBytes)
+                    }
                 )
-                if reviewRoute == .autoReview {
+                if isAutoReviewed {
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.notification.skip agent=codex session=\(agentHookDebugShort(sessionId)) reason=autoReview",
@@ -39191,25 +39188,18 @@ export default CMUXSessionRestore;
                 fallbackSessionID: sessionId
             )
             : nil
-        let codexApprovalIsAutoReviewed: Bool = {
-            guard source == "codex", classification.notifiesNativeApprovalPrompt else {
-                return false
-            }
-            let transcriptPath = firstString(
-                in: stdinObj,
-                keys: ["transcript_path", "transcriptPath"]
-            )
-            let rolloutLines = transcriptPath.flatMap {
-                readRecentTextFileLines(
-                    path: $0,
-                    maxBytes: CodexApprovalNotificationPolicy.rolloutTailBytes
-                )
-            } ?? []
-            return CodexApprovalNotificationPolicy().reviewRoute(
+        let codexApprovalIsAutoReviewed = source == "codex"
+            && classification.notifiesNativeApprovalPrompt
+            && CodexApprovalNotificationPolicy().isAutoReviewed(
                 rawObject: stdinObj,
-                rolloutLines: rolloutLines
-            ) == .autoReview
-        }()
+                transcriptPath: firstString(
+                    in: stdinObj,
+                    keys: ["transcript_path", "transcriptPath"]
+                ),
+                readRolloutLines: { path, maxBytes in
+                    readRecentTextFileLines(path: path, maxBytes: maxBytes)
+                }
+            )
 
         var eventDict: [String: Any] = [
             "session_id": workstreamID,

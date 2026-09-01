@@ -377,6 +377,14 @@ import Testing
     @Test func reorderedOldResolutionDoesNotCancelNewApproval() {
         let fixture = Fixture()
 
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "new tool needs approval",
+            approvalID: Self.secondApprovalID
+        )
         fixture.coordinator.resolve(
             surfaceID: Self.surfaceID,
             approvalID: Self.firstApprovalID
@@ -397,21 +405,13 @@ import Testing
             body: "duplicate old tool needs approval",
             approvalID: Self.firstApprovalID
         )
-        fixture.coordinator.stage(
-            workspaceID: Self.workspaceID,
-            surfaceID: Self.surfaceID,
-            title: "Codex",
-            subtitle: "Permission",
-            body: "new tool needs approval",
-            approvalID: Self.secondApprovalID
-        )
         fixture.scheduler.runAll()
 
         #expect(fixture.deliveries.count == 1)
         #expect(fixture.deliveries.first?.body == "new tool needs approval")
     }
 
-    @Test func identicalParallelApprovalsRequireBothCompletionsBeforeClear() {
+    @Test func duplicateApprovalSignalsClearWithOneCompletion() {
         let fixture = Fixture()
 
         for body in ["first identical call", "second identical call"] {
@@ -431,7 +431,7 @@ import Testing
             surfaceID: Self.surfaceID,
             approvalID: Self.firstApprovalID
         )
-        #expect(fixture.clears.isEmpty)
+        #expect(fixture.clears.count == 1)
 
         fixture.coordinator.resolve(
             surfaceID: Self.surfaceID,

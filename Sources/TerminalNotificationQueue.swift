@@ -650,12 +650,14 @@ final class TerminalMutationBus: @unchecked Sendable {
                     correlationKey: correlationKey,
                     throughNotificationGeneration: boundary
             case .clearNotificationCorrelation(let key, let correlationKey):
-                guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                // A pane may disappear between delivery and resolution. Clear
+                // the claimed workspace when no live owner can be retargeted.
+                let tabId = AppDelegate.shared?.agentNotificationDeliveryTarget(
                     claimedTabId: key.tabId,
                     surfaceId: key.surfaceId
-                ) else { continue }
+                )?.tabId ?? key.tabId
                 TerminalNotificationStore.shared.clearNotifications(
-                    forTabId: target.tabId,
+                    forTabId: tabId,
                     correlationKey: correlationKey
                 )
             case .perform(let mutation):
