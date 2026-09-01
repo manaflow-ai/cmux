@@ -3380,13 +3380,24 @@ mod tests {
         entered.wait();
 
         let replacement = h.context("supervised", h.owner.clone());
-        h.manager.handle_frame(&frame, &replacement).await;
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let replacement_for_task = replacement.clone();
+        let frame_for_replacement = frame.clone();
+        let replacement_task = tokio::spawn(async move {
+            manager.handle_frame(&frame_for_replacement, &replacement_for_task).await;
+        });
+        tokio::task::yield_now().await;
+        assert!(
+            !replacement_task.is_finished(),
+            "same-ID replacement must wait for the closing publication"
+        );
         assert!(!h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
         }));
 
         release.wait();
         exit.join().expect("exit callback");
+        replacement_task.await.expect("replacement open");
         h.manager.handle_frame(&frame, &replacement).await;
         assert!(h.sent().iter().any(|frame| {
             frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
