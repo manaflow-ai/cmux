@@ -18,17 +18,17 @@ IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
 
 check_cla_guard_runner() {
-  if ! grep -Fqx '    runs-on: ${{ vars.LINUX_RUNNER || '\''blacksmith-4vcpu-ubuntu-2404'\'' }}' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must use the configured Linux runner with the Blacksmith fallback"
+  if ! grep -Fqx '    runs-on: ubuntu-24.04' "$CLA_GUARD_FILE"; then
+    echo "FAIL: cla-policy-guard.yml must use the fixed GitHub-hosted ubuntu-24.04 runner"
     exit 1
   fi
 
-  if grep -Eq '^    runs-on: ubuntu-' "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must not use a bare GitHub-hosted runner"
+  if grep -Eq '^    runs-on:.*(vars\.LINUX_RUNNER|blacksmith-|self-hosted)' "$CLA_GUARD_FILE"; then
+    echo "FAIL: cla-policy-guard.yml must not allow a variable or self-hosted runner override"
     exit 1
   fi
 
-  echo "PASS: CLA policy guard uses the configured Linux runner"
+  echo "PASS: CLA policy guard uses the fixed GitHub-hosted runner"
 }
 
 check_macos_runner() {
@@ -1121,15 +1121,18 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_bare_github_hosted_runners() {
-  # Every job must route its runner through a repo variable (LINUX_RUNNER,
+  # Every product CI job must route its runner through a repo variable (LINUX_RUNNER,
   # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
   # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
   # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
+  # The CLA policy guard is a separate immutable control-plane job and is
+  # intentionally exempted below because it must never honor a repository
+  # variable or self-hosted runner override.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" || true)"
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" | grep -v '/.github/workflows/cla-policy-guard.yml:' || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"
