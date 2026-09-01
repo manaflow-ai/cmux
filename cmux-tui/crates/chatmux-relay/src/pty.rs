@@ -175,6 +175,7 @@ fn scoped_cwd(
     if path.components().any(|component| component == std::path::Component::ParentDir) {
         return Err("cwd parent traversal is not supported".to_owned());
     }
+    let path = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
     #[cfg(unix)]
     let allowed_root_groups: Vec<Vec<Vec<DirectoryIdentity>>> =
         [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
@@ -184,7 +185,9 @@ fn scoped_cwd(
                 roots
                     .iter()
                     .filter_map(|root| {
-                        Some(open_pinned_directory(&expand_path(root, home, home)).ok()?.1)
+                        let canonical_root =
+                            std::fs::canonicalize(expand_path(root, home, home)).ok()?;
+                        Some(open_pinned_directory(&canonical_root).ok()?.1)
                     })
                     .collect()
             })
