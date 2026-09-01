@@ -599,6 +599,28 @@ impl ScreenDetectTracker {
         identity_edge: bool,
         process_exited: bool,
     ) -> Option<ScreenDetectEmission> {
+        self.record_detection_at_with_revision(
+            terminal_id,
+            detection,
+            now,
+            identity_edge,
+            process_exited,
+            None,
+        )
+    }
+
+    /// Record one evaluated screen and, when the host supplied one, the
+    /// daemon's output revision at the lifecycle edge. The local `revision`
+    /// field is only a scheduling key and must never be used as an OSC fence.
+    pub(crate) fn record_detection_at_with_revision(
+        &mut self,
+        terminal_id: &str,
+        detection: Option<(&str, Detection)>,
+        now: Instant,
+        identity_edge: bool,
+        process_exited: bool,
+        stream_revision: Option<u64>,
+    ) -> Option<ScreenDetectEmission> {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
         entry.pending_emission = None;
         // See the identity-presence path above. A scanner retry is handled
@@ -609,7 +631,10 @@ impl ScreenDetectTracker {
             // A terminal exit is authoritative. Do not retain the identity
             // or its startup grace when the PTY has gone away.
             if entry.foreground_agent.is_some() {
-                entry.osc_metadata_state.fence(Some(entry.revision));
+                // `entry.revision` may be a local screen hash on older hosts.
+                // Only a host-provided stream revision can establish the
+                // post-exit generation boundary.
+                entry.osc_metadata_state.fence(stream_revision);
             }
             entry.foreground_agent = None;
             entry.foreground_process_group = None;

@@ -504,15 +504,14 @@ fn scan_terminal(
         // A terminal can remain in the catalog briefly after its PTY exits.
         // Close the plugin-owned emission now instead of waiting for catalog
         // pruning, so the roster does not show a dead agent during that gap.
-        // Capture the final host revision before the tracker fences retained
-        // OSC metadata. Without this, a later terminal incarnation could look
-        // newer than a stale pre-exit anchor without emitting any OSC bytes.
-        if let Some(revision) = snapshot.stream_revision {
-            let _ = state.tracker.observe_revision(&terminal_id, revision, now);
-        }
-        if let Some(emission) =
-            state.tracker.record_detection_at(&terminal_id, None, now, true, true)
-        {
+        if let Some(emission) = state.tracker.record_detection_at_with_revision(
+            &terminal_id,
+            None,
+            now,
+            true,
+            true,
+            snapshot.stream_revision,
+        ) {
             // The process query is expected to fail after a PTY exits. Keep
             // the terminal identity as the source session for this final
             // event instead of issuing a second, racy process read.
@@ -568,16 +567,21 @@ fn scan_terminal(
         if !identity_edge {
             return Ok(());
         }
-        if let Some(emission) =
-            state.tracker.record_detection_at(&terminal_id, None, now, identity_edge, true)
-            && publish_emission(
-                terminal,
-                plugin_id,
-                plugin_generation,
-                &emission,
-                Some(process.pid),
-                state,
-            )? == PublishResult::Deferred
+        if let Some(emission) = state.tracker.record_detection_at_with_revision(
+            &terminal_id,
+            None,
+            now,
+            identity_edge,
+            true,
+            snapshot.stream_revision,
+        ) && publish_emission(
+            terminal,
+            plugin_id,
+            plugin_generation,
+            &emission,
+            Some(process.pid),
+            state,
+        )? == PublishResult::Deferred
         {
             return Ok(());
         }
