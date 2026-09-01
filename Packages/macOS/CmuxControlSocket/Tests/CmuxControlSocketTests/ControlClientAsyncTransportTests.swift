@@ -65,6 +65,48 @@ struct ControlClientAsyncTransportTests {
         #expect(await reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
+    /// A single control request can exceed 512 KiB (`cmux ssh` workspace
+    /// creation carries its inline remote startup script). The reader must
+    /// frame it intact rather than dropping chunks once a fixed chunk-count
+    /// buffer fills up and then closing the connection.
+    @Test func asyncReaderFramesASingleLineLargerThanHalfAMebibyte() async throws {
+        let pair = try UnixSocketFixture.makeSocketPair()
+        defer {
+            close(pair.reader)
+            close(pair.writer)
+        }
+
+        let reader = ControlClientAsyncLineReader(socket: pair.reader)
+        let pending = Task {
+            await reader.nextLine(shouldContinueReading: { true })
+        }
+        let line = String(repeating: "a", count: 1_200_000)
+        let payload = Array((line + "\n").utf8)
+        let writer = pair.writer
+        let producer = Thread {
+            payload.withUnsafeBufferPointer { buffer in
+                var offset = 0
+                while offset < buffer.count {
+                    let written = Darwin.write(
+                        writer,
+                        buffer.baseAddress!.advanced(by: offset),
+                        buffer.count - offset
+                    )
+                    if written < 0 {
+                        if errno == EINTR || errno == EAGAIN { continue }
+                        return
+                    }
+                    offset += written
+                }
+            }
+        }
+        producer.start()
+
+        let received = await pending.value
+        #expect(received?.utf8.count == line.utf8.count)
+        #expect(received == line)
+    }
+
     @Test func asyncWriterSuspendsOnlyOnWouldBlockAndPreservesBytes() async throws {
         let pair = try UnixSocketFixture.makeSocketPair()
         defer {
