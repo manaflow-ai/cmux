@@ -242,6 +242,9 @@ struct FilePreviewCodeViewTests {
         {"ok": true}
         """
         textView.string = json
+        let completion = FilePreviewTextStorageEditWaiter(
+            storage: try #require(textView.textStorage)
+        )
         styler.schedule(
             for: textView,
             filePath: "/tmp/example.json",
@@ -251,7 +254,7 @@ struct FilePreviewCodeViewTests {
             force: true
         )
 
-        await styler.activeTask?.value
+        await completion.wait()
         let colors = distinctForegroundColors(in: textView).count
         #expect(textView.string == json)
         #expect(colors >= 2)
@@ -283,6 +286,9 @@ struct FilePreviewCodeViewTests {
         {"ok": true}
         """
         textView.string = source
+        let initialCompletion = FilePreviewTextStorageEditWaiter(
+            storage: try #require(textView.textStorage)
+        )
         styler.schedule(
             for: textView,
             filePath: "/tmp/example.json",
@@ -291,7 +297,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.activeTask?.value
+        await initialCompletion.wait()
 
         let flattened = NSFont.monospacedSystemFont(ofSize: 18, weight: .regular)
         if let storage = textView.textStorage, storage.length > 0 {
@@ -301,6 +307,9 @@ struct FilePreviewCodeViewTests {
                 range: NSRange(location: 0, length: storage.length)
             )
         }
+        let restyleCompletion = FilePreviewTextStorageEditWaiter(
+            storage: try #require(textView.textStorage)
+        )
         styler.schedule(
             for: textView,
             filePath: "/tmp/example.json",
@@ -309,7 +318,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.activeTask?.value
+        await restyleCompletion.wait()
         let ns = textView.string as NSString
         let trueRange = ns.range(of: "true")
         #expect(trueRange.location != NSNotFound)
@@ -405,6 +414,9 @@ struct FilePreviewCodeViewTests {
         // Shrink back under the ceiling; the policy re-check must resume
         // token coloring rather than staying parked in fallback mode.
         textView.string = "{\"ok\": true}"
+        let completion = FilePreviewTextStorageEditWaiter(
+            storage: try #require(textView.textStorage)
+        )
         styler.schedule(
             for: textView,
             contentRevision: 2,
@@ -414,7 +426,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.activeTask?.value
+        await completion.wait()
         #expect(distinctForegroundColors(in: textView).count >= 2)
     }
 
@@ -469,23 +481,5 @@ struct FilePreviewCodeViewTests {
             colors.insert(hex)
         }
         return colors
-    }
-}
-
-/// Counts `NSTextStorage` edit notifications from a `@Sendable` observer.
-private final class EditNotificationCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-
-    var value: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return count
-    }
-
-    func increment() {
-        lock.lock()
-        defer { lock.unlock() }
-        count += 1
     }
 }

@@ -1267,6 +1267,7 @@
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
 		C0DE86520000000000000111 /* FilePreviewRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000112 /* FilePreviewRevision.swift */; };
 		C01E00040000000000000001 /* FilePreviewSyntaxStyler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00040000000000000002 /* FilePreviewSyntaxStyler.swift */; };
+		C01E00090000000000000001 /* FilePreviewSyntaxTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00090000000000000002 /* FilePreviewSyntaxTestSupport.swift */; };
 		C0DE97470000000000000001 /* FilePreviewTabMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE97470000000000000002 /* FilePreviewTabMetadata.swift */; };
 		C0DE97470000000000000003 /* FilePreviewTabMetadataHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE97470000000000000004 /* FilePreviewTabMetadataHost.swift */; };
 		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
@@ -4255,6 +4256,7 @@
 		C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReviewFeedbackTests.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000112 /* FilePreviewRevision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewRevision.swift; sourceTree = "<group>"; };
 		C01E00040000000000000002 /* FilePreviewSyntaxStyler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxStyler.swift; sourceTree = "<group>"; };
+		C01E00090000000000000002 /* FilePreviewSyntaxTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewSyntaxTestSupport.swift; sourceTree = "<group>"; };
 		C0DE97470000000000000002 /* FilePreviewTabMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTabMetadata.swift; sourceTree = "<group>"; };
 		C0DE97470000000000000004 /* FilePreviewTabMetadataHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTabMetadataHost.swift; sourceTree = "<group>"; };
 		D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor.swift; sourceTree = "<group>"; };
@@ -8796,6 +8798,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */,
 				C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */,
 				C01E00070000000000000002 /* FilePreviewCodeViewTests.swift */,
+				C01E00090000000000000002 /* FilePreviewSyntaxTestSupport.swift */,
 				D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */,
 				F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */,
 				17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */,
@@ -12094,6 +12097,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE86520000000000000012 /* FilePreviewReloadCompletionTests.swift in Sources */,
 				C0DE86520000000000000001 /* FilePreviewReloadTests.swift in Sources */,
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
+				C01E00090000000000000001 /* FilePreviewSyntaxTestSupport.swift in Sources */,
 				C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
 				C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */,

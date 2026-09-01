@@ -12,9 +12,7 @@ final class FilePreviewSyntaxStyler {
     private let catalog = LanguageCatalog()
     private let policy = HighlightPolicy()
     private let engine = HighlightrSyntaxEngine()
-    // Internal read access lets the app-hosted test target await the real
-    // completion signal. No production-only wait/sleep accessor is needed.
-    private(set) var activeTask: Task<Void, Never>?
+    private var highlightTask: Task<Void, Never>?
     private var highlightGeneration = 0
     private var lastHighlightedContentRevision: Int?
     private var lastHighlightedLanguage: String?
@@ -29,12 +27,12 @@ final class FilePreviewSyntaxStyler {
     private var lastAppliedHighlighted = false
 
     deinit {
-        activeTask?.cancel()
+        highlightTask?.cancel()
     }
 
     func cancel() {
-        activeTask?.cancel()
-        activeTask = nil
+        highlightTask?.cancel()
+        highlightTask = nil
         // Invalidate the completion guard as well as the task's cooperative
         // cancellation bit. This closes the visibility/deinit race if an
         // engine call has already crossed an actor hop.
@@ -74,16 +72,16 @@ final class FilePreviewSyntaxStyler {
             if !enabled || !policy.shouldHighlight(content: textView.string, language: language) {
                 // A prior under-ceiling request may still be in flight. It
                 // must not apply its result after this over-ceiling edit.
-                activeTask?.cancel()
-                activeTask = nil
+                highlightTask?.cancel()
+                highlightTask = nil
                 highlightGeneration &+= 1
                 lastHighlightedContentRevision = contentRevision
                 return
             }
         }
 
-        activeTask?.cancel()
-        activeTask = nil
+        highlightTask?.cancel()
+        highlightTask = nil
         highlightGeneration &+= 1
         let generation = highlightGeneration
 
@@ -144,7 +142,7 @@ final class FilePreviewSyntaxStyler {
                 fontPointSize: fontPointSize
             )
         }
-        activeTask = task
+        highlightTask = task
     }
 
     @discardableResult
