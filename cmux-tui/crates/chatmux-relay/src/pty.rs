@@ -465,6 +465,8 @@ struct Attachment {
     /// Serializes PTY control calls for one attachment. Retirement never
     /// waits on this gate, so a blocked provider cannot block detach.
     control_gate: Arc<Mutex<()>>,
+    /// Serializes output and exit delivery for one attachment.
+    delivery_gate: Arc<Mutex<()>>,
     /// Serializes open success publication with attachment retirement. This
     /// is separate because start callbacks can emit output and re-enter the
     /// operation gate.
@@ -1585,6 +1587,7 @@ impl Inner {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
+                    delivery_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::clone(&publication_gate),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control,
@@ -1799,6 +1802,7 @@ impl Inner {
         {
             return;
         }
+        let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
@@ -1864,6 +1868,7 @@ impl Inner {
         // lifecycle state before invoking the callback.
         drop(_operation);
         drop(_publication);
+        let _delivery = attachment.delivery_gate.lock().expect("attachment delivery lock");
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -2683,6 +2688,9 @@ impl Inner {
                 let exit_session = Arc::clone(&shell_session);
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
+                    if chunk.is_empty() {
+                        return;
+                    }
                     let _dispatch = data_session.dispatch_lock.lock().expect("shell dispatch lock");
                     let (viewers_to_notify, viewers_to_exit) = {
                         let mut inner = data_session.inner.lock().expect("shell inner lock");
@@ -5084,6 +5092,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
+                    delivery_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: slow,
@@ -5098,6 +5107,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
+                    delivery_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(fast),
@@ -5155,6 +5165,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
+                    delivery_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
@@ -5211,6 +5222,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     control_gate: Arc::new(Mutex::new(())),
+                    delivery_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
@@ -5288,6 +5300,7 @@ mod tests {
             active_operations: Arc::new(AtomicUsize::new(0)),
             operation_gate: Arc::new(Mutex::new(())),
             control_gate: Arc::new(Mutex::new(())),
+            delivery_gate: Arc::new(Mutex::new(())),
             publication_gate: Arc::new(Mutex::new(())),
             publication_state: Arc::new(AtomicU64::new(0)),
             control: Arc::new(pty),
