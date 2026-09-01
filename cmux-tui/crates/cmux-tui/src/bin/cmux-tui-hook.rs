@@ -579,7 +579,7 @@ mod detach {
         // call unless the closure is limited to async-signal-safe operations.
         unsafe {
             command.pre_exec(|| {
-                if libc::setsid() < 0 {
+                if unsafe { libc::setsid() } < 0 {
                     return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
