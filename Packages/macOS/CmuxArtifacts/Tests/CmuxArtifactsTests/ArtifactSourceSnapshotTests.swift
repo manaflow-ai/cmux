@@ -91,6 +91,38 @@ struct ArtifactSourceSnapshotTests {
         #expect(try String(contentsOf: outsideSource, encoding: .utf8) == "outside")
     }
 
+    @Test("An inode replacement at an authorized path is rejected")
+    func rejectsAuthorizedInodeReplacement() throws {
+        let root = try ArtifactTestSupport.temporaryDirectory()
+        defer { ArtifactTestSupport.remove(root) }
+        let source = try ArtifactTestSupport.write("authorized", named: "source.md", under: root)
+        let replacement = try ArtifactTestSupport.write("replacement", named: "replacement.md", under: root)
+        let resolver = ArtifactPathResolver(fileManager: .default)
+        let expectedCanonicalPath = resolver.canonicalPath(source)
+        let expectedIdentity = try ArtifactFileIdentity.read(at: source)
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.linkItem(at: replacement, to: source)
+
+        let paths = ArtifactStorePaths(projectRoot: root)
+        let lease = try ArtifactImportStagingLease(
+            root: paths.importStagingRoot,
+            fileManager: .default
+        )
+        defer { lease.finish() }
+
+        #expect(throws: ArtifactStoreError.self) {
+            _ = try ArtifactSourceSnapshotter(fileManager: .default).snapshot(
+                source: source,
+                paths: paths,
+                configuration: .defaultValue,
+                maximumBytes: nil,
+                stagedURL: lease.makeStagedURL(),
+                expectedCanonicalPath: expectedCanonicalPath,
+                expectedIdentity: expectedIdentity
+            )
+        }
+    }
+
     @Test("A pre-canceled snapshot stops before staging bytes")
     func preCanceledSnapshotLeavesNoStagedFile() async throws {
         let root = try ArtifactTestSupport.temporaryDirectory()

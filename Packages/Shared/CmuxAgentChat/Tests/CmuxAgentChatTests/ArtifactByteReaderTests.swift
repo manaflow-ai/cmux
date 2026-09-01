@@ -35,6 +35,125 @@ struct ArtifactByteReaderTests {
         }
     }
 
+    @Test("directory listings do not follow child symlinks")
+    func listingSkipsSymlinkChild() throws {
+        try withTemporaryDirectory { directory in
+            let outside = directory.deletingLastPathComponent()
+                .appendingPathComponent("cmux-artifact-list-outside-\(UUID().uuidString)")
+            try "private".write(to: outside, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: outside) }
+            let link = directory.appendingPathComponent("linked.txt")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+
+            let listing = try ArtifactByteReader().list(path: directory.path)
+
+            #expect(!listing.entries.contains { $0.name == link.lastPathComponent })
+        }
+    }
+
+    @Test("directory listings retain readable siblings beside special children")
+    func listingRetainsSiblingBesideFIFO() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("pipe")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let readable = directory.appendingPathComponent("readable.txt")
+            try Data("visible".utf8).write(to: readable)
+
+            let listing = try ArtifactByteReader().list(path: directory.path)
+
+            #expect(listing.entries.contains { $0.name == readable.lastPathComponent })
+            #expect(listing.entries.first { $0.name == fifo.lastPathComponent }?.kind == .binary)
+        }
+    }
+
+    @Test("symlink children do not consume the returnable-entry cap")
+    func symlinkChildrenDoNotConsumeEntryCap() throws {
+        try withTemporaryDirectory { directory in
+            let target = directory.appendingPathComponent("target.txt")
+            try Data("target".utf8).write(to: target)
+            for index in 0..<ArtifactByteReader.maximumDirectoryEntryCount {
+                let link = directory.appendingPathComponent(String(format: "link-%03d.txt", index))
+                try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+            }
+            let readable = directory.appendingPathComponent("z-readable.txt")
+            try Data("visible".utf8).write(to: readable)
+
+            let listing = try ArtifactByteReader().list(path: directory.path)
+
+            #expect(listing.entries.count == 2)
+            #expect(listing.entries.contains { $0.name == readable.lastPathComponent })
+            #expect(!listing.isTruncated)
+        }
+    }
+
+    @Test("descriptor reads reject an ancestor swap after authorization")
+    func ancestorSwapAfterAuthorizationIsRejected() throws {
+        try withTemporaryDirectory { directory in
+            let inside = directory.appendingPathComponent("inside", isDirectory: true)
+            let outside = directory.appendingPathComponent("outside", isDirectory: true)
+            try FileManager.default.createDirectory(at: inside, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+            let insideFile = inside.appendingPathComponent("artifact.txt")
+            let outsideFile = outside.appendingPathComponent("artifact.txt")
+            try Data("authorized".utf8).write(to: insideFile)
+            try Data("outside".utf8).write(to: outsideFile)
+            let authorizedPath = insideFile.path
+            let authorizedCanonicalPath = insideFile
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+                .path
+
+            try FileManager.default.removeItem(at: inside)
+            try FileManager.default.createSymbolicLink(at: inside, withDestinationURL: outside)
+
+            #expect(throws: ArtifactByteReader.Error.fileNotFound) {
+                _ = try ArtifactByteReader().fetch(
+                    path: authorizedPath,
+                    offset: 0,
+                    length: 64,
+                    authorizedCanonicalPath: authorizedCanonicalPath
+                )
+            }
+            #expect(throws: ArtifactByteReader.Error.fileNotFound) {
+                _ = try ArtifactByteReader().stat(
+                    path: authorizedPath,
+                    authorizedCanonicalPath: authorizedCanonicalPath
+                )
+            }
+        }
+    }
+
+    @Test("descriptor reads reject an inode replacement at the authorized path")
+    func inodeReplacementAfterAuthorizationIsRejected() throws {
+        try withTemporaryDirectory { directory in
+            let authorized = directory.appendingPathComponent("authorized.txt")
+            let replacement = directory.appendingPathComponent("replacement.txt")
+            try Data("authorized".utf8).write(to: authorized)
+            try Data("replacement".utf8).write(to: replacement)
+            let authorizedCanonicalPath = authorized
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+                .path
+            let authorizedIdentity = try ArtifactByteReader().identity(
+                path: authorized.path,
+                authorizedCanonicalPath: authorizedCanonicalPath
+            )
+
+            try FileManager.default.removeItem(at: authorized)
+            try FileManager.default.linkItem(at: replacement, to: authorized)
+
+            #expect(throws: ArtifactByteReader.Error.fileNotFound) {
+                _ = try ArtifactByteReader().fetch(
+                    path: authorized.path,
+                    offset: 0,
+                    length: 64,
+                    authorizedCanonicalPath: authorizedCanonicalPath,
+                    authorizedIdentity: authorizedIdentity
+                )
+            }
+        }
+    }
+
     @Test("a path removed from the Mac is reported as missing")
     func missingPath() throws {
         try withTemporaryDirectory { directory in

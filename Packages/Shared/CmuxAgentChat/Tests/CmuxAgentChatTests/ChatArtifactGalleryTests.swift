@@ -273,6 +273,43 @@ struct ChatArtifactGalleryTests {
         #expect(folder.childCountIsCapped)
     }
 
+    @Test("directory child counts skip symlinks without spending the entry cap")
+    func directoryChildCountSkipsSymlinks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gallery-symlink-count-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let target = root.appendingPathComponent("target.txt")
+        try Data("target".utf8).write(to: target)
+        for index in 0..<ArtifactByteReader.maximumDirectoryEntryCount {
+            try FileManager.default.createSymbolicLink(
+                at: root.appendingPathComponent("link-\(index)"),
+                withDestinationURL: target
+            )
+        }
+        let readable = root.appendingPathComponent("readable.txt")
+        try Data("visible".utf8).write(to: readable)
+
+        let page = ChatArtifactGalleryBuilder().page(
+            sessionID: "session",
+            items: [ChatArtifactIndexedReference(
+                path: root.path,
+                provenance: .referenced,
+                lastReferencedSeq: 1
+            )],
+            generation: "generation",
+            cursor: nil,
+            pageSize: 10,
+            query: nil,
+            includeDirectories: true
+        )
+
+        let folder = try #require(page.referenced.first)
+        #expect(folder.childCount == 2)
+        #expect(!folder.childCountIsCapped)
+    }
+
     @Test("count-only scan matches every Session section without stat filtering")
     func sessionCountScan() throws {
         let records = [

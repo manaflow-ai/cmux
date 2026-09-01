@@ -568,9 +568,14 @@ extension MobileHostAuthorizationTests {
         try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
         let registry = MobileHostIrohArtifactTransferRegistry()
         let peer = try irohPeer(endpointCharacter: "f")
+        let identity = ChatArtifactFileIdentity(device: 0, inode: 0)
 
         await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.notRegularFile) {
-            try await registry.issue(canonicalPath: fifo.path, peer: peer)
+            try await registry.issue(
+                canonicalPath: fifo.path,
+                authorizedIdentity: identity,
+                peer: peer
+            )
         }
     }
 
@@ -594,6 +599,10 @@ extension MobileHostAuthorizationTests {
         try Data("authorized".utf8).write(to: authorizedFile, options: .atomic)
         try Data("outside".utf8).write(to: outsideFile, options: .atomic)
         let authorizedPath = authorizedFile.resolvingSymlinksInPath().standardizedFileURL.path
+        let authorizedIdentity = try ArtifactByteReader().identity(
+            path: authorizedPath,
+            authorizedCanonicalPath: authorizedPath
+        )
         defer { try? FileManager.default.removeItem(at: root) }
 
         try FileManager.default.removeItem(at: insideDirectory)
@@ -605,7 +614,11 @@ extension MobileHostAuthorizationTests {
         let registry = MobileHostIrohArtifactTransferRegistry()
         let peer = try irohPeer(endpointCharacter: "e")
         await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.fileNotFound) {
-            try await registry.issue(canonicalPath: authorizedPath, peer: peer)
+            try await registry.issue(
+                canonicalPath: authorizedPath,
+                authorizedIdentity: authorizedIdentity,
+                peer: peer
+            )
         }
     }
 
@@ -624,9 +637,14 @@ extension MobileHostAuthorizationTests {
         )
         let peer = try irohPeer(endpointCharacter: "a")
         let otherPeer = try irohPeer(endpointCharacter: "b")
+        let identity = try ArtifactByteReader().identity(
+            path: fixture.path,
+            authorizedCanonicalPath: fixture.path
+        )
 
         let descriptor = try await registry.issue(
             canonicalPath: fixture.path,
+            authorizedIdentity: identity,
             peer: peer
         )
 
@@ -712,7 +730,14 @@ extension MobileHostAuthorizationTests {
             resourceID: { resourceID }
         )
         let peer = try irohPeer(endpointCharacter: "c")
-        _ = try await registry.issue(canonicalPath: fixture.path, peer: peer)
+        _ = try await registry.issue(
+            canonicalPath: fixture.path,
+            authorizedIdentity: try ArtifactByteReader().identity(
+                path: fixture.path,
+                authorizedCanonicalPath: fixture.path
+            ),
+            peer: peer
+        )
         let send = RecordingMobileHostIrohArtifactSendStream()
         let receive = RecordingMobileHostIrohArtifactReceiveStream()
         let handler = MobileHostIrohArtifactLaneHandler(registry: registry)
@@ -746,7 +771,14 @@ extension MobileHostAuthorizationTests {
             resourceID: { resourceID }
         )
         let peer = try irohPeer(endpointCharacter: "d")
-        _ = try await registry.issue(canonicalPath: fixture.path, peer: peer)
+        _ = try await registry.issue(
+            canonicalPath: fixture.path,
+            authorizedIdentity: try ArtifactByteReader().identity(
+                path: fixture.path,
+                authorizedCanonicalPath: fixture.path
+            ),
+            peer: peer
+        )
         let send = MutatingMobileHostIrohArtifactSendStream(path: fixture.path)
         let receive = RecordingMobileHostIrohArtifactReceiveStream()
 
@@ -843,7 +875,7 @@ private struct MobileHostIrohArtifactFixture {
         let file = directory.appendingPathComponent("private-preview.bin")
         try contents.write(to: file, options: .atomic)
         self.directory = directory
-        self.path = file.path
+        self.path = file.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     func remove() {
