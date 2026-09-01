@@ -1059,11 +1059,20 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
 }
 
 fn wait_for_journal_retry(mux: Arc<Mux>, timeout: Duration) {
+    wait_for_journal_retry_after_release(mux, timeout, || {});
+}
+
+fn wait_for_journal_retry_after_release(
+    mux: Arc<Mux>,
+    timeout: Duration,
+    after_release: impl FnOnce(),
+) {
     // Do not retain the owning mux while sleeping. Shutdown and drop must be
     // able to release the writer even when SQLite stays locked.
     let journal = mux.shared_journal_handle();
     let epoch = journal.epoch();
     drop(mux);
+    after_release();
     journal.wait(epoch, timeout);
 }
 
@@ -1269,16 +1278,33 @@ mod tests {
     #[test]
     fn retry_wait_releases_mux_before_waiting() {
         let mux = Mux::new("journal-retry-wait-drop", crate::SurfaceOptions::default());
-        let weak = Arc::downgrade(&mux);
-        let started = Instant::now();
+        let journal = mux.shared_journal_handle();
+        let (released_tx, released_rx) = std::sync::mpsc::sync_channel(1);
+        let (proceed_tx, proceed_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let waiter_mux = Arc::clone(&mux);
+        let waiter = std::thread::spawn(move || {
+            wait_for_journal_retry_after_release(waiter_mux, Duration::from_secs(60), || {
+                released_tx.send(()).unwrap();
+                proceed_rx.recv().unwrap();
+            });
+            done_tx.send(()).unwrap();
+        });
 
-        wait_for_journal_retry(mux, Duration::from_secs(5));
+        // Keep one caller-owned Arc so Mux::drop cannot wake the journal wait
+        // while the test observes that the waiter released its own Arc.
+        let released = released_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        let strong_count = Arc::strong_count(&mux);
 
-        assert!(weak.upgrade().is_none(), "retry wait retained the owning mux");
-        assert!(
-            started.elapsed() < Duration::from_millis(500),
-            "shutdown wake did not interrupt the retry wait"
-        );
+        let _ = proceed_tx.send(());
+        journal.wake_waiters();
+        let completed = done_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        let joined = waiter.join().is_ok();
+
+        assert!(released, "retry wait did not reach the release gate");
+        assert_eq!(strong_count, 1, "retry wait retained the owning mux");
+        assert!(completed, "retry wait did not return after its wake");
+        assert!(joined, "retry wait thread panicked");
     }
 
     #[test]
