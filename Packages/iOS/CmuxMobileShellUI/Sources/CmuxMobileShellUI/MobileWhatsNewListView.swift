@@ -13,8 +13,10 @@ struct MobileWhatsNewListView: View {
 
     var body: some View {
         // Without a center (previews, alternate hosts) the archive falls
-        // back to the binary catalog, matching the never-fetched policy.
-        let pages = center?.archivePages ?? MobileWhatsNewCatalog.entries
+        // back to the binary catalog, matching the never-fetched policy —
+        // still under the channel gate, so official builds never fall back
+        // into team-lane announcements.
+        let pages = center?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
         let allowedHosts = center?.allowedWebHosts ?? []
         List {
             ForEach(pages, id: \.listID) { page in
