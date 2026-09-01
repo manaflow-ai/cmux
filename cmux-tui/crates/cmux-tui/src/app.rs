@@ -112,8 +112,17 @@ const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
+    poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
+}
+
+fn read_crossterm_event_with_clock(
+    timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
+    mut now: impl FnMut() -> Instant,
 ) -> std::io::Result<Option<Event>> {
     // Keep the input thread interruptible even when no graphics response is
     // pending. A single normalized poll avoids separate timed and untimed
@@ -121,10 +130,10 @@ fn read_crossterm_event(
     const MAX_INTERRUPTED_RETRIES: u8 = 8;
     let poll_timeout =
         timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
-    let deadline = Instant::now() + poll_timeout;
+    let deadline = now() + poll_timeout;
     let mut interrupted: u8 = 0;
     loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.saturating_duration_since(now());
         match poll(remaining) {
             Ok(false) => return Ok(None),
             Ok(true) => break,
@@ -24747,7 +24756,8 @@ mod tests {
         let mut read_calls = 0;
         let mut poll_durations = Vec::new();
 
-        let blocking = super::read_crossterm_event(
+        let fixed_now = Instant::now();
+        let blocking = super::read_crossterm_event_with_clock(
             None,
             |timeout| {
                 poll_calls += 1;
@@ -24758,12 +24768,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(blocking, Some(event.clone()));
         assert_eq!((poll_calls, read_calls), (1, 1));
 
-        let timed_out = super::read_crossterm_event(
+        let timed_out = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24774,12 +24785,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(timed_out, None);
         assert_eq!((poll_calls, read_calls), (2, 1));
 
-        let ready = super::read_crossterm_event(
+        let ready = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24790,6 +24802,7 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(ready, Some(event));
