@@ -972,8 +972,17 @@ struct WorkspaceShellView: View {
         )
     }
 
+    /// The scope the sidebar's one search field addresses: the presented
+    /// search's scope while active (they are equal by construction), else the
+    /// visible destination's. Keying the field off the coordinator's scope
+    /// alone leaked the previous scope's placeholder and committed text into
+    /// the other destination after a segment switch.
+    private var splitSearchFieldScope: MobilePrimarySearchScope {
+        splitSidebarDestination.searchScope ?? .workspaces
+    }
+
     private var splitSearchText: Binding<String> {
-        let scope = primarySearchCoordinator.scope
+        let scope = splitSearchFieldScope
         let activationGeneration = primarySearchCoordinator.activationGeneration
         return Binding(
             get: { primarySearchCoordinator.nativeSearchText(for: scope) },
@@ -1014,7 +1023,7 @@ struct WorkspaceShellView: View {
     }
 
     private var splitSearchPrompt: Text {
-        switch primarySearchCoordinator.scope {
+        switch splitSearchFieldScope {
         case .workspaces:
             Text(
                 L10n.string(
