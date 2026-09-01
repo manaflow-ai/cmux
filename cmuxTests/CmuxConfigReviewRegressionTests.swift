@@ -135,6 +135,18 @@ struct CmuxConfigReviewRegressionTests {
         #expect(paths.contains("surfaceTabBarButtons[0].icon.type"))
     }
 
+    @Test func runtimeValidatorRejectsBlankSurfaceButtonIDLikeDecoder() throws {
+        let json = #"{"surfaceTabBarButtons":[{"id":"   ","action":"newTerminal"}]}"#
+        let object = try jsonObject(json)
+        let issues = CmuxConfigValidator().validate(jsonObject: object)
+        #expect(issues.contains { issue in
+            issue.path == "surfaceTabBarButtons[0].id"
+        })
+        #expect(throws: (any Error).self) {
+            try decode(json)
+        }
+    }
+
     @Test func runtimeValidatorAcceptsEveryMenuSectionOrderAlias() throws {
         let acceptedOrders = [
             "customFirst",

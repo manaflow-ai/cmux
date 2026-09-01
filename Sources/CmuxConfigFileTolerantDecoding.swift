@@ -87,10 +87,11 @@ extension CmuxConfigFile {
     private static func actionMapCanBeNormalized(_ actions: [String: Any]) -> Bool {
         var normalizedIDs = Set<String>()
         var canonicalIDs = Set<String>()
+        let catalog = CmuxConfigBuiltInActionCatalog()
         for rawID in actions.keys {
             let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty, normalizedIDs.insert(id).inserted else { return false }
-            let canonicalID = CmuxConfigBuiltInActionCatalog.canonicalID(for: id) ?? id
+            let canonicalID = catalog.canonicalID(for: id) ?? id
             guard canonicalIDs.insert(canonicalID).inserted else { return false }
         }
         return true

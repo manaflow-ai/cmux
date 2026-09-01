@@ -142,7 +142,9 @@ extension CmuxConfigValidator {
             return
         }
 
-        validateOptionalString(button["id"], path: path + ".id", into: &issues)
+        if button["id"] != nil {
+            requireNonBlankString(button["id"], path: path + ".id", into: &issues)
+        }
         validateOptionalString(button["title"], path: path + ".title", into: &issues)
         validateOptionalString(button["tooltip"], path: path + ".tooltip", into: &issues)
         validateIcon(button["icon"], path: path + ".icon", into: &issues)

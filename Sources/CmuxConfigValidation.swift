@@ -2,6 +2,11 @@ import Foundation
 
 struct CmuxConfigValidator: Sendable {
     typealias Object = [String: Any]
+    private let builtInActionCatalog: CmuxConfigBuiltInActionCatalog
+
+    init(actionCatalog: CmuxConfigBuiltInActionCatalog = CmuxConfigBuiltInActionCatalog()) {
+        builtInActionCatalog = actionCatalog
+    }
 
     func validate(data: Data) -> [CmuxConfigValidationIssue] {
         guard let object = try? JSONSerialization.jsonObject(with: data) else {
@@ -459,7 +464,7 @@ struct CmuxConfigValidator: Sendable {
     }
 
     func canonicalBuiltInID(_ id: String) -> String? {
-        CmuxConfigBuiltInActionCatalog.canonicalID(for: id)
+        builtInActionCatalog.canonicalID(for: id)
     }
 
     func issue(_ path: String, _ message: String) -> CmuxConfigValidationIssue {

@@ -13,7 +13,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case splitDown = "cmux.splitDown"
 
     init?(configID: String) {
-        guard let canonicalID = CmuxConfigBuiltInActionCatalog.canonicalID(for: configID),
+        guard let canonicalID = CmuxConfigBuiltInActionCatalog().canonicalID(for: configID),
               let action = Self(rawValue: canonicalID) else {
             return nil
         }
