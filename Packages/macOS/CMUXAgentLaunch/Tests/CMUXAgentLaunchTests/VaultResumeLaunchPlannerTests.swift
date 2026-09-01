@@ -206,6 +206,28 @@ struct VaultResumeLaunchPlannerTests {
         #expect(plan.legacyFallbackReason == .unavailableStructuredArguments)
     }
 
+    @Test("Empty quoted registration arguments fail closed")
+    func emptyQuotedRegistrationArgumentUsesCompatibility() throws {
+        let registration = VaultResumeLaunchRequest.Registration(
+            id: "profile-agent",
+            defaultExecutable: "profile-agent",
+            resumeCommand: "{{executable}} --profile \"\" --session {{sessionId}}",
+            workingDirectoryPolicy: .preserve,
+            sessionDirectory: nil,
+            registeredResumeKind: nil
+        )
+        let plan = try #require(planner.plan(for: VaultResumeLaunchRequest(
+            kind: "profile-agent",
+            sessionID: "profile-session",
+            workingDirectory: nil,
+            profile: .registered(registration),
+            legacyCommand: "profile-agent --profile '' --session profile-session"
+        )))
+
+        #expect(plan.strategy == .legacyCommand)
+        #expect(plan.legacyFallbackReason == .unavailableStructuredArguments)
+    }
+
     @Test("Unknown and unterminated placeholders use compatibility")
     func invalidTemplatePlaceholdersUseCompatibility() throws {
         for template in [
