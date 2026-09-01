@@ -117,12 +117,14 @@ pub(crate) fn scan(
         let mut exited = false;
         let mut unknown = false;
         let mut identity_edge = false;
+        let mut detected_manifest = None;
         // Identity refreshes are bounded independently from output sampling.
         // A launch or swap is observed within the lookup interval and still
         // evaluates the screen immediately.
         match resolver(&surface) {
             ProcessLookup::Name(name) => {
                 let manifest = manifests.identify(&name);
+                detected_manifest = manifest;
                 identity_edge = tracker
                     .note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
             }
@@ -173,8 +175,9 @@ pub(crate) fn scan(
             continue;
         }
         let stale_rearm = tracker.rearm_stale_emission(terminal_id, now);
-        let manifest =
-            tracker.foreground_agent(terminal_id).and_then(|agent| manifests.identify(&agent));
+        // `detected_manifest` comes from the lookup performed for this scan.
+        // Never attribute screen text from a cached process name.
+        let manifest = detected_manifest;
         let emission = if exited {
             // Exit is a confirmed identity edge. Close a live screen-derived
             // entry; a terminal that never emitted stays silent.

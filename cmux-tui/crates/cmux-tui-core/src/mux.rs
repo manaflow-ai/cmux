@@ -6225,7 +6225,7 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
         state: AgentState,
-        _source: AgentSource,
+        source: AgentSource,
         session: Option<&str>,
         updated_at_ms: u64,
     ) -> anyhow::Result<()> {
@@ -6251,7 +6251,7 @@ impl Mux {
                     // The journal adapter is the socket trust boundary.
                     // Never let a caller promote a direct report to hook or
                     // screen authority by supplying a stronger source label.
-                    "source": AgentSource::Socket.as_str(),
+                    "source": source.as_str(),
                     "source_session": session,
                     // The direct commit's timestamp, so the roster mirrors
                     // the projection exactly instead of stamping fold time.
@@ -10117,7 +10117,10 @@ impl Mux {
                     updated_at_ms: agent.updated_at_ms,
                 });
             }
-            if origin == AgentReportOrigin::Direct && !socket_report_ignored {
+            if origin == AgentReportOrigin::Direct
+                && agent.source == AgentSource::Socket
+                && !socket_report_ignored
+            {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
