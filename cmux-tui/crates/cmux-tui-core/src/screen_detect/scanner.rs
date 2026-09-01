@@ -146,7 +146,7 @@ pub(crate) fn scan(
                     let Ok(Ok(screen)) =
                         surface.try_with_terminal(|terminal| terminal.viewport_text())
                     else {
-                        tracker.retry_detection(terminal_id);
+                        tracker.retry_detection(terminal_id, now);
                         continue;
                     };
                     let title = surface.title();

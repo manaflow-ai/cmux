@@ -16,7 +16,7 @@ pub(crate) mod manifest;
 pub(crate) mod scanner;
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::AgentState;
 use manifest::{Detection, ScreenState};
@@ -35,6 +35,10 @@ pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 /// revision changes still drive screen evaluation, while identity refreshes
 /// are bounded to avoid a process syscall on every 100 ms scan tick.
 pub(crate) const PROCESS_LOOKUP_INTERVAL_MS: u64 = 500;
+
+/// Failed viewport reads are retried at a bounded cadence until output
+/// changes, instead of retrying on every scanner tick.
+const VIEWPORT_RETRY_INTERVAL_MS: u64 = 1_000;
 
 /// The `native_event` value screen-detection journal events carry.
 pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
@@ -63,6 +67,8 @@ struct TrackedTerminal {
     foreground_agent: Option<String>,
     /// Last scan that queried foreground process metadata.
     last_process_lookup_at: Option<Instant>,
+    /// Earliest time to retry a failed viewport read.
+    retry_after: Option<Instant>,
     /// Last (agent, state) journaled; emissions are edges over this.
     emitted: Option<(String, AgentState)>,
 }
@@ -94,6 +100,12 @@ impl ScreenDetectTracker {
         }
         if entry.evaluated_revision == Some(entry.revision) {
             return false;
+        }
+        if let Some(retry_after) = entry.retry_after {
+            if now < retry_after {
+                return false;
+            }
+            entry.retry_after = None;
         }
         let quiet_since = entry.quiet_since.expect("anchored above");
         let quiesced = now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
@@ -155,9 +167,10 @@ impl ScreenDetectTracker {
     }
 
     /// Re-arm the current revision after a transient viewport read failure.
-    pub(crate) fn retry_detection(&mut self, terminal_id: &str) {
+    pub(crate) fn retry_detection(&mut self, terminal_id: &str, now: Instant) {
         if let Some(entry) = self.terminals.get_mut(terminal_id) {
             entry.evaluated_revision = None;
+            entry.retry_after = Some(now + Duration::from_millis(VIEWPORT_RETRY_INTERVAL_MS));
         }
     }
 
@@ -397,6 +410,24 @@ mod tests {
         assert!(tracker.should_lookup_foreground_agent(
             "term_a",
             t0 + Duration::from_millis(PROCESS_LOOKUP_INTERVAL_MS),
+        ));
+    }
+
+    #[test]
+    fn screen_detect_tracker_backs_off_viewport_retry() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.retry_detection("term_a", t0);
+        assert!(!tracker.observe_revision(
+            "term_a",
+            1,
+            t0 + Duration::from_millis(VIEWPORT_RETRY_INTERVAL_MS - 1),
+        ));
+        assert!(tracker.observe_revision(
+            "term_a",
+            1,
+            t0 + Duration::from_millis(VIEWPORT_RETRY_INTERVAL_MS),
         ));
     }
 
