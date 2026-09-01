@@ -13,12 +13,23 @@ import SwiftUI
 /// padding. The trailing slot accepts any SwiftUI view; common
 /// patterns are a `Toggle`, a `Picker`, a `Stepper`, or a custom
 /// `HStack` of the control plus secondary affordances.
+///
+/// Use ``verticalAlignment`` and ``trailingFillsWidth`` for a tall editor
+/// that should keep its title pinned to the top while giving the editor the
+/// remaining horizontal space.
+///
+/// - Parameter verticalAlignment: Controls how the title and trailing content
+///   align vertically.
+/// - Parameter trailingFillsWidth: Gives the trailing content all remaining
+///   horizontal space when `true`.
 @MainActor
 public struct SettingsCardRow<Trailing: View>: View {
     let configurationReview: SettingsConfigurationReview
     let title: String
     let subtitle: String?
     let controlWidth: CGFloat?
+    let verticalAlignment: VerticalAlignment
+    let trailingFillsWidth: Bool
     let searchAnchorID: String?
     @ViewBuilder let trailing: Trailing
 
@@ -50,6 +61,8 @@ public struct SettingsCardRow<Trailing: View>: View {
         _ title: String,
         subtitle: String? = nil,
         controlWidth: CGFloat? = nil,
+        verticalAlignment: VerticalAlignment = .center,
+        trailingFillsWidth: Bool = false,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.configurationReview = configurationReview
@@ -57,11 +70,13 @@ public struct SettingsCardRow<Trailing: View>: View {
         self.title = title
         self.subtitle = subtitle
         self.controlWidth = controlWidth
+        self.verticalAlignment = verticalAlignment
+        self.trailingFillsWidth = trailingFillsWidth
         self.trailing = trailing()
     }
 
     public var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: verticalAlignment, spacing: 12) {
             VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
                 Text(title)
                     .cmuxFont(size: 13, weight: .medium)
@@ -82,6 +97,10 @@ public struct SettingsCardRow<Trailing: View>: View {
                 }
             }
             .layoutPriority(1)
+            .frame(
+                maxWidth: trailingFillsWidth ? .infinity : nil,
+                alignment: .leading
+            )
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
