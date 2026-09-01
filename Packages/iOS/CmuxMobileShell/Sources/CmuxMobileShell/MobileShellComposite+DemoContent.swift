@@ -1,5 +1,6 @@
 import CMUXMobileCore
-import CmuxMobilePairedMac
+internal import CmuxMobileDiagnostics
+public import CmuxMobilePairedMac
 public import CmuxMobileShellModel
 import Foundation
 
@@ -16,8 +17,23 @@ import Foundation
 /// through the same output stream and input funnels a live Mac uses. Real
 /// Macs connect, list, and stream exactly as before — demonstration content
 /// augments the account's data, it never replaces or intercepts a real Mac's.
+///
+/// Ownership is derived from the stable `cmux-demo-` identifier namespace
+/// (``MobileDemoContentCatalog/ownsIdentifier(_:)``), never from live session
+/// state, so every connection-lifecycle fence holds through any app
+/// lifecycle. The session itself SELF-HEALS at interaction time: if a demo
+/// surface is interacted with (mount, replay, input) after the session was
+/// torn down underneath a still-presented view, the interaction recreates the
+/// session and reseeds, so a demo workspace opened any number of times, after
+/// any background/foreground churn, always paints and always answers input.
 @MainActor
 extension MobileShellComposite {
+    /// The demonstration pairing's stable key, independent of session state.
+    static let demonstrationPairingKey = MacPairingKey(
+        macDeviceID: MobileDemoContentCatalog.macDeviceID,
+        instanceTag: nil
+    )
+
     // MARK: Activation
 
     /// Re-evaluates demonstration-content activation against the signed-in
@@ -44,21 +60,39 @@ extension MobileShellComposite {
 
     private func activateDemonstrationContent(reloadPairedMacs: Bool) {
         if demoContentSession == nil {
-            let session = MobileDemoContentSession(now: runtime?.now() ?? Date())
-            demoContentSession = session
-            // The demo computer is a known paired Mac while the session
-            // lives; without the hint a reviewer with zero real Macs would
-            // land on the add-device flow instead of the workspace shell.
-            if !hasKnownPairedMac {
-                session.forcedKnownPairedMacHint = true
-                hasKnownPairedMac = true
-            }
-            // Reveal the demo row through the ordinary store load path.
-            if reloadPairedMacs {
-                Task { await self.loadPairedMacs() }
-            }
+            createDemonstrationSession(reloadPairedMacs: reloadPairedMacs)
         }
         seedDemonstrationState()
+    }
+
+    /// Creates the live session and arranges for the demo row to appear.
+    private func createDemonstrationSession(reloadPairedMacs: Bool) {
+        let session = MobileDemoContentSession(now: runtime?.now() ?? Date())
+        demoContentSession = session
+        // The demo computer is a known paired Mac while the session
+        // lives; without the hint a reviewer with zero real Macs would
+        // land on the add-device flow instead of the workspace shell.
+        if !hasKnownPairedMac {
+            session.forcedKnownPairedMacHint = true
+            hasKnownPairedMac = true
+        }
+        // Reveal the demo row through the ordinary store load path.
+        if reloadPairedMacs {
+            Task { await self.loadPairedMacs() }
+        }
+    }
+
+    /// The live session for a demonstration interaction, self-healing when a
+    /// teardown removed it underneath a still-presented demo surface. The
+    /// heal is gated on the shell being signed in — an account boundary
+    /// (sign-out) tears everything down and must stay down.
+    func demonstrationSessionForInteraction() -> MobileDemoContentSession? {
+        if let session = demoContentSession { return session }
+        guard isSignedIn else { return nil }
+        MobileDebugLog.anchormux("demo.session_selfheal")
+        createDemonstrationSession(reloadPairedMacs: true)
+        seedDemonstrationState()
+        return demoContentSession
     }
 
     /// Removes every demonstration seed. Safe to call repeatedly.
@@ -73,13 +107,10 @@ extension MobileShellComposite {
         notificationFeedKnownRevisionsByMac.removeValue(forKey: session.feedOwnerKey)
         notificationFeedSuccessfulMacIDs.remove(session.feedOwnerKey)
         recomputeNotificationFeedItems()
-        // `demoContentSession` is already nil here, so ownership checks must
-        // go through the captured session: with no real (non-demo) rows left,
-        // the forced known-Mac hint is restored so the add-device flow returns.
+        // With no real (non-demo) rows left, the forced known-Mac hint is
+        // restored so the add-device flow returns.
         if session.forcedKnownPairedMacHint,
-           !pairedMacs.contains(where: {
-               !session.ownsMac(deviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
-           }) {
+           !pairedMacs.contains(where: { !isDemonstrationPairedMac($0) }) {
             hasKnownPairedMac = false
         }
         if reloadPairedMacs {
@@ -110,11 +141,15 @@ extension MobileShellComposite {
         }
     }
 
-    // MARK: Ownership
+    // MARK: Ownership (session-independent, by identifier namespace)
 
     /// Whether the given Mac identity is the demonstration computer.
+    /// Namespace-based, so lifecycle fences hold even while the session is
+    /// torn down.
     func demonstrationOwnsMac(deviceID: String?, instanceTag: String?) -> Bool {
-        demoContentSession?.ownsMac(deviceID: deviceID, instanceTag: instanceTag) == true
+        guard let deviceID, !deviceID.isEmpty else { return false }
+        return MacPairingKey(macDeviceID: deviceID, instanceTag: instanceTag)
+            == Self.demonstrationPairingKey
     }
 
     /// Whether a stored paired-Mac row is the demonstration computer's.
@@ -122,16 +157,18 @@ extension MobileShellComposite {
         demonstrationOwnsMac(deviceID: mac.macDeviceID, instanceTag: mac.instanceTag)
     }
 
-    /// Whether a terminal surface belongs to a demonstration workspace.
+    /// Whether a terminal surface belongs to the demonstration namespace.
     func demonstrationOwnsSurface(_ surfaceID: String) -> Bool {
-        demoContentSession?.ownsSurface(surfaceID) == true
+        MobileDemoContentCatalog.ownsIdentifier(surfaceID)
     }
 
     /// Whether an aggregated workspace row belongs to the demonstration Mac.
     func demonstrationOwnsWorkspaceRow(_ id: MobileWorkspacePreview.ID) -> Bool {
-        guard let session = demoContentSession,
-              let row = workspaces.first(where: { $0.id == id }) else { return false }
-        return session.ownsMac(deviceID: row.macDeviceID, instanceTag: row.macInstanceTag)
+        guard let row = workspaces.first(where: { $0.id == id }) else { return false }
+        return demonstrationOwnsMac(
+            deviceID: row.macDeviceID,
+            instanceTag: row.macInstanceTag
+        )
     }
 
     // MARK: Terminal output and input
@@ -143,7 +180,8 @@ extension MobileShellComposite {
     /// (view resets, viewport churn, remounts onto a live surface) repaints
     /// from blank instead of appending a second copy of the transcript.
     func deliverDemonstrationTerminalReplay(surfaceID: String) {
-        guard let session = demoContentSession,
+        guard demonstrationOwnsSurface(surfaceID),
+              let session = demonstrationSessionForInteraction(),
               let bytes = session.engine.replayBytes(surfaceID: surfaceID) else { return }
         var reset = Data("\u{1B}[2J\u{1B}[3J\u{1B}[H".utf8)
         reset.append(bytes)
@@ -151,12 +189,14 @@ extension MobileShellComposite {
     }
 
     /// Feeds typed input into the demo terminal engine and echoes its output.
-    /// Returns `false` for surfaces the demo session does not own, so callers
-    /// fall through to the real RPC input pipeline.
+    /// Returns `false` for surfaces outside the demonstration namespace, so
+    /// callers fall through to the real RPC input pipeline. Demo-namespace
+    /// input is ALWAYS handled (never forwarded to a real Mac), even when the
+    /// session cannot self-heal (signed out): no real Mac owns these ids.
     @discardableResult
     func handleDemonstrationTerminalInput(_ text: String, surfaceID: String) -> Bool {
-        guard let session = demoContentSession,
-              session.ownsSurface(surfaceID) else { return false }
+        guard demonstrationOwnsSurface(surfaceID) else { return false }
+        guard let session = demonstrationSessionForInteraction() else { return true }
         if let bytes = session.engine.inputBytes(text, surfaceID: surfaceID),
            !bytes.isEmpty {
             _ = deliverTerminalBytes(bytes, surfaceID: surfaceID)
@@ -169,7 +209,7 @@ extension MobileShellComposite {
     /// Applies the open-a-workspace read receipt to a demo row, mirroring the
     /// unread clearing a live Mac performs on `workspace.read_state`.
     func clearDemonstrationWorkspaceUnread(_ id: MobileWorkspacePreview.ID) {
-        guard let session = demoContentSession else { return }
+        guard let session = demonstrationSessionForInteraction() else { return }
         let remoteID = remoteWorkspaceID(for: id)
         guard session.clearWorkspaceUnread(remoteWorkspaceID: remoteID) else { return }
         workspacesByMac[session.pairingKey] = session.workspaceState
@@ -181,8 +221,10 @@ extension MobileShellComposite {
         _ item: MobileNotificationFeedItem,
         isRead: Bool
     ) -> Bool {
-        guard let session = demoContentSession,
-              session.ownsMac(deviceID: item.macDeviceID, instanceTag: item.macInstanceTag) else {
+        guard demonstrationOwnsMac(
+            deviceID: item.macDeviceID,
+            instanceTag: item.macInstanceTag
+        ), let session = demoContentSession else {
             return false
         }
         guard item.isRead != isRead else { return true }
@@ -225,5 +267,21 @@ extension MobileShellComposite {
     var demonstrationNotificationFeedSeeded: Bool {
         guard let session = demoContentSession else { return false }
         return notificationFeedSnapshotsByMac[session.feedOwnerKey] != nil
+    }
+
+    // MARK: Task composer exclusion
+
+    /// The task composer's target machines: every paired Mac EXCEPT the
+    /// demonstration computer. A fake Mac cannot run real tasks, while real
+    /// Macs on the same account (even offline ones) stay composable.
+    public var taskComposerPairedMacs: [MobilePairedMac] {
+        displayPairedMacs.filter { !isDemonstrationPairedMac($0) }
+    }
+
+    /// Whether the paired-Mac list currently holds ONLY the demonstration
+    /// computer, so composer availability can drop its offline benefit of
+    /// the doubt (there is provably nothing that could run a task).
+    var pairedMacsAreDemonstrationOnly: Bool {
+        !pairedMacs.isEmpty && pairedMacs.allSatisfy { isDemonstrationPairedMac($0) }
     }
 }

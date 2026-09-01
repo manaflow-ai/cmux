@@ -12,6 +12,17 @@ public import Foundation
 /// plain English developer content; only interface chrome (the computer's
 /// display name) is localized.
 public struct MobileDemoContentCatalog: Sendable {
+    /// The namespace prefix every demonstration identifier carries (the
+    /// computer, workspaces, terminals, surfaces, notifications). Real Mac
+    /// identifiers are hardware-derived UUIDs, so this prefix is a stable
+    /// ownership signal that survives any session or app lifecycle.
+    public static let identifierPrefix = "cmux-demo-"
+
+    /// Whether an identifier belongs to the demonstration namespace.
+    public static func ownsIdentifier(_ identifier: String) -> Bool {
+        identifier.hasPrefix(identifierPrefix)
+    }
+
     /// The demonstration computer's stable device identifier. Prefixed so it
     /// can never collide with a real Mac's hardware-derived identifier.
     public static let macDeviceID = "cmux-demo-mac"

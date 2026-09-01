@@ -3982,6 +3982,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // connection a real Mac may hold.
         if demonstrationOwnsMac(deviceID: macDeviceID, instanceTag: instanceTag) {
             recordAppEvent(.computerSelected, correlationID: macDeviceID)
+            // Self-heal so the caller's row resolution finds the seeded
+            // workspaces even when a teardown removed the session.
+            _ = demonstrationSessionForInteraction()
             return true
         }
         let startedAt = appDiagnosticNow()
@@ -7152,7 +7155,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
         // The demonstration entry is served locally; no transport or refresh
         // failure can make it unavailable.
-        guard ownerKey != demoContentSession?.pairingKey else { return }
+        guard ownerKey != Self.demonstrationPairingKey else { return }
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
@@ -9211,6 +9214,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
+        // Demonstration terminals answer locally, outside the send-status
+        // pipeline (a keystroke to the engine can never fail).
+        if let terminalID = selectedTerminalID,
+           handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return
+        }
         // The explicit selection id, not `selectedWorkspace`: its first-row
         // fallback would pair a foreign workspace id with the held terminal
         // id when the selected row is transiently absent mid-reconnect.
@@ -9244,6 +9253,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Enqueue raw UTF-8 input for the terminal identified by `surfaceID`.
     public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+            return
+        }
+        // The on-screen keyboard's key bytes enter HERE (the Ghostty surface
+        // delegate), not through the awaiting funnel: demonstration surfaces
+        // answer from the local engine, outside the send-status pipeline.
+        if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -10545,9 +10560,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // of an unreachable real Mac erase the demo workspaces. Demo state
             // is invariant to real-connection teardown by design.
             teardownSecondaryMacSubscriptions()
-            let demoPairingKey = demoContentSession?.pairingKey
             workspacesByMac = workspacesByMac.filter {
-                $0.key == offlineForegroundKey || $0.key == demoPairingKey
+                $0.key == offlineForegroundKey
+                    || $0.key == Self.demonstrationPairingKey
             }
         }
         // The retained foreground entry still carries its last-known
@@ -10560,7 +10575,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // The demonstration entry keeps its connected presentation: it is
             // served locally and its liveness is unrelated to the torn-down
             // real connection.
-            guard key != demoContentSession?.pairingKey else { return false }
+            guard key != Self.demonstrationPairingKey else { return false }
             return key == offlineForegroundKey
                 || (!preservingOtherMacWorkspaceState
                     && offlineForegroundKey != .anonymousForeground

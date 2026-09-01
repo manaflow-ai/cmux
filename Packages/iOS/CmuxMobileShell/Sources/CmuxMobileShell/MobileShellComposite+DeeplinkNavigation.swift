@@ -144,9 +144,13 @@ extension CMUXMobileShellStore {
         // Surface ids are unique by construction (cmux-demo- prefixed), so
         // the sibling-build ambiguity this scoping defends against cannot
         // involve a demo surface.
-        if let demoContentSession, demoContentSession.ownsSurface(terminalID) {
+        if MobileDemoContentCatalog.ownsIdentifier(terminalID) {
+            // Self-heal first: a teardown can remove the seeded rows under a
+            // still-presented detail, and this resolver must keep answering
+            // for the remount to paint.
+            _ = demonstrationSessionForInteraction()
             return workspaces.first { row in
-                demoContentSession.ownsMac(
+                demonstrationOwnsMac(
                     deviceID: row.macDeviceID,
                     instanceTag: row.macInstanceTag
                 ) && row.terminals.contains { $0.id.rawValue == terminalID }

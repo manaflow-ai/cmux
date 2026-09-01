@@ -601,6 +601,7 @@ import Testing
         demoOnlyStore.signIn()
         await demoOnlyStore.loadPairedMacs()
         #expect(!demoOnlyStore.supportsTaskComposer)
+        #expect(demoOnlyStore.taskComposerPairedMacs.isEmpty)
 
         let inner = RecordingPairedMacStore()
         inner.records = [
@@ -623,8 +624,13 @@ import Testing
         let (mixedStore, _) = makeStore(demonstrationContentEnabled: true, inner: inner)
         mixedStore.signIn()
         await mixedStore.loadPairedMacs()
-        // A real (even offline) Mac keeps the composer available.
+        // A real (even offline) Mac keeps the composer available…
         #expect(mixedStore.supportsTaskComposer)
+        // …but the demo computer is never a target.
+        #expect(mixedStore.taskComposerPairedMacs.contains { $0.macDeviceID == "real-mac-1" })
+        #expect(!mixedStore.taskComposerPairedMacs.contains {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
     }
 
     @Test func demoTerminalReplaysCannedSessionOnMount() async {
