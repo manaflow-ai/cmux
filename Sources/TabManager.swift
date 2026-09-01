@@ -761,7 +761,7 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
         pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
         for tab in tabs {
-            tab.recomputeListeningPorts()
+            tab.refreshSidebarPortVisibilityPolicy()
         }
         refreshRemotePortScanningEnablement()
     }

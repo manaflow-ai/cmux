@@ -2587,6 +2587,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// may inject a prepared snapshot.
     let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
     private let settings: any SettingsReading
+    private var sidebarPortVisibilityPolicy: SidebarPortVisibilityPolicy
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -3809,6 +3810,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
+        self.sidebarPortVisibilityPolicy = SidebarPortVisibilityPolicy(
+            ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
+        )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -6614,11 +6618,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
     }
 
-    /// Resolves the live sidebar projection policy from this workspace's injected settings source.
+    /// Returns the indexed sidebar projection policy shared by every port-badge surface.
     func currentSidebarPortVisibilityPolicy() -> SidebarPortVisibilityPolicy {
-        SidebarPortVisibilityPolicy(
+        sidebarPortVisibilityPolicy
+    }
+
+    /// Rebuilds and applies the policy only when ignored-port behavior changes.
+    func refreshSidebarPortVisibilityPolicy() {
+        let nextPolicy = SidebarPortVisibilityPolicy(
             ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
         )
+        guard nextPolicy != sidebarPortVisibilityPolicy else { return }
+        sidebarPortVisibilityPolicy = nextPolicy
+        recomputeListeningPorts()
     }
 
     /// Whether remote listening-port discovery may run, derived from the global

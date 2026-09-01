@@ -2,11 +2,16 @@ import Foundation
 
 /// One exact port or inclusive port range omitted from sidebar port badges.
 public struct SidebarIgnoredPortRule: Sendable, Equatable {
+    /// Validated storage for an exact port or inclusive range.
     private enum Storage: Sendable, Equatable {
+        /// One exact port.
         case port(Int)
+
+        /// One inclusive port range.
         case range(ClosedRange<Int>)
     }
 
+    /// The validated representation of this rule.
     private let storage: Storage
 
     /// The IANA dynamic/private range used for OS-assigned ephemeral ports.
@@ -36,8 +41,19 @@ public struct SidebarIgnoredPortRule: Sendable, Equatable {
         storage = .range(range)
     }
 
+    /// Creates a rule from already validated internal storage.
     private init(storage: Storage) {
         self.storage = storage
+    }
+
+    /// The validated inclusive bounds used to build a visibility-policy index.
+    var inclusiveRange: ClosedRange<Int> {
+        switch storage {
+        case .port(let port):
+            port...port
+        case .range(let range):
+            range
+        }
     }
 
     /// The canonical text representation used for range configuration and persistence.
@@ -50,16 +66,7 @@ public struct SidebarIgnoredPortRule: Sendable, Equatable {
         }
     }
 
-    /// Returns whether this rule omits `port` from sidebar publication.
-    public func contains(_ port: Int) -> Bool {
-        switch storage {
-        case .port(let ignoredPort):
-            port == ignoredPort
-        case .range(let ignoredRange):
-            ignoredRange.contains(port)
-        }
-    }
-
+    /// Parses the canonical property-list representation of a rule.
     private static func parsedPersistedText(_ rawValue: String) -> Self? {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if let port = Int(value) {
@@ -69,6 +76,7 @@ public struct SidebarIgnoredPortRule: Sendable, Equatable {
         return parsedRangeText(value)
     }
 
+    /// Parses a textual inclusive range after its representation is selected.
     private static func parsedRangeText(_ rawValue: String) -> Self? {
         let bounds = rawValue.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
         guard bounds.count == 2,
