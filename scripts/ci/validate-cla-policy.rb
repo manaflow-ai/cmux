@@ -29,7 +29,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "82dfd92af42120fc8b32781d8d8352deaa7c247635f30a10efdc300b24826150"
+EXPECTED_GUARD_SCRIPT_DIGEST = "e96bc93bd4cfe3172f1e24507d8866d197f22335f9593dcdf8cce0ac43e939dd"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -365,17 +365,24 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   fail!("pull-request review pagination repeated an entry") if seen_review_ids.key?(review_id)
 
   seen_review_ids[review_id] = true
-  state = review["state"]
-  fail!("pull-request review state is malformed") unless TRUSTED_REVIEW_STATES.include?(state)
-  return if state == "PENDING"
-  fail!("pull-request review commit is malformed") unless review["commit_id"].is_a?(String) && review["commit_id"].match?(SHA)
-
+  # Deleted users are represented by a null user object. They cannot match a
+  # trusted reviewer ID, so ignore them before enforcing the strict shape used
+  # for trusted control-plane approvals. Untrusted reviewers are likewise
+  # irrelevant to this gate and must not be able to DoS a policy update with a
+  # malformed historical review.
   user = review["user"]
-  fail!("pull-request review user is malformed") unless user.is_a?(Hash)
+  return unless user.is_a?(Hash)
   user_id = user["id"]
-  fail!("pull-request review user ID is malformed") unless user_id.is_a?(Integer) && user_id.positive?
+  return unless user_id.is_a?(Integer) && user_id.positive?
   reviewer_id = user_id.to_s
   return unless TRUSTED_REVIEWER_IDS.include?(reviewer_id)
+
+  state = review["state"]
+  fail!("pull-request review state is malformed") unless TRUSTED_REVIEW_STATES.include?(state)
+  # COMMENTED and PENDING reviews do not change GitHub's approval decision.
+  # In particular, a later comment must not erase a valid approval.
+  return if %w[COMMENTED PENDING].include?(state)
+  fail!("pull-request review commit is malformed") unless review["commit_id"].is_a?(String) && review["commit_id"].match?(SHA)
   fail!("pull-request review user is not a human") unless user["type"] == "User"
 
   order = review_sort_key(review)
@@ -776,10 +783,12 @@ def assert_safe_run_text(run, name)
   fail!("#{name} must be a shell string") unless run.is_a?(String)
   fail!("#{name} may not interpolate GitHub expressions") if run.match?(GITHUB_CONTEXT_IN_RUN)
   fail!("#{name} may not access a token environment variable") if run.match?(TOKEN_ENV_IN_RUN)
+  fail!("#{name} may not contain trailing whitespace") if run.lines.any? { |line| line.chomp.end_with?(" ", "\t") }
 end
 
 def normalize_run_text(run)
-  run.to_s.gsub("\r\n", "\n").lines.map(&:rstrip).join("\n").strip
+  normalized = run.to_s.gsub("\r\n", "\n").gsub("\r", "\n")
+  normalized.end_with?("\n") ? normalized[0...-1] : normalized
 end
 
 def assert_exact_normalized_run(run, expected, expected_digest, name)
@@ -830,6 +839,14 @@ def run_guard_contract_regression_matrix!
   expect_failure.call("changed verification shell") do
     assert_exact_normalized_run(
       "#{verification["run"]}\nprintf 'unexpected\\n'",
+      GUARD_VERIFY_RUN,
+      GUARD_VERIFY_RUN_HASH,
+      "regression guard verification run"
+    )
+  end
+  expect_failure.call("trailing shell whitespace") do
+    assert_exact_normalized_run(
+      verification["run"].sub("set -euo pipefail", "set -euo pipefail "),
       GUARD_VERIFY_RUN,
       GUARD_VERIFY_RUN_HASH,
       "regression guard verification run"
@@ -1158,14 +1175,14 @@ def run_trusted_review_regression_matrix!
   seen = {}
   collect_latest_trusted_review!(latest, seen, review.call(2, "COMMENTED", "2026-01-02T00:00:00Z"))
   collect_latest_trusted_review!(latest, seen, review.call(1, "APPROVED", "2026-01-01T00:00:00Z"))
-  fail!("trusted review ordering regression failed") unless latest.fetch("54008264")[1]["state"] == "COMMENTED"
+  fail!("trusted review ordering regression failed") unless latest.fetch("54008264")[1]["state"] == "APPROVED"
 
   latest = {}
   seen = {}
   timestamp = "2026-01-03T00:00:00Z"
   collect_latest_trusted_review!(latest, seen, review.call(4, "COMMENTED", timestamp))
   collect_latest_trusted_review!(latest, seen, review.call(3, "APPROVED", timestamp))
-  fail!("trusted review ID tie-break regression failed") unless latest.fetch("54008264")[1]["id"] == 4
+  fail!("trusted review ID tie-break regression failed") unless latest.fetch("54008264")[1]["id"] == 3
 
   latest = {}
   seen = {}
@@ -1188,6 +1205,16 @@ def run_trusted_review_regression_matrix!
   collect_latest_trusted_review!(latest, seen, { "id" => 8, "state" => "PENDING" })
   fail!("pending review changed trusted state") unless latest.empty?
 
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, { "id" => 11, "user" => nil, "state" => "APPROVED" })
+  fail!("deleted reviewer changed trusted state") unless latest.empty?
+
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, { "id" => 12, "user" => { "id" => 12345 }, "state" => "invalid" })
+  fail!("malformed untrusted review changed trusted state") unless latest.empty?
+
   duplicate_failed = false
   begin
     collect_latest_trusted_review!(latest, seen, review.call(9, "APPROVED", "2026-01-06T00:00:00Z"))
@@ -1196,7 +1223,7 @@ def run_trusted_review_regression_matrix!
     duplicate_failed = true
   end
   fail!("duplicate review regression failed") unless duplicate_failed
-  puts "PASS: trusted review state regression matrix (7 cases)"
+  puts "PASS: trusted review state regression matrix (9 cases)"
 end
 
 def validate_workflow(raw)
