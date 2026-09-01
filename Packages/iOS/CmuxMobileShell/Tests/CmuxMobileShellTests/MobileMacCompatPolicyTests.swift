@@ -76,6 +76,48 @@ import Testing
         #expect(tiered.tier(forIOSVersion: "2.0")?.stableMinVersion == version("0.65.0"))
     }
 
+    @Test func boundedTierCoversItsRangeAndFailsOpenAbove() {
+        // min "1.0" + max "1.0.99" captures every 1.0.x patch without
+        // listing them; versions above the bound get no limit.
+        let bounded = MobileMacCompatPolicy(tiers: [
+            MobileMacCompatPolicy.Tier(
+                minIOSVersion: version("1.0"),
+                maxIOSVersion: version("1.0.99"),
+                stableMinVersion: version("0.64.23"),
+                nightly: nil
+            ),
+        ])
+        #expect(bounded.tier(forIOSVersion: "1.0.0") != nil)
+        #expect(bounded.tier(forIOSVersion: "1.0.42") != nil)
+        #expect(bounded.tier(forIOSVersion: "1.0.99") != nil)
+        #expect(bounded.tier(forIOSVersion: "1.1") == nil)
+        #expect(bounded.violation(iosVersion: "1.1", channel: .stable, macAppVersion: nil) == nil)
+    }
+
+    @Test func pinpointTierMatchesExactlyOneVersion() {
+        let pinpoint = MobileMacCompatPolicy(tiers: [
+            MobileMacCompatPolicy.Tier(
+                minIOSVersion: version("1.0.4"),
+                maxIOSVersion: version("1.0.4"),
+                stableMinVersion: version("0.64.23"),
+                nightly: nil
+            ),
+        ])
+        #expect(pinpoint.tier(forIOSVersion: "1.0.4") != nil)
+        #expect(pinpoint.tier(forIOSVersion: "1.0.3") == nil)
+        #expect(pinpoint.tier(forIOSVersion: "1.0.5") == nil)
+    }
+
+    @Test func decodeReadsOptionalMaxIOSVersion() throws {
+        let payload = Data("""
+        {"entries":[{"minIOSVersion":"1.0","maxIOSVersion":"1.0.99","stableMinVersion":"0.64.23"}]}
+        """.utf8)
+        let decoded = try #require(MobileMacCompatPolicy.decode(payload))
+        #expect(decoded.tiers.first?.maxIOSVersion == version("1.0.99"))
+        let badMax = Data(#"{"entries":[{"minIOSVersion":"1.0","maxIOSVersion":"x","stableMinVersion":"0.64.23"}]}"#.utf8)
+        #expect(MobileMacCompatPolicy.decode(badMax) == nil)
+    }
+
     @Test func tierSelectionFailsOpenForUnparseableAppVersion() {
         // Test fixtures report an empty stamp; the gate must stay out of
         // their way rather than treating "" as version zero.
@@ -234,12 +276,42 @@ import Testing
 
     // MARK: - Baked fallback
 
-    @Test func bakedPolicyConstrainsCurrentIOSVersionToNextReleases() {
-        let tier = MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4")
-        #expect(tier?.stableMinVersion == version("0.64.23"))
-        #expect(tier?.nightly?.minBuild == 3_345_650_013_202)
-        // Shipped versions below the first tier stay unconstrained.
-        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.0") == nil)
+    @Test func bakedPolicyConstrainsEveryCurrentLaneToNextReleases() {
+        // The App Store lane ships as 1.0.0 and the beta lane as 1.0.4;
+        // both must fall inside the first tier.
+        for appVersion in ["1.0.0", "1.0.4"] {
+            let tier = MobileMacCompatPolicy.baked.tier(forIOSVersion: appVersion)
+            #expect(tier?.stableMinVersion == version("0.64.23"))
+            #expect(tier?.nightly?.minBuild == 3_345_650_013_202)
+        }
+        // Versions below the first tier stay unconstrained.
+        #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "0.9.9") == nil)
+    }
+
+    // MARK: - Fail-open when the server does not cover this app version
+
+    @Test func emptyServerListLiftsEveryConstraint() throws {
+        // A fetched empty list means the server sets no limit for anyone:
+        // no tier matches, so every Mac is admitted. Better than accidentally
+        // accepting none.
+        let decoded = try #require(MobileMacCompatPolicy.decode(Data(#"{"entries":[]}"#.utf8)))
+        #expect(decoded.tier(forIOSVersion: "1.0.4") == nil)
+        #expect(decoded.violation(iosVersion: "1.0.4", channel: .stable, macAppVersion: nil) == nil)
+        #expect(decoded.violation(iosVersion: "1.0.4", channel: .nightly, macAppVersion: "0.1.0") == nil)
+    }
+
+    @Test func uncoveredAppVersionHasNoMacVersionLimit() {
+        // The server's tiers start above this app version: no limit applies,
+        // even to a Mac with no reported version at all.
+        let future = MobileMacCompatPolicy(tiers: [
+            MobileMacCompatPolicy.Tier(
+                minIOSVersion: version("2.0"),
+                stableMinVersion: version("0.99.0"),
+                nightly: nil
+            ),
+        ])
+        #expect(future.violation(iosVersion: "1.0.4", channel: .stable, macAppVersion: nil) == nil)
+        #expect(future.violation(iosVersion: "1.0.4", channel: .stable, macAppVersion: "0.1.0") == nil)
     }
 
     // MARK: - Failure copy

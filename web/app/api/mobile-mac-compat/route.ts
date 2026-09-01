@@ -59,6 +59,16 @@ export function validateList(input: MobileMacCompatList): MobileMacCompatList {
 
 function validateEntry(entry: MobileMacCompatEntry, path: string): void {
   version(entry.minIOSVersion, `${path}.minIOSVersion`);
+  if (entry.maxIOSVersion !== undefined) {
+    version(entry.maxIOSVersion, `${path}.maxIOSVersion`);
+    // An inverted range can never match any app version, so the tier would
+    // be served, cached, and silently constrain nobody.
+    if (compareDottedVersions(entry.minIOSVersion, entry.maxIOSVersion) > 0) {
+      throw new Error(
+        `${path} range is empty: minIOSVersion ${entry.minIOSVersion} exceeds maxIOSVersion ${entry.maxIOSVersion}`,
+      );
+    }
+  }
   version(entry.stableMinVersion, `${path}.stableMinVersion`);
   if (entry.nightly !== undefined) {
     version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);

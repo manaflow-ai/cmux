@@ -65,6 +65,11 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     public struct Tier: Equatable, Sendable {
         /// The inclusive minimum iOS marketing version this tier applies to.
         public let minIOSVersion: MobileMacAppVersion
+        /// The optional inclusive maximum iOS marketing version. `nil` is
+        /// open-ended, so one tier captures every version from its minimum
+        /// upward without listing each patch release; a bound scopes the
+        /// tier to a range (equal min and max pinpoints one version).
+        public let maxIOSVersion: MobileMacAppVersion?
         /// The inclusive minimum stable-channel Mac marketing version.
         public let stableMinVersion: MobileMacAppVersion
         /// The minimum nightly-channel build; `nil` leaves nightly unconstrained.
@@ -72,10 +77,12 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
 
         public init(
             minIOSVersion: MobileMacAppVersion,
+            maxIOSVersion: MobileMacAppVersion? = nil,
             stableMinVersion: MobileMacAppVersion,
             nightly: NightlyRequirement?
         ) {
             self.minIOSVersion = minIOSVersion
+            self.maxIOSVersion = maxIOSVersion
             self.stableMinVersion = stableMinVersion
             self.nightly = nightly
         }
@@ -107,8 +114,10 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     /// The compiled-in fallback, mirroring the initial committed entries of
     /// `web/data/mobile-mac-compat.ts`. Keep the two in sync when editing:
     /// the remote list replaces this the first time a device fetches it.
+    /// The tier starts at 1.0.0 so it covers the App Store lane (which ships
+    /// as 1.0.0) as well as the 1.0.4 beta lane.
     public static let baked: MobileMacCompatPolicy = {
-        guard let minIOS = MobileMacAppVersion(parsing: "1.0.4"),
+        guard let minIOS = MobileMacAppVersion(parsing: "1.0.0"),
               let stableMin = MobileMacAppVersion(parsing: "0.64.23"),
               let nightlyBase = MobileMacAppVersion(parsing: "0.64.22")
         else {
@@ -127,13 +136,22 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     }()
 
     /// The tier that applies to one iOS marketing version: the greatest
-    /// `minIOSVersion` at or below it, or `nil` when the app predates every
-    /// tier (unconstrained).
+    /// `minIOSVersion` at or below it. `nil` — no Mac version limit at all —
+    /// when the app predates every tier, or when the winning tier's
+    /// `maxIOSVersion` excludes it (the server does not cover this app
+    /// version, and no limit beats accidentally admitting no Mac).
     public func tier(forIOSVersion version: String) -> Tier? {
         guard let iosVersion = MobileMacAppVersion(parsing: version) else { return nil }
-        return tiers
-            .filter { $0.minIOSVersion <= iosVersion }
-            .max { $0.minIOSVersion < $1.minIOSVersion }
+        guard let winner = tiers
+            .filter({ $0.minIOSVersion <= iosVersion })
+            .max(by: { $0.minIOSVersion < $1.minIOSVersion })
+        else {
+            return nil
+        }
+        if let maxIOSVersion = winner.maxIOSVersion, iosVersion > maxIOSVersion {
+            return nil
+        }
+        return winner
     }
 
     /// Evaluates a constrained-channel Mac against the tier for this app
@@ -220,6 +238,13 @@ extension MobileMacCompatPolicy {
             else {
                 return nil
             }
+            var maxIOS: MobileMacAppVersion?
+            if let remoteMax = entry.maxIOSVersion {
+                guard let parsedMax = MobileMacAppVersion(parsing: remoteMax) else {
+                    return nil
+                }
+                maxIOS = parsedMax
+            }
             var nightly: NightlyRequirement?
             if let remoteNightly = entry.nightly {
                 guard let base = MobileMacAppVersion(parsing: remoteNightly.minBaseVersion),
@@ -231,6 +256,7 @@ extension MobileMacCompatPolicy {
             }
             tiers.append(Tier(
                 minIOSVersion: minIOS,
+                maxIOSVersion: maxIOS,
                 stableMinVersion: stableMin,
                 nightly: nightly
             ))
@@ -243,6 +269,7 @@ extension MobileMacCompatPolicy {
     private struct RemoteList: Decodable {
         struct Entry: Decodable {
             let minIOSVersion: String
+            let maxIOSVersion: String?
             let stableMinVersion: String
             let nightly: Nightly?
         }

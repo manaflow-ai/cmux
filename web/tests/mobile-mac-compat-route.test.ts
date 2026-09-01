@@ -170,6 +170,41 @@ describe("mobile-mac-compat route", () => {
     );
   });
 
+  test("accepts a bounded tier range and a pinpoint range", () => {
+    const list: MobileMacCompatList = {
+      ...base,
+      entries: [
+        { minIOSVersion: "1.0", maxIOSVersion: "1.0.99", stableMinVersion: "0.64.23" },
+        { minIOSVersion: "1.1", maxIOSVersion: "1.1", stableMinVersion: "0.65.0" },
+      ],
+    };
+    expect(() => validateList(list)).not.toThrow();
+  });
+
+  test("rejects an inverted tier range", () => {
+    const list: MobileMacCompatList = {
+      ...base,
+      entries: [
+        { minIOSVersion: "1.1", maxIOSVersion: "1.0.9", stableMinVersion: "0.64.23" },
+      ],
+    };
+    expect(() => validateList(list)).toThrow(
+      "entries[0] range is empty: minIOSVersion 1.1 exceeds maxIOSVersion 1.0.9",
+    );
+  });
+
+  test("rejects a malformed maxIOSVersion", () => {
+    const list: MobileMacCompatList = {
+      ...base,
+      entries: [
+        { minIOSVersion: "1.0", maxIOSVersion: "1.0.x", stableMinVersion: "0.64.23" },
+      ],
+    };
+    expect(() => validateList(list)).toThrow(
+      "entries[0].maxIOSVersion must be a dotted numeric version, got 1.0.x",
+    );
+  });
+
   test("rejects out-of-order tiers", () => {
     const list: MobileMacCompatList = {
       ...base,
