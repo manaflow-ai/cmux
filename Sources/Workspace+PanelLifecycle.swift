@@ -389,7 +389,12 @@ extension Workspace {
     func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
         var didChange = false
         for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
-            if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
+            if clearAgentPID(
+                key: key,
+                clearStatus: true,
+                refreshPorts: false,
+                definitiveProcessExit: true
+            ) {
                 didChange = true
             }
         }
@@ -406,13 +411,25 @@ extension Workspace {
         var didChange = false
         for key in keys {
             guard let pid = agentPIDs[key] else {
-                if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                if clearAgentPID(
+                    key: key,
+                    panelId: panelId,
+                    clearStatus: true,
+                    refreshPorts: false,
+                    definitiveProcessExit: true
+                ) {
                     didChange = true
                 }
                 continue
             }
             if !isRecordedAgentPIDLive(key: key, pid: pid),
-               clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+               clearAgentPID(
+                   key: key,
+                   panelId: panelId,
+                   clearStatus: true,
+                   refreshPorts: false,
+                   definitiveProcessExit: true
+               ) {
                 didChange = true
             }
         }
@@ -460,7 +477,8 @@ extension Workspace {
             key: key,
             panelId: panelId,
             clearStatus: true,
-            refreshPorts: true
+            refreshPorts: true,
+            definitiveProcessExit: true
         ) else {
             return
         }
@@ -516,7 +534,8 @@ extension Workspace {
         panelId: UUID? = nil,
         clearStatus: Bool = false,
         requireOwnedKey: Bool = false,
-        refreshPorts: Bool = true
+        refreshPorts: Bool = true,
+        definitiveProcessExit: Bool = false
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if requireOwnedKey, ownedPanelId == nil {
@@ -569,16 +588,18 @@ extension Workspace {
                 }
             } ?? false
             let didClearLifecycle: Bool
-            if let recordedProcessIdentity,
+            if definitiveProcessExit,
+               let recordedProcessIdentity,
                !hasRemainingGenerationOwner {
                 didClearLifecycle = sidebarAgentRuntimeObservation.recordAgentProcessExit(
                     key: lifecycleStatusKey,
                     panelId: lifecyclePanelId,
                     generation: recordedProcessIdentity
                 )
-            } else if AgentHibernationLifecycleStatusKeys(
-                rawValue: lifecycleStatusKey
-            ).isAllowed,
+            } else if definitiveProcessExit,
+                      AgentHibernationLifecycleStatusKeys(
+                          rawValue: lifecycleStatusKey
+                      ).isAllowed,
                       !hasRemainingStatusRuntime {
                 didClearLifecycle = sidebarAgentRuntimeObservation
                     .recordUnidentifiedAgentProcessExit(

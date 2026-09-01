@@ -37,17 +37,22 @@ extension TerminalController: ControlSidebarContext {
                 startMicroseconds: $0.startMicroseconds
             )
         }
-        let reconstructedProcessIdentity = pid.flatMap {
-            AgentPIDProcessIdentity(pid: $0)
-        }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             if let pid {
+                let usesRemoteProcessNamespace =
+                    owner.usesRemoteAgentProcessNamespace(panelId: panelID)
+                // A custom PID received through a relay belongs to the remote
+                // host. Never probe that numeric value against this Mac before
+                // the owner namespace is known; keep it opaque instead.
+                let reconstructedProcessIdentity = usesRemoteProcessNamespace
+                    ? nil
+                    : AgentPIDProcessIdentity(pid: pid)
                 let keyIsBuiltIn = AgentHibernationLifecycleStatusKeys(
                     rawValue: key
                 ).isBuiltInNamespace
                 let acceptedProcessIdentity: AgentPIDProcessIdentity?
                 if keyIsBuiltIn {
-                    if owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
+                    if usesRemoteProcessNamespace {
                         // Status-only relay metadata may omit the generation;
                         // when present, retain it as opaque ordering evidence.
                         acceptedProcessIdentity = exactProcessIdentity
@@ -68,16 +73,11 @@ extension TerminalController: ControlSidebarContext {
                         pid: pid,
                         panelId: panelID,
                         acceptedProcessIdentity: acceptedProcessIdentity,
-                        observeProcessExit:
-                            !owner.usesRemoteAgentProcessNamespace(
-                                panelId: panelID
-                            )
+                        observeProcessExit: !usesRemoteProcessNamespace
                     ).accepted else {
                         return
                     }
-                } else if !owner.usesRemoteAgentProcessNamespace(
-                    panelId: panelID
-                ) {
+                } else if !usesRemoteProcessNamespace {
                     return
                 }
             } else if AgentHibernationLifecycleStatusKeys(
@@ -148,11 +148,15 @@ extension TerminalController: ControlSidebarContext {
                 startMicroseconds: $0.startMicroseconds
             )
         }
-        let reconstructedProcessIdentity = AgentPIDProcessIdentity(pid: pid)
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             // The coordinator rejects missing generations for built-ins. Keep
             // the same invariant at the mutation boundary so a queued command
             // cannot reconstruct ownership from a recycled numeric PID.
+            let usesRemoteProcessNamespace =
+                owner.usesRemoteAgentProcessNamespace(panelId: panelID)
+            let reconstructedProcessIdentity = usesRemoteProcessNamespace
+                ? nil
+                : AgentPIDProcessIdentity(pid: pid)
             let acceptedProcessIdentity: AgentPIDProcessIdentity?
             if let exactProcessIdentity {
                 acceptedProcessIdentity = exactProcessIdentity
@@ -168,9 +172,7 @@ extension TerminalController: ControlSidebarContext {
                 pid: pid,
                 panelId: panelID,
                 acceptedProcessIdentity: acceptedProcessIdentity,
-                observeProcessExit: !owner.usesRemoteAgentProcessNamespace(
-                    panelId: panelID
-                )
+                observeProcessExit: !usesRemoteProcessNamespace
             )
             if result.replacedOtherRuntime, let panelID {
                 TerminalNotificationStore.shared.clearNotifications(

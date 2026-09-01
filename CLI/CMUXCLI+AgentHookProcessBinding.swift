@@ -124,9 +124,9 @@ extension CMUXCLI {
         var sawFailure = false
         for candidate in candidates {
             switch liveAgentPidDeliveryTarget(pid: candidate, client: client) {
-            case .resolved(let verifiedPID, let target):
+            case .resolved(let target):
                 return .resolved(
-                    pid: verifiedPID,
+                    pid: candidate,
                     binding: CallerTerminalBinding(
                         workspaceId: target.workspaceId,
                         surfaceId: target.surfaceId

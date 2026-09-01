@@ -92,11 +92,14 @@ enum ControlSidebarPanelOwner {
         panelId: UUID?,
         observeProcessExit: Bool = true
     ) -> ControlSidebarAgentPIDRecordResult {
+        let acceptedProcessIdentity = usesRemoteAgentProcessNamespace(
+            panelId: panelId
+        ) ? nil : AgentPIDProcessIdentity(pid: pid)
         recordAgentPID(
             key: key,
             pid: pid,
             panelId: panelId,
-            acceptedProcessIdentity: AgentPIDProcessIdentity(pid: pid),
+            acceptedProcessIdentity: acceptedProcessIdentity,
             observeProcessExit: observeProcessExit
         )
     }

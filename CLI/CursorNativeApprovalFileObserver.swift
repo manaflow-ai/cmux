@@ -6,6 +6,7 @@ import Foundation
 final class CursorNativeApprovalFileObserver {
     private static let maximumTailBytes = 512 * 1024
     private static let maximumFutureBytes = 512 * 1024
+    private static let maximumGenerationHeaderBytes = 16 * 1024
     private static let maximumLogDiscoveryEntries = 4_096
     private static let readChunkSize = 16 * 1024
     private static let timeoutSeconds = 8
@@ -130,7 +131,6 @@ final class CursorNativeApprovalFileObserver {
         guard let enumerator = fileManager.enumerator(
             at: logDirectory,
             includingPropertiesForKeys: [
-                .creationDateKey,
                 .isRegularFileKey,
             ],
             options: [
@@ -141,7 +141,6 @@ final class CursorNativeApprovalFileObserver {
             return nil
         }
         let pidMarker = "-\(processIdentity.pid)-"
-        let earliestGeneration = TimeInterval(processIdentity.startSeconds) - 2
         var candidate: String?
         var inspectedEntryCount = 0
         while let object = enumerator.nextObject() {
@@ -156,12 +155,8 @@ final class CursorNativeApprovalFileObserver {
             }
             guard url.pathExtension == "log",
                   url.lastPathComponent.contains(pidMarker),
-                  let values = try? url.resourceValues(
-                      forKeys: [.creationDateKey, .isRegularFileKey]
-                  ),
-                  values.isRegularFile == true,
-                  let created = values.creationDate,
-                  created.timeIntervalSince1970 >= earliestGeneration else {
+                  isRegularLogFile(url),
+                  logContainsExactProcessGeneration(at: url) else {
                 continue
             }
             guard candidate == nil else { return nil }
@@ -175,6 +170,61 @@ final class CursorNativeApprovalFileObserver {
             return nil
         }
         return candidate
+    }
+
+    /// Rejects symlinks and non-regular files before opening a candidate log.
+    /// The Cursor directory also contains `latest.log`, which is a symlink and
+    /// has no independent process-generation proof.
+    private func isRegularLogFile(_ url: URL) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        return info.st_mode & S_IFMT == S_IFREG
+    }
+
+    /// Reads Cursor's bounded `debug-session-start` record and proves that the
+    /// file was created by this exact PID generation. A filename and mtime are
+    /// only heuristics: both can survive PID reuse or be rewritten by another
+    /// process. Cursor records the PID and startup timestamp in the first JSON
+    /// line, so an older generation's log fails the monotonic timestamp check.
+    private func logContainsExactProcessGeneration(at url: URL) -> Bool {
+        let descriptor = open(
+            url.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+
+        var bytes = [UInt8](
+            repeating: 0,
+            count: Self.maximumGenerationHeaderBytes
+        )
+        let count = bytes.withUnsafeMutableBytes { buffer in
+            read(descriptor, buffer.baseAddress, buffer.count)
+        }
+        guard count > 0 else { return false }
+        let header = Data(bytes.prefix(count))
+        for line in header.split(separator: 0x0A) {
+            guard let object = try? JSONSerialization.jsonObject(
+                with: Data(line)
+            ) as? [String: Any],
+                  object["event"] as? String == "debug-session-start",
+                  let pid = (object["pid"] as? NSNumber)?.int64Value,
+                  pid == Int64(processIdentity.pid),
+                  let startTime = object["startTime"] as? String,
+                  let logStart = try? Date.ISO8601FormatStyle().parse(
+                      startTime
+                  ) else {
+                continue
+            }
+            let expectedStart = Date(
+                timeIntervalSince1970:
+                    TimeInterval(processIdentity.startSeconds)
+            ).addingTimeInterval(
+                TimeInterval(processIdentity.startMicroseconds) / 1_000_000
+            )
+            return logStart >= expectedStart
+        }
+        return false
     }
 
     /// Waits for Cursor to create the exact-generation log without polling.

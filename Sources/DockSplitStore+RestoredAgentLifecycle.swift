@@ -182,7 +182,8 @@ extension DockSplitStore {
                         _ = clearAgentPID(
                             key: key,
                             panelId: detached.panelId,
-                            clearStatus: true
+                            clearStatus: true,
+                            definitiveProcessExit: true
                         )
                         continue
                     }
@@ -459,6 +460,7 @@ extension DockSplitStore {
                     Self.clearAgentPID(
                         key: staleKey,
                         clearStatus: true,
+                        definitiveProcessExit: false,
                         runtime: &runtime
                     )
                 }
@@ -637,7 +639,8 @@ extension DockSplitStore {
         key: String,
         panelId: UUID,
         clearStatus: Bool,
-        requireOwnedKey: Bool = false
+        requireOwnedKey: Bool = false,
+        definitiveProcessExit: Bool = false
     ) -> Bool {
         if requireOwnedKey,
            agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) != true {
@@ -654,6 +657,7 @@ extension DockSplitStore {
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
+                definitiveProcessExit: definitiveProcessExit,
                 runtime: &$0
             )
         }
@@ -714,6 +718,7 @@ extension DockSplitStore {
     private static func clearAgentPID(
         key: String,
         clearStatus: Bool,
+        definitiveProcessExit: Bool,
         runtime: inout Workspace.DetachedAgentRuntimeState
     ) -> Bool {
         let statusKey = agentStatusKey(forAgentPIDKey: key, runtime: runtime)
@@ -745,15 +750,18 @@ extension DockSplitStore {
             }
         } ?? false
         let didClearLifecycle: Bool
-        if let generation, !hasRemainingGenerationOwner {
+        if definitiveProcessExit,
+           let generation,
+           !hasRemainingGenerationOwner {
             didClearLifecycle = runtime.agentLifecycleReconciliationState.recordProcessExit(
                 key: statusKey,
                 panelId: runtime.panelId,
                 generation: generation
             )
-        } else if AgentHibernationLifecycleStatusKeys(
-            rawValue: statusKey
-        ).isAllowed,
+        } else if definitiveProcessExit,
+                  AgentHibernationLifecycleStatusKeys(
+                      rawValue: statusKey
+                  ).isAllowed,
                   !hasRemainingStatusRuntime {
             didClearLifecycle = runtime.agentLifecycleReconciliationState
                 .recordUnidentifiedProcessExit(
@@ -832,7 +840,8 @@ extension DockSplitStore {
               clearAgentPID(
                   key: key,
                   panelId: panelId,
-                  clearStatus: true
+                  clearStatus: true,
+                  definitiveProcessExit: true
               ) else {
             return
         }

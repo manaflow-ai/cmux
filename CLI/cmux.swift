@@ -36738,16 +36738,24 @@ export default CMUXSessionRestore;
         case "pi": Self.piFeedHookMaxStdinBytes
         default: Self.feedHookMaxStdinBytes
         }
+        var cursorMetadataScanner:
+            CMUXCLI.CursorNativeApprovalRootFieldScanner?
+        if source == BuiltInAgentIntegration.cursor.feedSourceName,
+           let commandEvent,
+           ["postToolUse", "postToolUseFailure"].contains(commandEvent) {
+            cursorMetadataScanner =
+                CMUXCLI.CursorNativeApprovalRootFieldScanner()
+        }
         let stdinRead = Self.readBoundedFeedHookStdin(
-            maxBytes: feedHookStdinLimit
+            maxBytes: feedHookStdinLimit,
+            cursorMetadataScanner: &cursorMetadataScanner
         )
         guard stdinRead.isComplete else {
             if source == BuiltInAgentIntegration.cursor.feedSourceName,
-               let commandEvent,
-               ["postToolUse", "postToolUseFailure"].contains(commandEvent) {
+               let metadata = stdinRead.cursorMetadata {
                 let env = ProcessInfo.processInfo.environment
                 concludeCursorNativeApprovalObservation(
-                    boundedJSONPrefix: stdinRead.data,
+                    metadata: metadata,
                     agentPID: agentPidForFeedSource(source, env: env),
                     socketPath: client?.socketPath ?? socketPath,
                     socketPassword: socketPassword
@@ -37225,30 +37233,108 @@ export default CMUXSessionRestore;
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
     private static let piFeedHookMaxStdinBytes = 128 * 1024
 
+    private struct BoundedFeedHookStdinRead {
+        let data: Data
+        let isComplete: Bool
+        let cursorMetadata:
+            CMUXCLI.CursorNativeApprovalOversizedMetadata?
+    }
+
     private static func readBoundedFeedHookStdin(
         maxBytes: Int,
+        cursorMetadataScanner:
+            inout CMUXCLI.CursorNativeApprovalRootFieldScanner?,
         handle: FileHandle = .standardInput
-    ) -> (data: Data, isComplete: Bool) {
+    ) -> BoundedFeedHookStdinRead {
         var data = Data()
-        while data.count <= maxBytes {
-            let remainingBytes = maxBytes + 1 - data.count
+        var totalBytes = 0
+        while true {
+            let maximumReadBytes = cursorMetadataScanner.map {
+                max(
+                    maxBytes + 1,
+                    CMUXCLI.CursorNativeApprovalRootFieldScanner
+                        .maximumScanBytes
+                )
+            } ?? (maxBytes + 1)
+            guard totalBytes < maximumReadBytes else {
+                try? handle.close()
+                return BoundedFeedHookStdinRead(
+                    data: data,
+                    isComplete: false,
+                    cursorMetadata: cursorMetadataScanner?.metadata
+                )
+            }
+
+            // Before the normal bound, preserve the historical blocking read
+            // semantics for regular hook pipes. Once overflow is possible,
+            // poll briefly so an open producer cannot strand this CLI.
+            if totalBytes >= maxBytes,
+               !waitForBoundedFeedHookInput(handle: handle) {
+                try? handle.close()
+                return BoundedFeedHookStdinRead(
+                    data: data,
+                    isComplete: false,
+                    cursorMetadata: cursorMetadataScanner?.metadata
+                )
+            }
+
+            let remainingBytes = maximumReadBytes - totalBytes
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else {
-                return (data: data, isComplete: true)
+                return BoundedFeedHookStdinRead(
+                    data: data,
+                    isComplete: true,
+                    cursorMetadata: cursorMetadataScanner?.metadata
+                )
             }
-            data.append(chunk)
+            totalBytes += chunk.count
+            cursorMetadataScanner?.consume(chunk)
+            if data.count < maxBytes {
+                data.append(chunk.prefix(maxBytes - data.count))
+            }
+
+            if totalBytes > maxBytes {
+                if cursorMetadataScanner?.hasRequiredIdentifiers == true {
+                    // The scanner has enough identity to conclude the
+                    // oversized Cursor event. Closing stdin also releases a
+                    // producer that keeps its pipe open after the payload.
+                    try? handle.close()
+                    return BoundedFeedHookStdinRead(
+                        data: data,
+                        isComplete: false,
+                        cursorMetadata: cursorMetadataScanner?.metadata
+                    )
+                }
+                if cursorMetadataScanner == nil {
+                    // Generic oversized hooks have no safe partial decode. Do
+                    // not fork a drainer; closing the read end is sufficient.
+                    try? handle.close()
+                    return BoundedFeedHookStdinRead(
+                        data: data,
+                        isComplete: false,
+                        cursorMetadata: nil
+                    )
+                }
+            }
         }
-        guard data.count <= maxBytes else {
-            // The hook is about to return a bounded failure. Do not fork a
-            // reader that inherits an unbounded producer pipe: if the agent
-            // keeps stdin open, that child would remain blocked indefinitely
-            // after the CLI exits. Closing the read end releases the producer
-            // and leaves no background process to reap.
-            try? handle.close()
-            return (data: data, isComplete: false)
+    }
+
+    private static func waitForBoundedFeedHookInput(
+        handle: FileHandle
+    ) -> Bool {
+        var descriptor = pollfd(
+            fd: handle.fileDescriptor,
+            events: Int16(POLLIN | POLLHUP | POLLERR),
+            revents: 0
+        )
+        while true {
+            let ready = Darwin.poll(&descriptor, 1, 100)
+            if ready < 0, errno == EINTR { continue }
+            guard ready > 0 else { return false }
+            return descriptor.revents
+                & Int16(POLLIN | POLLHUP | POLLERR) != 0
         }
-        return (data: data, isComplete: true)
     }
 
     private static let feedPostToolUseScalarStringLimitBytes = 512

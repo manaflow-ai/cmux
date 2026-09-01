@@ -261,12 +261,13 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
         }
         let alreadyRecorded = entry.hasUnidentifiedProcessExit
             && entry.hook == nil
-            && entry.feedAttentionTokens.isEmpty
         guard !alreadyRecorded else { return false }
         entry.hasUnidentifiedProcessExit = true
         entry.hook = nil
         entry.suppressesLifecycleUntilNextHook = false
-        entry.feedAttentionTokens.removeAll()
+        // Without a readable generation, this exit cannot prove ownership of
+        // any Feed token. Preserve both unbound and exact tokens until their
+        // owner-scoped conclusion arrives.
         setEntry(entry, key: key, panelId: panelId)
         return true
     }

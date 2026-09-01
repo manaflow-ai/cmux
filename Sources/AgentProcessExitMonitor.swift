@@ -53,7 +53,7 @@ final class AgentProcessExitMonitor {
             }
         }
         source.resume()
-        if !generationIsStillLive(generation) {
+        if generationHasDefinitiveExit(generation) {
             deliverExit(key: key, generation: generation)
         }
     }
@@ -83,13 +83,13 @@ final class AgentProcessExitMonitor {
         observation.onExit(key, generation)
     }
 
-    private func generationIsStillLive(
+    private func generationHasDefinitiveExit(
         _ generation: AgentPIDProcessIdentity
     ) -> Bool {
-        // Only exact live evidence keeps a watcher. Unknown identity is
-        // retired conservatively so an unreadable, already-gone PID cannot
-        // strand lifecycle state indefinitely.
-        livenessProbe(generation) == .live
+        // An unreadable process table is not ownership or exit evidence. Keep
+        // the DispatchSource watcher in that case; only a definitive exit (or
+        // generation replacement) may retire the observation synchronously.
+        livenessProbe(generation) == .exited
     }
 
     private nonisolated static func defaultLivenessProbe(
