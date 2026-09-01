@@ -312,8 +312,6 @@ struct WorkspaceShellView: View {
                 taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                     ? nil
                     : taskComposerAction,
-                iPadSidebarWidth: splitSidebarWidth,
-                iPadSidebarVisible: !usesCompactStack && splitColumnVisibility != .detailOnly
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
