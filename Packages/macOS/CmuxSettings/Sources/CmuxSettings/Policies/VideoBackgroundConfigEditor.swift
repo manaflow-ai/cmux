@@ -190,12 +190,12 @@ public struct VideoBackgroundConfigEditor: Sendable {
         let queue = video?["queue"] as? [String]
         let muted = video?["muted"] as? Bool
         let quality = (video?["quality"] as? String).map { VideoBackgroundSettings().normalizedQuality($0) }
-        let volume = (video?["volume"] as? NSNumber).flatMap { value in
+        let volume: Double? = (video?["volume"] as? NSNumber).flatMap { (value: NSNumber) -> Double? in
             guard CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
             let number = value.doubleValue
             return number.isFinite ? VideoBackgroundSettings().normalizedVolume(number) : nil
         }
-        let dimOpacity = (video?["dimOpacity"] as? NSNumber).flatMap { value in
+        let dimOpacity: Double? = (video?["dimOpacity"] as? NSNumber).flatMap { (value: NSNumber) -> Double? in
             guard CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
             let number = value.doubleValue
             return number.isFinite ? VideoBackgroundSettings().normalizedDimOpacity(number) : nil
