@@ -142,7 +142,7 @@ fn wait_while_starting(
         if Instant::now() >= deadline {
             return Err(EnsureError::NotReady);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
     }
 }
 
@@ -160,7 +160,7 @@ fn wait_until_ready(
         if Instant::now() >= deadline {
             return Ok(None);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
     }
 }
 
