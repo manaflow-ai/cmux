@@ -77,7 +77,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
     let onToggleCollapsed: () -> Void
-    let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
+    let onActivate: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
@@ -201,13 +201,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
-                onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
+                onActivate(NSApp.currentEvent?.modifierFlags ?? [])
             }
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(name))
             .accessibilityHint(Text(String(
-                localized: "workspaceGroup.focusAnchor.a11y",
-                defaultValue: "Focus the group's anchor workspace"
+                localized: "workspaceGroup.newWorkspaceInGroup.a11y",
+                defaultValue: "New workspace in group"
             )))
 
             let plusVisible = isPointerHovering && !contextMenuVisible && !showsShortcutHint

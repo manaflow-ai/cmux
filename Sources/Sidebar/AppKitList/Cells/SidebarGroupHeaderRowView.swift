@@ -463,7 +463,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // Selection has exactly one click owner: the table view's action
     // (`SidebarWorkspaceTableController.didClickTableRow`), same as workspace
     // rows. A cell-level click recognizer here would fire a second
-    // `onFocusAnchor` for the same click, which cancels a modifier-click
+    // `onActivate` for the same click, which cancels a modifier-click
     // toggle (add then remove) and made header multi-selection impossible.
 
     override func menu(for event: NSEvent) -> NSMenu? {
