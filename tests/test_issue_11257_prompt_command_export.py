@@ -76,22 +76,90 @@ printf '__CMUX_CHILD_BEGIN__\n%s\n__CMUX_CHILD_END__\n' "$_cmux_test_child"
 """
 
 
-def _bash_candidates() -> list[Path]:
-    candidates: list[Path] = [Path("/bin/bash")]
-    path_bash = shutil.which("bash")
-    if path_bash:
-        candidates.append(Path(path_bash))
+_BASH_VERSION_RE = re.compile(r"\bversion\s+(\d+)\.(\d+)(?:\.(\d+))?")
 
-    result: list[Path] = []
+
+def _bash_version(bash_bin: Path) -> tuple[int, int, int]:
+    """Return the executable's Bash major, minor, and patch version."""
+
+    result = subprocess.run(
+        [str(bash_bin), "--version"],
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    match = _BASH_VERSION_RE.search((result.stdout or "") + (result.stderr or ""))
+    if result.returncode != 0 or match is None:
+        raise AssertionError(
+            f"could not determine Bash version for {bash_bin}: "
+            f"exit={result.returncode}\n{result.stdout}\n{result.stderr}"
+        )
+    return tuple(int(part or 0) for part in match.groups())
+
+
+def _bash_candidates() -> list[tuple[str, Path, tuple[int, int, int]]]:
+    """Resolve and validate one system Bash 3.2 and one newer Bash binary.
+
+    CI supplies explicit paths so a Linux runner cannot accidentally exercise
+    only its one modern Bash. Local macOS runs discover the same pair from the
+    system path and common Homebrew locations.
+    """
+
+    configured_legacy = os.environ.get("CMUX_BASH_32_BIN")
+    configured_modern = os.environ.get("CMUX_BASH_NEW_BIN")
+    if (configured_legacy is None) != (configured_modern is None):
+        raise AssertionError(
+            "CMUX_BASH_32_BIN and CMUX_BASH_NEW_BIN must be provided together"
+        )
+
+    if configured_legacy is not None and configured_modern is not None:
+        raw_candidates = [
+            ("Bash 3.2", Path(configured_legacy)),
+            ("newer Bash", Path(configured_modern)),
+        ]
+    else:
+        raw_candidates = [("discovered", Path("/bin/bash"))]
+        for candidate in (
+            shutil.which("bash"),
+            "/opt/homebrew/bin/bash",
+            "/usr/local/bin/bash",
+        ):
+            if candidate:
+                raw_candidates.append(("discovered", Path(candidate)))
+
+    candidates: list[tuple[str, Path, tuple[int, int, int]]] = []
     seen: set[Path] = set()
-    for candidate in candidates:
+    for label, candidate in raw_candidates:
         if not candidate.is_file() or not os.access(candidate, os.X_OK):
             continue
         resolved = candidate.resolve()
-        if resolved not in seen:
-            seen.add(resolved)
-            result.append(resolved)
-    return result
+        if resolved in seen:
+            if configured_legacy is not None:
+                raise AssertionError(
+                    "Bash 3.2 and newer Bash paths resolve to the same executable: "
+                    f"{resolved}"
+                )
+            continue
+        seen.add(resolved)
+        candidates.append((label, resolved, _bash_version(resolved)))
+
+    legacy = [entry for entry in candidates if entry[2][:2] == (3, 2)]
+    modern = [entry for entry in candidates if entry[2][:2] > (3, 2)]
+    if not legacy or not modern:
+        versions = ", ".join(
+            f"{path} ({version[0]}.{version[1]}.{version[2]})"
+            for _, path, version in candidates
+        ) or "none"
+        raise AssertionError(
+            "the regression requires distinct Bash 3.2 and newer Bash executables; "
+            f"found {versions}. Set CMUX_BASH_32_BIN and CMUX_BASH_NEW_BIN explicitly."
+        )
+
+    return [
+        ("Bash 3.2", legacy[0][1], legacy[0][2]),
+        ("newer Bash", modern[-1][1], modern[-1][2]),
+    ]
 
 
 def _run_driver(bash_bin: Path) -> subprocess.CompletedProcess[str]:
@@ -112,6 +180,10 @@ def _run_driver(bash_bin: Path) -> subprocess.CompletedProcess[str]:
             {
                 "HOME": home,
                 "PATH": os.environ.get("PATH", ""),
+                # Bash localizes diagnostics; pin English so the child-shell
+                # command-not-found assertion is meaningful on every runner.
+                "LANG": "C",
+                "LC_ALL": "C",
                 "TERM": "xterm-256color",
                 "TERM_PROGRAM": "ghostty",
                 # This is exactly the value TerminalSurface+StartupEnvironment
@@ -158,13 +230,11 @@ def test_prompt_command_is_not_exported_to_nested_bash() -> None:
     assert (GHOSTTY_RESOURCES_DIR / "shell-integration" / "bash" / "ghostty.bash").exists()
 
     bash_bins = _bash_candidates()
-    assert bash_bins, "no executable bash found"
 
-    for bash_bin in bash_bins:
+    for label, bash_bin, version in bash_bins:
         proc = _run_driver(bash_bin)
-        output = (proc.stdout or "") + (proc.stderr or "")
         debug = (
-            f"\n\n--- bash ---\n{bash_bin}"
+            f"\n\n--- bash ---\n{label}: {bash_bin} ({version[0]}.{version[1]}.{version[2]})"
             f"\n--- exit ---\n{proc.returncode}"
             f"\n--- stdout ---\n{proc.stdout}"
             f"\n--- stderr ---\n{proc.stderr}"

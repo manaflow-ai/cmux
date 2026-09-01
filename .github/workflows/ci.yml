@@ -356,9 +356,6 @@ jobs:
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
-      - name: Validate bash prompt bootstrap does not export PROMPT_COMMAND
-        run: python3 tests/test_issue_11257_prompt_command_export.py
-
       - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
         run: python3 scripts/lint-feature-flags.py
 
@@ -1365,6 +1362,22 @@ jobs:
           test -x "$NU_DIR/nu"
           "$NU_DIR/nu" --version
           echo "$NU_DIR" >> "$GITHUB_PATH"
+
+      - name: Validate bash prompt bootstrap export compatibility
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          # macOS always provides the Bash 3.2 path; install Homebrew Bash so
+          # this regression also exercises the newer PROMPT_COMMAND array path.
+          if ! brew list --formula bash >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install bash
+          fi
+          BASH_NEW_BIN="$(brew --prefix bash)/bin/bash"
+          test -x /bin/bash
+          test -x "$BASH_NEW_BIN"
+          CMUX_BASH_32_BIN=/bin/bash \
+            CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
+            python3 tests/test_issue_11257_prompt_command_export.py
 
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
