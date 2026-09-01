@@ -1451,31 +1451,29 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     if command != "remote" {
         return Ok(());
     }
-    if command == "remote" {
-        let mut action_index = 1;
-        while action_index < raw_args.len() {
-            match raw_args[action_index].as_str() {
-                "--socket" | "--session" | "--machine" => action_index += 2,
-                "--json" | "--jsonl" | "--quiet" => action_index += 1,
-                value
-                    if value.starts_with("--socket=")
-                        || value.starts_with("--session=")
-                        || value.starts_with("--machine=") =>
-                {
-                    action_index += 1
-                }
-                _ => break,
+    let mut action_index = 1;
+    while action_index < raw_args.len() {
+        match raw_args[action_index].as_str() {
+            "--socket" | "--session" | "--machine" => action_index += 2,
+            "--json" | "--jsonl" | "--quiet" => action_index += 1,
+            value
+                if value.starts_with("--socket=")
+                    || value.starts_with("--session=")
+                    || value.starts_with("--machine=") =>
+            {
+                action_index += 1
             }
+            _ => break,
         }
-        if let Some(action) = raw_args.get(action_index).cloned() {
-            raw_args.remove(action_index);
-            if let Some(command) = crate::cli::remote_action_command(&action) {
-                raw_args.remove(0);
-                raw_args.insert(0, command.to_string());
-                return Ok(());
-            } else {
-                raw_args.insert(1, action);
-            }
+    }
+    if let Some(action) = raw_args.get(action_index).cloned() {
+        raw_args.remove(action_index);
+        if let Some(command) = crate::cli::remote_action_command(&action) {
+            raw_args.remove(0);
+            raw_args.insert(0, command.to_string());
+            return Ok(());
+        } else {
+            raw_args.insert(1, action);
         }
     }
     match raw_args.get(1).map(String::as_str) {
