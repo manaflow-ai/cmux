@@ -21,11 +21,20 @@ struct SimulatorStreamV2Pane: View {
     let supportsDeviceSwitching: Bool
     let listDevices: @MainActor () async -> [MobileSimulatorDeviceDescriptor]
     let selectDevice: @MainActor (String) async -> Bool
+    let supportsRecover: Bool
+    let recover: @MainActor () async -> Bool
 
     @State private var store: SimulatorStreamV2Store?
     @State private var pendingText = ""
     @State private var devices: [MobileSimulatorDeviceDescriptor] = []
     @State private var deviceFetchTask: Task<Void, Never>?
+    @State private var refreshTask: Task<Void, Never>?
+    /// Pane-level stall timer: the connecting/reconnecting overlays swap
+    /// every retry cycle, so a per-overlay timer would reset on each flip
+    /// and the refresh escape hatch would never appear. Tracked here, it
+    /// survives phase churn and reveals once the wait has genuinely stalled.
+    @State private var stallRevealTask: Task<Void, Never>?
+    @State private var stallRevealed = false
     @AppStorage("cmux.simulatorStream.quality")
     private var qualityRaw = SimStreamQualityPreset.default.rawValue
     @FocusState private var textFocused: Bool
@@ -42,7 +51,11 @@ struct SimulatorStreamV2Pane: View {
                 if let store {
                     SimStreamDisplayRepresentable(store: store)
                         .accessibilityIdentifier("SimulatorStreamV2Video")
-                    overlay(for: store.phase)
+                    if hostNeedsRecovery(store.hostStatus) {
+                        recoveryOverlay
+                    } else {
+                        overlay(for: store.phase)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,6 +80,27 @@ struct SimulatorStreamV2Pane: View {
         .onDisappear {
             deviceFetchTask?.cancel()
             deviceFetchTask = nil
+            refreshTask?.cancel()
+            refreshTask = nil
+            stallRevealTask?.cancel()
+            stallRevealTask = nil
+        }
+        .onChange(of: isStalled, initial: true) { _, stalled in
+            if stalled {
+                guard stallRevealTask == nil else { return }
+                stallRevealTask = Task {
+                    // Intentional bounded progressive-disclosure delay past
+                    // the lifecycle's 4s backoff ceiling; cancellation is
+                    // wired to leaving the stalled state and to disappear.
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    stallRevealed = true
+                }
+            } else {
+                stallRevealTask?.cancel()
+                stallRevealTask = nil
+                stallRevealed = false
+            }
         }
         .onChange(of: qualityRaw) { _, _ in
             store?.setQuality(maximumLongSidePixels: quality.maximumLongSidePixels)
@@ -101,7 +135,8 @@ struct SimulatorStreamV2Pane: View {
                 detail: L10n.string(
                     "mobile.simulatorStream.waitingDetail",
                     defaultValue: "The first frame will appear when the Mac is ready."),
-                symbol: "iphone"
+                symbol: "iphone",
+                refresh: .afterStall
             )
             .accessibilityIdentifier("SimulatorStreamV2Placeholder")
         case .reconnecting:
@@ -111,19 +146,108 @@ struct SimulatorStreamV2Pane: View {
                 detail: L10n.string(
                     "mobile.simulatorStream.stalledDetail",
                     defaultValue: "The video feed stalled. Restoring the stream."),
-                symbol: "arrow.triangle.2.circlepath"
+                symbol: "arrow.triangle.2.circlepath",
+                refresh: .afterStall
             )
             .accessibilityIdentifier("SimulatorStreamV2ReconnectingOverlay")
         case .unavailable(let detail):
+            // Refresh reattaches the stream, which cannot help while the Mac
+            // has simulator panes disabled, so that one state stays inert.
             statusOverlay(
                 title: L10n.string(
                     "mobile.simulatorStream.unavailable", defaultValue: "Simulator Unavailable"),
                 detail: Self.unavailableDetailText(detail),
-                symbol: "iphone.slash"
+                symbol: "iphone.slash",
+                refresh: detail == "simulator_disabled" ? .hidden : .immediate
             )
             .accessibilityIdentifier("SimulatorStreamV2UnavailableOverlay")
         case .streaming, .stopped:
             EmptyView()
+        }
+    }
+
+    /// Mirrors the Mac pane's Reconnect states: a crash-fused worker, a
+    /// failed session, or a vanished device never self-heals, so the frozen
+    /// frame needs a host-side recover, not another lane retry.
+    private func hostNeedsRecovery(_ status: SimStreamHostStatus?) -> Bool {
+        status == .workerCrashed || status == .failed || status == .deviceUnavailable
+    }
+
+    /// Whether the viewer is waiting on frames with no terminal verdict:
+    /// the states whose overlays earn the delayed refresh escape hatch.
+    private var isStalled: Bool {
+        guard let store, !hostNeedsRecovery(store.hostStatus) else { return false }
+        switch store.phase {
+        case .idle, .connecting, .reconnecting:
+            return true
+        case .streaming, .unavailable, .stopped:
+            return false
+        }
+    }
+
+    /// One shared refresh path for every entrypoint (menu item, overlay
+    /// buttons, recovery overlay): the exact equivalent of the Mac pane's
+    /// Reconnect button. Always asks the Mac to recover the session
+    /// (`mobile.simulator.recover` runs the same `recover()` that button
+    /// does), then rebuilds the local viewer through the store's single
+    /// reattach flow. Unconditional on purpose: the phone cannot always see
+    /// which Mac-side state wedged the pane (renderer stopped, stale
+    /// worker), and refresh is an explicit user action, so a brief restart
+    /// of a healthy stream is acceptable. Single-flight: extra taps while a
+    /// refresh is in flight are dropped, so recover RPCs never overlap.
+    private func refreshStream() {
+        guard let store, refreshTask == nil else { return }
+        refreshTask = Task {
+            if supportsRecover {
+                _ = await recover()
+            }
+            store.refresh()
+            refreshTask = nil
+        }
+    }
+
+    /// The Mac's simulator worker crashed and fused (or failed): the frame
+    /// on screen is frozen and no lane retry can revive it. Mirror the Mac
+    /// pane's Reconnect affordance so the fix is one tap away on the phone.
+    private var recoveryOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.72)
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 36))
+                Text(
+                    L10n.string(
+                        "mobile.simulatorStream.needsRecovery",
+                        defaultValue: "Simulator Needs Recovery")
+                )
+                .font(.headline)
+                Text(
+                    L10n.string(
+                        "mobile.simulatorStream.needsRecoveryDetail",
+                        defaultValue:
+                            "The Simulator session on the Mac stopped and is showing its last frame.")
+                )
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                if supportsRecover {
+                    Button {
+                        refreshStream()
+                    } label: {
+                        Text(
+                            L10n.string(
+                                "mobile.simulatorStream.recover", defaultValue: "Recover")
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                    .accessibilityIdentifier("SimulatorStreamV2RecoverButton")
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(28)
         }
     }
 
@@ -151,18 +275,58 @@ struct SimulatorStreamV2Pane: View {
         }
     }
 
-    private func statusOverlay(title: String, detail: String, symbol: String) -> some View {
+    /// How a status overlay offers the manual refresh escape hatch.
+    private enum OverlayRefresh {
+        /// No refresh affordance (refreshing cannot change the state).
+        case hidden
+        /// Refresh is available right away (terminal states).
+        case immediate
+        /// Refresh appears only once the wait has clearly stalled (the
+        /// pane-level `stallRevealed` timer), so the routine sub-second
+        /// connect never flashes a button.
+        case afterStall
+    }
+
+    private func statusOverlay(
+        title: String, detail: String, symbol: String, refresh: OverlayRefresh
+    ) -> some View {
         ZStack {
             Color.black.opacity(0.72)
             VStack(spacing: 12) {
                 Image(systemName: symbol).font(.system(size: 36))
                 Text(title).font(.headline)
                 Text(detail).font(.subheadline).multilineTextAlignment(.center)
+                switch refresh {
+                case .hidden:
+                    EmptyView()
+                case .immediate:
+                    overlayRefreshButton
+                case .afterStall:
+                    if stallRevealed {
+                        overlayRefreshButton
+                    }
+                }
             }
             .foregroundStyle(.white)
             .padding(28)
         }
-        .allowsHitTesting(false)
+        // A dead stream has nothing useful under the overlay, so swallowing
+        // touches costs nothing and keeps the refresh button tappable.
+        .allowsHitTesting(refresh != .hidden)
+    }
+
+    private var overlayRefreshButton: some View {
+        Button {
+            refreshStream()
+        } label: {
+            Text(L10n.string("mobile.simulatorStream.refresh", defaultValue: "Refresh"))
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
+        }
+        .buttonStyle(.bordered)
+        .tint(.white)
+        .accessibilityIdentifier("SimulatorStreamV2RefreshButton")
     }
 
     private var bottomBar: some View {
@@ -214,6 +378,19 @@ struct SimulatorStreamV2Pane: View {
                 menuButton(
                     .siri, systemImage: "waveform",
                     label: L10n.string("mobile.simulatorStream.siri", defaultValue: "Siri"))
+                // Manual escape hatch in every state, including a frozen
+                // frame the phase machine still believes is streaming.
+                Button {
+                    refreshStream()
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.simulatorStream.refreshSimulator",
+                            defaultValue: "Refresh Simulator"),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .accessibilityIdentifier("SimulatorStreamV2RefreshMenuItem")
                 qualityMenu
                 if supportsDeviceSwitching, !devices.isEmpty {
                     deviceMenu

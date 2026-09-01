@@ -113,7 +113,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
-        return GhosttySurfaceHostView(surfaceView: view)
+        // The composition root's tracker spans host lifetimes, so a host built
+        // for a reattached surface recovers keyboard transitions it missed.
+        // Previews and isolated harnesses have no injected tracker; a
+        // coordinator-owned instance still records for this mount's lifetime.
+        return GhosttySurfaceHostView(
+            surfaceView: view,
+            keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
+                ?? context.coordinator.fallbackKeyboardFrameTracker,
+            keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled
+        )
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
@@ -141,6 +150,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
         )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        // Alternate-screen apps own the whole grid, so the keyboard
+        // blank-space absorption (top-pin while content is short) is
+        // disabled for them; reading the store property here keeps the flag
+        // live across mode flips.
+        surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
@@ -239,6 +253,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var outputStartViewportTimeouts = 0
         var outputStartMinimumViewportReportID: UInt64?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
+        /// The replay state machine's negotiation generation each in-flight
+        /// viewport report was recorded under (keyed by report ID). Passed
+        /// back with the report's acknowledgement so an answer from a
+        /// previous mount can never settle the current negotiation. Consumed
+        /// on reply; cleared when the report scheduler is rebuilt.
+        var viewportReportGenerationsByReportID: [UInt64: UInt64] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
         var artifactCountTask: Task<Void, Never>?
@@ -266,6 +286,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let outputConsumerRecoveryClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        /// Shared by the legacy and verified apply paths: an alternating
+        /// config-theme producer mismatches on both, and the storm is per
+        /// consumer, not per path.
+        private var configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
@@ -281,6 +305,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
         private var composerMountGeneration = 0
+        /// Keyboard frame record for mounts with no injected app-level tracker
+        /// (previews, isolated harnesses). Lazy so production mounts, which
+        /// receive the composition root's tracker, never build one.
+        lazy var fallbackKeyboardFrameTracker = MobileKeyboardFrameTracker()
 
         init(
             workspaceID: String,
@@ -350,6 +378,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 outputConsumerRestartBlocked = false
                 outputConsumerRestartAttempts = 0
                 outputConsumerRecoveryAlertPending = false
+                // A new consumer generation gets a fresh mismatch budget;
+                // automatic stream restarts keep the shared one so a single
+                // storm stays bounded across restarts.
+                configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
@@ -390,6 +422,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    // The replay state machine compares incoming frame grids
+                    // against the capacity this phone last told the daemon,
+                    // so it can hold frames sized by stale daemon state (a
+                    // reconnect replay captured before this report landed).
+                    self.viewportReportGenerationsByReportID[report.id] =
+                        self.verifiedReplayState.updateExpectedViewportDimensions(
+                            columns: report.columns,
+                            rows: report.rows,
+                            reportID: report.id
+                        )
                     if let preparation = self.preparedViewportReportsByReportID.removeValue(
                         forKey: report.id
                     ) {
@@ -417,11 +459,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         return
                     }
                     surfaceView.markViewportReportConfirmed(reportID: report.id)
+                    // Consume the generation entry for EVERY reply: a
+                    // confirmation without render metadata would otherwise
+                    // strand its entry until remount.
+                    let generation = self.viewportReportGenerationsByReportID
+                        .removeValue(forKey: report.id) ?? 0
                     if let renderEpoch = effectiveGrid.renderEpoch,
                        let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
                         self.verifiedReplayState.acknowledgeViewport(
                             renderEpoch: renderEpoch,
-                            renderRevisionFloor: renderRevisionFloor
+                            renderRevisionFloor: renderRevisionFloor,
+                            reportID: report.id,
+                            negotiationGeneration: generation,
+                            reportedColumns: report.columns,
+                            reportedRows: report.rows,
+                            grantedColumns: effectiveGrid.columns,
+                            grantedRows: effectiveGrid.rows
                         )
                     }
                     if case .remoteGrid = self.activeViewportPolicy {
@@ -584,8 +637,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case nil:
                         break
                     }
-                    if let chunkConfigTheme = chunk.terminalConfigTheme,
-                       chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                    if self.shouldResetForConfigThemeMismatch(chunk, store: store) {
                         store.terminalOutputDidReset(
                             surfaceID: surfaceID,
                             streamToken: chunk.streamToken
@@ -593,9 +645,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                        // Render-grid bytes paint absolute rows of the frame's
+                        // grid; the contract makes the surface refuse to paint
+                        // them onto a mismatched or freshly reflowed local grid
+                        // (the apply fails and the reset path replays).
+                        let renderGridContract = chunk.sourceRenderGridFrame.map {
+                            RenderGridApplyContract(
+                                columns: $0.columns,
+                                rows: $0.rows,
+                                isDelta: !$0.full
+                            )
+                        }
                         let applied = await surfaceView.processOutputAndWait(
                             chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
+                            terminalConfigTheme: chunk.terminalConfigTheme,
+                            renderGridContract: renderGridContract,
+                            pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                         )
                         guard applied else {
                             store.terminalOutputDidReset(
@@ -860,6 +925,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
+            viewportReportGenerationsByReportID.removeAll()
             outputTask?.cancel()
             outputTask = nil
             outputConsumerRecoveryAlert?.dismiss(animated: false)
@@ -945,14 +1011,38 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        /// Whether a theme-carrying chunk must be abandoned (reset plus
+        /// authoritative replay) because its config theme no longer matches
+        /// the store's newest for this surface. Bounded by
+        /// ``TerminalConfigThemeMismatchResetPolicy``: past the budget the
+        /// chunk applies with its own carried config theme, which
+        /// `processOutputAndWait(_:terminalConfigTheme:)` installs atomically
+        /// with the bytes, so an alternating theme pair cannot ping-pong
+        /// resets and replays forever.
+        private func shouldResetForConfigThemeMismatch(
+            _ chunk: MobileTerminalOutputChunk,
+            store: CMUXMobileShellStore
+        ) -> Bool {
+            guard let chunkConfigTheme = chunk.terminalConfigTheme else { return false }
+            let matchesStoreTheme = chunkConfigTheme == store.terminalConfigTheme(for: surfaceID)
+            let shouldReset = configThemeMismatchResetPolicy.shouldReset(
+                chunkMatchesStoreTheme: matchesStoreTheme
+            )
+            if !shouldReset, !matchesStoreTheme {
+                MobileDebugLog.anchormux(
+                    "terminal.output.theme_mismatch_apply surface=\(surfaceID)"
+                )
+            }
+            return shouldReset
+        }
+
         private func applyVerifiedRenderGrid(
             _ frame: MobileTerminalRenderGridFrame,
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async -> Bool {
-            if let chunkConfigTheme = chunk.terminalConfigTheme,
-               chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+            if shouldResetForConfigThemeMismatch(chunk, store: store) {
                 store.terminalOutputDidReset(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -973,7 +1063,30 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async -> Bool {
-            guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
+            let transaction: VerifiedTerminalReplayTransaction
+            switch verifiedReplayState.begin(frame: frame) {
+            case .apply(let began):
+                transaction = began
+            case .renegotiateViewportAndKeepFrozen:
+                // The frame is sized by stale daemon state (its grid does not
+                // match the capacity this phone last reported, and no report
+                // for its epoch has been acknowledged). Keep the last
+                // verified pixels on screen and re-send the capacity report;
+                // the acknowledged negotiation floors these stale captures
+                // and the replay barrier requests a fresh frame at the
+                // settled grid.
+                MobileDebugLog.anchormux(
+                    "verified_replay.hold_stale_grid surface=\(surfaceID) "
+                        + "grid=\(frame.columns)x\(frame.rows) epoch=\(frame.renderEpoch)"
+                )
+                surfaceView.reassertViewportCapacityReport()
+                _ = await surfaceView.freezeVerifiedReplayPresentation(
+                    transactionID: frame.renderRevision
+                )
+                guard !Task.isCancelled else { return false }
+                requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)
+                return false
+            case .keepFrozenAndRequestReplay:
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
                     transactionID: frame.renderRevision
                 )
@@ -1018,9 +1131,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
 
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                // Same grid contract as the legacy path: the verified resize
+                // above targets the frame's grid, and painting must fail
+                // (reset + replay) if the surface could not reach it or a
+                // delta rides a reflowed grid.
                 let applied = await surfaceView.processOutputAndWait(
                     chunk.data,
-                    terminalConfigTheme: chunk.terminalConfigTheme
+                    terminalConfigTheme: chunk.terminalConfigTheme,
+                    renderGridContract: RenderGridApplyContract(
+                        columns: frame.columns,
+                        rows: frame.rows,
+                        isDelta: !frame.full
+                    ),
+                    pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                 )
                 guard !Task.isCancelled else { return false }
                 guard applied else {

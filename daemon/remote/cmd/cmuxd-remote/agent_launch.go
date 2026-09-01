@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +19,12 @@ if (hadOriginalNodeOptions) {
 }
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
+try {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  fs.unlinkSync(__filename);
+  fs.rmdirSync(path.dirname(__filename));
+} catch {}
 `
 
 // runClaudeTeamsRelay implements `cmux claude-teams` on the remote side.
@@ -320,13 +327,15 @@ func writeShimIfChanged(path string, content string) error {
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
 	if _, err := tempFile.WriteString(content); err != nil {
-		tempFile.Close()
-		return err
+		return closeTempFileAfterError(tempFile, err)
+	}
+	// Set the final executable mode while the descriptor is still open. This
+	// prevents a close-to-chmod window in which another same-UID process could
+	// observe or replace the temporary file.
+	if err := tempFile.Chmod(0755); err != nil {
+		return closeTempFileAfterError(tempFile, err)
 	}
 	if err := tempFile.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempPath, 0755); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
@@ -335,14 +344,24 @@ func writeShimIfChanged(path string, content string) error {
 	return nil
 }
 
+func closeTempFileAfterError(file *os.File, primary error) error {
+	if closeErr := file.Close(); closeErr != nil {
+		return fmt.Errorf("%w (also failed to close temporary file: %v)", primary, closeErr)
+	}
+	return primary
+}
+
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// A predictable shared /tmp directory would let another same-UID process
+	// tamper with the module before Node loads it. Retain this randomized,
+	// private directory through the returned path for the launch lifetime.
+	dir, err := os.MkdirTemp(os.TempDir(), "cmux-claude-node-options-")
+	if err != nil {
 		return "", err
 	}
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
 	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
-		return "", err
+		return "", fmt.Errorf("create Node options restore module: %w", errors.Join(err, os.RemoveAll(dir)))
 	}
 	return restoreModulePath, nil
 }

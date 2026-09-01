@@ -117,6 +117,26 @@ jobs:
                       run_id: run.id,
                       per_page: 100,
                     });
+                    // A run can corrupt into queued limbo: no job ever starts
+                    // and GitHub rejects cancel, force-cancel, and rerun. Such
+                    // a run would block ordering for the full timeout, so skip
+                    // runs whose jobs never started after a generous pickup
+                    // window. Missing created_at parses to NaN and is treated
+                    // as fresh, never skipped.
+                    const anyJobStarted = jobs.data.jobs.some(
+                      (job) => job.status !== 'queued'
+                    );
+                    const createdAtMs = Date.parse(run.created_at ?? '');
+                    const stuckMinutes = Number.isFinite(createdAtMs)
+                      ? (Date.now() - createdAtMs) / 60_000
+                      : 0;
+                    if (!anyJobStarted && stuckMinutes >= 120) {
+                      core.warning(
+                        `ignoring defunct earlier TestFlight run ${run.id}: ` +
+                        `no job started after ${Math.round(stuckMinutes)} minutes`
+                      );
+                      continue;
+                    }
                     const uploadJob = jobs.data.jobs.find(
                       (job) => job.name === 'Upload to TestFlight'
                     );
@@ -645,6 +665,27 @@ jobs:
           path: ${{ runner.temp }}/cmux-ios-upload/cmux.xcarchive/dSYMs
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload dSYMs to Sentry
+        # Sentry symbolicates crashes server-side from its own dSYM store; the
+        # Symbols/ files inside the IPA only serve App Store Connect. Same gate
+        # as the artifact step above: once the IPA reached TestFlight, symbols
+        # must reach Sentry even if a later step fails, or every crash for this
+        # build shows raw addresses. No --include-sources: the archive builds
+        # on a fleet Mac, so its DWARF source paths do not exist on this
+        # runner.
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.assign_internal_group == '1' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmux-ios
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
+          "$SENTRY_CLI" debug-files upload "$RUNNER_TEMP/cmux-ios-upload/cmux.xcarchive/dSYMs"
 
       - name: Cleanup keychain
         if: always()

@@ -65,6 +65,9 @@ Design mode lets a user select page elements and copy their DOM, style, URL, and
 
 ```bash
 cmux browser <surface> cookies get|set|clear ...
+cmux browser <surface> cookies clear --url https://app.example.com/
+cmux browser <surface> cookies clear --domain app.example.com
+cmux browser <surface> cookies clear --all
 cmux browser <surface> storage local|session get|set|clear ...
 cmux browser <surface> tab list|new|switch|close ...
 cmux browser <surface> state save|load <path>
@@ -74,6 +77,11 @@ cmux browser <surface> highlight <selector>
 cmux browser <surface> screenshot
 cmux browser <surface> download wait --timeout-ms 10000
 ```
+
+`cookies clear` requires an explicit scope (`--url`, `--domain`, `--name`,
+`--path`, another cookie filter, or `--all`). URL scope follows cookie
+domain/path, secure, and expiration matching for the requested URL. JSON
+responses include the number of removed cookies as `cleared`.
 
 ## Agent reliability
 

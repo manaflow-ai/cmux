@@ -18,6 +18,9 @@ public struct MobileSimulatorStreamCapability: Sendable {
     /// `mobile.simulator.device.select`, so phones can switch which
     /// simulator a panel streams.
     public let devicesIdentifier: String
+    /// The host serves `mobile.simulator.recover`, so a phone can restart a
+    /// crash-fused simulator worker without touching the Mac.
+    public let recoverIdentifier: String
 
     public init(
         identifier: String = "simulator.stream.v1",
@@ -25,7 +28,8 @@ public struct MobileSimulatorStreamCapability: Sendable {
         ownershipIdentifier: String = "simulator.ownership.v1",
         keepaliveIdentifier: String = "simulator.keepalive.v1",
         streamV2Identifier: String = "simulator.stream.v2",
-        devicesIdentifier: String = "simulator.devices.v1"
+        devicesIdentifier: String = "simulator.devices.v1",
+        recoverIdentifier: String = "simulator.recover.v1"
     ) {
         self.identifier = identifier
         self.inputIdentifier = inputIdentifier
@@ -33,5 +37,6 @@ public struct MobileSimulatorStreamCapability: Sendable {
         self.keepaliveIdentifier = keepaliveIdentifier
         self.streamV2Identifier = streamV2Identifier
         self.devicesIdentifier = devicesIdentifier
+        self.recoverIdentifier = recoverIdentifier
     }
 }
