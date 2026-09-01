@@ -277,7 +277,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             self.editorSettings = editorSettings
         }
 
-        deinit {
+        isolated deinit {
             styler.cancel()
         }
 
