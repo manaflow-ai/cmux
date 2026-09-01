@@ -170,6 +170,26 @@ Rules of the runtime:
   (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
 - Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
   a handler.
+- For interpreted Swift sidebars, workspace creation uses the same control path
+  as `cmux workspace create` (and the legacy `cmux new-workspace` command).
+  Both the explicit form `cmux("workspace.create", ...)` and the qualified
+  shorthand `workspace.create(...)` are accepted. JavaScript sidebars use
+  `cmux("workspace.create", { ... })`; both forms lower to the same command.
+  Supported creation fields include `title` (with `name` as an alias),
+  `description`, `cwd` (or `working_directory`), `command`,
+  `initial_command`, `initial_env`, `workspace_env` (or `env`), `layout`,
+  `focus`, and workspace-group fields. `command` is sent to the new terminal
+  as shell input followed by Enter; if the surface is still cold it is queued
+  and delivered by the surface-ready lifecycle signal. Relative `cwd` values
+  (including `.`) are resolved against the selected workspace's current
+  directory, `~` is expanded, and the stored path is normalized. `command`
+  cannot be combined with `layout` or `initial_command`. Unknown or unsupported
+  fields fail with an `unsupported_param` response and a
+  `sidebar.action.failed` event instead of being ignored. There is not yet a
+  `close-on-exit` field; a command workspace remains available after its
+  process exits. A successful create includes `command_delivery.accepted`; a
+  rare terminal-delivery failure leaves the workspace intact and is recorded as
+  `workspace.command_delivery_failed` without exposing command text.
 - Containment: the context has no filesystem, network, or timers, and a
   runaway evaluation is terminated by a watchdog. Errors show in the sidebar
   with a line number.
@@ -384,6 +404,18 @@ Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`
 (`workspace_id` + `index`). Run `cmux docs api` to discover the full command
 surface.
+
+To create and immediately run a command in a new workspace:
+
+    Button("Run checks") {
+        workspace.create(name: "Checks", cwd: ".", command: "npm test")
+    }
+
+The equivalent explicit spelling is:
+
+    Button("Run checks") {
+        cmux("workspace.create", title: "Checks", cwd: ".", command: "npm test")
+    }
 
 ## Drag-and-drop reordering (persisted)
 

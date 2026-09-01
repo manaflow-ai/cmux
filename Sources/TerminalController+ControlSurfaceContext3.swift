@@ -260,9 +260,10 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        text: String
+        text: String,
+        resolvedTabManager: TabManager? = nil
     ) -> ControlSurfaceSendResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
+        guard let tabManager = resolvedTabManager ?? resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {

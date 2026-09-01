@@ -2530,6 +2530,7 @@
 		D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */; };
 		9065A0010000000000000001 /* TerminalController+WindowScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0010000000000000002 /* TerminalController+WindowScreenshotCapture.swift */; };
 		C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */; };
+		C0DE11209000000000000003 /* TerminalController+WorkspaceCreateCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE11209000000000000004 /* TerminalController+WorkspaceCreateCommand.swift */; };
 		D1A70000000000000000000C /* TerminalController+WorkspaceCreateExecutionPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A70000000000000000000B /* TerminalController+WorkspaceCreateExecutionPreparation.swift */; };
 		C0DE00000000000000000E91 /* TerminalController+WorkspaceCreateIdempotencyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000E90 /* TerminalController+WorkspaceCreateIdempotencyCache.swift */; };
 		C0DE00000000000000000EA5 /* TerminalController+WorkspaceCreateIdempotencyDefaultsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000EA4 /* TerminalController+WorkspaceCreateIdempotencyDefaultsStore.swift */; };
@@ -5492,6 +5493,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowDockBrowserRouting.swift"; sourceTree = "<group>"; };
 		9065A0010000000000000002 /* TerminalController+WindowScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowScreenshotCapture.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreate.swift"; sourceTree = "<group>"; };
+		C0DE11209000000000000004 /* TerminalController+WorkspaceCreateCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreateCommand.swift"; sourceTree = "<group>"; };
 		D1A70000000000000000000B /* TerminalController+WorkspaceCreateExecutionPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreateExecutionPreparation.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000E90 /* TerminalController+WorkspaceCreateIdempotencyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreateIdempotencyCache.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000EA4 /* TerminalController+WorkspaceCreateIdempotencyDefaultsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreateIdempotencyDefaultsStore.swift"; sourceTree = "<group>"; };
@@ -7285,6 +7287,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				466DEB47603469A59697D418 /* TerminalController+ControlWorkspaceTodoContext.swift */,
 				C0DE00000000000000000D83 /* TerminalController+ControlPaneDock.swift */,
 				C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */,
+				C0DE11209000000000000004 /* TerminalController+WorkspaceCreateCommand.swift */,
 				D1A70000000000000000000B /* TerminalController+WorkspaceCreateExecutionPreparation.swift */,
 				C0DE00000000000000000E90 /* TerminalController+WorkspaceCreateIdempotencyCache.swift */,
 				C0DE00000000000000000EA4 /* TerminalController+WorkspaceCreateIdempotencyDefaultsStore.swift */,
@@ -11166,6 +11169,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */,
 				9065A0010000000000000001 /* TerminalController+WindowScreenshotCapture.swift in Sources */,
 				C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */,
+				C0DE11209000000000000003 /* TerminalController+WorkspaceCreateCommand.swift in Sources */,
 				D1A70000000000000000000C /* TerminalController+WorkspaceCreateExecutionPreparation.swift in Sources */,
 				C0DE00000000000000000E91 /* TerminalController+WorkspaceCreateIdempotencyCache.swift in Sources */,
 				C0DE00000000000000000EA5 /* TerminalController+WorkspaceCreateIdempotencyDefaultsStore.swift in Sources */,
