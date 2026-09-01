@@ -12,6 +12,12 @@ export interface ChangelogVersion {
 
 export const changelogPath = "/docs/changelog";
 
+// Keep the newest releases ready at deploy time. Older releases use the
+// Cache Components fallback and are rendered and cached on their first visit.
+// This keeps historical URLs available without making every locale/version
+// combination part of every deployment.
+export const changelogStaticVersionCount = 12;
+
 export interface ChangelogVersionEntry {
   release: ChangelogVersion;
   index: number;
@@ -24,6 +30,13 @@ export interface ChangelogVersionContext extends ChangelogVersionEntry {
 export interface ChangelogSource {
   fingerprint(): string;
   read(): string;
+}
+
+/** Returns the releases that should be prerendered during a deployment. */
+export function changelogVersionsForPrerender(
+  versions: readonly ChangelogVersion[],
+): readonly ChangelogVersion[] {
+  return versions.slice(0, changelogStaticVersionCount);
 }
 
 interface ChangelogSnapshot {
