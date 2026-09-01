@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ubuntu-24.04
+    # This docs-only contract intentionally stays on GitHub-hosted infrastructure;
+    # the runner guard recognizes the explicit exemption marker.
+    runs-on: ubuntu-24.04 # github-hosted-required
     timeout-minutes: 5
     steps:
       - name: Checkout
