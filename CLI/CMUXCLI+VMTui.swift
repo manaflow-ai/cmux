@@ -796,6 +796,16 @@ extension CMUXCLI {
         A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
         """
 
+    /// `--timeout` for `vm terminal wait`, in seconds: finite, at least one millisecond,
+    /// at most an hour (the daemon/link cap). nil is the 30 s default.
+    static func vmTerminalWaitSeconds(_ raw: String?) throws -> Double {
+        guard let raw else { return 30 }
+        guard let seconds = Double(raw), seconds.isFinite, seconds >= 0.001 else {
+            throw CLIError(message: "vm terminal wait: --timeout must be a number of seconds between 0.001 and 3600 (got '\(raw)')")
+        }
+        return min(seconds, 3600)
+    }
+
     /// `cmux vm workspace new|open|rename|close|rm`: the sidebar's workspace verbs over the
     /// same socket methods (`vm.workspace_new|open|rename|close|delete`), so a row and an
     /// agent cannot disagree.
@@ -884,20 +894,23 @@ extension CMUXCLI {
         let (keysOpt, r1) = parseOption(Array(rest.dropFirst()), name: "--keys")
         let (patternOpt, r2) = parseOption(r1, name: "--pattern")
         let (timeoutOpt, r3) = parseOption(r2, name: "--timeout")
-        if let unknown = r3.first(where: { $0.hasPrefix("-") && $0 != "--json" }) {
+        let args = r3.filter { $0 != "--json" }
+        // `send` types whatever follows the two ids verbatim (`ls -la`, `git log --oneline`),
+        // so only the other verbs reject unknown dash tokens.
+        let isSend = verb == "send" || verb == "write"
+        if !isSend, let unknown = args.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(message: "vm terminal: unknown flag '\(unknown)'\n\n\(Self.vmTerminalUsage)")
         }
-        let positional = r3.filter { $0 != "--json" }
-        guard positional.count >= 2 else { throw CLIError(message: Self.vmTerminalUsage) }
-        let machine = positional[0]
-        let terminalID = positional[1]
+        guard args.count >= 2 else { throw CLIError(message: Self.vmTerminalUsage) }
+        let machine = args[0]
+        let terminalID = args[1]
         switch verb {
         case "close":
             let response = try client.sendV2(method: "vm.terminal_close", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
             print("OK closed terminal \(terminalID) on \(machine)")
         case "send", "write":
-            let text = positional.dropFirst(2).joined(separator: " ")
+            let text = args.dropFirst(2).joined(separator: " ")
             let keys = (keysOpt ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             guard !text.isEmpty || !keys.isEmpty else {
                 throw CLIError(message: "vm terminal send: give text and/or --keys (e.g. --keys enter)\n\n\(Self.vmTerminalUsage)")
@@ -917,20 +930,23 @@ extension CMUXCLI {
             guard let pattern = patternOpt, !pattern.isEmpty else {
                 throw CLIError(message: "vm terminal wait: --pattern <regex> is required\n\n\(Self.vmTerminalUsage)")
             }
-            let seconds = timeoutOpt.flatMap { Double($0) } ?? 30
-            guard seconds > 0 else { throw CLIError(message: "vm terminal wait: --timeout must be a positive number of seconds") }
-            let timeoutMs = Int(seconds * 1000)
+            let seconds = try Self.vmTerminalWaitSeconds(timeoutOpt)
+            let timeoutMs = max(1, Int((seconds * 1000).rounded()))
             let response = try client.sendV2(
                 method: "vm.terminal_wait",
                 params: ["id": machine, "terminal_id": terminalID, "pattern": pattern, "timeout_ms": timeoutMs],
                 responseTimeout: TimeInterval(seconds + 20)
             )
-            if jsonOutput { print(jsonString(response)); return }
             let matched = (response["matched"] as? Bool) ?? false
-            if matched {
+            if jsonOutput {
+                print(jsonString(response))
+            } else if matched {
                 print("OK matched /\(pattern)/ on \(terminalID)")
-            } else {
-                throw CLIError(message: "timed out after \(Int(seconds))s waiting for /\(pattern)/ on \(terminalID) (screen: \(((response["text"] as? String) ?? "").suffix(200)))")
+            }
+            // A timeout is a failure in every output mode: the JSON still prints, and the
+            // exit code says the pattern never appeared.
+            if !matched {
+                throw CLIError(message: "timed out after \(seconds)s waiting for /\(pattern)/ on \(terminalID) (screen: \(((response["text"] as? String) ?? "").suffix(200)))")
             }
         default:
             throw CLIError(message: "vm terminal: unknown verb '\(verb)'\n\n\(Self.vmTerminalUsage)")
