@@ -83,6 +83,12 @@ struct VaultResumeLaunchPlannerTests {
                 sandboxMode: " read-only "
             ) == ["-s", "read-only"]
         )
+        #expect(
+            planner.codexApprovalSandboxArgumentTokens(
+                approvalPolicy: "on-failure",
+                sandboxMode: nil
+            ) == []
+        )
     }
 
     @Test(arguments: ["pi", "omp", "campfire", "antigravity", "grok", "kimi"])
@@ -200,12 +206,63 @@ struct VaultResumeLaunchPlannerTests {
         #expect(plan.legacyFallbackReason == .unavailableStructuredArguments)
     }
 
+    @Test("Unknown and unterminated placeholders use compatibility")
+    func invalidTemplatePlaceholdersUseCompatibility() throws {
+        for template in [
+            "path-agent --session {{unknown}}",
+            "path-agent --session {{sessionId",
+        ] {
+            let registration = VaultResumeLaunchRequest.Registration(
+                id: "path-agent",
+                defaultExecutable: "path-agent",
+                resumeCommand: template,
+                workingDirectoryPolicy: .preserve,
+                sessionDirectory: nil,
+                registeredResumeKind: nil
+            )
+            let plan = try #require(planner.plan(for: VaultResumeLaunchRequest(
+                kind: "path-agent",
+                sessionID: "path-session",
+                workingDirectory: nil,
+                profile: .registered(registration),
+                legacyCommand: "path-agent --session path-session"
+            )))
+
+            #expect(plan.strategy == .legacyCommand)
+            #expect(plan.legacyFallbackReason == .unavailableStructuredArguments)
+        }
+    }
+
     @Test("Single-quoted template backslashes remain literal")
     func singleQuotedBackslashIsPreserved() throws {
         let registration = VaultResumeLaunchRequest.Registration(
             id: "path-agent",
             defaultExecutable: "path-agent",
             resumeCommand: "{{executable}} --path 'a\\b' --session {{sessionId}}",
+            workingDirectoryPolicy: .preserve,
+            sessionDirectory: nil,
+            registeredResumeKind: nil
+        )
+        let plan = try #require(planner.plan(for: VaultResumeLaunchRequest(
+            kind: "path-agent",
+            sessionID: "path-session",
+            workingDirectory: nil,
+            profile: .registered(registration),
+            legacyCommand: nil
+        )))
+
+        #expect(
+            plan.structuredSnapshot?.preparedResumeArguments
+                == ["path-agent", "--path", "a\\b", "--session", "path-session"]
+        )
+    }
+
+    @Test("Double-quoted non-escapable backslashes remain literal")
+    func doubleQuotedBackslashIsPreserved() throws {
+        let registration = VaultResumeLaunchRequest.Registration(
+            id: "path-agent",
+            defaultExecutable: "path-agent",
+            resumeCommand: "{{executable}} --path \"a\\b\" --session {{sessionId}}",
             workingDirectoryPolicy: .preserve,
             sessionDirectory: nil,
             registeredResumeKind: nil

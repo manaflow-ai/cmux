@@ -2,6 +2,11 @@ import Foundation
 
 /// Plans a Vault entry into one canonical restore-verb launch or a bounded fallback.
 public struct VaultResumeLaunchPlanner: Sendable {
+    private let acceptedCodexApprovalPolicies: Set<String> = [
+        "untrusted",
+        "on-request",
+        "never",
+    ]
     private let registrationParser: VaultResumeRegistrationParser
     private let registrationTemplate: VaultResumeRegistrationTemplate
     private let resumeArgv: AgentResumeArgv
@@ -50,12 +55,13 @@ public struct VaultResumeLaunchPlanner: Sendable {
                     : .missingStructuredSnapshot
             )
         }
-        guard let preparedArguments = preparedArguments(
+        let preparedArguments = preparedArguments(
             for: components,
             kind: kind,
             sessionID: sessionID,
             workingDirectory: workingDirectory
-        ), !preparedArguments.isEmpty else {
+        )
+        guard !preparedArguments.isEmpty else {
             return compatibilityPlan(request: request, reason: .unavailableStructuredArguments)
         }
 
@@ -71,7 +77,7 @@ public struct VaultResumeLaunchPlanner: Sendable {
         )
         return VaultResumeLaunchPlan(
             strategy: .restoreVerb,
-            posixCommand: " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(selectorKind.rawValue) \(sessionID)",
+            posixCommand: " \(restoreCommand(kind: selectorKind.rawValue, sessionID: sessionID))",
             workingDirectory: workingDirectory,
             structuredSnapshot: snapshot,
             legacyFallbackReason: nil
@@ -207,7 +213,7 @@ public struct VaultResumeLaunchPlanner: Sendable {
         kind: String,
         sessionID: String,
         workingDirectory: String?
-    ) -> [String]? {
+    ) -> [String] {
         let launchCommand = AgentLaunchCommand(
             arguments: components.launchArguments,
             workingDirectory: workingDirectory,
@@ -216,14 +222,16 @@ public struct VaultResumeLaunchPlanner: Sendable {
         )
         if let registration = components.registration {
             if let registeredKind = registration.registeredResumeKind
-                .flatMap(RegisteredAgentResumeKind.init(rawValue:)),
-               let arguments = resumeArgv.registeredBuiltInKind(
-                   kind: registeredKind,
-                   sessionId: sessionID,
-                   executablePath: nil,
-                   arguments: launchCommand.arguments
-               ) {
-                return arguments
+                .flatMap({ RegisteredAgentResumeKind(rawValue: $0) }) {
+                let arguments = resumeArgv.registeredBuiltInKind(
+                    kind: registeredKind,
+                    sessionId: sessionID,
+                    executablePath: nil,
+                    arguments: launchCommand.arguments
+                ) ?? []
+                if !arguments.isEmpty {
+                    return arguments
+                }
             }
             let arguments = registrationTemplate.resumeArguments(
                 registration: registration,
@@ -231,7 +239,7 @@ public struct VaultResumeLaunchPlanner: Sendable {
                 launchArguments: launchCommand.arguments,
                 workingDirectory: workingDirectory
             )
-            return arguments.isEmpty ? nil : arguments
+            return arguments
         }
         return resumeArgv.builtInKind(
             kind: kind,
@@ -239,7 +247,13 @@ public struct VaultResumeLaunchPlanner: Sendable {
             executablePath: nil,
             arguments: launchCommand.arguments,
             observedPermissionMode: components.permissionMode
-        )
+        ) ?? []
+    }
+
+    /// Builds the validated, shell-readable restore selector.
+    private func restoreCommand(kind: String, sessionID: String) -> String {
+        [AgentRestoreLaunch.cliStartupExecutableToken, "restore", kind, sessionID]
+            .joined(separator: " ")
     }
 
     /// Creates and validates the explicitly bounded rendered-command result.
@@ -294,7 +308,8 @@ public struct VaultResumeLaunchPlanner: Sendable {
             return ["--dangerously-bypass-approvals-and-sandbox"]
         }
         var arguments: [String] = []
-        if let approvalPolicy {
+        if let approvalPolicy,
+           acceptedCodexApprovalPolicies.contains(approvalPolicy) {
             arguments.append(contentsOf: ["-a", approvalPolicy])
         }
         let allowedModes: Set<String> = ["read-only", "workspace-write", "danger-full-access"]

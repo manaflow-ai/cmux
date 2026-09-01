@@ -311,6 +311,48 @@ struct VaultRestorePathGuaranteeTests {
     }
 
     @Test
+    func remoteVaultDirectoryUpdateBypassesLiveReportTrustGate() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/vault-remote-directory")
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.trackRemoteTerminalSurface(panelID)
+
+        #expect(!workspace.updatePanelDirectory(panelId: panelID, directory: "/remote/project"))
+        #expect(workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/remote/project"))
+        #expect(workspace.panelDirectories[panelID] == "/remote/project")
+    }
+
+    @Test
+    func remoteVaultDropRecordsTheEntryWorkingDirectory() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/vault-remote-drop")
+        defer { workspace.teardownAllPanels() }
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "vault-drop.example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_089,
+            relayID: "vault-remote-drop",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/vault-remote-drop.sock",
+            terminalStartupCommand: "ssh vault-drop.example.com"
+        )
+        let baselinePanelIDs = Set(workspace.panels.keys)
+        let entry = Self.entry(for: "codex", cwd: "/remote/project")
+
+        #expect(workspace.handleSessionDrop(
+            entry: entry,
+            destination: .insert(targetPane: paneID, targetIndex: nil)
+        ))
+        let createdPanelID = try #require(workspace.panels.keys.first {
+            !baselinePanelIDs.contains($0)
+        })
+        #expect(workspace.panelDirectories[createdPanelID] == "/remote/project")
+    }
+
+    @Test
     func localPaneDropSeedsTheSameRestoreRecordAsResume() throws {
         let workingDirectory = "/tmp/vault-drop-restore"
         let manager = TabManager(

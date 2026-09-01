@@ -53,18 +53,14 @@ struct VaultResumeRegistrationTemplate: Sendable {
         while let opening = part[searchStart...].range(of: "{{") {
             resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
             guard let closing = part[opening.upperBound...].range(of: "}}") else {
-                resolved.append(contentsOf: part[opening.lowerBound...])
-                return resolved
+                return nil
             }
             let key = String(part[opening.upperBound..<closing.lowerBound])
-            if let replacement = replacements[key] {
-                if replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return nil
-                }
-                resolved += replacement
-            } else {
-                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
+            guard let replacement = replacements[key],
+                  !replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
             }
+            resolved += replacement
             searchStart = closing.upperBound
         }
         resolved.append(contentsOf: part[searchStart...])
@@ -82,6 +78,7 @@ struct VaultResumeRegistrationTemplate: Sendable {
         var current = ""
         var quote: Quote?
         var escaping = false
+        let doubleQuoteEscapable: Set<Character> = ["$", "`", "\"", "\\", "\n"]
 
         func finishWord() {
             guard !current.isEmpty else { return }
@@ -91,6 +88,9 @@ struct VaultResumeRegistrationTemplate: Sendable {
 
         for character in command {
             if escaping {
+                if quote == .double, !doubleQuoteEscapable.contains(character) {
+                    current.append("\\")
+                }
                 current.append(character)
                 escaping = false
                 continue
