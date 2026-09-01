@@ -224,8 +224,17 @@ cmd_verify() { python3 "$HERE/appstore_shots_post.py" verify --work "$WORK"; }
 # `asc screenshots delete`) deliberately.
 cmd_upload() {
   need asc
-  local confirm=0
-  [ "${1:-}" = "--confirm" ] && confirm=1
+  local confirm=0 replace=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --confirm) confirm=1; shift ;;
+      # Replaces each remote set with the staged one. Without it, uploads
+      # APPEND, and ASC's 10-per-set cap will reject most of a refresh when a
+      # full set is already live (the dry run shows exactly what happens).
+      --replace) replace=(--replace); shift ;;
+      *) usage ;;
+    esac
+  done
   local loc_id
   loc_id="$(resolve_localization)"
   echo "target localization: $loc_id"
@@ -239,11 +248,12 @@ cmd_upload() {
     ls "$dir"
     if [ "$confirm" -eq 1 ]; then
       asc screenshots upload --version-localization "$loc_id" \
-        --device-type "$device_type" --path "$dir" --max-screenshots 10 --output json
+        --device-type "$device_type" --path "$dir" --max-screenshots 10 \
+        "${replace[@]}" --output json
     else
       asc screenshots upload --version-localization "$loc_id" \
         --device-type "$device_type" --path "$dir" --max-screenshots 10 \
-        --dry-run --output json
+        "${replace[@]}" --dry-run --output json
       echo "(dry run; pass --confirm to upload)"
     fi
   done
