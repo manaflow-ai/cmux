@@ -810,7 +810,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "CMUX_SSH_AUTH_ROOT_PID=\"$$\"; export CMUX_SSH_AUTH_ROOT_PID",
             "cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.${CMUX_SSH_AUTH_ROOT_PID}/done\"",
             "cmux_ssh_auth_term_event_ack_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.${CMUX_SSH_AUTH_ROOT_PID}/ack\"",
-            "cmux_ssh_auth_signal_completion() { if [ -p \"$cmux_ssh_auth_term_event_fifo\" ]; then printf '%s\\n' \"$$\" > \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null || true; if [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ]; then cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack < \"$cmux_ssh_auth_term_event_ack_fifo\" || true; fi; fi; }",
+            "cmux_ssh_auth_signal_completion() { if [ -p \"$cmux_ssh_auth_term_event_fifo\" ]; then if exec 8<> \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null; then printf '%s\\n' \"$$\" >&8 2>/dev/null || true; exec 8>&-; fi; if [ -p \"$cmux_ssh_auth_term_event_ack_fifo\" ] && exec 8<> \"$cmux_ssh_auth_term_event_ack_fifo\" 2>/dev/null; then cmux_ssh_auth_completion_ack=; IFS= read -r -t 2 cmux_ssh_auth_completion_ack <&8 || true; exec 8>&-; fi; fi; }",
             "cmux_ssh_auth_capture_cleanup() {",
             "  if [ -n \"${cmux_ssh_auth_classifier_guard_fd:-}\" ]; then",
             "    exec {cmux_ssh_auth_classifier_guard_fd}>&-",
