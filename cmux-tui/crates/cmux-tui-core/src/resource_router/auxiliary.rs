@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use base64::Engine;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::effects::{self, EffectPreparation, PreparedEffect};
 use super::{
-    ParsedResourceRequest, expected_revision, mutation_result, operation_name, required_string,
-    required_u64, resource_operation_error, validation_error,
+    expected_revision, mutation_result, operation_name, required_string, required_u64,
+    resource_operation_error, validation_error, ParsedResourceRequest,
 };
 use crate::resource::{
     FrontendProjectionPublicId, PairingRequestPublicId, ResourceError, ResourceOperation, Selector,
@@ -606,7 +606,7 @@ fn stored_intent_error(operation: &str, message: &str) -> ResourceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::{EnvelopeType, PROTOCOL, RequestEnvelope, RequestId};
+    use crate::resource::{EnvelopeType, RequestEnvelope, RequestId, PROTOCOL};
     use crate::{SidebarPluginOptions, SurfaceOptions};
     use std::time::{Duration, Instant};
 
