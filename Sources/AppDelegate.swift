@@ -15098,10 +15098,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Preserve browser hard refresh for an explicitly persisted legacy
-        // Rename Workspace binding without changing unrelated shortcut order.
+        // Apply the pair-specific hard-refresh priority (including an explicitly
+        // persisted legacy Rename Workspace binding) without changing unrelated
+        // application-shortcut order.
         let renameWorkspaceMatches = matchConfiguredShortcut(event: event, action: .renameWorkspace)
-        if handleLegacyRenameWorkspaceHardReloadShortcut(
+        if handleRenameWorkspaceHardReloadConflict(
             event,
             renameWorkspaceMatches: renameWorkspaceMatches
         ) {
