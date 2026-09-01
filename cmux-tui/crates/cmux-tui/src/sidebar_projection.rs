@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
-use crate::config::{SidebarResourceKind, SidebarViewScope, SidebarViewSpec};
+use crate::config::{
+    AgentRowFilter, AgentSortMode, SidebarResourceKind, SidebarViewScope, SidebarViewSpec,
+};
 use crate::session::{AgentInfo, TreeView};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -146,6 +148,9 @@ pub(crate) type SeenIdleSurfaces = HashSet<SurfaceId>;
 
 pub(crate) fn rows(
     spec: &SidebarViewSpec,
+    // The EFFECTIVE sort mode: the caller resolves the client-local runtime
+    // override over `spec.sort`. The filter always comes from the spec.
+    sort: AgentSortMode,
     tree: &TreeView,
     agents: &[AgentInfo],
     seen_idle: &SeenIdleSurfaces,
@@ -162,6 +167,8 @@ pub(crate) fn rows(
         &mut rows,
         &spec.levels,
         spec.scope,
+        sort,
+        &spec.filter,
         0,
         None,
         tree,
@@ -190,11 +197,78 @@ fn agent_priority(state: &str, seen: bool) -> u8 {
     }
 }
 
+/// Everything one agents row exposes to sorting; sorting and filtering
+/// derived from herdr (https://github.com/herdrdev/herdr), Apache-2.0,
+/// commit 7b675f42af35 (src/app/agent_view.rs `apply_agent_view` /
+/// `compare_entries`), modified by manaflow: herdr's per-view sort field
+/// lists are collapsed into the five named modes cmux exposes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentSortFields {
+    pub(crate) priority: u8,
+    pub(crate) updated_at_ms: u64,
+    /// Row name, lowercased for case-insensitive ordering.
+    pub(crate) name: String,
+    /// Adapter id ("claude", "codex", ...); empty sorts after named agents.
+    pub(crate) agent: String,
+    pub(crate) state: String,
+    /// Tree-order position, the final tie breaker in every mode.
+    pub(crate) index: usize,
+}
+
+pub(crate) fn compare_agent_rows(
+    mode: AgentSortMode,
+    a: &AgentSortFields,
+    b: &AgentSortFields,
+) -> std::cmp::Ordering {
+    let recency = |a: &AgentSortFields, b: &AgentSortFields| b.updated_at_ms.cmp(&a.updated_at_ms);
+    let ordering = match mode {
+        AgentSortMode::Priority => b.priority.cmp(&a.priority).then_with(|| recency(a, b)),
+        AgentSortMode::Recency => recency(a, b),
+        AgentSortMode::Name => a.name.cmp(&b.name).then_with(|| recency(a, b)),
+        // Empty adapter ids (a tab the roster knows only through a socket
+        // report) sort after named agents rather than before everything.
+        AgentSortMode::Agent => a
+            .agent
+            .is_empty()
+            .cmp(&b.agent.is_empty())
+            .then_with(|| a.agent.cmp(&b.agent))
+            .then_with(|| recency(a, b)),
+        AgentSortMode::State => a.state.cmp(&b.state).then_with(|| recency(a, b)),
+    };
+    ordering.then_with(|| a.index.cmp(&b.index))
+}
+
+/// Whether one agents row survives the view filter. Criteria combine with
+/// AND; an empty criterion keeps everything.
+pub(crate) fn agent_row_passes_filter(
+    filter: &AgentRowFilter,
+    agent_id: Option<&str>,
+    state: &str,
+    seen: bool,
+) -> bool {
+    if !filter.agents.is_empty()
+        && !agent_id.is_some_and(|id| filter.agents.iter().any(|wanted| wanted == id))
+    {
+        return false;
+    }
+    if !filter.states.is_empty() && !filter.states.iter().any(|wanted| wanted == state) {
+        return false;
+    }
+    if let Some(wanted) = filter.seen
+        && seen != wanted
+    {
+        return false;
+    }
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 fn append_level(
     output: &mut Vec<ProjectionRow>,
     levels: &[SidebarResourceKind],
     scope: SidebarViewScope,
+    sort: AgentSortMode,
+    filter: &AgentRowFilter,
     depth: usize,
     context: Option<ProjectionContext>,
     tree: &TreeView,
@@ -231,6 +305,8 @@ fn append_level(
                         output,
                         levels,
                         scope,
+                        sort,
+                        filter,
                         depth + 1,
                         Some(ProjectionContext {
                             workspace: workspace_index,
@@ -285,6 +361,8 @@ fn append_level(
                             output,
                             levels,
                             scope,
+                            sort,
+                            filter,
                             depth + 1,
                             Some(ProjectionContext {
                                 workspace: workspace_index,
@@ -318,12 +396,11 @@ fn append_level(
             // the measurement hook for this intentional tradeoff, without
             // claiming a local timing.
             //
-            // Agents views sort by herdr's priority order (blocked >
-            // idle-unseen > working > idle-seen > unknown), most recent
-            // state change first inside a bucket; the tree-order index
-            // breaks exact ties. `u8::MAX - ...` / `u64::MAX - ...` invert
-            // so one ascending sort produces descending buckets.
-            let mut entries: Vec<((u8, u64, usize), ProjectionRow)> = Vec::new();
+            // Agents views sort by the effective mode (priority is herdr's
+            // attention order; recency, name, agent, and state are the
+            // cycle alternatives); the tree-order index breaks exact ties
+            // in every mode.
+            let mut entries: Vec<(AgentSortFields, ProjectionRow)> = Vec::new();
             for workspace_index in workspace_indices {
                 let Some(workspace) = tree.workspaces.get(workspace_index) else { continue };
                 for (screen_index, screen) in workspace.screens.iter().enumerate() {
@@ -343,6 +420,17 @@ fn append_level(
                             if agent_only
                                 && (agent.is_none()
                                     || agent.is_some_and(|agent| agent.state == "unknown"))
+                            {
+                                continue;
+                            }
+                            if agent_only
+                                && let Some(agent) = agent
+                                && !agent_row_passes_filter(
+                                    filter,
+                                    agent.agent.as_deref(),
+                                    &agent.state,
+                                    seen_idle.contains(&agent.surface),
+                                )
                             {
                                 continue;
                             }
@@ -379,12 +467,17 @@ fn append_level(
                             } else {
                                 pane.short_id.clone()
                             };
-                            let sort_key = agent.filter(|_| agent_only).map(|agent| {
+                            let sort_fields = agent.filter(|_| agent_only).map(|agent| {
                                 let seen = seen_idle.contains(&agent.surface);
-                                (
-                                    u8::MAX - agent_priority(&agent.state, seen),
-                                    u64::MAX - agent.updated_at_ms,
-                                )
+                                AgentSortFields {
+                                    priority: agent_priority(&agent.state, seen),
+                                    updated_at_ms: agent.updated_at_ms,
+                                    name: name.to_lowercase(),
+                                    agent: agent.agent.clone().unwrap_or_default(),
+                                    state: agent.state.clone(),
+                                    // Tree-order tie breaker, assigned on push.
+                                    index: 0,
+                                }
                             });
                             let row = ProjectionRow {
                                 resource,
@@ -412,9 +505,10 @@ fn append_level(
                                     agent: agent_only,
                                 },
                             };
-                            match sort_key {
-                                Some((priority, recency)) => {
-                                    entries.push(((priority, recency, entries.len()), row));
+                            match sort_fields {
+                                Some(mut fields) => {
+                                    fields.index = entries.len();
+                                    entries.push((fields, row));
                                 }
                                 None => output.push(row),
                             }
@@ -422,7 +516,7 @@ fn append_level(
                     }
                 }
             }
-            entries.sort_by_key(|(key, _)| *key);
+            entries.sort_by(|(a, _), (b, _)| compare_agent_rows(sort, a, b));
             output.extend(entries.into_iter().map(|(_, row)| row));
         }
     }
@@ -500,7 +594,169 @@ mod tests {
             collapse_priority: 20,
             row_lines: 1,
             scope: SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }
+    }
+
+    fn sort_fields(
+        priority: u8,
+        updated_at_ms: u64,
+        name: &str,
+        agent: &str,
+        state: &str,
+        index: usize,
+    ) -> AgentSortFields {
+        AgentSortFields {
+            priority,
+            updated_at_ms,
+            name: name.into(),
+            agent: agent.into(),
+            state: state.into(),
+            index,
+        }
+    }
+
+    #[test]
+    fn sort_modes_order_rows_by_their_own_field_and_recency() {
+        use crate::config::AgentSortMode::*;
+        use std::cmp::Ordering;
+        let blocked_old = sort_fields(4, 10, "beta", "codex", "blocked", 0);
+        let working_new = sort_fields(2, 90, "alpha", "claude", "working", 1);
+
+        // Priority: the blocked agent outranks newer working output.
+        assert_eq!(compare_agent_rows(Priority, &blocked_old, &working_new), Ordering::Less);
+        // Recency: newest state change first.
+        assert_eq!(compare_agent_rows(Recency, &blocked_old, &working_new), Ordering::Greater);
+        // Name: case-insensitive ascending ("alpha" < "beta").
+        assert_eq!(compare_agent_rows(Name, &blocked_old, &working_new), Ordering::Greater);
+        // Agent: adapter id ascending ("claude" < "codex").
+        assert_eq!(compare_agent_rows(Agent, &blocked_old, &working_new), Ordering::Greater);
+        // State: state name ascending ("blocked" < "working").
+        assert_eq!(compare_agent_rows(State, &blocked_old, &working_new), Ordering::Less);
+
+        // An adapter-less row sorts after named agents in agent mode.
+        let unnamed = sort_fields(2, 99, "zeta", "", "working", 2);
+        assert_eq!(compare_agent_rows(Agent, &working_new, &unnamed), Ordering::Less);
+
+        // Identical fields fall back to tree order in every mode.
+        let twin_a = sort_fields(2, 50, "same", "claude", "working", 0);
+        let twin_b = sort_fields(2, 50, "same", "claude", "working", 1);
+        for mode in [Priority, Recency, Name, Agent, State] {
+            assert_eq!(compare_agent_rows(mode, &twin_a, &twin_b), Ordering::Less);
+        }
+    }
+
+    #[test]
+    fn sort_cycle_visits_every_mode_and_wraps() {
+        use crate::config::AgentSortMode::*;
+        let mut mode = Priority;
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            mode = mode.cycle_next();
+            seen.push(mode);
+        }
+        assert_eq!(seen, vec![Recency, Name, Agent, State, Priority]);
+    }
+
+    #[test]
+    fn agent_row_filter_ands_its_criteria() {
+        let filter = crate::config::AgentRowFilter {
+            agents: vec!["claude".into()],
+            states: vec!["blocked".into(), "working".into()],
+            seen: None,
+        };
+        assert!(agent_row_passes_filter(&filter, Some("claude"), "blocked", false));
+        // Wrong adapter fails even in a kept state.
+        assert!(!agent_row_passes_filter(&filter, Some("codex"), "blocked", false));
+        // Kept adapter in a filtered-out state fails.
+        assert!(!agent_row_passes_filter(&filter, Some("claude"), "idle", false));
+        // An adapter-less row cannot pass an agent criterion.
+        assert!(!agent_row_passes_filter(&filter, None, "blocked", false));
+
+        // The seen criterion is its own AND leg.
+        let unseen_only =
+            crate::config::AgentRowFilter { agents: Vec::new(), states: Vec::new(), seen: Some(false) };
+        assert!(agent_row_passes_filter(&unseen_only, Some("claude"), "idle", false));
+        assert!(!agent_row_passes_filter(&unseen_only, Some("claude"), "idle", true));
+
+        // An empty filter keeps everything and reads inactive.
+        let empty = crate::config::AgentRowFilter::default();
+        assert!(agent_row_passes_filter(&empty, None, "unknown", true));
+        assert!(!empty.is_active());
+    }
+
+    #[test]
+    fn view_filter_hides_rows_and_alternate_sorts_reorder_them() {
+        let tree = tree();
+        let agents = vec![
+            AgentInfo {
+                surface: 5,
+                state: "idle".into(),
+                source: "hook".into(),
+                session: None,
+                agent: Some("claude".into()),
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "detected".into(),
+                session: None,
+                agent: Some("codex".into()),
+                updated_at_ms: 50,
+            },
+        ];
+
+        // Priority: unseen idle (3) outranks working (2).
+        let mut agents_spec = spec(vec![SidebarResourceKind::Agents]);
+        let rows_priority = rows(
+            &agents_spec,
+            crate::config::AgentSortMode::Priority,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        // Recency reorders the same rows without touching the spec.
+        let rows_recency = rows(
+            &agents_spec,
+            crate::config::AgentSortMode::Recency,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        assert_eq!(rows_priority.len(), 2);
+        assert_eq!(rows_recency.len(), 2);
+        assert_eq!(rows_priority[0].agent_label.as_deref(), Some("claude"));
+        assert_eq!(rows_recency[0].agent_label.as_deref(), Some("claude"));
+        assert_eq!(
+            rows_priority[0].agent_state.as_deref(),
+            Some("idle"),
+            "priority ranks unseen idle first"
+        );
+
+        // A state filter hides the idle row entirely.
+        agents_spec.filter = crate::config::AgentRowFilter {
+            agents: Vec::new(),
+            states: vec!["blocked".into(), "working".into()],
+            seen: None,
+        };
+        let filtered = rows(
+            &agents_spec,
+            crate::config::AgentSortMode::Priority,
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].agent_label.as_deref(), Some("codex"));
+        assert!(agents_spec.filter.is_active());
     }
 
     #[test]
@@ -516,6 +772,7 @@ mod tests {
         }];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),
@@ -542,6 +799,7 @@ mod tests {
         collapsed.insert(ProjectionBranch::Workspace(1));
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &[],
             &HashSet::new(),
@@ -562,6 +820,7 @@ mod tests {
                 SidebarResourceKind::Panes,
                 SidebarResourceKind::Tabs,
             ]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &[],
             &HashSet::new(),
@@ -588,6 +847,7 @@ mod tests {
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
             &tree(),
             &[],
             &HashSet::new(),
@@ -609,6 +869,7 @@ mod tests {
         }];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
             &tree(),
             &agents,
             &HashSet::new(),
@@ -694,7 +955,7 @@ mod tests {
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         // The selected workspace must not scope the sweep.
-        let rows = rows(&all_spec, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
+        let rows = rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
 
         assert_eq!(rows.len(), 3, "agents from every workspace appear");
         let order: Vec<u64> = rows
@@ -745,6 +1006,7 @@ mod tests {
         ];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),
@@ -778,6 +1040,7 @@ mod tests {
         ];
         let rows = rows(
             &spec(vec![SidebarResourceKind::Agents]),
+            crate::config::AgentSortMode::Priority,
             &tree,
             &agents,
             &HashSet::new(),
@@ -825,7 +1088,7 @@ mod tests {
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         let seen: SeenIdleSurfaces = [22].into_iter().collect();
-        let rows = rows(&all_spec, &tree, &agents, &seen, 0, &HashSet::new());
+        let rows = rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
 
         let order: Vec<u64> = rows
             .iter()
@@ -838,7 +1101,7 @@ mod tests {
 
         // Marking the remaining idle agent seen drops it below working.
         let seen: SeenIdleSurfaces = [11, 22].into_iter().collect();
-        let reranked = super::rows(&all_spec, &tree, &agents, &seen, 0, &HashSet::new());
+        let reranked = super::rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
         let order: Vec<u64> = reranked
             .iter()
             .map(|row| match row.target {
@@ -880,7 +1143,7 @@ mod tests {
                 updated_at_ms: 900,
             },
         ];
-        let initial = rows(&all_spec, &tree, &initial_agents, &HashSet::new(), 0, &HashSet::new());
+        let initial = rows(&all_spec, all_spec.sort, &tree, &initial_agents, &HashSet::new(), 0, &HashSet::new());
         let selected_target = initial[1].target;
         let mut state = ProjectionRailState {
             selected: 1,
@@ -893,7 +1156,7 @@ mod tests {
             initial_agents[1].clone(),
         ];
         let reordered =
-            rows(&all_spec, &tree, &updated_agents, &HashSet::new(), 0, &HashSet::new());
+            rows(&all_spec, all_spec.sort, &tree, &updated_agents, &HashSet::new(), 0, &HashSet::new());
         assert_ne!(reordered[1].target, selected_target);
         state.reconcile_selection(&reordered);
         assert_eq!(state.selected_target, Some(selected_target));
@@ -935,7 +1198,7 @@ mod tests {
         all_spec.scope = SidebarViewScope::All;
 
         let started = Instant::now();
-        let projected = rows(&all_spec, &tree, &agents, &HashSet::new(), 0, &HashSet::new());
+        let projected = rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 0, &HashSet::new());
         eprintln!(
             "all-scope agent projection: {} rows in {:?}",
             projected.len(),

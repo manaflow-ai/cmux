@@ -152,6 +152,9 @@ struct ProjectionRowsCache {
     invalidation_revision: u64,
     selected_workspace: Option<usize>,
     focus: ProjectionFocusKey,
+    /// The effective sort the rows were built with; a runtime cycle must
+    /// miss this cache.
+    sort: crate::config::AgentSortMode,
     /// All surfaces that can contribute an agent row to this snapshot. This
     /// includes currently hidden/filtered rows so an agent state transition
     /// cannot leave an old empty snapshot cached.
@@ -7085,6 +7088,10 @@ pub struct App {
     /// never journaled or shared: two attached clients keep separate stamps
     /// and may rank the same idle agent differently, deliberately.
     agent_focus_stamps: HashMap<SurfaceId, u64>,
+    /// Client-local runtime sort override per agents view id (the `s`
+    /// cycle key). Presentation state like the seen stamps: never
+    /// persisted, never shared between attached clients.
+    agent_sort_overrides: HashMap<String, crate::config::AgentSortMode>,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
     /// a visible rail even when its snapshot is not retained. They are pruned
@@ -9627,6 +9634,7 @@ fn run_with_machine_updates_inner(
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
         agent_focus_stamps: HashMap::new(),
+        agent_sort_overrides: HashMap::new(),
         projection_agent_surfaces: HashSet::new(),
         projection_title_surfaces: HashSet::new(),
         projection_agent_surfaces_by_view: HashMap::new(),
@@ -10380,6 +10388,15 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
+    /// The sort mode an agents view renders with: the client-local runtime
+    /// override (the `s` cycle key) over the configured starting mode.
+    pub(crate) fn effective_agent_sort(
+        &self,
+        spec: &crate::config::SidebarViewSpec,
+    ) -> crate::config::AgentSortMode {
+        self.agent_sort_overrides.get(&spec.id).copied().unwrap_or(spec.sort)
+    }
+
     pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
             return Arc::<[ProjectionRow]>::from(Vec::new());
@@ -10396,8 +10413,10 @@ impl App {
         let pane_revision = self.tree.pane_revision;
         let invalidation_revision = self.projection_rows_revision;
         let focus = projection_focus_key(&self.tree);
+        let sort = self.effective_agent_sort(&spec);
         let cache_index = self.projection_rows_cache.iter().position(|cache| {
             cache.view_id == spec.id
+                && cache.sort == sort
                 && cache.workspace_revision == workspace_revision
                 && cache.pane_revision == pane_revision
                 && cache.invalidation_revision == invalidation_revision
@@ -10434,6 +10453,7 @@ impl App {
             let seen_idle = self.seen_idle_agent_surfaces(&agents);
             let rows = crate::sidebar_projection::rows(
                 &spec,
+                sort,
                 &self.tree,
                 &agents,
                 &seen_idle,
@@ -10452,6 +10472,7 @@ impl App {
                 invalidation_revision,
                 selected_workspace: selected_workspace_key,
                 focus,
+                sort,
                 agent_surfaces: agent_surfaces.clone(),
                 title_surfaces: title_surfaces.clone(),
                 rows: rows.clone(),
@@ -18722,6 +18743,21 @@ impl App {
             }
             state.follow_selection = true;
             return Ok(RenderAction::Draw);
+        }
+        // `s` cycles this agents view's sort mode for this client only.
+        // The override is presentation state; the config value is where the
+        // cycle starts. The header's right label follows.
+        if key.code == KeyCode::Char('s') && !key.modifiers.contains(KeyModifiers::ALT) {
+            let target = self.config.sidebar.views.get(view_index).and_then(|spec| {
+                spec.levels
+                    .contains(&crate::config::SidebarResourceKind::Agents)
+                    .then(|| (spec.id.clone(), self.effective_agent_sort(spec).cycle_next()))
+            });
+            if let Some((id, next)) = target {
+                self.agent_sort_overrides.insert(id, next);
+                self.invalidate_projection_rows_cache();
+                return Ok(RenderAction::Draw);
+            }
         }
         if matches!(key.code, KeyCode::Char(' '))
             && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
@@ -27348,6 +27384,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.profiles = vec![
             SidebarProfileSpec {
@@ -27411,6 +27449,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         };
         let agents_view = SidebarViewSpec {
             id: "shared-view".into(),
@@ -27422,6 +27462,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         };
         let tabs_profile = SidebarProfileSpec {
             id: "tabs".into(),
@@ -27620,6 +27662,8 @@ mod tests {
                 collapse_priority: 20,
                 row_lines: 1,
                 scope: SidebarViewScope::All,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
         ];
         config.sidebar.views_explicit = true;
@@ -43032,6 +43076,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43112,6 +43158,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43144,6 +43192,8 @@ mod tests {
                 collapse_priority: 30,
                 row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
             SidebarViewSpec {
                 id: "agents-second".into(),
@@ -43155,6 +43205,8 @@ mod tests {
                 collapse_priority: 30,
                 row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
         ];
         app.config.sidebar.views_explicit = true;
@@ -43232,6 +43284,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::All,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43265,6 +43319,8 @@ mod tests {
                 collapse_priority: 30,
                 row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
             SidebarViewSpec {
                 id: "tabs-second".into(),
@@ -43276,6 +43332,8 @@ mod tests {
                 collapse_priority: 30,
                 row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
         ];
         app.config.sidebar.views_explicit = true;
@@ -43331,6 +43389,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43361,6 +43421,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43401,6 +43463,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43438,6 +43502,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43464,6 +43530,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43505,6 +43573,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43571,6 +43641,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43609,6 +43681,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 2,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43658,6 +43732,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43811,6 +43887,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43912,6 +43990,8 @@ mod tests {
             collapse_priority: 30,
             row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.sync_layout((100, 12));
@@ -45820,6 +45900,7 @@ mod tests {
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
             agent_focus_stamps: HashMap::new(),
+            agent_sort_overrides: HashMap::new(),
             projection_agent_surfaces: HashSet::new(),
             projection_title_surfaces: HashSet::new(),
             projection_agent_surfaces_by_view: HashMap::new(),

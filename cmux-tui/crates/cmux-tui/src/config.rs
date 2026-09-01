@@ -565,6 +565,13 @@ struct RawSidebarView {
     /// Rows per agent entry: 2 (default for agents views) renders the state
     /// dot and title above a dim agent-type line; 1 is the compact mode.
     row_lines: Option<u8>,
+    /// Sort mode for agents views: `"priority"` (default), `"recency"`,
+    /// `"name"`, `"agent"`, or `"state"`. The runtime cycle key starts here.
+    sort: Option<String>,
+    /// Row filter for agents views: `{"agent": [ids], "state": [states],
+    /// "seen": bool}`. Criteria combine with AND; an active filter is
+    /// disclosed in the view header.
+    filter: Option<RawAgentRowFilter>,
     /// Turns this entry into a split group instead of a leaf view:
     /// `"vertical"` stacks `panes` top to bottom, `"horizontal"` places them
     /// side by side. Split groups nest.
@@ -573,6 +580,27 @@ struct RawSidebarView {
     panes: Option<Vec<RawSidebarView>>,
     /// Relative share of the parent split (default 1).
     weight: Option<u16>,
+}
+
+/// Raw agents-view filter. Grammar derived from herdr
+/// (https://github.com/herdrdev/herdr), Apache-2.0, commit 7b675f42af35
+/// (src/app/agent_view.rs `validate_agent_view`), modified by manaflow:
+/// herdr's nested all/any/not node tree is flattened to the three criteria
+/// cmux agents rows actually carry, combined with AND.
+#[derive(Debug, Deserialize)]
+struct RawAgentRowFilter {
+    /// Adapter ids to keep ("claude", "codex", ...).
+    agent: Option<Vec<String>>,
+    /// Lifecycle states to keep ("idle", "working", "blocked", "done",
+    /// "unknown").
+    state: Option<Vec<String>>,
+    /// Keep only idle agents the user has (true) or has not (false) looked
+    /// at. Seen is per-client presentation state.
+    seen: Option<bool>,
+    /// Unknown criteria warn and are ignored (the tolerate-and-warn policy):
+    /// a typo weakens one filter, never the view.
+    #[serde(flatten)]
+    unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// One pinned action: an action name, or an object that also renames its
@@ -1133,6 +1161,86 @@ pub struct SidebarViewSpec {
     /// Rows each agent entry occupies (herdr-style two-line rows by
     /// default; 1 is the compact mode). Non-agent rows are always one line.
     pub row_lines: u8,
+    /// Configured sort mode for agents rows. The runtime cycle key starts
+    /// from this value; the runtime choice itself is client-local
+    /// presentation state and is never written back.
+    pub sort: AgentSortMode,
+    /// Row filter for agents rows; inactive when empty. An active filter is
+    /// always disclosed in the view header.
+    pub filter: AgentRowFilter,
+}
+
+/// Sort modes for agents-view rows. `Priority` is herdr's attention order
+/// (blocked > unseen idle > working > seen idle), the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentSortMode {
+    #[default]
+    Priority,
+    /// Last state change, newest first.
+    Recency,
+    /// Row name, ascending, case-insensitive; recency breaks ties.
+    Name,
+    /// Adapter id ("claude", "codex", ...), ascending; recency breaks ties.
+    Agent,
+    /// Lifecycle state name, ascending; recency breaks ties.
+    State,
+}
+
+impl AgentSortMode {
+    /// The runtime cycle order. Wraps back to the first mode.
+    pub fn cycle_next(self) -> Self {
+        match self {
+            AgentSortMode::Priority => AgentSortMode::Recency,
+            AgentSortMode::Recency => AgentSortMode::Name,
+            AgentSortMode::Name => AgentSortMode::Agent,
+            AgentSortMode::Agent => AgentSortMode::State,
+            AgentSortMode::State => AgentSortMode::Priority,
+        }
+    }
+}
+
+fn parse_agent_sort_mode(value: &str) -> Result<AgentSortMode, String> {
+    match value {
+        "priority" => Ok(AgentSortMode::Priority),
+        "recency" => Ok(AgentSortMode::Recency),
+        "name" => Ok(AgentSortMode::Name),
+        "agent" => Ok(AgentSortMode::Agent),
+        "state" => Ok(AgentSortMode::State),
+        other => Err(format!(
+            "cmux-tui: unknown agents sort {other:?}; expected priority, recency, name, agent, or state"
+        )),
+    }
+}
+
+/// Resolved agents-row filter. Criteria combine with AND; empty lists and
+/// an absent `seen` are inactive. Semantics derived from herdr
+/// (https://github.com/herdrdev/herdr), Apache-2.0, commit 7b675f42af35
+/// (src/app/agent_view.rs), modified by manaflow: cmux keeps its real
+/// `done` state rather than herdr's unseen-idle-to-done status mapping.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgentRowFilter {
+    /// Adapter ids to keep; empty keeps every agent type.
+    pub agents: Vec<String>,
+    /// Lifecycle states to keep; empty keeps every state.
+    pub states: Vec<String>,
+    /// Keep only idle rows the user has (true) or has not (false) seen.
+    pub seen: Option<bool>,
+}
+
+impl AgentRowFilter {
+    pub fn is_active(&self) -> bool {
+        !self.agents.is_empty() || !self.states.is_empty() || self.seen.is_some()
+    }
+}
+
+const AGENT_FILTER_STATES: &[&str] = &["idle", "working", "blocked", "done", "unknown"];
+
+/// herdr's agent-view token rule: ascii alphanumerics plus `_`/`-`, at most
+/// 32 characters.
+fn valid_agent_filter_token(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= 32
+        && token.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
 }
 
 /// Which workspaces feed a flat tabs/agents view.
@@ -1290,6 +1398,8 @@ impl SidebarViewSpec {
             collapse_priority,
             scope: SidebarViewScope::Workspace,
             row_lines,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
         }
     }
 
@@ -1826,6 +1936,8 @@ fn resolve_sidebar_leaf_view(
         collapse_priority: 0,
         row_lines: 1,
         scope,
+        sort: AgentSortMode::default(),
+        filter: AgentRowFilter::default(),
     }
     .legacy_kind();
     if legacy_kind.is_some_and(|kind| !state.legacy_kinds.insert(kind)) {
@@ -1891,6 +2003,27 @@ fn resolve_sidebar_leaf_view(
             default_sidebar_row_lines(&levels)
         }
     };
+    let is_agents_view = levels.contains(&SidebarResourceKind::Agents);
+    // Unknown sort/filter values warn and fall back (the round-5 policy):
+    // a typo may degrade one view's ordering, never drop the view.
+    let sort = match view.sort.as_deref().map(str::trim) {
+        None | Some("") => AgentSortMode::default(),
+        Some(value) if !is_agents_view => {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring sort {value:?} in {owner} view {id:?}; sort applies to agents views"
+            );
+            AgentSortMode::default()
+        }
+        Some(value) => match parse_agent_sort_mode(value) {
+            Ok(mode) => mode,
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+                AgentSortMode::default()
+            }
+        },
+    };
+    let filter = resolve_agent_row_filter(view.filter.as_ref(), is_agents_view, owner, id);
     state.views.push(SidebarViewSpec {
         id: id.to_string(),
         collapse_priority: view
@@ -1903,8 +2036,69 @@ fn resolve_sidebar_leaf_view(
         max_width: view.max_width.unwrap_or(default_max_width),
         scope,
         row_lines,
+        sort,
+        filter,
     });
     Some(state.views.len() - 1)
+}
+
+/// At most this many values per filter list, herdr's `MAX_FILTER_VALUES`.
+const MAX_AGENT_FILTER_VALUES: usize = 32;
+
+/// Validate one agents-view filter, warning per rejected value and keeping
+/// everything valid: a bad value must degrade one criterion, never drop the
+/// view or hide the filter silently.
+fn resolve_agent_row_filter(
+    raw: Option<&RawAgentRowFilter>,
+    is_agents_view: bool,
+    owner: &str,
+    id: &str,
+) -> AgentRowFilter {
+    let Some(raw) = raw else { return AgentRowFilter::default() };
+    if !is_agents_view {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring filter in {owner} view {id:?}; filter applies to agents views"
+        );
+        return AgentRowFilter::default();
+    }
+    for key in raw.unknown.keys() {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring unknown filter field {key:?} in {owner} view {id:?}"
+        );
+    }
+    let mut filter = AgentRowFilter { agents: Vec::new(), states: Vec::new(), seen: raw.seen };
+    for (name, values, output) in [
+        ("agent", raw.agent.as_deref(), &mut filter.agents),
+        ("state", raw.state.as_deref(), &mut filter.states),
+    ] {
+        let Some(values) = values else { continue };
+        if values.len() > MAX_AGENT_FILTER_VALUES {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: filter {name} in {owner} view {id:?} keeps the first {MAX_AGENT_FILTER_VALUES} values"
+            );
+        }
+        for value in values.iter().take(MAX_AGENT_FILTER_VALUES) {
+            let value = value.trim();
+            let valid = match name {
+                "state" => AGENT_FILTER_STATES.contains(&value),
+                _ => valid_agent_filter_token(value),
+            };
+            if valid {
+                if !output.iter().any(|existing| existing == value) {
+                    output.push(value.to_string());
+                }
+            } else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter {name} value {value:?} in {owner} view {id:?}"
+                );
+            }
+        }
+    }
+    filter
 }
 
 /// Agent rows default to herdr-style two-line entries (state dot + title
@@ -8588,6 +8782,57 @@ mod tests {
         assert_eq!(Action::select_tab(0).unwrap().tab_index(), Some(0));
         assert_eq!(Action::select_tab(9).unwrap().tab_index(), Some(9));
         assert!(Action::select_tab(10).is_none());
+    }
+
+    #[test]
+    fn agents_view_sort_and_filter_parse_and_degrade() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("mux-config-sortfilter-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{
+                "sidebar": {
+                    "views": [
+                        {
+                            "id": "agents",
+                            "levels": ["agents"],
+                            "scope": "all",
+                            "sort": "recency",
+                            "filter": {
+                                "agent": ["claude", "bad token!"],
+                                "state": ["blocked", "working", "bogus"],
+                                "seen": false,
+                                "typo": true
+                            }
+                        },
+                        {"id": "broken-sort", "levels": ["agents"], "sort": "bogus"}
+                    ]
+                }
+            }"##,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+        let config = load();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        let _ = std::fs::remove_file(&path);
+
+        // Valid values resolve; invalid ones degrade per value (the
+        // tolerate-and-warn policy) and never drop the view.
+        assert_eq!(config.sidebar.views.len(), 2);
+        let agents = &config.sidebar.views[0];
+        assert_eq!(agents.sort, AgentSortMode::Recency);
+        assert_eq!(agents.filter.agents, vec!["claude".to_string()]);
+        assert_eq!(agents.filter.states, vec!["blocked".to_string(), "working".to_string()]);
+        assert_eq!(agents.filter.seen, Some(false));
+        assert!(agents.filter.is_active());
+
+        let broken = &config.sidebar.views[1];
+        assert_eq!(broken.sort, AgentSortMode::Priority, "unknown sort falls back");
+        assert!(!broken.filter.is_active());
     }
 
     #[test]

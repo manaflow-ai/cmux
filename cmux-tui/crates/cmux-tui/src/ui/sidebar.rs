@@ -336,10 +336,25 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     rail::prepare(frame, area, palette);
 
     // Agents views carry a herdr-style header: the view title left, the
-    // fixed sort mode right. It consumes the top line of the rail.
+    // ACTIVE sort mode right (the cycle key steps it), with a marker when a
+    // config filter hides rows. It consumes the top line of the rail.
     let messages = &localization::catalog().sidebar;
     if spec.levels == [SidebarResourceKind::Agents] && area.height > 1 {
-        rail::view_header(frame, area, area.y, messages.agents, messages.sort_priority, palette);
+        let mode = match app.effective_agent_sort(&spec) {
+            crate::config::AgentSortMode::Priority => messages.sort_priority,
+            crate::config::AgentSortMode::Recency => messages.sort_recency,
+            crate::config::AgentSortMode::Name => messages.sort_name,
+            crate::config::AgentSortMode::Agent => messages.sort_agent,
+            crate::config::AgentSortMode::State => messages.sort_state,
+        };
+        // An active filter is always disclosed: rows silently missing from
+        // an agents board would read as lost agents.
+        let label = if spec.filter.is_active() {
+            format!("{} · {mode}", messages.sort_filtered)
+        } else {
+            mode.to_string()
+        };
+        rail::view_header(frame, area, area.y, messages.agents, &label, palette);
         area = Rect { y: area.y + 1, height: area.height - 1, ..area };
     }
 
