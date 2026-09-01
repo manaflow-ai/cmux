@@ -18101,15 +18101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         for entry in snapshot.configuredActions {
-            guard !entry.isProtectedFromBrowserCapture,
-                  entry.whenClause.evaluate(focusContext.shortcutContext),
-                  browserCaptureMatchesShortcut(
-                      event: event,
-                      shortcut: entry.shortcut,
-                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
-                  ) else {
-                continue
-            }
+            guard browserCaptureConfiguredEntryMatches(
+                entry,
+                event: event,
+                focusContext: focusContext
+            ) else { continue }
             return true
         }
 
@@ -18224,6 +18220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry? {
         guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
         let keyboardAction = browserCaptureKeyboardAction(for: action)
+        let collidesWithProtectedShortcut = browserCaptureConfiguredShortcutCollidesWithProtection(
+            shortcut,
+            keyboardAction: keyboardAction
+        )
         return KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry(
             action: action,
             shortcut: shortcut,
@@ -18231,8 +18231,98 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 KeyboardShortcutSettings.effectiveWhenClause(for: $0)
             } ?? .always,
             usesNumberedDigitMatching: keyboardAction?.usesNumberedDigitMatching ?? false,
-            isProtectedFromBrowserCapture: keyboardAction?.isProtectedFromBrowserCapture ?? false
+            isProtectedFromBrowserCapture: keyboardAction?.isProtectedFromBrowserCapture == true
+                || collidesWithProtectedShortcut
         )
+    }
+
+    /// A custom action can use the same keystroke as a protected lifecycle
+    /// action without sharing its keyboard-action ID. Compare normalized
+    /// strokes against both the current and default protected bindings so a
+    /// custom entry can never make the browser swallow Cmd+Q/Cmd+W/etc.
+    private func browserCaptureConfiguredShortcutCollidesWithProtection(
+        _ shortcut: StoredShortcut,
+        keyboardAction: KeyboardShortcutSettings.Action?
+    ) -> Bool {
+        if keyboardAction?.isProtectedFromBrowserCapture == true {
+            return true
+        }
+        let protectedActions = KeyboardShortcutSettings.Action.allCases.filter {
+            $0.isProtectedFromBrowserCapture
+        }
+        return protectedActions.contains { protectedAction in
+            let current = KeyboardShortcutSettings.shortcut(for: protectedAction)
+            return browserCaptureShortcutsShareNormalizedStrokes(shortcut, current)
+                || browserCaptureShortcutsShareNormalizedStrokes(
+                    shortcut,
+                    protectedAction.defaultShortcut
+                )
+        }
+    }
+
+    /// Compares shortcut strokes by their canonical key token and modifier
+    /// flags, intentionally ignoring recorded physical key codes so object
+    /// and string-form cmux.json bindings protect the same AppKit keystroke.
+    private func browserCaptureShortcutsShareNormalizedStrokes(
+        _ lhs: StoredShortcut,
+        _ rhs: StoredShortcut
+    ) -> Bool {
+        guard !lhs.isUnbound, !rhs.isUnbound else { return false }
+        func normalized(_ stroke: ShortcutStroke) -> (String, UInt) {
+            let normalizedKey: String
+            let rawKey = stroke.key
+            if rawKey == " " {
+                normalizedKey = "space"
+            } else if rawKey == "\t" {
+                normalizedKey = "\t"
+            } else if rawKey == "\r" {
+                normalizedKey = "\r"
+            } else {
+                switch rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "space", "spacebar", "<space>":
+                    normalizedKey = "space"
+                case "tab":
+                    normalizedKey = "\t"
+                case "return", "enter", "↩":
+                    normalizedKey = "\r"
+                case "left", "arrowleft", "leftarrow", "←":
+                    normalizedKey = "←"
+                case "right", "arrowright", "rightarrow", "→":
+                    normalizedKey = "→"
+                case "up", "arrowup", "uparrow", "↑":
+                    normalizedKey = "↑"
+                case "down", "arrowdown", "downarrow", "↓":
+                    normalizedKey = "↓"
+                case "forward-delete", "forwarddelete":
+                    normalizedKey = "forwarddelete"
+                default:
+                    normalizedKey = rawKey.lowercased()
+                }
+            }
+            return (
+                normalizedKey,
+                stroke.modifierFlags.rawValue
+            )
+        }
+        let lhsStrokes = [lhs.firstStroke] + (lhs.secondStroke.map { [$0] } ?? [])
+        let rhsStrokes = [rhs.firstStroke] + (rhs.secondStroke.map { [$0] } ?? [])
+        return lhsStrokes.contains { lhsStroke in
+            rhsStrokes.contains { normalized(lhsStroke) == normalized($0) }
+        }
+    }
+
+    private func browserCaptureConfiguredEntryMatches(
+        _ entry: KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry,
+        event: NSEvent,
+        focusContext: ShortcutEventFocusContext
+    ) -> Bool {
+        !entry.isProtectedFromBrowserCapture
+            && entry.whenClause.evaluate(focusContext.shortcutContext)
+            && browserCaptureMatchesShortcut(
+                event: event,
+                shortcut: entry.shortcut,
+                usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+            )
     }
 
     /// Maps action-registry built-ins and direct keyboard-action IDs to the
@@ -18351,15 +18441,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         for entry in snapshot.configuredActions {
-            guard !entry.isProtectedFromBrowserCapture,
-                  entry.whenClause.evaluate(focusContext.shortcutContext),
-                  browserCaptureMatchesShortcut(
-                      event: event,
-                      shortcut: entry.shortcut,
-                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
-                  ) else {
-                continue
-            }
+            guard browserCaptureConfiguredEntryMatches(
+                entry,
+                event: event,
+                focusContext: focusContext
+            ) else { continue }
             return true
         }
 

@@ -13,6 +13,15 @@ private typealias SimulatorStoredShortcut = cmux_DEV.StoredShortcut
 private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 #endif
 
+private final class BrowserOwnershipFieldEditor: NSTextView {
+    override var isFieldEditor: Bool {
+        get { true }
+        set {}
+    }
+
+    deinit {}
+}
+
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
     @Test("browser keyboard shortcut capture setting defaults off and reads live overrides")
@@ -74,6 +83,45 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("tab"))
         #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("return"))
         #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("enter"))
+    }
+
+    @Test("browser field-editor ownership fails closed without a tracked owner")
+    @MainActor
+    func browserFieldEditorWithoutOwnerFailsClosed() {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        let editor = BrowserOwnershipFieldEditor(frame: host.bounds)
+        host.addSubview(editor)
+        editor.nextResponder = nil
+
+        #expect(editor.superview === host)
+        #expect(editor.cmuxBrowserOwningView() == nil)
+    }
+
+    @Test("browser field-editor ownership stops at the responder hop limit")
+    @MainActor
+    func browserFieldEditorOwnershipHopLimit() {
+        func fieldEditorChain(
+            nonViewHops: Int
+        ) -> (BrowserOwnershipFieldEditor, [NSResponder], NSView) {
+            let editor = BrowserOwnershipFieldEditor(frame: .zero)
+            let responders = (0..<nonViewHops).map { _ in NSResponder() }
+            let owner = NSView(frame: .zero)
+            var current: NSResponder = editor
+            for responder in responders {
+                current.nextResponder = responder
+                current = responder
+            }
+            current.nextResponder = owner
+            return (editor, responders, owner)
+        }
+
+        let (withinLimit, withinResponders, withinOwner) = fieldEditorChain(nonViewHops: 63)
+        #expect(withinResponders.count == 63)
+        #expect(withinLimit.cmuxBrowserOwningView() === withinOwner)
+
+        let (beyondLimit, beyondResponders, _) = fieldEditorChain(nonViewHops: 64)
+        #expect(beyondResponders.count == 64)
+        #expect(beyondLimit.cmuxBrowserOwningView() == nil)
     }
 
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")

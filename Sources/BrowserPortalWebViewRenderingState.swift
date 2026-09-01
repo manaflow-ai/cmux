@@ -140,7 +140,11 @@ extension NSResponder {
                 current = next.nextResponder
                 hops += 1
             }
-            return fieldEditor.superview
+            // A shared field editor's superview is a hosting detail, not an
+            // ownership contract. If its tracked owner and bounded responder
+            // chain do not identify a view, fail closed rather than assigning
+            // focus to an unrelated browser sibling.
+            return nil
         }
 
         if let view = self as? NSView {

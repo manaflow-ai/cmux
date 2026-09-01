@@ -7,7 +7,12 @@ extension StoredShortcut {
     /// Whether a persisted shortcut key token represents a non-printable AppKit key.
     static func isNonPrintableShortcutKey(_ key: String) -> Bool {
         let normalizedKey = key.lowercased()
-        if normalizedKey == "space" || normalizedKey == "\t" || normalizedKey == "\r" {
+        if normalizedKey == "space"
+            || normalizedKey == "spacebar"
+            || normalizedKey == "<space>"
+            || normalizedKey == "\t"
+            || normalizedKey == "\r"
+            || normalizedKey == "↩" {
             return true
         }
         switch normalizedKey {
