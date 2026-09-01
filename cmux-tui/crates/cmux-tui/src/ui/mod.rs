@@ -784,7 +784,11 @@ mod tests {
                     view_index: 1,
                     rect: CoreRect::default(),
                 },
-                RailPlacement { kind: RailKind::Workspace, view_index: 2, rect: CoreRect::default() },
+                RailPlacement {
+                    kind: RailKind::Workspace,
+                    view_index: 2,
+                    rect: CoreRect::default(),
+                },
             ],
             ..SidebarLayout::default()
         };
