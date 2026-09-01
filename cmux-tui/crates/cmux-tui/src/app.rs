@@ -16965,6 +16965,20 @@ impl App {
             })
             .flatten();
         if let Some(range) = range {
+            let range = if mode == SelectionMode::Word {
+                self.selection
+                    .filter(|selection| selection.surface == surface)
+                    .map(|selection| {
+                        let initial = selection.range();
+                        SelectionRange {
+                            start: initial.0.min(range.start),
+                            end: initial.1.max(range.end),
+                        }
+                    })
+                    .unwrap_or(range)
+            } else {
+                range
+            };
             self.replace_selection(Some(Self::selection_from_range(surface, range)));
         }
     }
