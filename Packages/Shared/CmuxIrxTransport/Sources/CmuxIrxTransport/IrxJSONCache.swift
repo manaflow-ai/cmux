@@ -173,9 +173,9 @@ enum IrxBrokerCacheFactory {
         guard let scope else { return file }
         // A legacy snapshot is not account/backend scoped. Never import it
         // into the scoped keychain item, even when its shape happens to decode.
-        // Remove the old copy so a later unscoped bootstrap cannot resurrect
-        // credentials after sign-out or account switching.
-        file.clear()
+        // Preserve the old copy until an explicit, identity-validated
+        // migration can replace it; construction must never destroy the only
+        // offline binding or credential state during an upgrade.
         return IrxKeychainJSONCache<Value>(
             account: "\(kind)|\(scope.accountID)|\(scope.backendHost)",
             accessGroup: scope.keychainAccessGroup

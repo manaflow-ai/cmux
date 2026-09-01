@@ -410,6 +410,12 @@ public actor IrxControlPlaneClient {
                 if let onDirectoryFact = handlers.onDirectoryFact {
                     await onDirectoryFact(listFact)
                 }
+                // Directory delivery is itself a revisioned fact. The
+                // consumer callbacks have completed, so acknowledge only
+                // after the directory/list-auth state is applied. Runtime
+                // callbacks may also acknowledge; lastAckedRev coalesces the
+                // duplicate without changing wire behavior.
+                await acknowledge(rev: listFact.rev)
             case "current":
                 // Explicit freshness re-stamp for the device-list lease.
                 let stamp = try Self.decoder.decode(IrxCtlFreshnessStamp.self, from: data)
