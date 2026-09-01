@@ -112,8 +112,25 @@ fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value,
             expected_revision(&request.fields)?,
             &mutation,
         )
-        .map_err(resource_operation_error)?;
+        .map_err(agent_report_operation_error)?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
+}
+
+/// Keep registry and projection implementation details out of the public
+/// agent-report response while retaining typed client errors.
+fn agent_report_operation_error(error: anyhow::Error) -> ResourceError {
+    if let Some(resource) = error.downcast_ref::<ResourceError>() {
+        return resource.clone();
+    }
+
+    let detail = format!("{error:#}");
+    let public = resource_operation_error(error);
+    if public.code != "operation.failed" {
+        return public;
+    }
+
+    eprintln!("cmux-tui: agent.report internal failure: {detail}");
+    ResourceError::operation_failed("agent.report", "could not read agent state", json!({}))
 }
 
 fn parse_agent_state(value: &Value) -> Result<AgentState, ResourceError> {
@@ -741,6 +758,63 @@ mod tests {
         .unwrap();
         assert_eq!(listed.as_array().unwrap().len(), 1);
         assert_eq!(listed[0]["id"], first["value"]["id"]);
+    }
+
+    #[test]
+    fn agent_report_projection_failures_do_not_leak_internal_details() {
+        let mux = Mux::new_for_test("aux-agent-error-privacy", SurfaceOptions::default());
+        crate::resource_router::handle_parsed_resource_request(
+            &mux,
+            request(
+                ResourceOperation::WorkspaceCreate,
+                Some("aux-agent-error-privacy-create"),
+                session_selectors(),
+                json!({"initial_content":"terminal"}),
+            ),
+        )
+        .unwrap();
+        let terminal_id = TerminalPublicId::parse(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["terminals"][0]["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        )
+        .unwrap();
+        let report_request = |key| {
+            request(
+                ResourceOperation::AgentReport,
+                Some(key),
+                session_selectors(),
+                json!({
+                    "terminal_id":terminal_id,
+                    "state":"working",
+                    "source":"socket",
+                    "source_session":"sdk-test",
+                }),
+            )
+        };
+        dispatch(&mux, report_request("aux-agent-error-privacy-report")).unwrap();
+        mux.corrupt_agent_projection_for_test(&terminal_id);
+
+        let response = super::super::handle_parsed_resource_request(
+            &mux,
+            report_request("aux-agent-error-privacy-corrupt-report"),
+        )
+        .unwrap();
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "operation.failed");
+        assert_eq!(response["error"]["message"], "could not read agent state");
+        assert_eq!(
+            response["error"]["details"],
+            json!({
+                "operation":"agent.report",
+                "reason":"could not read agent state",
+            })
+        );
+        let encoded = response.to_string();
+        for detail in [terminal_id.as_str(), "revision", "database", "projection"] {
+            assert!(!encoded.contains(detail), "public error leaked {detail:?}: {encoded}");
+        }
     }
 
     #[test]
