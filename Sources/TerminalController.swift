@@ -1174,7 +1174,10 @@ class TerminalController {
                 return Self.v2Encoder.error(
                     id: parsedRequest.id,
                     code: "async_required",
-                    message: "sidebar.custom.render requires the asynchronous socket dispatcher"
+                    message: String(
+                        localized: "socket.sidebar.custom.render.asyncRequired",
+                        defaultValue: "sidebar.custom.render requires the asynchronous socket dispatcher"
+                    )
                 )
             }
             if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {

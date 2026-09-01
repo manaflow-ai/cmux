@@ -243467,6 +243467,23 @@
         }
       }
     },
+    "socket.sidebar.custom.render.asyncRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.custom.render requires the asynchronous socket dispatcher"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.custom.render には非同期ソケットディスパッチャーが必要です"
+          }
+        }
+      }
+    },
     "socket.sidebar.custom.render.invalidSize": {
       "extractionState": "manual",
       "localizations": {

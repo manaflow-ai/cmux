@@ -938,6 +938,13 @@ final class TerminalControllerSocketSecurityTests {
         )
         let inlineError = try XCTUnwrap(inline["error"] as? [String: Any])
         XCTAssertEqual(inlineError["code"] as? String, "invalid_dispatch")
+        XCTAssertEqual(
+            inlineError["message"] as? String,
+            String(
+                localized: "socket.sidebar.custom.render.asyncRequired",
+                defaultValue: "sidebar.custom.render requires the asynchronous socket dispatcher"
+            )
+        )
 
         // A real socket connection uses the async dispatcher and still
         // reaches preparation (the unique name is intentionally missing).
