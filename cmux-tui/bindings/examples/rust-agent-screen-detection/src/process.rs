@@ -1170,6 +1170,45 @@ mod tests {
     }
 
     #[test]
+    fn direct_process_identity_does_not_probe_environment_hint() {
+        let process = process(7, "codex", &["codex"]);
+        let mut probes = 0;
+        let (manifest, _) = identify_process_with_hint(
+            ManifestSet::bundled(),
+            &process,
+            |pid| {
+                probes += 1;
+                assert_eq!(pid, 7);
+                Some("claude".into())
+            },
+        )
+        .expect("codex should match");
+
+        assert_eq!(manifest.id(), "codex");
+        assert_eq!(probes, 0, "a direct identity must not read process environment");
+    }
+
+    #[test]
+    fn environment_hint_is_used_when_process_candidates_are_unknown() {
+        let process = process(8, "sandbox-wrapper", &["sandbox-wrapper"]);
+        let mut probes = 0;
+        let (manifest, candidate) = identify_process_with_hint(
+            ManifestSet::bundled(),
+            &process,
+            |pid| {
+                probes += 1;
+                assert_eq!(pid, 8);
+                Some("claude".into())
+            },
+        )
+        .expect("the explicit wrapper hint should identify claude");
+
+        assert_eq!(manifest.id(), "claude");
+        assert_eq!(candidate, "claude");
+        assert_eq!(probes, 1);
+    }
+
+    #[test]
     fn node_package_launcher_is_identified_without_matching_eval_text() {
         let job = ForegroundJob {
             process_group_id: 7,
