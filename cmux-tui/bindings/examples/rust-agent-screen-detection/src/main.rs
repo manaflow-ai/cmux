@@ -121,7 +121,7 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
     };
     let screen = match read_bounded_utf8_file(&screen_path, MAX_EXPLAIN_SCREEN_BYTES) {
         Ok(screen) => screen,
-        Err(error) => return print_error(format!("read screen {}: {error}", screen_path)),
+        Err(error) => return print_error(format!("read screen {screen_path}: {error}")),
     };
     match cmux_agent_screen_detection::manifest::ManifestSet::from_environment() {
         Ok(set) => print_json(
