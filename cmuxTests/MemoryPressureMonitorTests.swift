@@ -51,6 +51,14 @@ private struct FixedMemoryPressureAggregateSampler: MemoryPressureAggregateSampl
     }
 }
 
+private struct FixedMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
+    let bytes: UInt64?
+
+    func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage? {
+        bytes.map(MemoryPressureCoalitionUsage.init(physicalFootprintBytes:))
+    }
+}
+
 struct MemoryPressureStateTrackerTests {
     @Test func footprintThresholdsMapToSeverity() {
         let thresholds = MemoryPressureFootprintThresholds(
@@ -198,6 +206,40 @@ struct MemoryPressureStateTrackerTests {
             sampledAt: Date(timeIntervalSince1970: 11)
         )
         #expect(policy.severity(for: unavailable) == .normal)
+    }
+
+    @Test func coalitionABIValidationUsesKnownOSLayoutsOnly() {
+        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 14
+        ))
+        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 15
+        ))
+        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 26
+        ))
+        #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 27
+        ))
+    }
+
+    @Test func coalitionSamplingSkipsDescendantEnumeration() {
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: 42,
+            snapshotProvider: {
+                fatalError("coalition sampling should not enumerate descendants")
+            },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 5_000),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { 2_000 }
+        )
+
+        let sample = sampler.sample(at: Date(timeIntervalSince1970: 21))
+
+        #expect(sample.source == .coalition)
+        #expect(sample.aggregateBytes == 5_000)
+        #expect(sample.processCount == 0)
+        #expect(sample.missingProcessCount == 0)
     }
 
     @Test func aggregatePressureIsRecordedWithoutRaisingSystemSeverity() {
@@ -474,6 +516,24 @@ struct MemoryPressureMonitorTests {
 
         #expect(responder.calls.count == 1)
         #expect(monitor.aggregateMemoryPressure == nil)
+    }
+
+    @Test func backwardSystemPressureTimestampStillUpdatesTheHeldSeverity() async {
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(
+                sample: .unavailable(sampledAt: Date(timeIntervalSince1970: 0))
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            sampleInterval: 60,
+            systemPressureHoldDuration: 120
+        )
+
+        monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 100))
+        monitor.recordSystemPressure(.critical, at: Date(timeIntervalSince1970: 90))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 150))
+
+        #expect(monitor.currentSeverity == .critical)
     }
 
     @Test func clearingAggregateEvidenceNotifiesThePressureOwner() async {

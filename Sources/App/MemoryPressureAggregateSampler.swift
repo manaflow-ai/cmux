@@ -50,6 +50,24 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
     }
 
     func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+        let physicalMemoryBytes = physicalMemoryProvider()
+        let availableMemoryBytes = availableMemoryProvider()
+        if let coalitionUsage = coalitionSampler.usage(forProcessID: processID),
+           coalitionUsage.physicalFootprintBytes > 0 {
+            // Coalition accounting already covers cmux and its descendants;
+            // avoid a full process-table walk on the normal path. The count is
+            // intentionally zero because no descendant enumeration occurred.
+            return MemoryPressureAggregateSample(
+                source: .coalition,
+                aggregateBytes: coalitionUsage.physicalFootprintBytes,
+                physicalMemoryBytes: physicalMemoryBytes,
+                availableMemoryBytes: availableMemoryBytes,
+                processCount: 0,
+                missingProcessCount: 0,
+                sampledAt: sampledAt
+            )
+        }
+
         let snapshot = snapshotProvider()
         let descendantPIDs = snapshot.descendantPIDs(
             rootPID: processID,
@@ -75,22 +93,6 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
         }
 
         let accounting = MemoryPressureAggregateAccounting().summarize(processFootprints)
-        let physicalMemoryBytes = physicalMemoryProvider()
-        let availableMemoryBytes = availableMemoryProvider()
-        let coalitionUsage = coalitionSampler.usage(forProcessID: processID)
-
-        if let coalitionUsage,
-           coalitionUsage.physicalFootprintBytes > 0 {
-            return MemoryPressureAggregateSample(
-                source: .coalition,
-                aggregateBytes: coalitionUsage.physicalFootprintBytes,
-                physicalMemoryBytes: physicalMemoryBytes,
-                availableMemoryBytes: availableMemoryBytes,
-                processCount: descendantPIDs.count,
-                missingProcessCount: missingProcessCount,
-                sampledAt: sampledAt
-            )
-        }
 
         guard !descendantPIDs.isEmpty, missingProcessCount == 0 else {
             return MemoryPressureAggregateSample(
@@ -120,8 +122,20 @@ nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregate
 nonisolated struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
     private static let coalitionInfoFlavor: Int32 = 20
 
+    /// Returns whether this process is running on an OS whose private
+    /// coalition-resource layout is known and matches our compiled prefix.
+    /// Unknown OS releases deliberately fall back to descendant accounting.
+    nonisolated static func coalitionABIIsSupported(
+        operatingSystemMajorVersion: Int =
+            ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+    ) -> Bool {
+        [14, 15, 26].contains(operatingSystemMajorVersion) &&
+            MemoryLayout<CoalitionResourceUsagePrefix>.size == 328 &&
+            MemoryLayout<CoalitionResourceUsagePrefix>.offset(of: \.physicalFootprint) == 320
+    }
+
     func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage? {
-        guard processID > 0 else { return nil }
+        guard processID > 0, Self.coalitionABIIsSupported() else { return nil }
         var coalitionInfo = CoalitionInfo()
         let result = withUnsafeMutableBytes(of: &coalitionInfo) { rawBuffer in
             proc_pidinfo(

@@ -50,8 +50,6 @@ final class MemoryPressureMonitor {
     @ObservationIgnored
     private var activeSystemSeverityExpiresAt: Date?
     @ObservationIgnored
-    private var lastAggregateSample: MemoryPressureAggregateSample?
-    @ObservationIgnored
     private var lastAppliedSampledAt = Date.distantPast
 
     init(
@@ -90,7 +88,6 @@ final class MemoryPressureMonitor {
             using: aggregateSampler,
             at: sampledAt
         )
-        lastAggregateSample = aggregateSample
         apply(
             systemSeverity: heldSystemSeverity(at: sampledAt),
             physicalFootprintBytes: footprintBytes,
@@ -100,15 +97,10 @@ final class MemoryPressureMonitor {
     }
 
     func recordSystemPressure(_ severity: MemoryPressureSeverity, at sampledAt: Date = .now) {
-        guard sampledAt >= lastAppliedSampledAt else { return }
         let heldSeverity = heldSystemSeverity(at: sampledAt) ?? .normal
         let effectiveSeverity = max(severity, heldSeverity)
         activeSystemSeverity = effectiveSeverity
         activeSystemSeverityExpiresAt = sampledAt.addingTimeInterval(systemPressureHoldDuration)
-        // Do not replay an old aggregate sample from an unrelated system event.
-        // The next periodic sample will publish fresh aggregate evidence; until
-        // then an in-flight aggregate hibernation pass must be allowed to stop.
-        lastAggregateSample = nil
         apply(
             systemSeverity: effectiveSeverity,
             physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
@@ -183,7 +175,6 @@ final class MemoryPressureMonitor {
             let aggregateSample = aggregateSampler.sample(at: sampledAt)
             Task { @MainActor in
                 guard let self else { return }
-                self.lastAggregateSample = aggregateSample
                 self.apply(
                     systemSeverity: self.heldSystemSeverity(at: sampledAt),
                     physicalFootprintBytes: footprintBytes,

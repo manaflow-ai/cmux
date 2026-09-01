@@ -129,9 +129,10 @@ rules, confirmation settle window, and resume behavior.
 ### Aggregate memory-pressure safety policy
 
 cmux prefers macOS's resource-coalition physical footprint, which includes the
-cmux process and its descendants. If that optional API is unavailable, cmux
-uses a complete, de-duplicated descendant process tree; an incomplete listing
-is treated as unavailable and cannot authorize hibernation. Relative
+cmux process and its descendants. The private coalition layout is enabled only
+on OS releases with a validated ABI; if the API or validation is unavailable,
+cmux uses a complete, de-duplicated descendant process tree. An incomplete
+listing is treated as unavailable and cannot authorize hibernation. Relative
 percentages (warning at 50% and critical at 70% of installed physical memory,
 with an optional 20%/10% available-memory corroboration) decide only when to
 show the warning and when to offer the idle-only pass. They are signals, not a
