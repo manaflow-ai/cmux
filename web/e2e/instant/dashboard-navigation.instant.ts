@@ -48,7 +48,10 @@ test("dashboard navigation payload has no dashboard-wide loading fallback", asyn
 
   expect(prefetchResponse.ok()).toBe(true);
   expect(prefetchResponse.headers()["content-type"]).toContain("text/x-component");
-  expect(await prefetchResponse.text()).not.toContain('"loading":');
+  const prefetchPayload = await prefetchResponse.text();
+  expect(prefetchPayload).not.toContain('"loading":');
+  expect(prefetchPayload).not.toContain('"fallback":');
+  expect(prefetchPayload).not.toContain("animate-pulse");
 
   const response = await request.get("/dashboard/subrouter?_rsc=dashboard-test", {
     headers: {
