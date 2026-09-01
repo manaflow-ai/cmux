@@ -172,7 +172,6 @@ fn scoped_cwd(
         &raw_owned
     };
     let path = expand_path(raw, home, home);
-    let canonical = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
     #[cfg(unix)]
     let allowed_root_groups: Vec<Vec<Vec<DirectoryIdentity>>> =
         [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
@@ -182,39 +181,46 @@ fn scoped_cwd(
                 roots
                     .iter()
                     .filter_map(|root| {
-                        let canonical_root =
-                            std::fs::canonicalize(expand_path(root, home, home)).ok()?;
-                        Some(open_pinned_directory(&canonical_root).ok()?.1)
+                        Some(open_pinned_directory(&expand_path(root, home, home)).ok()?.1)
                     })
                     .collect()
             })
             .collect();
     #[cfg(not(unix))]
     let allowed_root_groups: Vec<Vec<Vec<()>>> = Vec::new();
+    #[cfg(not(unix))]
+    for roots in [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
+        .into_iter()
+        .flatten()
+    {
+        let canonical =
+            std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
+        if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
+            std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
+        }) {
+            return Err("cwd is outside the allowed roots".to_owned());
+        }
+    }
     if allowed_root_groups.iter().any(|group| group.is_empty()) {
         return Err("cwd is outside the allowed roots".to_owned());
     }
-    if !canonical.is_dir() {
-        return Err("cwd is not a directory".to_owned());
-    }
     #[cfg(unix)]
     {
-        let (directory, ancestry) = open_pinned_directory(&canonical)?;
+        let (directory, ancestry) = open_pinned_directory(&path)?;
         if allowed_root_groups
             .iter()
             .any(|group| !group.iter().any(|root| ancestry.starts_with(root)))
         {
             return Err("cwd is outside the allowed roots".to_owned());
         }
-        Ok(ResolvedCwd {
-            path: canonical,
-            directory: Arc::new(directory),
-            ancestry: Arc::new(ancestry),
-        })
+        Ok(ResolvedCwd { path, directory: Arc::new(directory), ancestry: Arc::new(ancestry) })
     }
     #[cfg(not(unix))]
     {
-        Ok(ResolvedCwd { path: canonical })
+        if !path.is_dir() {
+            return Err("cwd is not a directory".to_owned());
+        }
+        Ok(ResolvedCwd { path })
     }
 }
 
@@ -2973,6 +2979,21 @@ mod tests {
         let after = resolved.directory.metadata().unwrap();
         assert_eq!(before.dev(), after.dev());
         assert_eq!(before.ino(), after.ino());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_cwd_rejects_symlink_components_before_spawn() {
+        let root = TestDirectory::new("cwd-symlink");
+        let target = root.path.join("target");
+        let link = root.path.join("link");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let error = match scoped_cwd(Some(link.to_str().unwrap()), &root.path, None, None) {
+            Ok(_) => panic!("symlink cwd must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error, "cwd is not accessible");
     }
 
     #[test]
