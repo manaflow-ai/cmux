@@ -8621,12 +8621,26 @@ impl MachineActionWorker {
             // Provider calls are synchronous and may remain blocked until
             // their transport deadline. Reap the owned handle asynchronously
             // so shutdown stays responsive without detaching the worker.
-            self.reaper = std::thread::Builder::new()
+            let worker = Arc::new(std::sync::Mutex::new(Some(worker)));
+            let worker_for_reaper = worker.clone();
+            match std::thread::Builder::new()
                 .name("machine-actions-reaper".into())
                 .spawn(move || {
-                    let _ = worker.join();
+                    if let Some(worker) = worker_for_reaper.lock().unwrap().take() {
+                        let _ = worker.join();
+                    }
                 })
-                .ok();
+            {
+                Ok(reaper) => self.reaper = Some(reaper),
+                Err(_) => {
+                    // Restore ownership when the reaper cannot start. This
+                    // is exceptional, so synchronously finish cleanup rather
+                    // than dropping the worker handle.
+                    if let Some(worker) = worker.lock().unwrap().take() {
+                        let _ = worker.join();
+                    }
+                }
+            }
         }
         if self.reaper.as_ref().is_some_and(JoinHandle::is_finished)
             && let Some(reaper) = self.reaper.take()
