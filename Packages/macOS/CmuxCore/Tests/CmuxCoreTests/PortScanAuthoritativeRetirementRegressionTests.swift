@@ -8,6 +8,7 @@ struct PortScanAuthoritativeRetirementRegressionTests {
         case workspace
     }
 
+    /// Verifies bounded listener retirement for every shared publication scope.
     @Test("Complete scans retire a stopped listener within one burst in every scope")
     func completeScansRetireStoppedListenerWithinBurst() {
         let port = 48_123

@@ -10,6 +10,7 @@ import Testing
 
 @Suite("Port retirement publication regression")
 struct PortRetirementPublicationRegressionTests {
+    /// Verifies that buffered panel and workspace publications converge on retirement.
     @Test("Listener removal retires panel and workspace publications within one burst")
     func listenerRemovalRetiresPublicationsWithinBurst() throws {
         let port = 48_123
