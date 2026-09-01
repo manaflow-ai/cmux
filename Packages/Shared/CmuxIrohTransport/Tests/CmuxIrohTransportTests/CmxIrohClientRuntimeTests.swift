@@ -178,7 +178,7 @@ struct CmxIrohClientRuntimeTests {
                 binding: localBinding,
                 discoveries: [rejectedRevision],
                 relay: relay,
-                registrationError: .connectivity
+                registrationError: .connectivity(nil)
             ),
             configuration: configuration,
             pendingRevocations: CmxIrohPendingRevocationOutbox(
@@ -188,7 +188,7 @@ struct CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             try await runtime.start()
         }
     }
@@ -553,7 +553,7 @@ struct CmxIrohClientRuntimeTests {
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
             discoveryErrorsByCount: [
-                2: CmxIrohTrustBrokerClientError.connectivity,
+                2: CmxIrohTrustBrokerClientError.connectivity(nil),
             ]
         )
         let recorder = ClientRuntimeTestRecorder()
@@ -835,7 +835,7 @@ struct CmxIrohClientRuntimeTests {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let store = TestSecureCredentialStore()
-        let connectivity = CmxIrohTrustBrokerClientError.connectivity
+        let connectivity = CmxIrohTrustBrokerClientError.connectivity(nil)
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
@@ -952,7 +952,7 @@ struct CmxIrohClientRuntimeTests {
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
             discoveryErrorsByCount: [
-                2: CmxIrohTrustBrokerClientError.connectivity,
+                2: CmxIrohTrustBrokerClientError.connectivity(nil),
             ]
         )
         let runtime = try CmxIrohClientRuntime(
@@ -1337,7 +1337,7 @@ struct CmxIrohClientRuntimeTests {
             binding: fixture.binding,
             discovery: fixture.discovery,
             relay: fixture.relayResponse(),
-            revokeError: CmxIrohTrustBrokerClientError.connectivity
+            revokeError: CmxIrohTrustBrokerClientError.connectivity(nil)
         )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(
@@ -1352,7 +1352,7 @@ struct CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             try await runtime.start()
         }
 
