@@ -14,9 +14,9 @@ const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
-/// codex kills SessionEnd hooks at 3s (its hard cap), so the helper must give
-/// up first and report its own error instead of dying mid-append.
-const CODEX_SESSION_END_SOCKET_TIMEOUT: Duration = Duration::from_secs(2);
+/// Codex kills SessionEnd hooks at 3s (its hard cap). Leave a small margin for
+/// the helper to report its own error instead of dying mid-append.
+const CODEX_SESSION_END_SOCKET_TIMEOUT: Duration = Duration::from_millis(2_900);
 
 #[derive(Debug, PartialEq, Eq)]
 struct Args {
@@ -353,9 +353,22 @@ mod tests {
 
     #[test]
     fn codex_session_end_gives_up_before_the_codex_hook_cap() {
-        assert!(socket_timeout("codex", "SessionEnd") < Duration::from_secs(3));
+        let timeout = socket_timeout("codex", "SessionEnd");
+        assert!(timeout > Duration::from_secs(2));
+        assert!(timeout < Duration::from_secs(3));
         assert_eq!(socket_timeout("codex", "Stop"), SOCKET_TIMEOUT);
         assert_eq!(socket_timeout("claude", "SessionEnd"), SOCKET_TIMEOUT);
+    }
+
+    #[test]
+    fn codex_session_end_allows_append_before_the_hook_cap() {
+        let started = Instant::now();
+        let result = retry_until(socket_timeout("codex", "SessionEnd"), |_deadline| {
+            std::thread::sleep(Duration::from_millis(2_100));
+            Ok::<_, AppendAttemptError>(())
+        });
+        assert!(result.is_ok());
+        assert!(started.elapsed() >= Duration::from_secs(2));
     }
 
     #[test]
