@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwiftUI
 
 import CmuxFoundation
 import CmuxSettings
@@ -878,11 +879,20 @@ struct WorkspaceGroupTests {
 
         let promotedAnchorId = try #require(manager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
         let countBeforeSelection = manager.tabs.count
-        let selectedAnchor = try #require(manager.selectWorkspaceGroupAnchor(for: groupId))
+        var selectedIds = Set([outsiderId])
+        var lastSelectionIndex: Int?
+        VerticalTabsSidebar.focusWorkspaceGroupAnchor(
+            groupId: groupId,
+            modifiers: [],
+            tabManager: manager,
+            selectedTabIds: Binding(get: { selectedIds }, set: { selectedIds = $0 }),
+            lastSidebarSelectionIndex: Binding(get: { lastSelectionIndex }, set: { lastSelectionIndex = $0 })
+        )
 
-        #expect(selectedAnchor.id == promotedAnchorId)
+        #expect(selectedIds == [promotedAnchorId])
         #expect(manager.tabs.count == countBeforeSelection)
         #expect(manager.selectedTabId == promotedAnchorId)
+        #expect(lastSelectionIndex == manager.tabs.firstIndex { $0.id == promotedAnchorId })
     }
 
     @Test func closingSoleAnchorWorkspaceRemovesGroup() throws {
