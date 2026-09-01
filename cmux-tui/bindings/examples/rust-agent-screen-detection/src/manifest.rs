@@ -1874,6 +1874,33 @@ line_regex = ["^working$", "^missing line$"]
     }
 
     #[test]
+    fn screen_detect_grok_local_patch_rejects_older_remote_manifest() {
+        let bundled = include_str!("../manifests/grok.toml");
+        let upstream = bundled.replacen(
+            "version = \"2026.07.16.2.1\"",
+            "version = \"2026.07.16.2\"",
+            1,
+        );
+        let mut set = ManifestSet::from_sources(&[("grok", bundled)]).unwrap();
+        let remote = compile_manifest_source_with_source(
+            &upstream,
+            ManifestSource::Remote {
+                path: PathBuf::from("/tmp/grok.toml"),
+                version: ManifestVersion::parse("2026.07.16.2").unwrap(),
+            },
+        )
+        .unwrap();
+
+        set.insert_compiled(remote).unwrap();
+
+        let active = set.identify("grok").unwrap();
+        assert_eq!(active.version().map(ToString::to_string).as_deref(), Some("2026.07.16.2.1"));
+        assert!(active.diagnostics().warning.as_deref().is_some_and(|warning| {
+            warning.contains("older than active version")
+        }));
+    }
+
+    #[test]
     fn screen_detect_manifest_validation_rejects_malformed_sources() {
         for (source, why) in [
             ("id = \"x\"\n", "no rules"),

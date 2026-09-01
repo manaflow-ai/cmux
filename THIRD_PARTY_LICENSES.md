@@ -93,9 +93,10 @@ manifests and adapted detector sources live under
 - **Pinned source:** commit `7b675f42af35508eab66ac42fe1598628597a893`
 - **License text:** `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
 
-The 21 manifests are vendored unchanged. The manifest engine, process
-discovery, state detector, and update logic are adapted for the cmux userland
-plugin contract. The source paths, pinned commit, license, and adaptations are recorded in
+Twenty manifests are vendored unchanged. `grok.toml` is based on the pinned
+file and contains one documented cmux precedence correction. The manifest
+engine, process discovery, state detector, and update logic are adapted for the
+cmux userland plugin contract. The source paths, pinned commit, license, and adaptations are recorded in
 `cmux-tui/bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md`.
 
 ---

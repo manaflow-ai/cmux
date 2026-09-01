@@ -1,5 +1,8 @@
 id = "grok"
-version = "2026.07.16.2"
+# Local patch 1: keep a static custom title from masking Grok's idle progress
+# signal. The numeric suffix is greater than the upstream version, so a
+# same-version remote manifest cannot silently replace this correction.
+version = "2026.07.16.2.1"
 min_engine_version = 3
 updated_at = "2026-07-16T00:00:00Z"
 aliases = ["grok-build"]
@@ -93,6 +96,16 @@ region = "osc_progress"
 visible_working = true
 regex = ['^4;1;-1$']
 
+# A braille spinner is explicit activity. It outranks an idle progress value
+# that the terminal may have retained from the previous screen update.
+[[rules]]
+id = "osc_title_spinner_working"
+state = "working"
+priority = 1160
+region = "osc_title"
+visible_working = true
+regex = ['[\x{2800}-\x{28FF}]']
+
 [[rules]]
 id = "osc_title_idle"
 state = "idle"
@@ -118,7 +131,9 @@ regex = ['\S']
 [[rules]]
 id = "osc_progress_idle"
 state = "idle"
-priority = 950
+# This is stronger than a generic custom title, but weaker than explicit
+# spinner or busy evidence above.
+priority = 1105
 region = "osc_progress"
 visible_idle = true
 regex = ['^4;0;0$']

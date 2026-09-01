@@ -5,8 +5,12 @@ The files under `manifests/` are derived from the herdr project:
 * Project: https://github.com/herdrdev/herdr
 * Source revision: `7b675f42af35508eab66ac42fe1598628597a893`
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
-* Unchanged vendored material: `manifests/*.toml`, copied from
-  `src/detect/manifests/`
+* Unchanged vendored material: 20 of the 21 `manifests/*.toml` files, copied
+  from `src/detect/manifests/`
+* Local correction: `manifests/grok.toml` keeps a static custom title from
+  masking Grok's idle OSC progress and adds an explicit spinner rule. Its
+  numeric patch version is `2026.07.16.2.1`; the upstream file is
+  `2026.07.16.2`.
 * Changes: cmux pins the files locally and validates them with its own
   bounded manifest engine. It does not use herdr's network update path.
 

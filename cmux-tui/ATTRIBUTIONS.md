@@ -8,12 +8,13 @@
   `bindings/examples/rust-agent-screen-detection/manifests/LICENSE`)
 - Pinned commit: `7b675f42af35508eab66ac42fe1598628597a893`
 
-Derived material and unchanged vendored material:
+Derived material and vendored material:
 
-- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: the 21
-  agent-detection manifests, vendored unchanged from `src/detect/manifests/`.
-  Never refresh them from herdr's update endpoint; re-vendor and bump the pin
-  instead.
+- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 20
+  agent-detection manifests vendored unchanged from `src/detect/manifests/`,
+  plus `grok.toml`, which carries a documented cmux precedence correction.
+  Never refresh them from herdr's update endpoint. Re-vendor the unchanged
+  files and reapply the documented Grok patch when bumping the pin.
 - `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
   manifest engine (rule grammar, region extraction, gate evaluation,
   validation limits), ported from `src/detect/manifest.rs`.
@@ -44,6 +45,9 @@ Derived material and unchanged vendored material:
   tree-order tie break are manaflow additions. The herdr idle-unseen seen bit
   is intentionally not copied because it is client-owned presentation state;
   the deliberate exclusion is listed in `spec/plugins.md`.
+- `bindings/examples/rust-agent-screen-detection/manifests/grok.toml`: the
+  local `2026.07.16.2.1` patch gives idle OSC progress precedence over a
+  generic custom title and keeps explicit braille-spinner activity stronger.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.

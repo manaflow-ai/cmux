@@ -265,9 +265,11 @@ The reference loader also caps an active set at 256 manifests, a source
 directory at 512 entries, and each manifest at 256 KiB before parsing.
 
 The herdr source and Apache-2.0 license attribution are listed in
-`cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. The
-vendored manifests are unchanged at the pinned commit. Files adapted from
-herdr carry the upstream path and pinned commit in their header.
+`cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. Twenty
+manifests are unchanged at the pinned commit. `grok.toml` carries one local
+precedence correction, documented in both attribution files and its manifest
+README. Files adapted from herdr carry the upstream path and pinned commit in
+their header.
 
 The reference package builds with Cargo `--locked`, so installation uses the
 checked-in dependency graph. Other plugins may choose another build tool, but
