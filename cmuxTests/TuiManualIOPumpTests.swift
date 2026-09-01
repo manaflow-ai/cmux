@@ -258,6 +258,23 @@ struct TuiManualIOPumpTests {
         #expect(text == "a\nb\n\(claim)c\nd\n")
     }
 
+    @Test
+    func stderrLineSplitterKeepsCompleteLinesAndTrailingPartialData() {
+        let data = Data("first\nsecond\npartial".utf8)
+        let split = splitTuiManualIOStderrLines(data)
+
+        #expect(split.completeLines == [Data("first".utf8), Data("second".utf8)])
+        #expect(split.remainder == Data("partial".utf8))
+    }
+
+    @Test
+    func stderrAccumulatorCanAppendAndReadTheTail() {
+        let box = TuiManualIOStderrBox()
+        box.append(Data("first\n".utf8))
+        box.append(Data("exit\n".utf8))
+
+        #expect(box.text() == "first\nexit\n")
+    }
     // MARK: - Registry
 
     @MainActor
