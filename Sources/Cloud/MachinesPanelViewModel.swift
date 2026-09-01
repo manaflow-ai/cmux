@@ -91,7 +91,20 @@ struct MachinePlanSnapshot: Equatable {
     var freeAccessBanner: FreeAccessBanner = .none
 
     var isAtLimit: Bool { activeCount >= maxActiveVms }
-    var isPaidPlan: Bool { planId != "free" }
+    /// Only plans the backend accepts for provisioning are paid. Unknown plan
+    /// ids fail closed here too, so a stale metadata value cannot hide the
+    /// upgrade affordance after the server returns `vm_requires_pro`.
+    var isPaidPlan: Bool { Self.isPaidPlanID(planId) }
+
+    static func isPaidPlanID(_ planId: String) -> Bool {
+        switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "pro", "team", "founders":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Single-machine plans (free) read "1 of 1 machine", never "machines".
     var isSingleMachinePlan: Bool { maxActiveVms == 1 }
 
@@ -280,7 +293,7 @@ enum MachineSnapshotBuilder {
         now: Date = Date()
     ) -> MachinePlanSnapshot? {
         guard let limits else { return nil }
-        let isPaidPlan = limits.planId != "free"
+        let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
         let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
         return MachinePlanSnapshot(
             activeCount: activeCount,
