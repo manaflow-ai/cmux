@@ -3,6 +3,7 @@ import CmuxTerminal
 import Foundation
 import GhosttyKit
 import Testing
+@preconcurrency import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -67,7 +68,7 @@ struct GhosttyDECCKMArrowKeyTests {
         // the routing decision; this byte-level integration path needs a live
         // surface to poll terminal text.
         guard hostedTerminal.surface.hasLiveSurface else {
-            try Test.cancel("Ghostty surface failed to initialize on this host; byte-level arrow routing is unavailable.")
+            throw XCTSkip("Ghostty surface failed to initialize on this host; byte-level arrow routing is unavailable.")
         }
 
         try installIsolatedEditingKeybinds(on: hostedTerminal.surface)
@@ -168,7 +169,7 @@ struct GhosttyDECCKMArrowKeyTests {
         // cover routing policy on headless runners, and this explicit skip keeps
         // the integration result honest when Metal is unavailable.
         guard hostedTerminal.surface.hasLiveSurface else {
-            try Test.cancel("Ghostty surface failed to initialize on this host; byte-level editing routing is unavailable.")
+            throw XCTSkip("Ghostty surface failed to initialize on this host; byte-level editing routing is unavailable.")
         }
         try installIsolatedEditingKeybinds(on: hostedTerminal.surface)
         #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
