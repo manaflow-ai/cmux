@@ -21,6 +21,9 @@ public actor TransportHost {
     /// every admission and renewal must carry that same account ID; returning
     /// nil fails closed as ``DenialCode/accountMismatch``.
     public typealias AccountIDProvider = @Sendable () async -> String?
+    /// Durable hook for explicit grant revocations. The host awaits this
+    /// callback before returning so a process restart cannot forget a revoke.
+    public typealias GrantRevocationHandler = @Sendable (String) async -> Void
 
     /// Supersession is keyed by (device ID, app identity), not by network key,
     /// so a reinstalled app with a freshly generated key still instantly
@@ -57,6 +60,7 @@ public actor TransportHost {
 
     private let verifier: GrantVerifier
     private let accountIDProvider: AccountIDProvider?
+    private let onGrantRevoked: GrantRevocationHandler?
     private let frameTypePolicy = FrameTypePolicy()
     /// 3.6d: how long past expiry a session survives awaiting renewal.
     private let expiryGraceSeconds: Int64
@@ -84,21 +88,26 @@ public actor TransportHost {
         epochNow: @escaping @Sendable () -> Int64 = {
             Int64(Date().timeIntervalSince1970)
         },
-        accountIDProvider: AccountIDProvider? = nil
+        accountIDProvider: AccountIDProvider? = nil,
+        initialRevokedGrantIDs: Set<String> = [],
+        onGrantRevoked: GrantRevocationHandler? = nil
     ) {
         self.verifier = verifier
         self.accountIDProvider = accountIDProvider
+        self.onGrantRevoked = onGrantRevoked
         self.expiryGraceSeconds = expiryGraceSeconds
         self.expiryWarningSeconds = expiryWarningSeconds
         self.epochNow = epochNow
+        self.revokedGrantIDs = initialRevokedGrantIDs
     }
 
-    public func revokeGrant(id: String) {
+    public func revokeGrant(id: String) async {
         if TransportDebugLog.enabled {
             TransportDebugLog.host.notice(
                 "host grant revoked id=\(TransportDebugLog.prefix(id), privacy: .public)")
         }
         revokedGrantIDs.insert(id)
+        await onGrantRevoked?(id)
     }
 
     /// Fault injection (harness spec 1.2): deny every admission with a fixed

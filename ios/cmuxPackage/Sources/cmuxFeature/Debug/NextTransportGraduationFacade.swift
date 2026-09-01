@@ -530,9 +530,16 @@ final class NextTransportGraduationFacade {
         do {
             let minted = try await mintBootstrap(client: client, identity: identity)
             guard !Task.isCancelled, probeGenerations[macID] == generation else { return }
-            await storeBootstrap(
+            guard await storeBootstrap(
                 macID: macID, ticket: minted.ticket, grant: minted.grant,
-                generation: generation)
+                generation: generation
+            ) else {
+                // A capability verdict is useful only when the credential
+                // pair survived protected persistence. Keep routing unknown
+                // so the legacy channel can retry instead of wedging on a
+                // `.next` value with no bootstrap behind it.
+                return
+            }
             guard !Task.isCancelled, probeGenerations[macID] == generation else { return }
             probedThisRun.insert(macID)
             setRouting(.next, macID: macID)
@@ -662,19 +669,24 @@ final class NextTransportGraduationFacade {
     /// the next request boots a fresh one from it.
     private func storeBootstrap(
         macID: String, ticket: String, grant: String, generation: UUID
-    ) async {
-        guard !Task.isCancelled, probeGenerations[macID] == generation else { return }
-        await persistBootstrap(macID: macID, ticket: ticket, grant: grant)
-        guard !Task.isCancelled, probeGenerations[macID] == generation else { return }
+    ) async -> Bool {
+        guard !Task.isCancelled, probeGenerations[macID] == generation else { return false }
+        guard await persistBootstrap(macID: macID, ticket: ticket, grant: grant) else {
+            probedThisRun.remove(macID)
+            if routing(macID: macID) == .next { setRouting(.unknown, macID: macID) }
+            return false
+        }
+        guard !Task.isCancelled, probeGenerations[macID] == generation else { return false }
         clientStartupTasks[macID]?.task.cancel()
         clientStartupTasks.removeValue(forKey: macID)
         let previous = clients.removeValue(forKey: macID)
         await previous?.disconnect()
+        return true
     }
 
     /// Persist-only write (also the hint-refresh path, where the LIVE dial
     /// client is mid-attempt and must not be dropped).
-    private func persistBootstrap(macID: String, ticket: String, grant: String) async {
+    private func persistBootstrap(macID: String, ticket: String, grant: String) async -> Bool {
         let bootstrap = Bootstrap(ticket: ticket, grant: grant)
         guard let data = try? JSONEncoder().encode(bootstrap) else {
             graduationLog.error(
@@ -682,16 +694,18 @@ final class NextTransportGraduationFacade {
                 persistBootstrap FAILED mac=\(String(macID.prefix(8)), privacy: .public): \
                 bootstrap did not encode
                 """)
-            return
+            return false
         }
-        Self.BootstrapKeychain.write(
+        guard Self.BootstrapKeychain.write(
             data, macID: macID, defaults: defaults, keyPrefix: Self.bootstrapKeyPrefix)
+        else { return false }
         graduationLog.notice(
             """
             bootstrap persisted mac=\(String(macID.prefix(8)), privacy: .public) \
             ticketBytes=\(ticket.utf8.count, privacy: .public) \
             grantBytes=\(grant.utf8.count, privacy: .public)
             """)
+        return true
     }
 
     private func storedBootstrap(macID: String) -> Bootstrap? {
@@ -730,14 +744,16 @@ final class NextTransportGraduationFacade {
 
         static func write(
             _ data: Data, macID: String, defaults: UserDefaults, keyPrefix: String
-        ) {
+        ) -> Bool {
             let account = accountPrefix + macID
             if writeKeychain(data, account: account) {
                 defaults.removeObject(forKey: keyPrefix + macID)
+                return true
             } else {
                 graduationLog.error(
                     "bootstrap Keychain write failed mac=\(String(macID.prefix(8)), privacy: .public); not writing defaults")
                 defaults.removeObject(forKey: keyPrefix + macID)
+                return false
             }
         }
 

@@ -127,6 +127,46 @@ enum NextTransportRelayPlan: Equatable {
     }
 }
 
+/// Device-only durable denylist for DEBUG next-transport grants. The actor
+/// serializes read/modify/write updates so concurrent revocations cannot
+/// overwrite one another, and caps retained IDs to keep the store bounded.
+private actor MobileHostNextTransportGrantRevocationStore {
+    private let keychain = CmxIrohKeychainCredentialStore(
+        service: "dev.cmux.nextTransport.revokedGrants")
+    private let account = "all"
+    private let maximumGrantIDs = 1_024
+
+    func load() async -> Set<String> {
+        do {
+            guard let data = try await keychain.read(account: account) else { return [] }
+            return Set(try JSONDecoder().decode([String].self, from: data))
+        } catch {
+            mobileHostNextTransportLog.error(
+                "next-transport grant revocation read failed: \(String(describing: error), privacy: .public)")
+            return []
+        }
+    }
+
+    func revoke(_ grantIDs: Set<String>) async {
+        guard !grantIDs.isEmpty else { return }
+        var all = await load()
+        all.formUnion(grantIDs)
+        if all.count > maximumGrantIDs {
+            all = Set(all.sorted().suffix(maximumGrantIDs))
+        }
+        do {
+            let data = try JSONEncoder().encode(all.sorted())
+            try await keychain.write(
+                data,
+                account: account,
+                accessibility: .afterFirstUnlockThisDeviceOnly)
+        } catch {
+            mobileHostNextTransportLog.error(
+                "next-transport grant revocation write failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+}
+
 /// Graduation P4 slice 2: the cmux-lite-proven transport running as a
 /// PARALLEL host inside the real Mac app — its own iroh endpoint, its own
 /// ALPN (`cmux/peer/1`), its own relay registration with zero-gap
@@ -179,6 +219,10 @@ final class MobileHostNextTransportRuntime {
     /// Keychain service holding the last-good relay credential cache.
     private static let credentialCacheService = "dev.cmux.nextTransport.relayCredentials"
     private static let credentialCacheAccount = "last-good"
+    /// Grants are intentionally finite-lived even though the signer persists;
+    /// a stale phone must eventually re-pair rather than retain permanent
+    /// access to the bridged application surface.
+    private static let grantLifetimeSeconds: Int64 = 86_400
 
     /// Legacy UserDefaults keys (pre-Keychain). Private keys migrate out of
     /// these exactly once (read old → write Keychain → delete old); the
@@ -207,6 +251,9 @@ final class MobileHostNextTransportRuntime {
     private var serveTasks: [UInt64: Task<Void, Never>] = [:]
     private var serveTaskCounter: UInt64 = 0
     private var credentialClient: BrokerCredentialClient?
+    private let grantRevocationStore = MobileHostNextTransportGrantRevocationStore()
+    private var grantRevocationTask: Task<Void, Never>?
+    private var issuedGrantIDs: Set<String> = []
     /// Single owner for enable/disable races: every start belongs to one
     /// generation, disable bumps it, and every post-await step re-checks it,
     /// so a stale start can never publish (or clobber a newer one).
@@ -306,6 +353,16 @@ final class MobileHostNextTransportRuntime {
         credentialTask = nil
         for task in serveTasks.values { task.cancel() }
         serveTasks.removeAll()
+        let grantsToRevoke = issuedGrantIDs
+        issuedGrantIDs.removeAll()
+        if !grantsToRevoke.isEmpty {
+            let store = grantRevocationStore
+            let previous = grantRevocationTask
+            grantRevocationTask = Task {
+                await previous?.value
+                await store.revoke(grantsToRevoke)
+            }
+        }
         MobileHostService.shared.updateNextTransportRoute(nil)
         mobileHostNextTransportLog.notice("presence route CLEARED")
         let closing = endpoint
@@ -433,12 +490,14 @@ final class MobileHostNextTransportRuntime {
                 "grant mint refused: no authenticated account")
             return .failure(.notReady(readiness: readiness, state: state))
         }
+        let issuedAt = Int64(Date().timeIntervalSince1970)
         guard
             let grant = try? signer.mint(
                 accountID: accountID, deviceID: deviceID,
                 devicePublicKey: devicePublicKey, appIdentity: appIdentity,
                 grantID: "g-dev-\(UUID().uuidString.prefix(8))",
-                issuedAt: Int64(Date().timeIntervalSince1970)),
+                issuedAt: issuedAt,
+                expiresAt: issuedAt + Self.grantLifetimeSeconds),
             let data = try? JSONEncoder().encode(JSONValue.object(["grant": grant.payloadValue])),
             let json = String(data: data, encoding: .utf8)
         else {
@@ -449,6 +508,7 @@ final class MobileHostNextTransportRuntime {
                 """)
             return .failure(.encodingFailed("grant"))
         }
+        issuedGrantIDs.insert(grant.grantID)
         mobileHostNextTransportLog.notice(
             """
             grant minted device=\(String(deviceID.prefix(8)), privacy: .public) \
@@ -457,6 +517,18 @@ final class MobileHostNextTransportRuntime {
             key=\(devicePublicKey.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
             """)
         return .success(json)
+    }
+
+    /// Explicitly revokes one issued grant and records the denylist in the
+    /// device-only store. This seam is used by future unpair/debug controls;
+    /// stop and account transitions revoke all grants issued by this runtime.
+    func revokeGrant(id: String) async {
+        issuedGrantIDs.insert(id)
+        if let host {
+            await host.revokeGrant(id: id)
+        } else {
+            await grantRevocationStore.revoke([id])
+        }
     }
 
     // MARK: - Startup (cache-first, register-when-ready)
@@ -476,6 +548,8 @@ final class MobileHostNextTransportRuntime {
                     "host start deferred: no authenticated account")
                 return
             }
+            await grantRevocationTask?.value
+            let revokedGrantIDs = await grantRevocationStore.load()
             // Keys live in the Keychain (one-time migration from the legacy
             // UserDefaults copies); identity is stable per install, separate
             // from the legacy transport's identity (parallel hosts, parallel
@@ -485,10 +559,15 @@ final class MobileHostNextTransportRuntime {
             let signer = await Self.loadOrCreateSigner()
             guard generation == gen else { return }
             self.signer = signer
+            let revocationStore = grantRevocationStore
             let host = TransportHost(
                 verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
                 accountIDProvider: {
                     await MobileHostService.shared.currentAuthenticatedLocalUserID()
+                },
+                initialRevokedGrantIDs: revokedGrantIDs,
+                onGrantRevoked: { id in
+                    await revocationStore.revoke([id])
                 })
             self.host = host
 

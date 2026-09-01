@@ -235,7 +235,7 @@ struct cmuxApp: App {
         #else
         let nextTransportProbe: MobileShellComposite.NextTransportBootstrapProbe? = nil
         #endif
-        CMUXMobileRootScene(
+        return CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
             reachability: Self.root.reachability,

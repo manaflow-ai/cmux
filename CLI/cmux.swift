@@ -4319,15 +4319,6 @@ struct CMUXCLI {
                 ))
             return
         }
-        if FileManager.default.fileExists(atPath: outputURL.path),
-            (try? outputURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
-        {
-            throw CLIError(
-                message: String(
-                    localized: "cli.nextTransport.outputSymlink",
-                    defaultValue: "Refusing to write pairing material through a symbolic link."
-                ))
-        }
         guard let data = response.data(using: .utf8) else {
             throw CLIError(
                 message: String(
@@ -4336,11 +4327,9 @@ struct CMUXCLI {
                 ))
         }
         do {
-            try data.write(to: outputURL, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: NSNumber(value: 0o600)],
-                ofItemAtPath: outputURL.path)
+            try writePrivateNextTransportMaterial(data, to: outputURL)
         } catch {
+            if let error = error as? CLIError { throw error }
             throw CLIError(
                 message: String(
                     localized: "cli.nextTransport.outputWriteFailed",
@@ -4352,6 +4341,82 @@ struct CMUXCLI {
                 localized: "cli.nextTransport.materialWritten",
                 defaultValue: "Pairing material written to \(outputURL.path)."
             ))
+    }
+
+    /// Writes through a uniquely-created 0600 temporary file and atomically
+    /// renames it into place. Creating the descriptor with its final mode
+    /// avoids the world-readable interval that follows `Data.write` before a
+    /// later chmod, and `lstat` rejects both live and dangling symlinks.
+    private func writePrivateNextTransportMaterial(_ data: Data, to outputURL: URL) throws {
+        let temporaryURL = outputURL.deletingLastPathComponent()
+            .appendingPathComponent(
+                "." + outputURL.lastPathComponent + "." + UUID().uuidString + ".tmp")
+        let descriptor = Darwin.open(
+            temporaryURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        guard descriptor >= 0 else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.nextTransport.outputWriteFailed",
+                    defaultValue: "Unable to write pairing material."
+                ))
+        }
+        var descriptorOpen = true
+        var renamed = false
+        defer {
+            if descriptorOpen { _ = Darwin.close(descriptor) }
+            if !renamed { _ = Darwin.unlink(temporaryURL.path) }
+        }
+
+        let bytes = [UInt8](data)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBytes { buffer in
+                Darwin.write(
+                    descriptor,
+                    buffer.baseAddress!.advanced(by: offset),
+                    bytes.count - offset
+                )
+            }
+            guard written > 0 else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.nextTransport.outputWriteFailed",
+                        defaultValue: "Unable to write pairing material."
+                    ))
+            }
+            offset += written
+        }
+        guard Darwin.fsync(descriptor) == 0, Darwin.close(descriptor) == 0 else {
+            descriptorOpen = false
+            throw CLIError(
+                message: String(
+                    localized: "cli.nextTransport.outputWriteFailed",
+                    defaultValue: "Unable to write pairing material."
+                ))
+        }
+        descriptorOpen = false
+
+        var destinationStat = stat()
+        if lstat(outputURL.path, &destinationStat) == 0,
+            (destinationStat.st_mode & S_IFMT) == S_IFLNK
+        {
+            throw CLIError(
+                message: String(
+                    localized: "cli.nextTransport.outputSymlink",
+                    defaultValue: "Refusing to write pairing material through a symbolic link."
+                ))
+        }
+        guard rename(temporaryURL.path, outputURL.path) == 0 else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.nextTransport.outputWriteFailed",
+                    defaultValue: "Unable to write pairing material."
+                ))
+        }
+        renamed = true
     }
 
     let args: [String]

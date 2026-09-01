@@ -1322,6 +1322,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var connectionAttemptGeneration: UUID
     private let nextTransportBootstrapProbe: NextTransportBootstrapProbe?
     private var nextTransportBootstrapProbeTask: Task<Void, Never>?
+    /// A healthy connection gets at most one capability probe. Server-event
+    /// envelopes arrive at terminal frame rate; tying this marker to the
+    /// connection generation keeps that hot path allocation-free after the
+    /// initial probe while still retrying on a genuinely new connection.
+    private var nextTransportBootstrapProbeGeneration: UUID?
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
@@ -1805,6 +1810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.nextTransportBootstrapProbe = nextTransportBootstrapProbe
         self.nextTransportBootstrapProbeTask = nil
+        self.nextTransportBootstrapProbeGeneration = nil
         self.pairedMacStore = pairedMacStore
         self.connectionMethodStore = connectionMethodStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
@@ -10469,6 +10475,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func cancelNextTransportBootstrapProbe() {
         nextTransportBootstrapProbeTask?.cancel()
         nextTransportBootstrapProbeTask = nil
+        nextTransportBootstrapProbeGeneration = nil
     }
     #endif
 
@@ -11316,7 +11323,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let macDeviceID = activeTicket?.macDeviceID
         {
             let generation = connectionGeneration
-            if nextTransportBootstrapProbeTask == nil {
+            if nextTransportBootstrapProbeGeneration != generation {
+                nextTransportBootstrapProbeGeneration = generation
                 nextTransportBootstrapProbeTask = Task { [weak self] in
                     await probe(client, macDeviceID, generation)
                     guard !Task.isCancelled else { return }

@@ -483,7 +483,12 @@ public actor ReconnectOwner {
         }
         await apply(machine.handle(.remoteClosed(CloseReason(origin: .remote, code: code))))
         if willAutoRedial {
-            await apply(machine.handle(.dialRequested(.automatic(trigger: "connection-ended"))))
+            // A peer can admit and then immediately close (for example when
+            // the bridge loses its current application owner). Route that
+            // path through the same capped backoff as transport failures;
+            // triggering an automatic dial inline would create an admit/close
+            // tight loop with no scheduling boundary.
+            scheduleRedial()
         }
     }
 }
