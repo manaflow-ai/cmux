@@ -480,6 +480,66 @@ func TestTmuxDisplayReporterFormatFields(t *testing.T) {
 	assertTmuxFieldMatch(t, values["session_attached"], `^[01]$`, "session_attached")
 }
 
+func TestTmuxCompatReadOnlyProbesAgainstRunningSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CMUX_WORKSPACE_ID", "workspace:1")
+	t.Setenv("CMUX_SURFACE_ID", "surface:1")
+	t.Setenv("TMUX_PANE", "%"+tmuxStableNumericId("33333333-3333-4333-8333-333333333333"))
+
+	sockPath := startMockTmuxCompatSocket(t)
+	tests := []struct {
+		name        string
+		args        []string
+		wantOutput  string
+		checkOutput bool
+	}{
+		{
+			name: "global options",
+			args: []string{"show-options", "-g"},
+		},
+		{
+			name:        "session name short format",
+			args:        []string{"display-message", "-p", "#S"},
+			wantOutput:  "cmux\n",
+			checkOutput: true,
+		},
+		{
+			name:        "window index short format",
+			args:        []string{"display-message", "-p", "#I"},
+			wantOutput:  "1\n",
+			checkOutput: true,
+		},
+		{
+			name:        "window name short format",
+			args:        []string{"display-message", "-p", "#W"},
+			wantOutput:  "demo\n",
+			checkOutput: true,
+		},
+		{
+			name:        "pane index short format",
+			args:        []string{"display-message", "-p", "#P"},
+			wantOutput:  "1\n",
+			checkOutput: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var exitCode int
+			output := captureStdout(t, func() {
+				args := append([]string{"--socket", sockPath, "__tmux-compat"}, tt.args...)
+				exitCode = runCLI(args)
+			})
+			if exitCode != 0 {
+				t.Fatalf("cmux __tmux-compat %v exited %d, want 0", tt.args, exitCode)
+			}
+			if tt.checkOutput && output != tt.wantOutput {
+				t.Fatalf("cmux __tmux-compat %v output = %q, want %q", tt.args, output, tt.wantOutput)
+			}
+		})
+	}
+}
+
 func assertTmuxFieldMatch(t *testing.T, got string, pattern string, field string) {
 	t.Helper()
 	if !regexp.MustCompile(pattern).MatchString(got) {
