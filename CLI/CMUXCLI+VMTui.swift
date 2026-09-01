@@ -783,9 +783,17 @@ extension CMUXCLI {
 
     static let vmTerminalUsage = """
         Usage:
+          cmux vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>]
+                                                              Type text into the terminal (as-is, no newline), then press
+                                                              named keys: enter, tab, escape, ctrl-c, up, down… Nothing is
+                                                              attached or focused. `--keys enter` alone presses Enter.
+          cmux vm terminal read <machine> <terminal-id>       Print the terminal's visible screen (--json adds cursor/size).
+          cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
+                                                              Block until the screen matches (default 30 s); exit 1 on timeout.
           cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
 
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
+        A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
         """
 
     /// `cmux vm workspace new|open|rename|close|rm`: the sidebar's workspace verbs over the
@@ -864,17 +872,69 @@ extension CMUXCLI {
         }
     }
 
-    /// `cmux vm terminal close`: the sidebar's × over `vm.terminal_close`.
+    /// `cmux vm terminal close|send|read|wait`: the sidebar's × over `vm.terminal_close`,
+    /// plus the headless agent primitives (`vm.terminal_write|read|wait`) that drive a
+    /// machine terminal without projecting a pane.
     func runVMTerminalCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
             print(Self.vmTerminalUsage)
             return
         }
-        let positional = rest.filter { !$0.hasPrefix("-") }
-        guard positional.count >= 3, positional[0] == "close" else { throw CLIError(message: Self.vmTerminalUsage) }
-        let response = try client.sendV2(method: "vm.terminal_close", params: ["id": positional[1], "terminal_id": positional[2]], responseTimeout: 120)
-        if jsonOutput { print(jsonString(response)); return }
-        print("OK closed terminal \(positional[2]) on \(positional[1])")
+        let verb = rest[0]
+        let (keysOpt, r1) = parseOption(Array(rest.dropFirst()), name: "--keys")
+        let (patternOpt, r2) = parseOption(r1, name: "--pattern")
+        let (timeoutOpt, r3) = parseOption(r2, name: "--timeout")
+        if let unknown = r3.first(where: { $0.hasPrefix("-") && $0 != "--json" }) {
+            throw CLIError(message: "vm terminal: unknown flag '\(unknown)'\n\n\(Self.vmTerminalUsage)")
+        }
+        let positional = r3.filter { $0 != "--json" }
+        guard positional.count >= 2 else { throw CLIError(message: Self.vmTerminalUsage) }
+        let machine = positional[0]
+        let terminalID = positional[1]
+        switch verb {
+        case "close":
+            let response = try client.sendV2(method: "vm.terminal_close", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK closed terminal \(terminalID) on \(machine)")
+        case "send", "write":
+            let text = positional.dropFirst(2).joined(separator: " ")
+            let keys = (keysOpt ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard !text.isEmpty || !keys.isEmpty else {
+                throw CLIError(message: "vm terminal send: give text and/or --keys (e.g. --keys enter)\n\n\(Self.vmTerminalUsage)")
+            }
+            var params: [String: Any] = ["id": machine, "terminal_id": terminalID]
+            if !text.isEmpty { params["text"] = text }
+            if !keys.isEmpty { params["keys"] = keys }
+            let response = try client.sendV2(method: "vm.terminal_write", params: params, responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            let wrote = (response["wrote"] as? Int) ?? 0
+            print("OK sent \(wrote) char\(wrote == 1 ? "" : "s")\(keys.isEmpty ? "" : " + keys " + keys.joined(separator: ",")) to \(terminalID) on \(machine)")
+        case "read", "screen":
+            let response = try client.sendV2(method: "vm.terminal_read", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print((response["text"] as? String) ?? "")
+        case "wait":
+            guard let pattern = patternOpt, !pattern.isEmpty else {
+                throw CLIError(message: "vm terminal wait: --pattern <regex> is required\n\n\(Self.vmTerminalUsage)")
+            }
+            let seconds = timeoutOpt.flatMap { Double($0) } ?? 30
+            guard seconds > 0 else { throw CLIError(message: "vm terminal wait: --timeout must be a positive number of seconds") }
+            let timeoutMs = Int(seconds * 1000)
+            let response = try client.sendV2(
+                method: "vm.terminal_wait",
+                params: ["id": machine, "terminal_id": terminalID, "pattern": pattern, "timeout_ms": timeoutMs],
+                responseTimeout: TimeInterval(seconds + 20)
+            )
+            if jsonOutput { print(jsonString(response)); return }
+            let matched = (response["matched"] as? Bool) ?? false
+            if matched {
+                print("OK matched /\(pattern)/ on \(terminalID)")
+            } else {
+                throw CLIError(message: "timed out after \(Int(seconds))s waiting for /\(pattern)/ on \(terminalID) (screen: \(((response["text"] as? String) ?? "").suffix(200)))")
+            }
+        default:
+            throw CLIError(message: "vm terminal: unknown verb '\(verb)'\n\n\(Self.vmTerminalUsage)")
+        }
     }
 
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
