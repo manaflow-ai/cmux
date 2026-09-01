@@ -827,7 +827,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // route to top-level whole-group plans and are rejected cross-window.
         guard rows.indices.contains(row), let actions else { return nil }
         let rowConfiguration = rows[row]
-        let workspaceId = actions.workspaceIdForDrag(rowConfiguration.id, rowConfiguration.workspaceId)
+        let workspaceId = actions.workspaceIdForDrag(rowConfiguration.groupId, rowConfiguration.workspaceId)
         actions.beginWorkspaceDrag(workspaceId)
         workspaceDragSessionDidBegin()
         let item = NSPasteboardItem()
@@ -857,7 +857,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             guard rows.indices.contains(row) else { return }
             let rowConfiguration = rows[row]
             let workspaceId = actions?.workspaceIdForDrag(
-                rowConfiguration.id,
+                rowConfiguration.groupId,
                 rowConfiguration.workspaceId
             ) ?? rowConfiguration.workspaceId
             let count = actions?.movingWorkspaceCount?(workspaceId) ?? 1
