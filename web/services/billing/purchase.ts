@@ -28,6 +28,7 @@ import {
   PRO_PLAN_ID,
   type ProMetadataJson,
   TEAM_PLAN_ID,
+  hasFounderEditionEntitlement,
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
@@ -2015,6 +2016,7 @@ export async function applySubscriptionUpdate(
   );
   if ("skipped" in lockedResult) return { skipped: true };
 
+  let effectiveIsActive = isActive;
   await syncStackUserMetadataWithAccountDeletionGuard({
     db,
     stackUserId: lockedResult.stackUserId,
@@ -2023,13 +2025,15 @@ export async function applySubscriptionUpdate(
       // A recurring Pro cancellation must not clear the shared metadata marker
       // while a separate paid Founder row still grants permanent access.
       const founderEntitlementActive = !isActive &&
-        await hasActiveFounderSubscription(db, lockedResult.stackUserId);
+        (hasFounderEditionEntitlement(freshUser.clientReadOnlyMetadata) ||
+          await hasActiveFounderSubscription(db, lockedResult.stackUserId));
+      effectiveIsActive = isActive || founderEntitlementActive;
       const currentMetadata = await syncProPlanMetadata(
         freshUser,
-        isActive || founderEntitlementActive,
+        effectiveIsActive,
         mutationLease,
       );
-      if (!isActive) {
+      if (!effectiveIsActive) {
         await removeUserFromTestflightOnLapse(
           freshUser,
           lockedResult.stackUserId,
@@ -2040,7 +2044,11 @@ export async function applySubscriptionUpdate(
       }
     },
   });
-  return { scope: "user", stackUserId: lockedResult.stackUserId, isActive };
+  return {
+    scope: "user",
+    stackUserId: lockedResult.stackUserId,
+    isActive: effectiveIsActive,
+  };
 }
 
 function isAccountDeletionInProgress(user: StackBillingUser): boolean {

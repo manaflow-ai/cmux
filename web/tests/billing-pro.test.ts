@@ -541,4 +541,15 @@ describe("isTestflightEligible", () => {
       }),
     ).resolves.toBe(true);
   });
+
+  test("honors a non-Founder VM override over a Founder row", async () => {
+    const user = metadataUser({ cmuxVmPlan: "free" }, "founder-row-overridden");
+
+    await expect(
+      isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => true,
+      }),
+    ).resolves.toBe(false);
+  });
 });

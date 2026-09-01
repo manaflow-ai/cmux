@@ -25,6 +25,7 @@ import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
+  isFounderSubscriptionRaw,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   resolveProPlanStatus,
@@ -167,8 +168,8 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
       ),
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(1);
-  return rows[0] ?? null;
+    .limit(100);
+  return rows.find((row) => !isFounderSubscriptionRaw(row.raw)) ?? null;
 }
 
 async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promise<StripeSubscriptionRow | null> {

@@ -469,15 +469,17 @@ export async function isTestflightEligible(
   } = {},
 ): Promise<boolean> {
   if (!user.id) return false;
-  if (hasFounderEditionEntitlement(user.clientReadOnlyMetadata)) return true;
+  const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
+  const hasExplicitVmOverride = hasManualVmOverride(metadata);
+  if (hasFounderEditionEntitlement(metadata)) return true;
   if (options.hasActiveStripeSubscription) {
     if (await options.hasActiveStripeSubscription(user.id)) return true;
-    return options.hasActiveFounderSubscription
+    return !hasExplicitVmOverride && options.hasActiveFounderSubscription
       ? options.hasActiveFounderSubscription(user.id)
       : false;
   }
   const state = await activeStripeSubscriptionState(user.id);
-  return state.regular || state.founder;
+  return state.regular || (!hasExplicitVmOverride && state.founder);
 }
 
 export function metadataPlanId(raw: unknown): string | null {
