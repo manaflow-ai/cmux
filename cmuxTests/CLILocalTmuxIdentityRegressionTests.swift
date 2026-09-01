@@ -4,8 +4,7 @@ import XCTest
 extension CLINotifyProcessIntegrationRegressionTests {
     func testLocalTmuxOldUUIDCannotControlReplacementSession() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-replacement-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("replacement")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let mutationLogURL = root.appendingPathComponent("mutations.log", isDirectory: false)
         let registryURL = root.appendingPathComponent("sessions.json", isDirectory: false)
@@ -126,8 +125,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxDuplicateRegistryNamesFailWithoutTrap() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-duplicate-state-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("duplicate-state")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let registryURL = root.appendingPathComponent("sessions.json", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -177,8 +175,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxListBindsLegacyRecordToLiveIdentity() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-legacy-identity-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("legacy-identity")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let registryURL = root.appendingPathComponent("sessions.json", isDirectory: false)
         let logicalID = UUID()
@@ -240,8 +237,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxAttachReconcilesRenamedSessionByBinding() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-renamed-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("renamed")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let registryURL = root.appendingPathComponent("sessions.json", isDirectory: false)
         let logicalID = UUID()

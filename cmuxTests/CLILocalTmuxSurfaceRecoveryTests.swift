@@ -4,8 +4,7 @@ import XCTest
 extension CLINotifyProcessIntegrationRegressionTests {
     func testLocalTmuxAttachCreatesSurfaceAfterPersistedSurfaceDisappears() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-surface-recovery-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("surface-recovery")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let registryURL = root.appendingPathComponent("sessions.json", isDirectory: false)
         let socketPath = makeSocketPath("local-tmux-surface-recovery")

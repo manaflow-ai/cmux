@@ -52,8 +52,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Requires a system tmux binary; skipping durable-server lifecycle coverage."
         )
         let tmux = try XCTUnwrap(tmuxPath)
-        let stateRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-\(UUID().uuidString)", isDirectory: true)
+        let stateRoot = makeLocalTmuxTestRoot("lifecycle")
         let sessionName = "regression-\(UUID().uuidString.prefix(8))"
         try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: stateRoot) }
@@ -116,8 +115,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testLocalTmuxCleanupPreservesRegistryWhenListingFails() throws {
         let cliPath = try bundledCLIPath()
-        let stateRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-cleanup-\(UUID().uuidString)", isDirectory: true)
+        let stateRoot = makeLocalTmuxTestRoot("cleanup")
         let fakeTmuxURL = stateRoot.appendingPathComponent("fake-tmux", isDirectory: false)
         let sessionName = "cleanup-\(UUID().uuidString.prefix(8))"
         try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
@@ -187,8 +185,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testLocalTmuxCleanupRequiresPruneAndHandlesStoppedServer() throws {
         let cliPath = try bundledCLIPath()
-        let stateRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-prune-\(UUID().uuidString)", isDirectory: true)
+        let stateRoot = makeLocalTmuxTestRoot("prune")
         let fakeTmuxURL = stateRoot.appendingPathComponent("fake-tmux", isDirectory: false)
         let sessionName = "prune-\(UUID().uuidString.prefix(8))"
         try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
@@ -10119,6 +10116,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let url = directory.appendingPathComponent("agent.sock")
         try createExistingFile(at: url)
         return url.path
+    }
+
+    /// Returns a unique short root so local-tmux fixture sockets stay below
+    /// Darwin's AF_UNIX path-length limit on CI runners with long temp paths.
+    func makeLocalTmuxTestRoot(_ label: String) -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-lt-\(label)-\(UUID().uuidString)", isDirectory: true)
     }
 
     private func makeTemporaryDirectory(prefix: String) throws -> URL {

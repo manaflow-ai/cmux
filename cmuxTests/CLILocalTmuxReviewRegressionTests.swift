@@ -64,8 +64,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxDirectoryOverrideIsRejectedAsMissingExecutable() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-directory-bin-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("directory-bin")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -90,8 +89,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxDetachedTakesPrecedenceOverHeadless() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-detached-headless-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("detached-headless")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -131,8 +129,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxStaleWorkspaceIdentityDoesNotMatchMutableHints() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-stale-workspace-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("stale-workspace")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let socketPath = makeSocketPath("local-tmux-stale")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -242,8 +239,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxListFailsClosedOnUnexpectedServerError() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-list-error-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("list-error")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -272,8 +268,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxExistingSessionDoesNotRequireCallerWorkingDirectory() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-existing-cwd-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("existing-cwd")
         let doomedCwd = root.appendingPathComponent("deleted-cwd", isDirectory: true)
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let wrapperURL = root.appendingPathComponent("delete-cwd-and-exec", isDirectory: false)
@@ -342,8 +337,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxWorkspaceRefResolvesAcrossWindows() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-cross-window-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("cross-window")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         let socketPath = makeSocketPath("local-tmux-window")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -447,8 +441,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     func testLocalTmuxInvalidSessionNamesFailThroughCLI() throws {
         let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-local-tmux-invalid-name-\(UUID().uuidString)", isDirectory: true)
+        let root = makeLocalTmuxTestRoot("invalid-name")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
