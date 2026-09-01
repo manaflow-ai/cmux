@@ -136,18 +136,20 @@ public struct GrantSigner: Sendable {
     }
 
     public init(privateKeyData: Data) {
-        self.privateKeyData = privateKeyData
+        // Persisted key bytes are external state. Recover with a fresh signer
+        // when a restore/migration yields truncated data; never crash while
+        // computing the public verification key.
+        self.privateKeyData = (try? Curve25519.Signing.PrivateKey(
+            rawRepresentation: privateKeyData))?.rawRepresentation
+            ?? Curve25519.Signing.PrivateKey().rawRepresentation
     }
 
     /// Fails CLOSED, like `mint`: a signer whose key bytes do not parse must
     /// never quietly hand out an empty pinned key (an empty verifier key
     /// rejects every grant with invalid-signature and no clue why).
     public var publicKeyData: Data {
-        guard let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData)
-        else {
-            preconditionFailure("GrantSigner.privateKeyData is not a valid Curve25519 key")
-        }
-        return key.publicKey.rawRepresentation
+        (try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData))?
+            .publicKey.rawRepresentation ?? Data()
     }
 
     public func mint(

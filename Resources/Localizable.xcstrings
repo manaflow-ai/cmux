@@ -39284,6 +39284,23 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ペアリング情報を書き込めません。" } }
       }
     },
+    "cli.nextTransport.argumentUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next-transport identity arguments cannot contain whitespace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポートの識別子引数に空白を含めることはできません。"
+          }
+        }
+      }
+    },
     "cli.nextTransport.grantUnavailable": {
       "extractionState": "manual",
       "localizations": {

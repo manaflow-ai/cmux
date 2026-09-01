@@ -329,7 +329,21 @@ final class MobileHostService {
         now: Date = Date()
     ) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
-        payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        let legacyCompatibleRoutes = routes.filter { $0.kind != .nextTransport }
+        payload["routes"] = legacyCompatibleRoutes.mobileHostJSONObjects(
+            for: .authenticated,
+            at: now
+        )
+        // Additive field for clients that understand the graduation route. It
+        // deliberately stays out of `routes`: older Codable clients reject an
+        // unknown enum case for the entire array rather than dropping one item.
+        if let nextRoute = MobileHostPublicStatusCache.nextTransportSnapshot(),
+            let encodedNextRoute = [nextRoute]
+                .mobileHostJSONObjects(for: .authenticated, at: now)
+                .first
+        {
+            payload["next_transport_route"] = encodedNextRoute
+        }
         payload["capabilities"] = applyingDebugCapabilitySuppressions(
             mobileHostCapabilities
                 + additionalCapabilities

@@ -546,6 +546,32 @@ private func profile(
     #expect(routes[2].priority == 30)
 }
 
+@Test func attachTicketDropsUnknownRouteButKeepsLegacyRoutes() throws {
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "routes": [
+        {
+          "id": "future",
+          "kind": "future_transport",
+          "endpoint": { "type": "peer", "id": "\(canonicalEndpointID)" }
+        },
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": { "type": "host_port", "host": "100.64.1.2", "port": 49831 }
+        }
+      ]
+    }
+    """.utf8)
+
+    let ticket = try JSONDecoder().decode(CmxAttachTicket.self, from: data)
+    #expect(ticket.routes.map(\.kind) == [.tailscale])
+}
+
 @Test func nextTransportRouteIsNeverPreferredByLegacySupportedKinds() throws {
     let ticket = try CmxAttachTicket(
         workspaceID: "workspace-1",

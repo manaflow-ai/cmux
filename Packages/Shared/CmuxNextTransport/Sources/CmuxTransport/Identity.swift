@@ -23,7 +23,13 @@ public struct PeerIdentity: Sendable, Equatable {
     public init(appIdentity: String, deviceID: String, privateKeyData: Data) {
         self.appIdentity = appIdentity
         self.deviceID = deviceID
-        self.privateKeyData = privateKeyData
+        // Keychain/legacy migration data is external state. If it is truncated
+        // or otherwise malformed, replace it with a fresh valid key so callers
+        // fail closed at admission rather than trapping the process while
+        // reading `publicKeyData`.
+        self.privateKeyData = (try? Curve25519.Signing.PrivateKey(
+            rawRepresentation: privateKeyData))?.rawRepresentation
+            ?? Curve25519.Signing.PrivateKey().rawRepresentation
     }
 
     public static func generate(appIdentity: String, deviceID: String) -> PeerIdentity {
@@ -39,11 +45,8 @@ public struct PeerIdentity: Sendable, Equatable {
     /// bytes are locally owned state, so failing to parse them is a
     /// programming or storage-corruption error, not an input error.
     public var publicKeyData: Data {
-        guard let key = try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData)
-        else {
-            preconditionFailure("PeerIdentity.privateKeyData is not a valid Curve25519 key")
-        }
-        return key.publicKey.rawRepresentation
+        (try? Curve25519.Signing.PrivateKey(rawRepresentation: privateKeyData))?
+            .publicKey.rawRepresentation ?? Data()
     }
 
     public func sign(_ message: Data) throws -> Data {

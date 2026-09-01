@@ -4295,6 +4295,13 @@ struct CMUXCLI {
                 outputURL = URL(fileURLWithPath: rawArguments[index + 1])
                 index += 2
             } else {
+                guard !argument.contains(where: \.isWhitespace) else {
+                    throw CLIError(
+                        message: String(
+                            localized: "cli.nextTransport.argumentUsage",
+                            defaultValue: "Next-transport identity arguments cannot contain whitespace."
+                        ))
+                }
                 arguments.append(argument)
                 index += 1
             }

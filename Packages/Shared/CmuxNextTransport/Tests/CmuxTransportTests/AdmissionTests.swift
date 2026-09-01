@@ -116,6 +116,19 @@ struct AdmissionTests {
                 expectedAccountID: "acct-2"
             ) == .deny(.accountMismatch))
     }
+
+    @Test("Malformed persisted key bytes recover to a valid local identity")
+    func malformedKeyBytesDoNotTrap() {
+        let identity = PeerIdentity(
+            appIdentity: "dev.cmux.lite",
+            deviceID: "phone-1",
+            privateKeyData: Data([0x01, 0x02]))
+        let signer = GrantSigner(privateKeyData: Data([0x03, 0x04]))
+        #expect(identity.privateKeyData.count == 32)
+        #expect(identity.publicKeyData.count == 32)
+        #expect(signer.privateKeyData.count == 32)
+        #expect(signer.publicKeyData.count == 32)
+    }
 }
 
 extension AdmissionTests {

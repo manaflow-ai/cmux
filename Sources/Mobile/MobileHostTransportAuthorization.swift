@@ -340,6 +340,15 @@ enum MobileHostPublicStatusCache {
         return mergedRoutesLocked()
     }
 
+    /// Returns the experimental route separately from the legacy `routes`
+    /// array. Older clients decode that array strictly, so the DEBUG route is
+    /// exposed only as an additive top-level field on authenticated status.
+    static func nextTransportSnapshot() -> CmxAttachRoute? {
+        lock.lock()
+        defer { lock.unlock() }
+        return nextTransportRoute
+    }
+
     static func hasIrohRoute() -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -371,6 +380,10 @@ enum MobileHostPublicStatusCache {
 
     private static func mergedRoutesLocked() -> [CmxAttachRoute] {
         let routes = irohRoute.map { [$0] } ?? []
-        return routes + legacyRoutes + (nextTransportRoute.map { [$0] } ?? [])
+        // Keep the legacy array wire-compatible with pre-graduation clients.
+        // `nextTransportRoute` is published separately by authenticated
+        // status; putting it here would make an old Codable decoder reject the
+        // entire route list on an unknown enum case.
+        return routes + legacyRoutes
     }
 }

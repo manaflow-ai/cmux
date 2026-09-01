@@ -264,6 +264,16 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         case camelCase = "authToken"
     }
 
+    /// Per-entry lossy wrapper keeps a newly-added route kind from invalidating
+    /// the legacy routes that an older client can still use.
+    private struct FailableRoute: Decodable {
+        let value: CmxAttachRoute?
+
+        init(from decoder: any Decoder) {
+            value = try? CmxAttachRoute(from: decoder)
+        }
+    }
+
     public let version: Int
     public let workspaceID: String
     public let terminalID: String?
@@ -306,7 +316,8 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             ),
             macAppVersion: container.decodeIfPresent(String.self, forKey: .macAppVersion),
             macAppBuild: container.decodeIfPresent(String.self, forKey: .macAppBuild),
-            routes: container.decode([CmxAttachRoute].self, forKey: .routes),
+            routes: try container.decode([FailableRoute].self, forKey: .routes)
+                .compactMap(\.value),
             expiresAt: container.decodeIfPresent(Date.self, forKey: .expiresAt),
             authToken: try Self.decodeAuthToken(from: decoder)
         )
