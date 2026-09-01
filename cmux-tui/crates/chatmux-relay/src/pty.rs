@@ -866,13 +866,10 @@ impl PtyManager {
                 return;
             }
             let transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
-            if !transport_auth.contains_key(&owner)
-                && owner.kind == TransportKind::Relay
-                && snapshot.revision > 0
-            {
-                // Revision-bearing relay contexts must be explicitly
-                // registered. A missing entry after disconnect is a fence,
-                // not permission to re-register a stale connection.
+            if !transport_auth.contains_key(&owner) {
+                // A missing entry after disconnect is a fence, not
+                // permission to re-register a stale connection. New
+                // connections must call register_transport_auth first.
                 return;
             }
             if let Some(current) = transport_auth.get(&owner)
