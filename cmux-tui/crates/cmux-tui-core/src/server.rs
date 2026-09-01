@@ -13505,6 +13505,22 @@ mod tests {
         assert!(retry_accept_error(std::io::ErrorKind::ConnectionReset));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn listener_accept_retries_descriptor_exhaustion() {
+        let error = std::io::Error::from_raw_os_error(libc::EMFILE);
+        assert!(retry_accept_error(error.kind()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn listener_accept_retries_windows_descriptor_exhaustion() {
+        use windows_sys::Win32::Networking::WinSock::WSAEMFILE;
+
+        let error = std::io::Error::from_raw_os_error(WSAEMFILE);
+        assert!(retry_accept_error(error.kind()));
+    }
+
     struct TestSocketDir(PathBuf);
 
     impl TestSocketDir {
