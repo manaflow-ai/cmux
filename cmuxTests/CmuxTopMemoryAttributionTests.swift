@@ -162,11 +162,21 @@ struct CmuxTopMemoryAttributionTests {
         #expect(intArray(unattributed["pids"]) == [detachedPID])
         #expect(unattributed["ownership"] as? String == "ambiguous")
         #expect(unattributed["reason"] as? String == CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue)
-        #expect((payload["summary"] as? String)?.contains("ownership unproven") == true)
+        let summaryTemplate = String(
+            localized: "memoryDiagnostic.summary.unattributedTTY",
+            defaultValue: "; %@ same-TTY RSS excluded (ownership unproven)"
+        )
+        let summaryParts = summaryTemplate.components(separatedBy: "%@")
+        #expect(summaryParts.count == 2)
+        #expect((payload["summary"] as? String)?.contains(summaryParts[0]) == true)
+        #expect((payload["summary"] as? String)?.hasSuffix(summaryParts[1]) == true)
 
         let taskManager = CmuxTaskManagerSnapshot(payload: ["memory_diagnostic": payload])
         let row = try #require(taskManager.childMemoryRows.last)
-        #expect(row.title == "Unattributed same-TTY processes")
+        #expect(row.title == String(
+            localized: "taskManager.memory.unattributedTTY",
+            defaultValue: "Unattributed same-TTY processes"
+        ))
         #expect(row.workspaceId == nil)
         #expect(row.surfaceId == nil)
         #expect(!row.canKillProcess)

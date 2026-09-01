@@ -3368,7 +3368,7 @@ class TerminalController {
         }
         let processSnapshot = CmuxTopProcessSnapshot.capture(
             includeProcessDetails: includeProcesses,
-            includeOwnershipDetails: false
+            includeOwnershipDetails: true
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         let totalPIDs = v2AnnotateTopWindows(
@@ -3447,7 +3447,7 @@ class TerminalController {
         let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
         let processSnapshot = CmuxTopProcessSnapshot.captureCached(
             includeProcessDetails: false,
-            includeOwnershipDetails: false,
+            includeOwnershipDetails: true,
             maximumAge: 2
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)

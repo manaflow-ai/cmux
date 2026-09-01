@@ -36,7 +36,7 @@ enum CmuxTopMemoryReasonLocalization {
             fallback = "shared process tree"
         case "multiple-evidence":
             key = "taskManager.memory.reason.multipleEvidence"
-            fallback = "multiple evidence"
+            fallback = "multiple evidence sources"
         case "unattributed":
             return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
         default:

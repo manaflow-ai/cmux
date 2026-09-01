@@ -252161,7 +252161,7 @@
           "en": {
             "stringUnit": {
               "state": "translated",
-              "value": "multiple evidence"
+              "value": "multiple evidence sources"
             }
           },
           "es": {
@@ -252674,6 +252674,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "未割り当て"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានកំណត់ម្ចាស់"
           }
         },
         "ko": {
