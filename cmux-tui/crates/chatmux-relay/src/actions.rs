@@ -955,7 +955,10 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
         setup.push(format!("export {}=\"${shell_path}\"", file.path_environment_variable,));
     }
     let cleanup_body = cleanup.join("; ");
-    setup.insert(1, format!("__chatmux_cleanup() {{ set +e; {cleanup_body}; }}"));
+    setup.insert(
+        1,
+        format!("__chatmux_cleanup() {{ trap '' HUP INT TERM; set +e; {cleanup_body}; }}"),
+    );
     setup.insert(2, "trap __chatmux_cleanup 0".to_owned());
     setup.insert(3, "trap 'exit 143' HUP INT TERM".to_owned());
     setup.insert(4, "umask 077".to_owned());
@@ -964,9 +967,9 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
     setup.push("else".to_owned());
     setup.push("  __chatmux_status=$?".to_owned());
     setup.push("fi".to_owned());
+    setup.push("trap '' HUP INT TERM".to_owned());
     setup.push("trap - 0".to_owned());
     setup.push("__chatmux_cleanup".to_owned());
-    setup.push("trap - HUP INT TERM".to_owned());
     setup.push("exit $__chatmux_status".to_owned());
     setup.join("\n")
 }
