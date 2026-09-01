@@ -265,12 +265,12 @@ extension MobileShellComposite {
     /// Supported routes for reconnecting an already-paired Mac.
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
-    /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
-    /// every raw host/port fallback. A numeric Tailscale route is first copied
-    /// into the pinned Iroh route as a private fallback address, so Tailscale can
-    /// still carry Iroh without receiving a Stack bearer. Otherwise an admission
-    /// or revocation failure could silently downgrade around the Iroh device
-    /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
+    /// a supported Iroh route exists, automatic mode can attach a short-lived
+    /// numeric Tailscale hint as an encrypted Iroh fallback and drop unrelated
+    /// raw host/port routes. A Tailscale-only requirement bypasses that fallback
+    /// and returns only its exact locally granted raw Tailscale routes, so an
+    /// explicit mode can never be silently rewritten as Iroh. Pairings without
+    /// an authenticated Iroh identity remain fail-closed for Iroh-only modes.
     ///
     /// `tailscaleRequirement` represents the user's explicit Tailscale-only
     /// connection method. Only stored Tailscale routes carrying a device-local

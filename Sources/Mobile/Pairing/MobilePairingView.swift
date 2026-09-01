@@ -456,6 +456,11 @@ struct MobilePairingView: View {
             .multilineTextAlignment(.center)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+        Link(
+            String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
+            destination: Self.tailscaleDownloadURL
+        )
+        .buttonStyle(.borderedProminent)
         refreshButton
     }
 
