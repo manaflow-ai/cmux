@@ -30,6 +30,10 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+fn retry_accept_error(kind: std::io::ErrorKind) -> bool {
+    matches!(kind, std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock | std::io::ErrorKind::ResourceBusy)
+}
+
 use anyhow::Context;
 use base64::Engine;
 use ghostty_vt::{
@@ -5230,7 +5234,11 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                 Ok(Some(stream)) => stream,
                 Ok(None) => break,
                 Err(_) if server_shutdown.load(Ordering::Acquire) => break,
-                Err(_) => continue,
+                Err(error) if retry_accept_error(error.kind()) => continue,
+                Err(error) => {
+                    eprintln!("cmux-tui: listener accept failed: {error}");
+                    break;
+                }
             };
             if server_shutdown.load(Ordering::Acquire) {
                 break;
