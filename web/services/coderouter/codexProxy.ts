@@ -511,7 +511,11 @@ export function bearerToken(request: Request): string | null {
   if (routed) return routed;
   const authorization = request.headers.get("authorization")?.trim() ?? "";
   const match = /^Bearer[ \t]+(.+)$/i.exec(authorization);
-  return match?.[1]?.trim() || null;
+  if (match?.[1]?.trim()) return match[1].trim();
+  // Anthropic-SDK clients (opencode's `anthropic` provider) carry their key
+  // as x-api-key; a route token there is still the machine's route token.
+  const apiKey = request.headers.get("x-api-key")?.trim();
+  return apiKey?.startsWith("crt_") ? apiKey : null;
 }
 
 export function jsonError(

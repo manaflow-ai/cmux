@@ -1,4 +1,10 @@
-import { authenticateRouteToken, selectAccountForRequest } from "./repository";
+import { authenticateRouteToken, listAccounts, selectAccountForRequest } from "./repository";
+import {
+  CLAUDE_PLANE_PROVIDERS,
+  CODEX_PLANE_PROVIDERS,
+  type CodeRouterAccountSummary,
+  type CodeRouterProvider,
+} from "./types";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { captureCoderouterEvent } from "./analytics";
@@ -10,32 +16,107 @@ import { observeModelUsage } from "./responseUsage";
 
 const OPENCODE_CONSOLE = "https://console.opencode.ai";
 
-export async function openCodeClientConfig(
-  request: Request,
-): Promise<Response> {
-  const auth = await routeIdentity(request);
-  if (!auth) {
-    captureAuthRejection(request, "opencode_config");
-    return Response.json({ error: "unauthorized" }, { status: 401 });
+type OpenCodeConfigDependencies = {
+  readonly identity: typeof routeIdentity;
+  readonly accounts: typeof listAccounts;
+  readonly opencodeAccount: typeof openCodeAccount;
+  readonly remote: typeof remoteConfig;
+};
+
+/**
+ * The opencode config a machine fetches on first shell. Every provider entry
+ * points at this deployment: the team's OpenCode Go catalog (if it has one)
+ * rides the opencode proxy, and the Claude and Codex planes are published as
+ * opencode's own `anthropic` and `openai` providers whenever the team has an
+ * account of a kind those planes route over — so opencode works off the same
+ * connected accounts as `claude` and `codex`, with no OpenCode subscription.
+ */
+export function createOpenCodeClientConfig(
+  dependencies: OpenCodeConfigDependencies,
+): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const auth = await dependencies.identity(request);
+    if (!auth) {
+      captureAuthRejection(request, "opencode_config");
+      return Response.json({ error: "unauthorized" }, { status: 401 });
+    }
+    // The proxy origin comes from the serving request, not a hardcoded host,
+    // so the config works on every deployment of this app (coderouter.dev,
+    // the cmux origin Cloud VMs are minted against, previews, self-hosted).
+    const origin = new URL(request.url).origin;
+    const kinds = activeProviderKinds(await dependencies.accounts(auth.teamId));
+    let provider: Record<string, unknown> = {};
+    if (kinds.has("opencode-go")) {
+      const resolved = await dependencies.opencodeAccount(auth.teamId);
+      if (resolved) {
+        try {
+          provider = rewriteProviders(
+            await dependencies.remote(resolved.credential.accessToken),
+            auth.token,
+            origin,
+          );
+        } catch (error) {
+          // The OpenCode catalog is one provider among several now; a console
+          // outage must not take the Claude/Codex planes down with it.
+          reportCoderouterFailure("provider_usage", error, { provider: "opencode-go" });
+        }
+      }
+    }
+    provider = { ...provider, ...planeProviders(kinds, auth.token, origin) };
+    if (Object.keys(provider).length === 0) {
+      return Response.json({ error: "no_usable_account" }, { status: 503 });
+    }
+    return Response.json(
+      { provider },
+      {
+        headers: { "cache-control": "no-store" },
+      },
+    );
+  };
+}
+
+export const openCodeClientConfig = createOpenCodeClientConfig({
+  identity: routeIdentity,
+  accounts: listAccounts,
+  opencodeAccount: openCodeAccount,
+  remote: remoteConfig,
+});
+
+/** The kinds of account currently able to take traffic. */
+export function activeProviderKinds(
+  accounts: readonly CodeRouterAccountSummary[],
+): ReadonlySet<CodeRouterProvider> {
+  const now = Date.now();
+  return new Set(
+    accounts
+      .filter((account) =>
+        (account.state === "active" || account.state === "refreshing") &&
+        (!account.cooldownUntil || Date.parse(account.cooldownUntil) <= now),
+      )
+      .map((account) => account.provider),
+  );
+}
+
+/**
+ * opencode provider entries for the planes this deployment serves. Model
+ * catalogs come from opencode's own registry for these well-known ids; only
+ * the endpoint and key are ours. The Anthropic SDK sends the key as
+ * x-api-key and the OpenAI SDK as a bearer; the planes accept the route
+ * token either way.
+ */
+export function planeProviders(
+  kinds: ReadonlySet<CodeRouterProvider>,
+  routeToken: string,
+  origin: string,
+): Record<string, unknown> {
+  const entries: [string, unknown][] = [];
+  if (CLAUDE_PLANE_PROVIDERS.some((kind) => kinds.has(kind))) {
+    entries.push(["anthropic", { options: { baseURL: `${origin}/v1`, apiKey: routeToken } }]);
   }
-  const resolved = await openCodeAccount(auth.teamId);
-  if (!resolved)
-    return Response.json({ error: "no_usable_account" }, { status: 503 });
-  const remote = await remoteConfig(resolved.credential.accessToken);
-  // The proxy origin comes from the serving request, not a hardcoded host,
-  // so the config works on every deployment of this app (coderouter.dev,
-  // the cmux origin Cloud VMs are minted against, previews, self-hosted).
-  const provider = rewriteProviders(
-    remote,
-    auth.token,
-    new URL(request.url).origin,
-  );
-  return Response.json(
-    { provider },
-    {
-      headers: { "cache-control": "no-store" },
-    },
-  );
+  if (CODEX_PLANE_PROVIDERS.some((kind) => kinds.has(kind))) {
+    entries.push(["openai", { options: { baseURL: `${origin}/v1`, apiKey: routeToken } }]);
+  }
+  return Object.fromEntries(entries);
 }
 
 export async function proxyOpenCodeRequest(
@@ -465,4 +546,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const __test = { rewriteProviders, safeProviderURL, openCodeAccount };
+export const __test = { rewriteProviders, safeProviderURL, openCodeAccount, routeIdentity };

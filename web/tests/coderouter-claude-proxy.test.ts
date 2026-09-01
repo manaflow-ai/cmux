@@ -173,6 +173,18 @@ describe("claude messages proxy", () => {
     ]);
   });
 
+  test("accepts the route token as x-api-key (how Anthropic-SDK clients such as opencode send it)", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    const request = new Request("https://coderouter.dev/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": "crt_token", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-5", messages: [] }),
+    });
+    expect((await proxy(request)).status).toBe(200);
+    expect(upstreamCalls[0]?.headers.get("x-api-key")).toBeNull();
+    expect(upstreamCalls[0]?.headers.get("authorization")).toBe("Bearer claude-access-acct-1");
+  });
+
   test("the caller's abort propagates to the provider request", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     const controller = new AbortController();
