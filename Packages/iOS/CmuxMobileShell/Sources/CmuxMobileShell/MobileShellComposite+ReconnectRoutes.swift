@@ -320,6 +320,9 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot
     ) {
+        // The demonstration row is synthesized locally: it has no registry
+        // presence to refresh and no durable row to write routes into.
+        guard !isDemonstrationPairedMac(mac) else { return }
         guard let deviceRegistry, let pairedMacStore else { return }
         let macDeviceID = mac.macDeviceID
         let localRoutes = mac.routes
