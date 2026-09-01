@@ -879,6 +879,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// observed: it gates async hand-backs, not view state.
     @ObservationIgnored var signInGeneration = 0
     @ObservationIgnored private var createdTerminalSelection: CreatedTerminalSelection?
+    @ObservationIgnored private var createdTerminalSelectionExpiryTask: Task<Void, Never>?
+    private static let createdTerminalSelectionTimeout = Duration.seconds(30)
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             if selectedWorkspaceID != oldValue {
@@ -925,7 +927,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             guard selectedTerminalID != oldValue else { return }
             if selectedTerminalID != createdTerminalSelection?.terminalID {
-                createdTerminalSelection = nil
+                clearCreatedTerminalSelection()
             }
             if let selectedTerminalID {
                 recordAppEvent(
@@ -1964,6 +1966,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
+        createdTerminalSelectionExpiryTask?.cancel()
         workspaceListRefreshTask?.cancel()
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryFetchTask?.cancel()
@@ -8142,6 +8145,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 list[index].terminals.append(terminal)
             }
         }
+        clearCreatedTerminalSelection()
         createdTerminalSelection = CreatedTerminalSelection(
             workspace: workspace,
             fallbackMacDeviceID: foregroundMacDeviceID,
@@ -8150,10 +8154,44 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
+        armCreatedTerminalSelectionExpiry(for: terminal.id)
         recordAppEvent(
             .terminalCreateSucceeded,
             correlationID: terminal.id.rawValue
         )
+    }
+
+    private func armCreatedTerminalSelectionExpiry(
+        for terminalID: MobileTerminalPreview.ID
+    ) {
+        createdTerminalSelectionExpiryTask?.cancel()
+        createdTerminalSelectionExpiryTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(
+                    for: Self.createdTerminalSelectionTimeout
+                )
+            } catch {
+                return
+            }
+            guard let self,
+                  self.createdTerminalSelection?.terminalID == terminalID,
+                  self.selectedTerminalID == terminalID else {
+                return
+            }
+            self.clearCreatedTerminalSelection()
+            self.recordAppEvent(
+                .terminalCreateFailed,
+                correlationID: terminalID.rawValue,
+                failure: .timedOut
+            )
+            self.syncSelectedTerminalForWorkspace()
+        }
+    }
+
+    private func clearCreatedTerminalSelection() {
+        createdTerminalSelection = nil
+        createdTerminalSelectionExpiryTask?.cancel()
+        createdTerminalSelectionExpiryTask = nil
     }
 
     /// Select the active terminal by id without changing workspace selection.
@@ -11448,7 +11486,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
                 guard selectedTerminal.isReady else { return }
             }
-            createdTerminalSelection = nil
+            clearCreatedTerminalSelection()
         }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
@@ -11970,6 +12008,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 selectedTerminalID = createdTerminalID
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
+                armCreatedTerminalSelectionExpiry(for: createdTerminalID)
             }
             recordAppEvent(
                 .terminalCreateSucceeded,

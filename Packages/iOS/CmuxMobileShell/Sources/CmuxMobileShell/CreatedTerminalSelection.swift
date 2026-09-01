@@ -36,16 +36,20 @@ struct CreatedTerminalSelection: Equatable {
             guard cmxCanonicalDeviceID(expected) == cmxCanonicalDeviceID(actual) else {
                 return false
             }
+        case (_, nil):
+            // A converging anonymous foreground row can temporarily omit the
+            // device id, but only the caller can prove that this is that row.
+            guard allowsAnonymousForeground else { return false }
         default:
             return false
         }
         // A snapshot may omit the instance tag while the host is still
-        // converging. A present tag remains authoritative, so sibling builds
-        // cannot match accidentally; an absent tag is simply unknown.
+        // converging. A pinned tag remains authoritative, so a legacy/untagged
+        // sibling cannot match accidentally while its owner is unknown.
         let expectedTag = Self.normalized(macInstanceTag)
         let actualTag = Self.normalized(workspace.macInstanceTag)
         if let expectedTag {
-            guard actualTag == nil || expectedTag == actualTag else { return false }
+            guard actualTag == expectedTag else { return false }
         } else {
             // A pin without a tag belongs to the legacy/untagged pairing only;
             // a tagged row is a distinct sibling until the pin learns that tag.

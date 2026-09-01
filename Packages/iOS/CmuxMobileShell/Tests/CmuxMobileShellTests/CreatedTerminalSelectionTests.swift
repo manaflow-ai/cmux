@@ -26,7 +26,15 @@ import Testing
 
         #expect(selection.matches(workspace: stampedWorkspace, allowsAnonymousForeground: false))
         stampedWorkspace.macInstanceTag = nil
-        #expect(selection.matches(workspace: stampedWorkspace, allowsAnonymousForeground: false))
+        #expect(!selection.matches(workspace: stampedWorkspace, allowsAnonymousForeground: false))
+
+        let anonymousWithFallback = CreatedTerminalSelection(
+            workspace: anonymousWorkspace,
+            fallbackMacDeviceID: "mac-main",
+            terminalID: "terminal-new"
+        )
+        #expect(anonymousWithFallback.matches(workspace: anonymousWorkspace, allowsAnonymousForeground: true))
+        #expect(!anonymousWithFallback.matches(workspace: anonymousWorkspace, allowsAnonymousForeground: false))
 
         let anonymousSelection = CreatedTerminalSelection(
             workspace: anonymousWorkspace,
