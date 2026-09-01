@@ -50,6 +50,7 @@ extension Workspace {
         let shellActivityState: PanelShellActivityState?
         var restoredPanelTitleBoundary: RestoredPanelTitleBoundary? = nil
         let restoredResumeSessionWorkingDirectory: String?
+        var recoveryNeededWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         /// Deferred ownership resolution carried across a Workspace/Dock transfer.
         var deferredAgentResumeRestore: DeferredAgentResumeRestore? = nil
@@ -108,6 +109,7 @@ extension Workspace {
                 shellActivityState: shellActivityState,
                 restoredPanelTitleBoundary: restoredPanelTitleBoundary,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+                recoveryNeededWorkingDirectory: recoveryNeededWorkingDirectory,
                 resumeBinding: resumeBinding,
                 deferredAgentResumeRestore: deferredAgentResumeRestore,
                 managedAgentResumeBinding: managedAgentResumeBinding,

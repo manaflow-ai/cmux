@@ -1127,6 +1127,50 @@ extension Workspace {
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
     }
 
+    nonisolated static func recoveryNeededStartupInput(
+        savedWorkingDirectory: String,
+        kind: String?,
+        checkpointID: String?
+    ) -> String {
+        let title = String(
+            localized: "sessionRestore.recoveryNeeded.title",
+            defaultValue: "Recovery needed"
+        )
+        let unavailable = String(
+            localized: "sessionRestore.recoveryNeeded.unavailable",
+            defaultValue: "Saved directory unavailable. No agent was started."
+        )
+        let savedDirectory = String(
+            format: String(
+                localized: "sessionRestore.recoveryNeeded.savedDirectory",
+                defaultValue: "Saved directory: %@"
+            ),
+            savedWorkingDirectory
+        )
+        var lines = ["⚠︎ \(title)", unavailable, savedDirectory]
+        if let kind = normalizedResumeBindingValue(kind),
+           let checkpointID = normalizedResumeBindingValue(checkpointID) {
+            lines.append(String(
+                localized: "sessionRestore.recoveryNeeded.currentDirectoryInstruction",
+                defaultValue: "To resume from this shell's current directory, run:"
+            ))
+            let kindToken = TerminalStartupShellQuoting.shellToken(kind, allowingBareASCII: true)
+            let checkpointToken = TerminalStartupShellQuoting.shellToken(
+                checkpointID,
+                allowingBareASCII: true
+            )
+            lines.append("cmux restore --cwd \"$PWD\" \(kindToken) \(checkpointToken)")
+            lines.append(String(
+                localized: "sessionRestore.recoveryNeeded.currentDirectoryConsequence",
+                defaultValue: "Using --cwd \"$PWD\" starts this saved conversation in the current shell directory; it does not recreate or select the saved directory."
+            ))
+        }
+        let arguments = lines
+            .map(TerminalStartupShellQuoting.singleQuoted)
+            .joined(separator: " ")
+        return "printf '%s\\n' \(arguments)\n"
+    }
+
     nonisolated static func restorableAgentForSessionRestore(
         _ restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?
@@ -1571,6 +1615,21 @@ extension Workspace {
                 locatedResumeBinding,
                 restorableAgent: restorableAgent
             )
+            let candidateResumeWorkingDirectory = resumeBinding?.cwd
+                ?? restorableAgent?.workingDirectory
+                ?? restorableAgent?.launchCommand?.workingDirectory
+            let recoveryNeededWorkingDirectory: String? = {
+                guard !restoresRemoteWorkspaceTerminalSnapshot,
+                      restoredRemotePTYSessionID == nil,
+                      let candidate = candidateResumeWorkingDirectory?.trimmingCharacters(
+                          in: .whitespacesAndNewlines
+                      ),
+                      !candidate.isEmpty,
+                      OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate) == nil else {
+                    return nil
+                }
+                return candidate
+            }()
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
             // snapshot available for manual continuation, but never let the
@@ -1612,6 +1671,7 @@ extension Workspace {
                 stablePanelHasUncertainProcess
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
+                recoveryNeededWorkingDirectory != nil ||
                 restoreStartupBlocked ||
                 stablePanelHasLiveProcess ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
@@ -1759,7 +1819,8 @@ extension Workspace {
                 )
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restorableAgentCanAutoResume,
+                if recoveryNeededWorkingDirectory == nil,
+                   shouldAutoResumeAgent && restorableAgentCanAutoResume,
                    restoredHibernation == nil && restoredBindingLaunch == nil
                     && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
@@ -1779,7 +1840,8 @@ extension Workspace {
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
-            let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
+            let deferredAgentResumeCandidateInput: String? = if recoveryNeededWorkingDirectory == nil,
+                restoreIndexUnavailable,
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
@@ -1833,7 +1895,13 @@ extension Workspace {
                 restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
-                ? (restoredBindingLaunch?.initialInput ??
+                ? (recoveryNeededWorkingDirectory.map {
+                    Self.recoveryNeededStartupInput(
+                        savedWorkingDirectory: $0,
+                        kind: expectedAgentKind,
+                        checkpointID: expectedSessionId
+                    )
+                } ?? restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
                     deferredAgentResumeStartupInput)
                 : nil
@@ -1869,7 +1937,9 @@ extension Workspace {
                 return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
             }()
             let requestedWorkingDirectory =
-                localWorkingDirectory ?? hostShellWorkingDirectory
+                recoveryNeededWorkingDirectory == nil
+                    ? (localWorkingDirectory ?? hostShellWorkingDirectory)
+                    : nil
             let restoredAgentWillRunStartupCommand =
                 effectivePersistentSSHResumeCommand != nil &&
                 resumeBinding?.isAgentHookBinding == true
@@ -2035,9 +2105,11 @@ extension Workspace {
                 panel: terminalPanel,
                 snapshot: restorableAgent,
                 resumeBinding: resumeBinding,
-                manualResumeAvailable: restorableAgent != nil,
+                manualResumeAvailable: restorableAgent != nil ||
+                    (recoveryNeededWorkingDirectory != nil && resumeBinding != nil),
                 willRunStartupCommand: restoredAgentWillRunStartupCommand,
                 willRunStartupInput: restoredAgentWillRunStartupInput,
+                recoveryNeededWorkingDirectory: recoveryNeededWorkingDirectory,
                 resumeWorkingDirectory: restoredDirectoryIsLocalPath
                     ? resumeSessionWorkingDirectory
                     : nil,
@@ -3086,6 +3158,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] {
         restoredAgentLifecycle.resumeStatesByPanelId
+    }
+    var recoveryNeededWorkingDirectoriesByPanelId: [UUID: String] {
+        restoredAgentLifecycle.recoveryNeededWorkingDirectoriesByPanelId
     }
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] {
         get { restoredAgentLifecycle.invalidatedFingerprintsByPanelId }
@@ -5134,6 +5209,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
         let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackTitle = trimmedFallback.isEmpty ? "Tab" : trimmedFallback
+        if terminalStartupRestoreCoordinator.recoveryNeededWorkingDirectory(panelID: panelId) != nil {
+            let recoveryTitle = String(
+                localized: "sessionRestore.recoveryNeeded.title",
+                defaultValue: "Recovery needed"
+            )
+            let customTitle = panelCustomTitles[panelId]?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            let baseTitle: String
+            if let customTitle, !customTitle.isEmpty {
+                baseTitle = customTitle
+            } else {
+                baseTitle = fallbackTitle
+            }
+            return "⚠︎ \(recoveryTitle) · \(baseTitle)"
+        }
         if let custom = panelCustomTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !custom.isEmpty {
             return custom
@@ -5974,6 +6065,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        if recoveryNeededWorkingDirectoriesByPanelId[panelId] != nil,
+           OneShotTerminalLauncherStore.enterableWorkingDirectory(binding.cwd) != nil {
+            restoredAgentLifecycle.clearRecoveryNeeded(panelId: panelId)
+            if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
+                bonsplitController.updateTab(
+                    tabId,
+                    title: resolvedPanelTitle(
+                        panelId: panelId,
+                        fallback: panelTitles[panelId] ?? panel.displayTitle
+                    ),
+                    hasCustomTitle: panelCustomTitles[panelId] != nil
+                )
+            }
+        }
         if binding.isPlainSSHProcessDetectedBinding {
             observedPlainSSHPanelIds.insert(panelId)
             pendingPlainSSHRestorePanelIds.remove(panelId)
@@ -13866,6 +13971,7 @@ extension Workspace: BonsplitDelegate {
                 shellActivityState: panelShellActivityStates[panelId],
                 restoredPanelTitleBoundary: restoredPanelTitleBoundariesByPanelId[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
+                recoveryNeededWorkingDirectory: recoveryNeededWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 deferredAgentResumeRestore: deferredAgentResumeRestoresByPanelId.removeValue(
                     forKey: panelId

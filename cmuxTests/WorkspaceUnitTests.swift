@@ -3285,6 +3285,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restorableAgent: nil,
             restorableAgentResumeState: nil, restoredAgentCompletedGeneration: nil,
             shellActivityState: nil, restoredResumeSessionWorkingDirectory: nil,
+            recoveryNeededWorkingDirectory: nil,
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: resumeBinding.flatMap {
                 $0.hasCompleteManagedSessionIdentity ? $0 : nil

@@ -1,6 +1,11 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "sessionRestore.recoveryNeeded.currentDirectoryConsequence": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Using --cwd \"$PWD\" starts this saved conversation in the current shell directory; it does not recreate or select the saved directory."}},"ja":{"stringUnit":{"state":"translated","value":"--cwd \"$PWD\" を使用すると、保存済みの会話を現在のシェルのディレクトリで開始します。保存済みのディレクトリを再作成したり選択したりはしません。"}}}},
+    "sessionRestore.recoveryNeeded.currentDirectoryInstruction": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"To resume from this shell's current directory, run:"}},"ja":{"stringUnit":{"state":"translated","value":"このシェルの現在のディレクトリから再開するには、次を実行してください:"}}}},
+    "sessionRestore.recoveryNeeded.savedDirectory": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Saved directory: %@"}},"ja":{"stringUnit":{"state":"translated","value":"保存済みのディレクトリ: %@"}}}},
+    "sessionRestore.recoveryNeeded.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Recovery needed"}},"ja":{"stringUnit":{"state":"translated","value":"復旧が必要です"}}}},
+    "sessionRestore.recoveryNeeded.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Saved directory unavailable. No agent was started."}},"ja":{"stringUnit":{"state":"translated","value":"保存済みのディレクトリを利用できません。エージェントは起動されませんでした。"}}}},
     "computerUse.cursorOverlay.accessibilityLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer-use cursor"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作カーソル"}}}},
     "computerUse.menu.backgroundStatus": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use — Running in Background"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Use — バックグラウンドで実行中"}}}},
     "computerUse.menu.continueInBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue in Background"}},"ja":{"stringUnit":{"state":"translated","value":"バックグラウンドで続行"}}}},

@@ -374,6 +374,7 @@ extension DockSplitStore {
             shellActivityState: transferredShellActivityState,
             restoredPanelTitleBoundary: transferredRestoredPanelTitleBoundary,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+            recoveryNeededWorkingDirectory: preservedTransfer?.recoveryNeededWorkingDirectory,
             resumeBinding: resumeBinding,
             deferredAgentResumeRestore: deferredAgentResumeRestore,
             managedAgentResumeBinding: managedResumeBinding,

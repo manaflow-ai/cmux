@@ -189,6 +189,26 @@ struct CompletedRestoredAgentGenerationTests {
         #expect(destination.snapshotsByPanelId[panelId]?.sessionId == replacementSnapshot.sessionId)
     }
 
+    @Test("Dock transfer preserves an unavailable saved working directory")
+    func dockTransferPreservesRecoveryNeededWorkingDirectory() {
+        let panelId = UUID()
+        let destination = RestoredAgentLifecycleCoordinator(dateProvider: { 200 })
+
+        destination.seedTransferredState(
+            panelId: panelId,
+            snapshot: nil,
+            resumeState: .manualResumeAvailable,
+            completedGeneration: nil,
+            recoveryNeededWorkingDirectory: "/Volumes/Missing/GPU",
+            resumeWorkingDirectory: nil
+        )
+
+        #expect(
+            destination.recoveryNeededWorkingDirectoriesByPanelId[panelId]
+                == "/Volumes/Missing/GPU"
+        )
+    }
+
     @Test
     func workspaceTransferPreservesCompletionGenerationAndShellActivity() throws {
         let source = Workspace()

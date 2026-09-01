@@ -524,6 +524,7 @@ extension Workspace {
             snapshot: detached.restorableAgent,
             resumeState: detached.restorableAgentResumeState,
             completedGeneration: detached.restoredAgentCompletedGeneration,
+            recoveryNeededWorkingDirectory: detached.recoveryNeededWorkingDirectory,
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory
         )
         if let deferredRestore = detached.deferredAgentResumeRestore {

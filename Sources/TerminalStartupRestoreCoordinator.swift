@@ -77,6 +77,7 @@ final class TerminalStartupRestoreCoordinator {
         manualResumeAvailable: Bool,
         willRunStartupCommand: Bool,
         willRunStartupInput: Bool,
+        recoveryNeededWorkingDirectory: String? = nil,
         resumeWorkingDirectory: String?,
         chatWorkingDirectory: String? = nil,
         agentSessionAlreadyActive: Bool = false,
@@ -90,6 +91,7 @@ final class TerminalStartupRestoreCoordinator {
             manualResumeAvailable: manualResumeAvailable,
             willRunStartupCommand: willRunStartupCommand,
             willRunStartupInput: willRunStartupInput,
+            recoveryNeededWorkingDirectory: recoveryNeededWorkingDirectory,
             defersStartupRestoreAdmission: defersStartupRestoreAdmission,
             resumeWorkingDirectory: resumeWorkingDirectory,
             chatResumeBinding: chatResumeBinding(
@@ -170,6 +172,7 @@ final class TerminalStartupRestoreCoordinator {
                 manualResumeAvailable: pending.manualResumeAvailable,
                 willRunStartupCommand: pending.willRunStartupCommand,
                 willRunStartupInput: pending.willRunStartupInput,
+                recoveryNeededWorkingDirectory: pending.recoveryNeededWorkingDirectory,
                 resumeWorkingDirectory: pending.resumeWorkingDirectory
             )
             if !pending.defersStartupRestoreAdmission,
@@ -187,6 +190,12 @@ final class TerminalStartupRestoreCoordinator {
     /// even when the topology owner has not committed lifecycle state yet.
     func stagedSnapshot(panelID: UUID) -> SessionRestorableAgentSnapshot? {
         pendingRestoresByPanelID[panelID]?.snapshot
+    }
+
+    /// Returns the unavailable saved directory from either staged or committed restore state.
+    func recoveryNeededWorkingDirectory(panelID: UUID) -> String? {
+        pendingRestoresByPanelID[panelID]?.recoveryNeededWorkingDirectory
+            ?? lifecycle.recoveryNeededWorkingDirectoriesByPanelId[panelID]
     }
 
     /// Records chat ownership only after a deferred resume has been admitted.

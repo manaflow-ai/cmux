@@ -10,6 +10,7 @@ struct PendingTerminalStartupRestore {
     let manualResumeAvailable: Bool
     let willRunStartupCommand: Bool
     let willRunStartupInput: Bool
+    let recoveryNeededWorkingDirectory: String?
     /// Keeps a deferred ownership restore gated after topology commit. The
     /// shared live-agent scan must admit or cancel it later.
     let defersStartupRestoreAdmission: Bool

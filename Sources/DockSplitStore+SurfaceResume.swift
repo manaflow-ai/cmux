@@ -107,6 +107,29 @@ extension DockSplitStore {
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        if restoredAgentLifecycle.recoveryNeededWorkingDirectoriesByPanelId[panelId] != nil,
+           OneShotTerminalLauncherStore.enterableWorkingDirectory(binding.cwd) != nil {
+            restoredAgentLifecycle.clearRecoveryNeeded(panelId: panelId)
+            var recoveryTransfer = detachedSurfaceTransfersByPanelId[panelId]
+            recoveryTransfer?.recoveryNeededWorkingDirectory = nil
+            if let recoveryTransfer {
+                setDetachedSurfaceTransfer(recoveryTransfer, forPanelID: panelId)
+            }
+            if let tabId = surfaceId(forPanelId: panelId),
+               let panel = panels[panelId] {
+                let customTitle = recoveryTransfer?.customTitle?.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                let baseTitle = customTitle.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? recoveryTransfer?.cachedTitle
+                    ?? panel.displayTitle
+                bonsplitController.updateTab(
+                    tabId,
+                    title: baseTitle,
+                    hasCustomTitle: customTitle != nil
+                )
+            }
+        }
         return true
     }
 

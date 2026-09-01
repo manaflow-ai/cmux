@@ -17,6 +17,8 @@ final class RestoredAgentLifecycleCoordinator {
     /// Immutable session target retained until the staged startup command completes.
     private var queuedRestoreSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     private(set) var resumeStatesByPanelId: [UUID: Workspace.RestoredAgentResumeState] = [:]
+    /// Saved local directories that blocked automatic restore and require an explicit replacement.
+    private(set) var recoveryNeededWorkingDirectoriesByPanelId: [UUID: String] = [:]
     var invalidatedFingerprintsByPanelId: [UUID: Int] = [:]
     /// Local resume targets retained while a restored launch owns the terminal.
     /// Split and tab creation use these to recover from transient shell cwd reports.
@@ -73,6 +75,9 @@ final class RestoredAgentLifecycleCoordinator {
     /// Prunes lifecycle state in one bounded pass when the owning topology is bulk-replaced.
     func retainSessionRestores(for validPanelIds: Set<UUID>) {
         resumeStatesByPanelId = resumeStatesByPanelId.filter { validPanelIds.contains($0.key) }
+        recoveryNeededWorkingDirectoriesByPanelId = recoveryNeededWorkingDirectoriesByPanelId.filter {
+            validPanelIds.contains($0.key)
+        }
         snapshotsByPanelId = snapshotsByPanelId.filter { validPanelIds.contains($0.key) }
         queuedRestoreSnapshotsByPanelId = queuedRestoreSnapshotsByPanelId.filter { panelId, _ in
             validPanelIds.contains(panelId) &&
@@ -154,6 +159,7 @@ final class RestoredAgentLifecycleCoordinator {
         manualResumeAvailable: Bool,
         willRunStartupCommand: Bool,
         willRunStartupInput: Bool,
+        recoveryNeededWorkingDirectory: String? = nil,
         resumeWorkingDirectory: String?
     ) {
         let resumeState: Workspace.RestoredAgentResumeState?
@@ -172,6 +178,7 @@ final class RestoredAgentLifecycleCoordinator {
         )
         replaceSnapshot(snapshot, panelId: panelId)
         setResumeState(resumeState, panelId: panelId)
+        replaceRecoveryNeededWorkingDirectory(recoveryNeededWorkingDirectory, panelId: panelId)
 
         let ownsStartupResume = resumeState == .awaitingAutoResumeCommand ||
             resumeState == .autoResumeCommandRunning
@@ -186,6 +193,7 @@ final class RestoredAgentLifecycleCoordinator {
     func clearSessionRestore(panelId: UUID) {
         queuedRestoreSnapshotsByPanelId.removeValue(forKey: panelId)
         resumeStatesByPanelId.removeValue(forKey: panelId)
+        recoveryNeededWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         snapshotsByPanelId.removeValue(forKey: panelId)
         resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         completedGenerationsByPanelId.removeValue(forKey: panelId)
@@ -195,6 +203,7 @@ final class RestoredAgentLifecycleCoordinator {
     func removeAllSessionRestores() {
         queuedRestoreSnapshotsByPanelId.removeAll(keepingCapacity: false)
         resumeStatesByPanelId.removeAll(keepingCapacity: false)
+        recoveryNeededWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         snapshotsByPanelId.removeAll(keepingCapacity: false)
         invalidatedFingerprintsByPanelId.removeAll(keepingCapacity: false)
         resumeWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
@@ -263,6 +272,7 @@ final class RestoredAgentLifecycleCoordinator {
         snapshot: SessionRestorableAgentSnapshot?,
         resumeState: Workspace.RestoredAgentResumeState?,
         completedGeneration: RestoredAgentCompletedGeneration?,
+        recoveryNeededWorkingDirectory: String? = nil,
         resumeWorkingDirectory: String?
     ) {
         replaceQueuedRestoreSnapshot(
@@ -282,6 +292,7 @@ final class RestoredAgentLifecycleCoordinator {
         }
 
         setResumeState(resumeState, panelId: panelId)
+        replaceRecoveryNeededWorkingDirectory(recoveryNeededWorkingDirectory, panelId: panelId)
         replaceResumeWorkingDirectory(resumeWorkingDirectory, panelId: panelId)
     }
 
@@ -298,6 +309,19 @@ final class RestoredAgentLifecycleCoordinator {
             resumeStatesByPanelId[panelId] = state
         } else {
             resumeStatesByPanelId.removeValue(forKey: panelId)
+        }
+    }
+
+    func clearRecoveryNeeded(panelId: UUID) {
+        recoveryNeededWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+    }
+
+    private func replaceRecoveryNeededWorkingDirectory(_ directory: String?, panelId: UUID) {
+        if let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !directory.isEmpty {
+            recoveryNeededWorkingDirectoriesByPanelId[panelId] = directory
+        } else {
+            recoveryNeededWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         }
     }
 
