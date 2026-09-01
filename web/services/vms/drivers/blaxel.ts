@@ -690,6 +690,23 @@ function volumeListItems(payload: unknown): unknown[] {
  * carries counts (e.g. { total: 1000 }) proves nothing about exhaustion and
  * must leave coverage marked partial.
  */
+/**
+ * A payload only counts as a volume page when it carries a recognized items
+ * container. Completion claims from shapes we cannot parse must fail closed,
+ * otherwise a malformed response reads as an empty-but-complete inventory.
+ */
+function hasRecognizedVolumeContainer(payload: unknown): boolean {
+  if (Array.isArray(payload)) return true;
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as { items?: unknown; data?: unknown };
+  if (Array.isArray(candidate.items) || Array.isArray(candidate.data)) return true;
+  if (candidate.data && typeof candidate.data === "object") {
+    const data = candidate.data as { items?: unknown; data?: unknown };
+    return Array.isArray(data.items) || Array.isArray(data.data);
+  }
+  return false;
+}
+
 function volumePaginationComplete(payload: unknown): boolean {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
   const explicitEnd = (source: unknown): boolean => {
@@ -799,7 +816,10 @@ export function parseBlaxelVolumePage(payload: unknown, limit = 100): VMVolumePa
     // retain or sort an unbounded provider inventory.
     volumes: parseBlaxelVolumeItems(items.slice(0, boundedLimit)),
     nextCursor: volumeNextCursor(payload),
-    complete: volumeNextCursor(payload) === null && volumePaginationComplete(payload) && !truncated,
+    complete: hasRecognizedVolumeContainer(payload) &&
+      volumeNextCursor(payload) === null &&
+      volumePaginationComplete(payload) &&
+      !truncated,
   };
 }
 

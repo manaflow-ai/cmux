@@ -379,6 +379,7 @@ function reportVolumePage(
 ): Effect.Effect<{ readonly candidateLimitReached: boolean }, never> {
   return Effect.gen(function* () {
     const free: Array<{ readonly volume: VMVolume; readonly name: string }> = [];
+    const unknownAttachment: Array<{ readonly volume: VMVolume; readonly name: string }> = [];
     for (const volume of volumes) {
       const name = normalizedVolumeName(volume);
       if (!name || !isMachineOwnedHomeVolumeName(name)) continue;
@@ -393,6 +394,33 @@ function reportVolumePage(
         console.info("[VM] reaper skipped attached volume", { volumeName: name });
       } else if (state === "unknown") {
         summary.orphanVolumes.unknownAttachment += 1;
+        unknownAttachment.push({ volume, name });
+      } else {
+        free.push({ volume, name });
+      }
+    }
+
+    // A persistent unknown state must not append one event per cron run
+    // forever: the same 24h dedup window applies, keyed per event type.
+    if (unknownAttachment.length > 0) {
+      const recentUnknownKeys = yield* loadRecentReaperReportKeys(
+        repo,
+        ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT,
+        unknownAttachment.map(({ name }) => name),
+        now,
+        () => {
+          summary.orphanVolumes.errors += 1;
+        },
+      );
+      for (const { volume, name } of unknownAttachment) {
+        if (recentUnknownKeys.has(name)) {
+          summary.orphanVolumes.skipped += 1;
+          console.info("[VM] reaper skipped unknown-attachment volume", {
+            volumeName: name,
+            reason: "already_reported",
+          });
+          continue;
+        }
         const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT, {
           source: "vm_reaper",
           mode: "report",
@@ -405,8 +433,6 @@ function reportVolumePage(
         });
         if (recorded) summary.orphanVolumes.reported += 1;
         else summary.orphanVolumes.errors += 1;
-      } else {
-        free.push({ volume, name });
       }
     }
 
@@ -418,8 +444,25 @@ function reportVolumePage(
       summary,
     );
     if (!liveReferences) {
+      const recentUnknownRefKeys = yield* loadRecentReaperReportKeys(
+        repo,
+        ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT,
+        free.map(({ name }) => name),
+        now,
+        () => {
+          summary.orphanVolumes.errors += 1;
+        },
+      );
       for (const { volume, name } of free) {
         summary.orphanVolumes.unknownReference += 1;
+        if (recentUnknownRefKeys.has(name)) {
+          summary.orphanVolumes.skipped += 1;
+          console.info("[VM] reaper skipped unknown-reference volume", {
+            volumeName: name,
+            reason: "already_reported",
+          });
+          continue;
+        }
         const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT, {
           source: "vm_reaper",
           mode: "report",
