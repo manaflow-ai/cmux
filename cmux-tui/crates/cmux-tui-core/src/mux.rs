@@ -5818,7 +5818,7 @@ impl Mux {
         loop {
             // Read the full contiguous journal tail while holding registry
             // before roster. A single callback may need several pages.
-            let (deltas_to_apply, page_was_empty) = {
+            let (deltas_to_apply, previous_host, page_was_empty) = {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let mut host = self.agent_roster.lock().unwrap();
                 let page = match registry.session_journal_after(host.cursor, 512) {
@@ -5831,8 +5831,9 @@ impl Mux {
                     }
                 };
                 if page.records.is_empty() {
-                    (Vec::new(), true)
+                    (Vec::new(), host.clone(), true)
                 } else {
+                    let previous_host = host.clone();
                     let mut deltas_to_apply = Vec::new();
                     for record in &page.records {
                         let deltas = host.roster.apply(&RosterEvent::from_record(record));
@@ -5851,24 +5852,38 @@ impl Mux {
                             deltas_to_apply.push((deltas, record.kind.clone(), screen_detect));
                         }
                     }
-                    let cursor = host.cursor;
-                    let ordering_token = host.ordering_token;
-                    let snapshot = host.roster.snapshot().to_string();
-                    if let Err(error) = registry.put_journal_reducer_state_ordered(
-                        AGENT_ROSTER_REDUCER_ID,
-                        AGENT_ROSTER_REDUCER_VERSION,
-                        cursor,
-                        ordering_token,
-                        &snapshot,
-                    ) {
-                        eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-                    }
-                    (deltas_to_apply, false)
+                    (deltas_to_apply, previous_host, false)
                 }
             };
+            let mut side_effects_failed = false;
             for (deltas, kind, screen_detect) in deltas_to_apply {
                 for delta in deltas {
-                    self.apply_roster_delta(delta, &kind, screen_detect);
+                    if let Err(error) = self.apply_roster_delta(delta, &kind, screen_detect) {
+                        eprintln!("cmux-tui: agent roster side effect failed: {error}");
+                        side_effects_failed = true;
+                    }
+                }
+            }
+            if side_effects_failed {
+                // Leave the durable cursor at the last fully applied page.
+                // A later journal wake retries this page instead of treating
+                // a failed projection as complete.
+                let mut registry = self.workspace_registry.lock().unwrap();
+                *self.agent_roster.lock().unwrap() = previous_host;
+                drop(registry);
+                return;
+            }
+            if !page_was_empty {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                let host = self.agent_roster.lock().unwrap();
+                if let Err(error) = registry.put_journal_reducer_state_ordered(
+                    AGENT_ROSTER_REDUCER_ID,
+                    AGENT_ROSTER_REDUCER_VERSION,
+                    host.cursor,
+                    host.ordering_token,
+                    &host.roster.snapshot().to_string(),
+                ) {
+                    eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
                 }
             }
             if page_was_empty {
@@ -5886,7 +5901,7 @@ impl Mux {
         delta: crate::journal_reducers::RosterDelta,
         kind: &str,
         screen_detect: bool,
-    ) {
+    ) -> anyhow::Result<()> {
         use crate::journal_reducers::RosterDelta;
         let (terminal_id, state, source, session, agent_adapter) = match delta {
             RosterDelta::Upsert { terminal_id, entry } => (
@@ -5901,14 +5916,14 @@ impl Mux {
                 (terminal_id, AgentState::Done, source, None, None)
             }
         };
-        let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
-        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return Ok(()) };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return Ok(()) };
         let mutation = match WorkspaceMutation::new(
             format!("roster-{}", crate::workspace_registry::new_uuid_v4()),
             "journal-reducer",
         ) {
             Ok(mutation) => mutation,
-            Err(_) => return,
+            Err(_) => return Ok(()),
         };
         let fingerprint = serde_json::json!({
             "operation":"agent.report",
@@ -5917,7 +5932,7 @@ impl Mux {
             "source":source.as_str(),
             "source_session":session,
         });
-        if let Err(error) = self.commit_agent_report(
+        self.commit_agent_report(
             AgentReportTarget::Surface(surface),
             state,
             source,
@@ -5930,11 +5945,9 @@ impl Mux {
             None,
             AgentReportOrigin::RosterFold,
             agent_adapter,
-        ) {
-            eprintln!(
-                "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
-            );
-        }
+        )
+        .map(|_| ())
+        .with_context(|| format!("agent projection update for {terminal_id} ({kind}) failed"))
     }
 
     /// Record a direct socket/SDK agent report in the journal so the roster
