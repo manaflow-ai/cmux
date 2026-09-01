@@ -50,7 +50,18 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         MainActor.assumeIsolated {
+            #if DEBUG
+            cmuxDebugLog("videoBackground.page.didFinish url=\(webView.url?.absoluteString ?? "nil")")
+            #endif
             onPlayerReady?()
+        }
+    }
+
+    /// WebKit can jettison the content process (memory pressure, crash); the
+    /// page would silently stay blank, so treat it like any other player failure.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        MainActor.assumeIsolated {
+            onPlayerError("web-content-process-terminated")
         }
     }
 
@@ -71,6 +82,9 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
         guard let body = body as? [String: Any],
               let event = body["event"] as? String else { return }
         let code = body["code"].map { "\($0)" } ?? "unknown"
+        #if DEBUG
+        cmuxDebugLog("videoBackground.page.event=\(event) code=\(code)")
+        #endif
         switch event {
         case "error":
             onPlayerError("player-error: \(code)")
