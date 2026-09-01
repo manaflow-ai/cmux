@@ -19,9 +19,8 @@ public final class DeclarativeTerminalConfigurationModel:
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
     private let reader: DeclarativeTerminalConfigurationReader
-    private let initialSnapshotReadyStream: AsyncStream<Void>
-    private let initialSnapshotReadyContinuation: AsyncStream<Void>.Continuation
     private var hasInitialSnapshot = false
+    private var initialSnapshotWaiters: [CheckedContinuation<Void, Never>] = []
     private var observationTasks = MainActorTaskStore<String>()
     private var saveTasks = MainActorTaskStore<String>()
     private var fixedPathObservationTasks = MainActorTaskStore<String>()
@@ -61,11 +60,6 @@ public final class DeclarativeTerminalConfigurationModel:
         self.errorLog = errorLog
         self.reader = reader
         self.fileURL = (fileURL ?? jsonStore.fileURL).standardizedFileURL
-        let (stream, continuation) = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        self.initialSnapshotReadyStream = stream
-        self.initialSnapshotReadyContinuation = continuation
     }
 
     /// Waits until the first authoritative JSON/UserDefaults snapshot is
@@ -73,8 +67,15 @@ public final class DeclarativeTerminalConfigurationModel:
     /// schema defaults before the observer has read the user's file.
     public func waitForInitialSnapshot() async {
         guard !hasInitialSnapshot else { return }
-        var iterator = initialSnapshotReadyStream.makeAsyncIterator()
-        _ = await iterator.next()
+        // Each caller gets its own continuation. A shared AsyncStream iterator
+        // is single-consumer and cannot safely serve concurrent window starts.
+        await withCheckedContinuation { continuation in
+            if hasInitialSnapshot {
+                continuation.resume()
+            } else {
+                initialSnapshotWaiters.append(continuation)
+            }
+        }
     }
 
     /// Starts one cancellable observation owner. Repeated calls are idempotent.
@@ -185,7 +186,11 @@ public final class DeclarativeTerminalConfigurationModel:
         configureFixedPathWatcher(for: complete)
         guard !hasInitialSnapshot else { return }
         hasInitialSnapshot = true
-        initialSnapshotReadyContinuation.yield(())
+        let waiters = initialSnapshotWaiters
+        initialSnapshotWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     /// Watches the configured fixed path's ancestor and revalidates it off the

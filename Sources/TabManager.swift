@@ -1384,7 +1384,7 @@ class TabManager: ObservableObject {
                 // ordinary workspaces, even when a legacy caller disables the
                 // old inherit-cwd boolean.
                 effectiveWorkingDirectoryPolicy = configuredWorkingDirectoryPolicy
-            } else if inheritWorkingDirectory && legacyInheritanceEnabled {
+            } else if inheritWorkingDirectory && declarativeTerminalSettings.legacyInheritanceEnabled {
                 effectiveWorkingDirectoryPolicy = .inheritActivePane
             } else {
                 effectiveWorkingDirectoryPolicy = .workspaceRoot

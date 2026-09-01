@@ -315,10 +315,20 @@ public actor JSONConfigStore {
     private func loadedRoot() -> [String: Any] {
         let resolvedURL = pathResolver.resolvedURL(for: fileURL)
         if cacheIsCurrent(for: resolvedURL.path) { return cachedRoot }
-        cachedRoot = (try? readFromDisk(at: resolvedURL)) ?? [:]
-        cacheValid = true
-        cachedRootResolvedPath = resolvedURL.path
-        return cachedRoot
+        do {
+            let root = try readFromDisk(at: resolvedURL)
+            cachedRoot = root
+            cacheValid = true
+            cachedRootResolvedPath = resolvedURL.path
+            return root
+        } catch {
+            // Reads fail closed, but a parse failure must never become a valid
+            // empty cache: the next mutation must re-read and propagate the
+            // error instead of overwriting unrelated user configuration.
+            cacheValid = false
+            cachedRootResolvedPath = nil
+            return [:]
+        }
     }
 
     private func cacheIsCurrent(for resolvedPath: String) -> Bool {
