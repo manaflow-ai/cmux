@@ -26640,49 +26640,70 @@ struct CMUXCLI {
         surfaceId: String,
         client: SocketClient
     ) throws {
-        // Resolve the replacement pane before taking the file lock. The RPC can
-        // block on the app socket; holding the lock across it would stall every
-        // unrelated tmux-compatible writer for the socket timeout.
-        let snapshot = loadTmuxCompatStore()
-        let snapshotLayout = snapshot.mainVerticalLayouts[workspaceId]
-        let replacementWasResolved: Bool
-        let replacementSurfaceId: String?
-        if let snapshotLayout, snapshotLayout.lastColumnSurfaceId == surfaceId {
-            replacementWasResolved = true
-            replacementSurfaceId = tmuxReplacementColumnSurfaceId(
-                workspaceId: workspaceId,
-                layout: snapshotLayout,
-                client: client
-            )
-        } else {
-            replacementWasResolved = false
-            replacementSurfaceId = nil
-        }
-
-        try withLockedTmuxCompatStoreIfChanged { store in
-            var changed = false
-            if store.lastSplitSurface[workspaceId] == surfaceId {
-                store.lastSplitSurface.removeValue(forKey: workspaceId)
-                changed = true
+        // Resolve pane geometry outside the file lock. If layout state changes
+        // between that RPC and the locked mutation, retry from a fresh snapshot
+        // so a replacement selected for an old main pane is never persisted.
+        for _ in 0..<4 {
+            let snapshot = loadTmuxCompatStore()
+            let snapshotLayout = snapshot.mainVerticalLayouts[workspaceId]
+            let replacementWasResolved: Bool
+            let replacementSurfaceId: String?
+            if let snapshotLayout, snapshotLayout.lastColumnSurfaceId == surfaceId {
+                replacementWasResolved = true
+                replacementSurfaceId = tmuxReplacementColumnSurfaceId(
+                    workspaceId: workspaceId,
+                    layout: snapshotLayout,
+                    client: client
+                )
+            } else {
+                replacementWasResolved = false
+                replacementSurfaceId = nil
             }
 
-            guard let layout = store.mainVerticalLayouts[workspaceId] else { return changed }
-            if layout.mainSurfaceId == surfaceId {
-                store.mainVerticalLayouts.removeValue(forKey: workspaceId)
-                store.lastSplitSurface.removeValue(forKey: workspaceId)
-                changed = true
-            } else if layout.lastColumnSurfaceId == surfaceId, replacementWasResolved {
-                var updatedLayout = layout
-                updatedLayout.lastColumnSurfaceId = replacementSurfaceId
-                store.mainVerticalLayouts[workspaceId] = updatedLayout
-                if let replacementSurfaceId {
-                    store.lastSplitSurface[workspaceId] = replacementSurfaceId
-                } else {
-                    store.lastSplitSurface.removeValue(forKey: workspaceId)
+            var retry = false
+            try withLockedTmuxCompatStoreIfChanged { store in
+                let currentLayout = store.mainVerticalLayouts[workspaceId]
+                let layoutsMatch: Bool = switch (snapshotLayout, currentLayout) {
+                case (nil, nil):
+                    true
+                case let (.some(snapshot), .some(current)):
+                    snapshot.mainSurfaceId == current.mainSurfaceId
+                        && snapshot.lastColumnSurfaceId == current.lastColumnSurfaceId
+                default:
+                    false
                 }
-                changed = true
+                guard layoutsMatch else {
+                    retry = true
+                    return false
+                }
+
+                var changed = false
+                if store.lastSplitSurface[workspaceId] == surfaceId {
+                    store.lastSplitSurface.removeValue(forKey: workspaceId)
+                    changed = true
+                }
+
+                guard let layout = currentLayout else { return changed }
+                if layout.mainSurfaceId == surfaceId {
+                    store.mainVerticalLayouts.removeValue(forKey: workspaceId)
+                    store.lastSplitSurface.removeValue(forKey: workspaceId)
+                    changed = true
+                } else if layout.lastColumnSurfaceId == surfaceId, replacementWasResolved {
+                    var updatedLayout = layout
+                    updatedLayout.lastColumnSurfaceId = replacementSurfaceId
+                    store.mainVerticalLayouts[workspaceId] = updatedLayout
+                    if let replacementSurfaceId {
+                        store.lastSplitSurface[workspaceId] = replacementSurfaceId
+                    } else {
+                        store.lastSplitSurface.removeValue(forKey: workspaceId)
+                    }
+                    changed = true
+                }
+                return changed
             }
-            return changed
+            if !retry {
+                return
+            }
         }
     }
 

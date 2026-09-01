@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -13,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestSplitTmuxCmd(t *testing.T) {
@@ -188,7 +191,6 @@ func TestTmuxCompatStoreConcurrentMutations(t *testing.T) {
 	var group sync.WaitGroup
 	group.Add(writers)
 	for i := 0; i < writers; i++ {
-		i := i
 		go func() {
 			defer group.Done()
 			errors <- withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
@@ -247,21 +249,42 @@ func TestTmuxCompatStoreConcurrentProcessMutations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("test executable: %v", err)
 	}
-	commands := make([]*exec.Cmd, 0, writers)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	type childProcess struct {
+		command *exec.Cmd
+		stderr  *bytes.Buffer
+	}
+	children := make([]childProcess, 0, writers)
+	t.Cleanup(func() {
+		for _, child := range children {
+			if child.command.Process != nil {
+				_ = child.command.Process.Kill()
+			}
+		}
+		for _, child := range children {
+			if child.command.Process != nil {
+				_ = child.command.Wait()
+			}
+		}
+	})
 	for i := 0; i < writers; i++ {
-		command := exec.Command(
+		command := exec.CommandContext(
+			ctx,
 			executable,
 			"-test.run", "^TestTmuxCompatStoreConcurrentProcessMutations$",
 		)
 		command.Env = childEnvironment(home, i)
+		stderr := &bytes.Buffer{}
+		command.Stderr = stderr
 		if err := command.Start(); err != nil {
 			t.Fatalf("start child %d: %v", i, err)
 		}
-		commands = append(commands, command)
+		children = append(children, childProcess{command: command, stderr: stderr})
 	}
-	for i, command := range commands {
-		if err := command.Wait(); err != nil {
-			t.Fatalf("child %d: %v", i, err)
+	for i, child := range children {
+		if err := child.command.Wait(); err != nil {
+			t.Fatalf("child %d: %v\n%s", i, err, child.stderr.String())
 		}
 	}
 
