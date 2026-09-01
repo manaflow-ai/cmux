@@ -32,6 +32,9 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
+    /// Opens the Computers screen (the host dismisses or swaps this sheet
+    /// first). `nil` hides the Connection section's All Computers row.
+    var showComputers: (() -> Void)? = nil
     let signOut: (() -> Void)?
     /// The shell store, used for the live connection rows and the onboarding
     /// replay's connection state. `nil` in previews.
@@ -119,49 +122,58 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                // Hidden when there is no live connection row to show, so the
-                // no-devices screen's reuse of this sheet does not render an
-                // empty header. Switching Macs lives in the workspace list's
-                // computer picker.
-                if hasConnectionRows {
-                    Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                        if let connections = store?.liveMacConnections,
-                           !connections.isEmpty {
-                            ForEach(connections) { connection in
-                                LabeledContent(
-                                    connection.displayName,
-                                    value: connection.role == .focused
-                                        ? L10n.string(
-                                            "mobile.settings.connectionFocused",
-                                            defaultValue: "Focused"
-                                        )
-                                        : L10n.string(
-                                            "mobile.settings.connectionReady",
-                                            defaultValue: "Ready"
-                                        )
-                                )
-                                .accessibilityIdentifier(
-                                    "MobileSettingsMacConnection-\(connection.macDeviceID)"
-                                )
+                // One row per connected Mac: transport is per computer (each
+                // dials its own configured method), so the old single "Active
+                // Transport" row became a per-row trailing label, and a row
+                // navigates into that computer's detail. The All Computers
+                // entry stays reachable even with zero live connections
+                // (reconnect windows, offline), so the section renders
+                // whenever either has content.
+                if hasConnectionRows || showComputers != nil {
+                    Section {
+                        if let store, !store.liveMacConnections.isEmpty {
+                            ForEach(store.liveMacConnections) { connection in
+                                connectionRow(connection, store: store)
                             }
                         } else if !connectedHostName.isEmpty {
                             LabeledContent(
                                 L10n.string("mobile.settings.mac", defaultValue: "Connection"),
                                 value: connectedHostName
                             )
+                            if let store,
+                               store.connectionState == .connected,
+                               let routeKind = store.activeRoute?.kind {
+                                LabeledContent(
+                                    L10n.string(
+                                        "mobile.settings.activeTransport",
+                                        defaultValue: "Active Transport"
+                                    ),
+                                    value: transportName(routeKind)
+                                )
+                                .accessibilityIdentifier("MobileSettingsActiveTransport")
+                            }
                         }
-                        if let store,
-                           store.connectionState == .connected,
-                           let routeKind = store.activeRoute?.kind {
-                            LabeledContent(
-                                L10n.string(
-                                    "mobile.settings.activeTransport",
-                                    defaultValue: "Active Transport"
-                                ),
-                                value: activeTransportName(routeKind)
-                            )
-                            .accessibilityIdentifier("MobileSettingsActiveTransport")
+                        if showComputers != nil {
+                            Button {
+                                showComputers?()
+                            } label: {
+                                Label(
+                                    L10n.string(
+                                        "mobile.settings.allComputers",
+                                        defaultValue: "All Computers"
+                                    ),
+                                    systemImage: "desktopcomputer"
+                                )
+                            }
+                            .accessibilityIdentifier("MobileSettingsAllComputers")
                         }
+                    } header: {
+                        Text(L10n.string("mobile.settings.connection", defaultValue: "Connection"))
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.settings.connectionFooter",
+                            defaultValue: "Each computer connects using its own method, shown on the right. Select one to inspect or configure it."
+                        ))
                     }
                 }
                 if hasConnectionSection {
@@ -352,10 +364,18 @@ struct MobileSettingsView: View {
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
                     Toggle(isOn: $displaySettings.showMissingFiles) {
-                        Text(L10n.string(
-                            "mobile.settings.showMissingFiles",
-                            defaultValue: "Show missing files"
-                        ))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.showMissingFiles",
+                                defaultValue: "Show Missing Files"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.showMissingFilesCaption",
+                                defaultValue: "In a workspace's Files list, keep files that were deleted or moved instead of hiding them."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                     .accessibilityIdentifier("MobileSettingsShowMissingFiles")
 
@@ -523,6 +543,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
+                    keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -533,6 +554,9 @@ struct MobileSettingsView: View {
                     onStartTailscalePairing: {
                         showingOnboarding = false
                         startPairingScanner?()
+                    },
+                    onSetKeepAwake: { [store] enabled in
+                        await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
                     },
                     onComplete: { showingOnboarding = false }
                 )
@@ -599,7 +623,7 @@ struct MobileSettingsView: View {
         }
     }
 
-    private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
+    private func transportName(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
         case .tailscale:
             L10n.string(
@@ -622,6 +646,35 @@ struct MobileSettingsView: View {
                 defaultValue: "Simulator"
             )
         }
+    }
+
+    /// One connected Mac: name plus the transport that connection actually
+    /// dialed, navigating into the computer's detail (method, addresses,
+    /// routes, power) — the same screen the Computers list opens. Focus roles
+    /// are internal plumbing and deliberately not surfaced here.
+    private func connectionRow(
+        _ connection: MobileMacConnectionSnapshot,
+        store: CMUXMobileShellStore
+    ) -> some View {
+        NavigationLink {
+            MacComputerDetailView(
+                store: store,
+                macDeviceID: connection.macDeviceID,
+                instanceTag: connection.instanceTag,
+                focusedRouteKind: connection.routeKind
+            )
+        } label: {
+            LabeledContent(connection.displayName) {
+                if let routeKind = connection.routeKind {
+                    Text(transportName(routeKind))
+                }
+            }
+        }
+        // Keyed by the app-instance identity (device + tag), not the bare
+        // device id: sibling builds on one Mac are distinct rows.
+        .accessibilityIdentifier(
+            "MobileSettingsMacConnection-\(connection.id)"
+        )
     }
 
     @MainActor
@@ -804,13 +857,20 @@ struct MobileSettingsView: View {
     #endif
 }
 
-/// App-wide log sharing. Lives at the settings top level, not the Iroh
-/// screen: the app log covers every feature (simulator, browser, composer,
-/// lifecycle), and the network log covers all connection diagnostics, not
-/// one transport.
+/// App-wide log sharing and transport diagnostics. Lives at the settings top
+/// level, not the Networking screen: the app log covers every feature
+/// (simulator, browser, composer, lifecycle), and the connection diagnostics
+/// cover all connection activity, not one transport.
 private struct MobileSettingsDiagnosticsSection: View {
+    @Environment(\.irohSettingsController) private var irohSettingsController
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var appLogURLs: [URL] = []
     @State private var networkLogURLs: [URL] = []
+    /// Owns the verbose-log toggle and the privacy-scrubbed connection report
+    /// that used to live on the Networking screen. `nil` without a controller
+    /// (previews, hosts without the app root).
+    @State private var irohSettingsModel: MobileIrohSettingsModel?
+    @State private var showsClearConfirmation = false
 
     var body: some View {
         Section {
@@ -842,6 +902,62 @@ private struct MobileSettingsDiagnosticsSection: View {
                 }
                 .accessibilityIdentifier("MobileSettingsShareNetworkLog")
             }
+            if let model = irohSettingsModel {
+                Toggle(isOn: Binding(
+                    get: { model.verboseLogEnabled },
+                    set: { enabled in Task { await model.setVerboseLog(enabled) } }
+                )) {
+                    Text(L10n.string(
+                        "mobile.iroh.diagnostics.verboseLog",
+                        defaultValue: "Verbose Connection Log"
+                    ))
+                }
+                .accessibilityIdentifier("MobileIrohVerboseLogToggle")
+                if model.verboseLogEnabled {
+                    Text(L10n.string(
+                        "mobile.iroh.diagnostics.verboseLog.footer",
+                        defaultValue: "Records detailed connection activity to a file on this device for troubleshooting. Terminal contents and credentials are never written."
+                    ))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                if let verboseLogShareURL = model.verboseLogShareURL {
+                    ShareLink(item: verboseLogShareURL) {
+                        Label(
+                            L10n.string(
+                                "mobile.iroh.diagnostics.shareVerboseLog",
+                                defaultValue: "Share Verbose Log"
+                            ),
+                            systemImage: "doc.text"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileIrohShareVerboseLog")
+                    .simultaneousGesture(TapGesture().onEnded {
+                        diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
+                    })
+                }
+                ShareLink(item: model.diagnosticExportText) {
+                    Label(
+                        L10n.string("mobile.iroh.diagnostics.share", defaultValue: "Share Safe Report"),
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+                .disabled(model.diagnosticExportText.isEmpty)
+                .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+                .simultaneousGesture(TapGesture().onEnded {
+                    diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
+                })
+                Button(role: .destructive) {
+                    showsClearConfirmation = true
+                } label: {
+                    Label(
+                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"),
+                        systemImage: "trash"
+                    )
+                }
+                .disabled(model.diagnosticReport.events.isEmpty)
+                .accessibilityIdentifier("MobileIrohClearDiagnosticReport")
+            }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
         } footer: {
@@ -850,13 +966,39 @@ private struct MobileSettingsDiagnosticsSection: View {
                 defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
             ))
         }
+        .confirmationDialog(
+            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear this diagnostic report?"),
+            isPresented: $showsClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"), role: .destructive) {
+                Task { await irohSettingsModel?.clearDiagnosticReport() }
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.diagnostics.clear.message",
+                defaultValue: "This permanently removes the connection timeline stored on this device."
+            ))
+        }
         .task {
             let urls = await Task.detached(priority: .utility) {
                 (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
             }.value
+            guard !Task.isCancelled else { return }
             appLogURLs = urls.0
             networkLogURLs = urls.1
+            guard let irohSettingsController else { return }
+            // Reuse the model but restart observation on every appearance;
+            // the previous observe loop died with the previous task.
+            let model = irohSettingsModel ?? MobileIrohSettingsModel(
+                controller: irohSettingsController,
+                diagnosticLog: diagnosticLog
+            )
+            irohSettingsModel = model
+            await model.observe(recordingScreenEvents: false)
         }
+        .onDisappear { irohSettingsModel?.cancelOperations() }
     }
 }
 #endif

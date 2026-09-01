@@ -274,6 +274,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public internal(set) var connectedHostName: String
     public private(set) var connectionError: String?
+    /// User-facing recovery copy for a terminal create that did not become
+    /// ready within the bounded optimistic-selection window.
+    public private(set) var terminalCreationError: String?
+    /// Remote workspace that owns ``terminalCreationError``. The local row id
+    /// can be remapped while snapshots converge, so recovery UI keys off the
+    /// stable RPC workspace identity.
+    public private(set) var terminalCreationErrorWorkspaceID: MobileWorkspacePreview.ID?
+    @ObservationIgnored private var terminalCreationErrorTerminalID: MobileTerminalPreview.ID?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
@@ -878,6 +886,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// writing the previous user's state under ids the next account may reuse. Not
     /// observed: it gates async hand-backs, not view state.
     @ObservationIgnored var signInGeneration = 0
+    @ObservationIgnored private var createdTerminalSelection: CreatedTerminalSelection?
+    @ObservationIgnored private var createdTerminalSelectionExpiryTask: Task<Void, Never>?
+    private static let createdTerminalSelectionTimeout = Duration.seconds(30)
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             if selectedWorkspaceID != oldValue {
@@ -923,6 +934,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         didSet {
             guard selectedTerminalID != oldValue else { return }
+            if selectedTerminalID != createdTerminalSelection?.terminalID {
+                clearCreatedTerminalSelection()
+            }
             if let selectedTerminalID {
                 recordAppEvent(
                     .surfaceFocused,
@@ -1329,6 +1343,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     var foregroundMacDeviceID: String? {
         didSet {
+            if oldValue == nil, let foregroundMacDeviceID {
+                createdTerminalSelection?.adoptMacDeviceIDIfMissing(
+                    foregroundMacDeviceID,
+                    instanceTag: activeMacInstanceTag
+                )
+            }
             if let foregroundMacDeviceID {
                 recoveryTargetMacDeviceID = foregroundMacDeviceID
                 recoveryTargetInstanceTag = activeMacInstanceTag
@@ -1841,6 +1861,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
+        self.terminalCreationError = nil
         self.connectionErrorGuidance = nil
         self.pairingVersionWarning = nil
         self.activeTicket = nil
@@ -1961,6 +1982,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
+        createdTerminalSelectionExpiryTask?.cancel()
         workspaceListRefreshTask?.cancel()
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryFetchTask?.cancel()
@@ -2091,6 +2113,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         composerFieldIsFocused = false
         composerFocusRequestPending = false
         composerFocusRequestTerminalID = nil
+        clearTerminalCreationError()
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -4611,6 +4634,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let foregroundKeyBeforeTagAdoption = foregroundMacKey
         if activeMacInstanceTag == nil, let resolvedTag, !resolvedTag.isEmpty {
             activeMacInstanceTag = resolvedTag
+            createdTerminalSelection?.adoptMacInstanceTagIfMissing(resolvedTag)
         }
         adoptForegroundMacIdentity(
             reportedID,
@@ -4793,6 +4817,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let attemptID = beginPairingAttempt(method: "qr")
+
+        // A pairing attempt begins with fresh interactive auth (a QR scan, or
+        // the injected dev attach that fires only after sign-in completes), so
+        // a token-gate suppression window left by a fetch that raced that
+        // sign-in is stale input. Without this, pairing fails fast
+        // (`requestTimedOut` within milliseconds) for up to 30s after launch
+        // and never persists the ticket's routes — the exact race the dev
+        // launcher hits on every forced fresh sign-in.
+        await stackTokenGate.resetTimedOutSuppression()
+        await stackTokenForceRefreshGate.resetTimedOutSuppression()
 
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
@@ -8091,6 +8125,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// different workspace if the selection drifts before the async work runs.
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
+        clearTerminalCreationError()
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
@@ -8138,12 +8173,61 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 list[index].terminals.append(terminal)
             }
         }
+        clearCreatedTerminalSelection()
+        createdTerminalSelection = CreatedTerminalSelection(
+            workspace: workspace,
+            fallbackMacDeviceID: foregroundMacDeviceID,
+            fallbackInstanceTag: activeMacInstanceTag,
+            terminalID: terminal.id
+        )
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
+        armCreatedTerminalSelectionExpiry(for: terminal.id)
         recordAppEvent(
             .terminalCreateSucceeded,
             correlationID: terminal.id.rawValue
         )
+    }
+
+    private func armCreatedTerminalSelectionExpiry(
+        for terminalID: MobileTerminalPreview.ID
+    ) {
+        createdTerminalSelectionExpiryTask?.cancel()
+        createdTerminalSelectionExpiryTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(
+                    for: Self.createdTerminalSelectionTimeout
+                )
+            } catch {
+                return
+            }
+            guard let self,
+                  let selection = self.createdTerminalSelection,
+                  selection.terminalID == terminalID,
+                  self.selectedTerminalID == terminalID else {
+                return
+            }
+            let failedWorkspaceID = selection.remoteWorkspaceID
+            self.clearCreatedTerminalSelection()
+            self.terminalCreationError = L10n.string(
+                "mobile.terminal.creationTimeout",
+                defaultValue: "The new terminal did not finish starting."
+            )
+            self.terminalCreationErrorWorkspaceID = failedWorkspaceID
+            self.terminalCreationErrorTerminalID = terminalID
+            self.recordAppEvent(
+                .terminalCreateFailed,
+                correlationID: terminalID.rawValue,
+                failure: .timedOut
+            )
+            self.syncSelectedTerminalForWorkspace()
+        }
+    }
+
+    private func clearCreatedTerminalSelection() {
+        createdTerminalSelection = nil
+        createdTerminalSelectionExpiryTask?.cancel()
+        createdTerminalSelectionExpiryTask = nil
     }
 
     /// Select the active terminal by id without changing workspace selection.
@@ -11143,6 +11227,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionErrorGuidance = nil
     }
 
+    private func clearTerminalCreationErrorIfRecovered() {
+        guard let errorWorkspaceID = terminalCreationErrorWorkspaceID,
+              let errorTerminalID = terminalCreationErrorTerminalID,
+              workspaces.contains(where: {
+                  $0.rpcWorkspaceID == errorWorkspaceID
+                      && $0.terminals.contains { $0.id == errorTerminalID && $0.isReady }
+              }) else {
+            return
+        }
+        clearTerminalCreationError()
+    }
+
+    private func clearTerminalCreationError() {
+        terminalCreationError = nil
+        terminalCreationErrorWorkspaceID = nil
+        terminalCreationErrorTerminalID = nil
+    }
+
     private func clearPairingVersionWarning() {
         pairingVersionWarning = nil
         pendingPairingVersionWarningURL = nil
@@ -11378,6 +11480,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func syncSelectedTerminalForWorkspace() {
+        clearTerminalCreationErrorIfRecovered()
         // A selection held across a degraded-connection window has no live
         // row, and ``selectedWorkspace`` would fall back to an arbitrary
         // first row: re-deriving from that would clobber the held terminal
@@ -11419,6 +11522,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .unavailable:
                 pendingLastTabRestoreWorkspaceID = nil
                 recordDisplayedTabAfterSync = true
+            }
+        }
+        // A create response is followed by one or more workspace snapshots.
+        // Keep the newly created terminal selected while it is still starting,
+        // even when the refresh contains another ready terminal that would
+        // otherwise win the fallback below. The pin is scoped to the remote
+        // workspace and owning Mac, so a row-id remap cannot retarget it.
+        if let created = createdTerminalSelection, selectedTerminalID == created.terminalID {
+            let allowsAnonymousForeground = foregroundMacDeviceID == nil
+                && selectedWorkspace.macDeviceID == nil
+                && workspacesByMac[.anonymousForeground]?.workspaces.contains {
+                    $0.rpcWorkspaceID == selectedWorkspace.rpcWorkspaceID
+                } == true
+            if let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
+                if selectedTerminal.isReady {
+                    clearCreatedTerminalSelection()
+                    // The timeout banner is cleared separately when a late
+                    // success arrives after the pin's expiry.
+                } else if created.matches(
+                    workspace: selectedWorkspace,
+                    allowsAnonymousForeground: allowsAnonymousForeground
+                ) {
+                    return
+                } else if created.identityMetadataIsIncomplete(
+                    in: selectedWorkspace,
+                    allowsAnonymousForeground: allowsAnonymousForeground
+                ) {
+                    // Preserve the pin while identity fields are temporarily
+                    // absent during snapshot convergence. The expiry task is
+                    // the bounded escape hatch for a genuinely stuck create.
+                    return
+                } else {
+                    clearCreatedTerminalSelection()
+                }
+            } else {
+                // The host has confirmed that the created terminal vanished.
+                clearCreatedTerminalSelection()
             }
         }
         if let selectedTerminalID,
@@ -11877,7 +12017,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .terminalCreateStarted,
             correlationID: rowWorkspaceID.rawValue
         )
+        let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
+        let requestedMacDeviceID = normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID)
+            ?? normalizedCreatedTerminalIdentity(foregroundMacDeviceID)
+        // A known workspace owner may legitimately have no instance tag in a
+        // legacy snapshot. Keep that absence instead of borrowing the global
+        // foreground tag, which may belong to a different Mac instance.
+        let requestedInstanceTag: String? = {
+            guard let requestedRow else { return normalizedCreatedTerminalIdentity(activeMacInstanceTag) }
+            if normalizedCreatedTerminalIdentity(requestedRow.macDeviceID) != nil {
+                return normalizedCreatedTerminalIdentity(requestedRow.macInstanceTag)
+            }
+            return normalizedCreatedTerminalIdentity(requestedRow.macInstanceTag)
+                ?? normalizedCreatedTerminalIdentity(activeMacInstanceTag)
+        }()
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -11898,11 +12052,74 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            if selectedWorkspaceID == rowWorkspaceID,
+            let selectedRow = explicitlySelectedWorkspace
+            let selectedRowMatchesAnonymousRequest: Bool
+            if normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID) == nil,
+               let foregroundMacDeviceID,
+               let selectedRow,
+               selectedRow.rpcWorkspaceID == requestedWorkspaceID,
+               createdTerminalDeviceIDsMatch(
+                   selectedRow.macDeviceID,
+                   foregroundMacDeviceID
+               ),
+               macInstanceTagAuthority.sameStoredAuthority(
+                   selectedRow.macInstanceTag,
+                   activeMacInstanceTag
+               ) {
+                selectedRowMatchesAnonymousRequest = true
+            } else {
+                selectedRowMatchesAnonymousRequest = false
+            }
+            let selectedRowMatchesUnidentifiedRequest: Bool = {
+                guard normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID) == nil,
+                      normalizedCreatedTerminalIdentity(foregroundMacDeviceID) == nil,
+                      normalizedCreatedTerminalIdentity(requestedInstanceTag) == nil,
+                      let selectedRow,
+                      selectedRow.rpcWorkspaceID == requestedWorkspaceID,
+                      normalizedCreatedTerminalIdentity(selectedRow.macDeviceID) == nil,
+                      normalizedCreatedTerminalIdentity(selectedRow.macInstanceTag) == nil else {
+                    return false
+                }
+                return workspaces.filter {
+                    $0.rpcWorkspaceID == requestedWorkspaceID
+                        && normalizedCreatedTerminalIdentity($0.macDeviceID) == nil
+                        && normalizedCreatedTerminalIdentity($0.macInstanceTag) == nil
+                }.count == 1
+            }()
+            let selectedRowMatchesKnownOwnerRequest: Bool = {
+                guard let selectedRow,
+                      selectedRow.rpcWorkspaceID == requestedWorkspaceID,
+                      let selectedMacDeviceID = selectedRow.macDeviceID,
+                      let requestedMacDeviceID,
+                      createdTerminalDeviceIDsMatch(selectedMacDeviceID, requestedMacDeviceID) else {
+                    return false
+                }
+                let selectedTag = macInstanceTagAuthority.normalize(selectedRow.macInstanceTag)
+                let requestedTag = macInstanceTagAuthority.normalize(requestedInstanceTag)
+                switch (selectedTag, requestedTag) {
+                case (nil, nil):
+                    return true
+                case let (selectedTag?, requestedTag?):
+                    return macInstanceTagAuthority.sameStoredAuthority(selectedTag, requestedTag)
+                default:
+                    return false
+                }
+            }()
+            let selectedRowMatchesRequest = selectedRowMatchesKnownOwnerRequest
+                || selectedRowMatchesAnonymousRequest
+                || selectedRowMatchesUnidentifiedRequest
+            if let selectedRow, selectedRowMatchesRequest,
                let createdID = response.createdTerminalID {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
+                createdTerminalSelection = CreatedTerminalSelection(
+                    workspace: selectedRow,
+                    fallbackMacDeviceID: requestedMacDeviceID,
+                    fallbackInstanceTag: requestedInstanceTag,
+                    terminalID: createdTerminalID
+                )
                 selectedTerminalID = createdTerminalID
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
+                armCreatedTerminalSelectionExpiry(for: createdTerminalID)
             }
             recordAppEvent(
                 .terminalCreateSucceeded,

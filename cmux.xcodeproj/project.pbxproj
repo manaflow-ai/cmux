@@ -1559,7 +1559,9 @@
 		1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */; };
 		C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */; };
 		C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */; };
+		C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */; };
 		C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000011 /* MobileHostIrxRuntime.swift */; };
+		C1B1810000000000000005 /* MobileHostIrxSettingsMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */; };
 		C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
@@ -2119,6 +2121,7 @@
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
 		EA1F00000000000000000003 /* SidebarDirectoryText.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1F00000000000000000004 /* SidebarDirectoryText.swift */; };
 		B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0270000000000000027 /* SidebarDividerTrackingView.swift */; };
+		A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7FD1001 /* SidebarFileDropFindRoutingTests.swift */; };
 		B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */; };
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
 		8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */; };
@@ -4535,7 +4538,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		1B0B09010000000000000001 /* MobileHostIrohRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRuntime.swift; sourceTree = "<group>"; };
 		C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohServerEventWriter.swift; sourceTree = "<group>"; };
 		C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxLegacyDialectServer.swift; sourceTree = "<group>"; };
+		C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000011 /* MobileHostIrxRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxRuntime.swift; sourceTree = "<group>"; };
+		C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxSettingsMappingTests.swift; sourceTree = "<group>"; };
 		C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxTerminalLaneServer.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
@@ -5090,6 +5095,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
 		EA1F00000000000000000004 /* SidebarDirectoryText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDirectoryText.swift; sourceTree = "<group>"; };
 		B804B0270000000000000027 /* SidebarDividerTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarDividerTrackingView.swift; sourceTree = "<group>"; };
+		A7FD1001 /* SidebarFileDropFindRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFileDropFindRoutingTests.swift; sourceTree = "<group>"; };
 		B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFocusBoundaryLifecycleTests.swift; sourceTree = "<group>"; };
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
 		8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGitProcessCompositionTests.swift; sourceTree = "<group>"; };
@@ -6283,6 +6289,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */,
 				C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */,
 				C1B1810000000000000011 /* MobileHostIrxRuntime.swift */,
+				C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */,
 				C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */,
 				C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */,
 				C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */,
@@ -8480,6 +8487,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */,
 				4E6A6F5C1D2B4980A1234567 /* AppDelegateSurfaceShortcutRoutingTests.swift */,
 				6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */,
+				A7FD1001 /* SidebarFileDropFindRoutingTests.swift */,
 				C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */,
 				5330A0025330A0025330A002 /* TextBoxInlineAttachmentRenderingTests.swift */,
 				C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */,
@@ -9065,6 +9073,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */,
 				ABMDPARTRES0000000000002 /* MobilePanelArtifactResolutionTests.swift */,
 				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
+				C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */,
 				A7C0F0010000000000000001 /* MacPairedMacBackupPublisherScopeTests.swift */,
 				5E2701030000000000000002 /* MacSentryStartupPolicyTests.swift */,
 			);
@@ -10492,6 +10501,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1B0B09010000000000000002 /* MobileHostIrohRuntime.swift in Sources */,
 				C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */,
 				C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */,
+				C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */,
 				C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */,
 				C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
@@ -12130,6 +12140,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1A071000000000000000003 /* MobileHostConnectionLifecycleTests.swift in Sources */,
 				B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */,
 				C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */,
+				C1B1810000000000000005 /* MobileHostIrxSettingsMappingTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
@@ -12293,6 +12304,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				C3467AB10000000000000001 /* ShortcutWhenClauseTests.swift in Sources */,
 				B804C0030000000000000003 /* SidebarAppKitRowCellTests.swift in Sources */,
+				A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */,
 				B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */,
 				8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */,
 				B8624C010000000000000001 /* SidebarHiddenPresentationTests.swift in Sources */,
