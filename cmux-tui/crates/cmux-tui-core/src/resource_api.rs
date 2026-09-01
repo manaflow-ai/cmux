@@ -61,7 +61,7 @@ pub(crate) fn public_frontend_projection_snapshot(
 }
 
 #[cfg(test)]
-fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
+pub(crate) fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
     SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
         *slot.borrow_mut() = Some(Box::new(hook));
     });
@@ -461,6 +461,18 @@ pub(crate) fn public_terminal_snapshot(
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
+    public_session_snapshot_with_journal_head(mux).map(|(snapshot, _)| snapshot)
+}
+
+/// Returns the public session snapshot together with the session journal head
+/// read under the same registry + state projection lock. The pair is one
+/// consistent cut: every journal record at or below the returned head is
+/// reflected in the snapshot, and every later record is not. Checkpoint
+/// capture keys its consistency fence to this cut so a journal write that
+/// merely precedes the cut cannot spuriously abort the capture.
+pub(crate) fn public_session_snapshot_with_journal_head(
+    mux: &Mux,
+) -> Result<(Value, u64), ResourceError> {
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -471,6 +483,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
+        let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
@@ -727,7 +740,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
 
-        Ok(json!({
+        let snapshot = json!({
             "machine": machine_snapshot(&context),
             "session": session_snapshot(&context),
             "workspaces": workspaces,
@@ -745,7 +758,8 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
             },
-        }))
+        });
+        Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)
 }

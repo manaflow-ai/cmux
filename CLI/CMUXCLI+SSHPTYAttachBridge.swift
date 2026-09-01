@@ -9,6 +9,19 @@ extension CLIError {
 }
 
 extension CMUXCLI {
+    /// Persistent attach launchers own the retry UX.  A retryable bridge
+    /// establishment error is expected while the management supervisor is
+    /// bringing the daemon/proxy back; printing it before the bounded retry
+    /// notice makes a healthy recovery look like a fatal SSH failure.
+    func shouldSuppressSSHPTYAttachRetryError(_ error: Error) -> Bool {
+        guard sshPTYAttachWrapperRetryPending(),
+              let cliError = error as? CLIError,
+              let exitCode = SSHPTYAttachExitCode(rawValue: cliError.exitCode) else {
+            return false
+        }
+        return sshPTYAttachWrapperWillRetry(exitCode)
+    }
+
     /// True when a persistent attach wrapper has another general retry available.
     /// Persistent wrappers export `CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1`;
     /// direct invocations leave it unset, so failures there always clean up.

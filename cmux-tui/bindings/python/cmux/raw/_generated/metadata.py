@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529'
+IR_SHA256 = 'b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6'
 
 
 @dataclass(frozen=True)
@@ -264,6 +264,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'client-focus': CommandMetadata(
+        'client-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
         },
     ),
     'close-pane': CommandMetadata(
@@ -976,6 +987,19 @@ COMMANDS = {
             'source': CommandFieldMetadata(None, None),
             'state': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'report-focus': CommandMetadata(
+        'report-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'tab': CommandFieldMetadata(None, None),
         },
     ),
     'resize-attached-view': CommandMetadata(

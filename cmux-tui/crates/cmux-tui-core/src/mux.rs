@@ -1891,6 +1891,17 @@ impl fmt::Display for ConfigReloadError {
 
 impl std::error::Error for ConfigReloadError {}
 
+/// One client's most recently reported focus (client-focus-v1).
+#[derive(Clone)]
+struct ClientFocusRecord {
+    client_id: String,
+    pane: PaneId,
+    tab: Option<usize>,
+}
+
+/// Bounded size of the per-client focus memory.
+const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
+
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
@@ -1911,6 +1922,17 @@ pub struct Mux {
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
     client_sizing: Mutex<ClientSizingState>,
+    /// Per-client focus memory (client-focus-v1): the most recent focus each
+    /// client id reported, so a reconnecting client restores its own view
+    /// instead of the shared session focus. In-memory and bounded; a mux
+    /// restart degrades to the tree's own focus markers.
+    client_focus_memory: Mutex<Vec<ClientFocusRecord>>,
+    /// The session's most recently reported focus from any client
+    /// (client-focus-v1): the adoption default for a later attach that has
+    /// no per-client memory. Focus reports only write this record and the
+    /// per-client memory; they never move the live shared focus, so other
+    /// attached clients stay where they are.
+    last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -1992,6 +2014,12 @@ pub struct Mux {
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
     journal_event_changed: Condvar,
+    /// True once a skipped terminal-host reconnect checkpoint has been
+    /// surfaced as a status event. A machine resume reconnects every hosted
+    /// terminal at once, so per-terminal reporting would toast N times for
+    /// one underlying condition. Cleared when a reconnect checkpoint
+    /// succeeds again.
+    reconnect_checkpoint_skip_reported: AtomicBool,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2265,6 +2293,8 @@ impl Mux {
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
             client_sizing: Mutex::new(ClientSizingState::default()),
+            client_focus_memory: Mutex::new(Vec::new()),
+            last_reported_focus: Mutex::new(None),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -2350,6 +2380,7 @@ impl Mux {
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
+            reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -2724,16 +2755,20 @@ impl Mux {
                 return Err(error);
             }
             if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
-                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    &record_path,
-                    &record,
-                );
+                // Commit the durable exit before deleting the record. The
+                // record is the only proof that this host ever existed, so a
+                // failed commit must leave the next startup able to retry
+                // instead of facing a lifecycle row with no evidence.
                 self.mark_terminal_exited_and_detach(
                     &terminal_id,
                     "terminal-host-proven-dead",
                     "host-process-ended-before-adoption",
                     &options,
                 )?;
+                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                    &record_path,
+                    &record,
+                );
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
@@ -2751,16 +2786,16 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                            &record_path,
-                            &record,
-                        );
                         self.mark_terminal_exited_and_detach(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
                             &options,
                         )?;
+                        let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                            &record_path,
+                            &record,
+                        );
                         handled_terminals.insert(terminal_id.clone());
                     } else {
                         // Socket loss and descriptor pressure are not process
@@ -5080,6 +5115,30 @@ impl Mux {
             self.publish_journal_event();
         }
         Ok(())
+    }
+
+    /// Reports a skipped terminal-host reconnect checkpoint at most once
+    /// until a later reconnect checkpoint succeeds. A checkpoint is a
+    /// journal-replay optimization: skipping one only moves the next replay
+    /// boundary back, so repeated skips are daemon-log noise, not per-toast
+    /// news.
+    pub(crate) fn report_skipped_reconnect_checkpoint(
+        &self,
+        terminal_id: impl fmt::Display,
+        error: &anyhow::Error,
+    ) {
+        let message = format!(
+            "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
+        );
+        if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
+            eprintln!("cmux-tui: {message}");
+        } else {
+            self.emit(MuxEvent::Status(message));
+        }
+    }
+
+    pub(crate) fn note_reconnect_checkpoint_captured(&self) {
+        self.reconnect_checkpoint_skip_reported.store(false, Ordering::Release);
     }
 
     pub(crate) fn create_journal_checkpoint(
@@ -9265,7 +9324,7 @@ impl Mux {
                         Err(error) => {
                             failed_operations.insert(pending.surface_id);
                             failed_surface_ids.insert(pending.surface_id);
-                            failures.push(format!("surface {}: {error}", pending.surface_id));
+                            failures.push(format!("surface {}: {error:#}", pending.surface_id));
                         }
                     }
                 }
@@ -9389,7 +9448,7 @@ impl Mux {
                         DeadlineMapResult::Complete(Err(error)) => {
                             retry_expansion |= *expanding;
                             failed_surface_ids.insert(*id);
-                            failures.push(format!("surface {id}: {error}"));
+                            failures.push(format!("surface {id}: {error:#}"));
                         }
                         DeadlineMapResult::Pending(result) => {
                             pending_operations.push(PendingKittyImageBudgetOperation {
@@ -11658,6 +11717,9 @@ impl Mux {
                     pane.active_tab = pane.tabs.len() - 1;
                     pane.active_at = active_at;
                     fence_layout_undo_for_tab_membership(&mut state, &[pane_id]);
+                    if let Some(identity) = surface.resource_identity().cloned() {
+                        state.register_tab_identity(surface.id, &identity);
+                    }
                     state.surfaces.insert(surface.id, surface.clone());
                     let delta = (|| {
                         let (wi, si) = state.screen_of(pane_id)?;
@@ -14637,6 +14699,41 @@ impl Mux {
         self.emit(MuxEvent::TreeChanged);
     }
 
+    /// Remember one client's reported focus for its own later reconnection.
+    /// Most-recent-first eviction keeps the memory bounded.
+    pub fn remember_client_focus(&self, client_id: String, pane: PaneId, tab: Option<usize>) {
+        let mut memory = self.client_focus_memory.lock().unwrap();
+        memory.retain(|record| record.client_id != client_id);
+        memory.push(ClientFocusRecord { client_id, pane, tab });
+        if memory.len() > CLIENT_FOCUS_MEMORY_LIMIT {
+            let excess = memory.len() - CLIENT_FOCUS_MEMORY_LIMIT;
+            memory.drain(..excess);
+        }
+    }
+
+    /// The remembered focus for one client, if its pane is still alive.
+    pub fn client_focus(&self, client_id: &str) -> Option<(PaneId, Option<usize>)> {
+        let record = {
+            let memory = self.client_focus_memory.lock().unwrap();
+            memory.iter().find(|record| record.client_id == client_id).cloned()?
+        };
+        self.with_state(|state| state.panes.contains_key(&record.pane))
+            .then_some((record.pane, record.tab))
+    }
+
+    /// Record the session's last reported focus from any client: the
+    /// adoption default for a later attach without per-client memory.
+    /// Never moves the live shared focus.
+    pub fn record_session_focus(&self, pane: PaneId, tab: Option<usize>) {
+        *self.last_reported_focus.lock().unwrap() = Some((pane, tab));
+    }
+
+    /// The session's last reported focus, if its pane is still alive.
+    pub fn session_focus(&self) -> Option<(PaneId, Option<usize>)> {
+        let record = (*self.last_reported_focus.lock().unwrap())?;
+        self.with_state(|state| state.panes.contains_key(&record.0)).then_some(record)
+    }
+
     /// Select a workspace by index or relative delta.
     pub fn select_workspace(self: &Arc<Self>, index: Option<usize>, delta: Option<isize>) {
         let workspace = {
@@ -15132,6 +15229,12 @@ fn insert_surface_checked(state: &mut State, surface: Arc<Surface>) -> anyhow::R
         );
     }
     register_terminal_runtime_checked(state, &surface)?;
+    // Surface insertion is the only way a tab placement enters live state, so
+    // it is also where the topology takes ownership of that tab's identity.
+    // Every later reader takes identity from the topology, never from here.
+    if let Some(identity) = surface.resource_identity().cloned() {
+        state.register_tab_identity(surface.id, &identity);
+    }
     state.surfaces.insert(surface.id, surface);
     Ok(())
 }
@@ -16193,13 +16296,6 @@ fn layout_undo_confirmation_details(
                 .tab_ids
                 .get(surface)
                 .cloned()
-                .or_else(|| {
-                    state
-                        .surfaces
-                        .get(surface)
-                        .and_then(|surface| surface.resource_identity())
-                        .map(|identity| identity.tab_id.clone())
-                })
                 .with_context(|| format!("tab {surface} has no public identity"))?;
             update_layout_undo_token_part(&mut hasher, tab_id.to_string().as_bytes());
         }
@@ -16448,6 +16544,44 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    /// A machine resume reconnects every hosted terminal at once. When
+    /// checkpoint capture keeps losing its consistency race on a busy
+    /// session, the skip must surface as one status event, not one toast per
+    /// terminal per reconnect. A later successful checkpoint re-arms the
+    /// report.
+    #[test]
+    fn reconnect_checkpoint_skip_status_is_reported_once_until_recovery() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let skip_statuses = |events: &MuxEventReceiver| {
+            events
+                .try_iter()
+                .filter(|event| {
+                    matches!(event, MuxEvent::Status(message)
+                        if message.contains("reconnect checkpoint"))
+                })
+                .count()
+        };
+
+        let error = anyhow::anyhow!("session changed during checkpoint capture");
+        mux.report_skipped_reconnect_checkpoint("term_one", &error);
+        mux.report_skipped_reconnect_checkpoint("term_two", &error);
+        mux.report_skipped_reconnect_checkpoint("term_one", &error);
+        assert_eq!(
+            skip_statuses(&events),
+            1,
+            "repeated checkpoint skips must collapse into one status event"
+        );
+
+        mux.note_reconnect_checkpoint_captured();
+        mux.report_skipped_reconnect_checkpoint("term_three", &error);
+        assert_eq!(
+            skip_statuses(&events),
+            1,
+            "a skip after a successful checkpoint is a new condition and reports again"
+        );
     }
 
     fn assert_terminal_view_detached(mux: &Mux, surface: SurfaceId) {
@@ -17177,6 +17311,51 @@ mod tests {
         assert_eq!(state.surfaces.len(), 0);
         assert_eq!(restored.contents.len(), 6);
         assert!(restored.next_id > 100);
+    }
+
+    #[test]
+    fn restored_tabs_keep_durable_identity_without_any_live_surface() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let mut restored = restore_resource_state(snapshot, topology.clone()).unwrap();
+        assert!(restored.state.surfaces.is_empty(), "restore must not fabricate runtime");
+
+        restored.state.rebuild_resource_indexes();
+        restored.state.ensure_tab_identity_coverage().unwrap();
+
+        for tab in &topology.tabs {
+            let slot = restored
+                .state
+                .resource_indexes
+                .tabs
+                .get(&tab.public_id)
+                .copied()
+                .expect("restored tab lost its slot");
+            assert_eq!(
+                restored.state.resource_indexes.content_ids.get(&slot),
+                Some(&tab.content_id),
+                "restored tab lost its content identity"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tab_without_durable_identity_fails_loudly_instead_of_vanishing() {
+        let (snapshot, topology) = resource_restore_fixture();
+        let mut restored = restore_resource_state(snapshot, topology).unwrap();
+        let slot = *restored
+            .state
+            .panes
+            .values()
+            .find(|pane| !pane.tabs.is_empty())
+            .expect("fixture has a placed tab")
+            .tabs
+            .first()
+            .expect("checked above");
+
+        restored.state.resource_indexes.tab_ids.remove(&slot);
+
+        let error = restored.state.ensure_tab_identity_coverage().unwrap_err();
+        assert!(error.to_string().contains("has no durable identity"), "unexpected error: {error}");
     }
 
     #[test]

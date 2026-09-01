@@ -18,9 +18,14 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CmuxControlSocketAtomicsC",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "CmuxControlSocket",
             dependencies: [
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                "CmuxControlSocketAtomicsC",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

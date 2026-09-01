@@ -888,8 +888,13 @@ extension MobileShellComposite {
             return
         }
         if connectionState == .connected,
-           connectedMacDeviceID == device.deviceId,
-           activeMacInstanceTag == instance.tag,
+           MacPairingKey(
+               macDeviceID: connectedMacDeviceID ?? "",
+               instanceTag: activeMacInstanceTag
+           ) == MacPairingKey(
+               macDeviceID: device.deviceId,
+               instanceTag: instance.tag
+           ),
            let liveRoute = activeRoute,
            candidateRoutes.contains(where: {
                $0.id == liveRoute.id || $0.endpoint == liveRoute.endpoint

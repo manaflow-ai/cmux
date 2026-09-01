@@ -2,6 +2,7 @@ import {
   authenticateRouteToken,
   markAccountCooldown,
   selectAccountForRequest,
+  selectAccountForSession,
 } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
@@ -24,7 +25,70 @@ const ALLOWED_REQUEST_HEADERS = [
   "user-agent",
 ] as const;
 
-export async function proxyCodexRequest(request: Request): Promise<Response> {
+type CodexResponsesDependencies = {
+  readonly authenticate: typeof authenticateRouteToken;
+  readonly select: typeof selectAccountForSession;
+  readonly credential: typeof freshCredential;
+  readonly cooldown: typeof markAccountCooldown;
+};
+
+/**
+ * The Codex CLI sends a stable `session_id` header for every request of one
+ * agent session. That key pins the session to one account so the provider's
+ * prompt cache stays warm across turns.
+ */
+function sessionKeyFromRequest(request: Request): string | null {
+  const raw = request.headers.get("session_id")?.trim();
+  if (!raw || raw.length > 512) return null;
+  return raw;
+}
+
+const STICKY_REFRESH_RETRIES = 4;
+const STICKY_REFRESH_RETRY_DELAY_MS = 500;
+
+/**
+ * A sticky session that hits a refresh already in flight should wait for the
+ * winner's fresh credential rather than move to another account: a move
+ * discards the session's prompt cache and re-bills its whole prefix, while
+ * the in-flight refresh completes within seconds. Non-sticky requests keep
+ * the fail-fast behavior.
+ */
+async function credentialWithStickyPatience(
+  dependencies: Pick<CodexResponsesDependencies, "credential">,
+  input: { teamId: string; accountId: string; expectedRevision: number },
+  sticky: boolean,
+): Promise<Awaited<ReturnType<CodexResponsesDependencies["credential"]>>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await dependencies.credential(input);
+    } catch (error) {
+      const busy = error && typeof error === "object" && "_tag" in error &&
+        (error as { _tag: string })._tag === "CodeRouterRefreshBusy";
+      if (!busy || !sticky || attempt >= STICKY_REFRESH_RETRIES) throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, STICKY_REFRESH_RETRY_DELAY_MS)
+      );
+    }
+  }
+}
+
+export function createCodexResponsesProxy(
+  dependencies: CodexResponsesDependencies,
+): (request: Request) => Promise<Response> {
+  return async (request) => proxyCodexRequestWith(dependencies, request);
+}
+
+export const proxyCodexRequest = createCodexResponsesProxy({
+  authenticate: authenticateRouteToken,
+  select: selectAccountForSession,
+  credential: freshCredential,
+  cooldown: markAccountCooldown,
+});
+
+async function proxyCodexRequestWith(
+  dependencies: CodexResponsesDependencies,
+  request: Request,
+): Promise<Response> {
   const startedAt = performance.now();
   const token = bearerToken(request);
   if (!token) {
@@ -51,7 +115,7 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
       false,
     );
   }
-  const identity = await authenticateRouteToken(token);
+  const identity = await dependencies.authenticate(token);
   if (!identity) {
     addCoderouterBreadcrumb("auth", "Route token rejected", {}, "warning");
     captureCoderouterEvent({
@@ -85,30 +149,37 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
     const value = request.headers.get(name);
     if (value) forwardedHeaders.set(name, value);
   }
+  const sessionKey = sessionKeyFromRequest(request);
   const attempted: string[] = [];
   let refreshRetries = 0;
   let failureStage: "account_selection" | "credential_refresh" | "upstream_transport" =
     "account_selection";
   let upstream: Response | null = null;
   for (let attempt = 0; attempt < 8; attempt++) {
-    const account = await selectAccountForRequest(
-      identity.teamId,
-      "codex",
-      attempted,
-    );
+    const account = await dependencies.select({
+      teamId: identity.teamId,
+      provider: "codex",
+      sessionKey,
+      excludedAccountIds: attempted,
+    });
     if (!account) break;
     attempted.push(account.id);
     addCoderouterBreadcrumb("routing", "Selected provider account", {
       provider: "codex",
       attempt: attempt + 1,
+      sticky: account.sticky,
     });
     let credential;
     try {
-      credential = await freshCredential({
-        teamId: identity.teamId,
-        accountId: account.id,
-        expectedRevision: account.vaultRevision,
-      });
+      credential = await credentialWithStickyPatience(
+        dependencies,
+        {
+          teamId: identity.teamId,
+          accountId: account.id,
+          expectedRevision: account.vaultRevision,
+        },
+        account.sticky,
+      );
     } catch (error) {
       failureStage = "credential_refresh";
       if (error && typeof error === "object" && "_tag" in error) {
@@ -141,7 +212,7 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
         "warning",
       );
       try {
-        const refreshed = await freshCredential({
+        const refreshed = await dependencies.credential({
           teamId: identity.teamId,
           accountId: account.id,
           expectedRevision: account.vaultRevision,
@@ -172,7 +243,7 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
           status: 429,
         },
       );
-      await markAccountCooldown(account.id, rateLimitDelay(upstream.headers));
+      await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
       continue;
     }
     break;

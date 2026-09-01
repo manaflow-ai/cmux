@@ -46,6 +46,7 @@ use ghostty_vt::{
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::style::Color;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -59,13 +60,14 @@ use crate::config::{
 use crate::keys;
 use crate::localization;
 use crate::machine::{
-    DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
-    MachineConnectionPhase, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
-    MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdate,
-    MachineUpdateStream, ManagedMachineDescriptor, ManagedMachineStatus,
-    ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
-    ProviderActionContext, ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode,
-    WorkspaceCreationPolicy, validate_machine_session,
+    DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
+    MachineConnectRoute, MachineConnectionPhase, MachineController, MachineKey,
+    MachineRailSelection, MachineRailTarget, MachineRequest, MachineSession, MachineSnapshot,
+    MachineTransitionView, MachineUiState, MachineUpdate, MachineUpdateStream,
+    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
+    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionContext,
+    ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode, WorkspaceCreationPolicy,
+    validate_machine_session,
 };
 use crate::pty_input::{
     PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
@@ -213,6 +215,8 @@ enum AppEvent {
     BrowserResizeFailed(BrowserResizeFailure),
     GraphicsWriterReady,
     PtyFailuresReady,
+    /// A status bar command segment produced new output; redraw the bar.
+    StatusCommandsUpdated,
     PtyOperationFailed(PtyOperationFailure),
     ClearHistorySucceeded {
         surface: SurfaceId,
@@ -2011,6 +2015,19 @@ impl OrderedSession {
         self.inner.tree()
     }
 
+    fn report_focus(
+        &self,
+        previous: Option<crate::session::ClientFocus>,
+        focus: crate::session::ClientFocus,
+        client_id: Option<&str>,
+    ) {
+        self.inner.report_focus(previous, focus, client_id);
+    }
+
+    fn client_focus(&self, client_id: &str) -> Option<crate::session::ClientFocus> {
+        self.inner.client_focus(client_id)
+    }
+
     fn agents(&self) -> Vec<AgentInfo> {
         self.inner.agents()
     }
@@ -3695,10 +3712,9 @@ enum MachineRailCommand {
     Rename(MachineKey),
     Delete(MachineKey),
     Purge(MachineKey),
-    OpenScopes,
-    OpenActions,
     Create,
     Connect,
+    ProviderMenu,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -3768,8 +3784,6 @@ pub enum Hit {
     },
     NewVm,
     ConnectMachine,
-    ProviderScope,
-    ProviderActions,
     /// Sidebar workspace entry.
     Workspace {
         index: usize,
@@ -3793,8 +3807,6 @@ pub enum Hit {
         view: usize,
         branch: ProjectionBranch,
     },
-    /// A rail header, the explicit pointer entrypoint for sidebar focus.
-    RailHeader(RailKind),
     SidebarAction {
         view: usize,
         action: SidebarActionTarget,
@@ -3848,6 +3860,9 @@ pub enum Hit {
         total_rows: usize,
         visible_rows: usize,
     },
+    /// The one-row top pad of a rail: the pointer entrypoint for focusing
+    /// the rail without activating one of its rows.
+    RailPad(RailKind),
     /// A rail's right border.
     RailResize(RailKind),
     /// Pane border resize handle.
@@ -4121,15 +4136,32 @@ pub enum MenuAction {
     SplitDown(PaneId),
     CloseTab(PaneId),
     ClosePane(PaneId),
-    TogglePaneZoom { pane: PaneId, zoomed: bool },
-    ToggleSidebar { visible: bool },
-    ToggleSidebarCompact { compact: bool },
+    TogglePaneZoom {
+        pane: PaneId,
+        zoomed: bool,
+    },
+    ToggleSidebar {
+        visible: bool,
+    },
+    ToggleSidebarCompact {
+        compact: bool,
+    },
     FocusSidebar,
     ActivateSidebarProfile(usize),
-    SetSidebarViewVisible { view: usize, visible: bool },
+    SetSidebarViewVisible {
+        view: usize,
+        visible: bool,
+    },
     ShowShortcuts,
-    SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
-    UseClientSize { surface: SurfaceId, client: u64 },
+    SetClientSizing {
+        surface: SurfaceId,
+        client: u64,
+        enabled: bool,
+    },
+    UseClientSize {
+        surface: SurfaceId,
+        client: u64,
+    },
     RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
     SelectProviderScope(usize),
@@ -4137,12 +4169,23 @@ pub enum MenuAction {
     CreateMachineFrom(usize),
     ConnectMachineTarget(usize),
     ConnectOtherMachine,
+    /// A configured action from a customizable menu (for example a `+`
+    /// button's right-click menu), targeting an optional pane.
+    RunConfigured {
+        action: Action,
+        pane: Option<PaneId>,
+    },
 }
 
 impl MenuAction {
     pub fn label(&self) -> &'static str {
         let menu = &localization::catalog().menu;
         match self {
+            // Menus always wrap this variant in a labeled item; the catalog
+            // label is the keyboard-help fallback only.
+            MenuAction::RunConfigured { action, .. } => {
+                localization::catalog().action_label(*action)
+            }
             MenuAction::RenameClientMachine(_) | MenuAction::RenameManagedMachine(_) => {
                 localization::catalog().sidebar.rename_machine
             }
@@ -4319,6 +4362,7 @@ pub struct MenuLevel {
     pub items: Arc<[MenuItem]>,
     all_items: Arc<[MenuItem]>,
     pub selected: usize,
+    pub selection_active: bool,
     pub scroll_offset: usize,
     visible_rows: usize,
     fitted_rows: Option<usize>,
@@ -4348,6 +4392,7 @@ impl MenuLevel {
             all_items: items.clone(),
             items,
             selected,
+            selection_active: true,
             scroll_offset: 0,
             visible_rows,
             fitted_rows: None,
@@ -4390,7 +4435,7 @@ impl MenuLevel {
     }
 
     fn ensure_selection_visible(&mut self) {
-        if self.visible_rows == 0 || self.items.is_empty() {
+        if !self.selection_active || self.visible_rows == 0 || self.items.is_empty() {
             self.scroll_offset = 0;
             return;
         }
@@ -4442,6 +4487,7 @@ impl MenuLevel {
         self.all_items = items.clone();
         self.items = items;
         self.selected = self.items.iter().position(MenuItem::selectable).unwrap_or(0);
+        self.selection_active = true;
         self.scroll_offset = 0;
         self.visible_rows = self.items.len();
         self.fitted_rows = None;
@@ -4729,6 +4775,9 @@ impl ContextMenu {
 
     fn selected_action(&self) -> Option<MenuAction> {
         let level = self.levels.last()?;
+        if !level.selection_active {
+            return None;
+        }
         level.items.get(level.selected).and_then(MenuItem::action)
     }
 
@@ -4816,8 +4865,9 @@ impl ContextMenu {
         if !level.items.get(item).is_some_and(MenuItem::selectable) {
             return false;
         }
-        let changed = level.selected != item || had_deeper_level;
+        let changed = !level.selection_active || level.selected != item || had_deeper_level;
         level.selected = item;
+        level.selection_active = true;
         level.ensure_selection_visible();
         self.levels.truncate(depth + 1);
         self.open_selected_submenu();
@@ -4835,6 +4885,14 @@ impl ContextMenu {
 
     fn select_previous(&mut self) {
         let Some(level) = self.levels.last_mut() else { return };
+        if !level.selection_active {
+            if let Some(index) = level.items.iter().rposition(MenuItem::selectable) {
+                level.selected = index;
+                level.selection_active = true;
+                level.ensure_selection_visible();
+            }
+            return;
+        }
         if let Some(index) = level
             .items
             .get(..level.selected)
@@ -4849,6 +4907,14 @@ impl ContextMenu {
 
     fn select_next(&mut self) {
         let Some(level) = self.levels.last_mut() else { return };
+        if !level.selection_active {
+            if let Some(index) = level.items.iter().position(MenuItem::selectable) {
+                level.selected = index;
+                level.selection_active = true;
+                level.ensure_selection_visible();
+            }
+            return;
+        }
         let start = level.selected.saturating_add(1);
         if let Some(offset) =
             level.items.get(start..).and_then(|items| items.iter().position(MenuItem::selectable))
@@ -5022,13 +5088,31 @@ pub struct ShortcutHelp {
 
 impl ShortcutHelp {
     fn resolved_rows(config: &Config, surface_only: bool) -> Vec<(Action, String)> {
-        config
+        let mut rows: Vec<(Action, String)> = config
             .keys
             .resolved_shortcuts()
             .into_iter()
             .filter(|(definition, _)| action_available_in_mode(definition.action, surface_only))
             .map(|(definition, shortcuts)| (definition.action, shortcuts.join(", ")))
-            .collect()
+            .collect();
+        // The default provider-menu chord is contextual to the machine rail,
+        // so it is not part of the generic resolved shortcut map.
+        if !config.keys.provider_menu_overridden
+            && action_available_in_mode(Action::ProviderMenu, surface_only)
+        {
+            rows.push((Action::ProviderMenu, "m".to_string()));
+        }
+        for index in 0..config.commands.len() {
+            let Some(action) = Action::user_command(index) else { break };
+            if !action_available_in_mode(action, surface_only) {
+                continue;
+            }
+            let shortcuts = config.keys.shortcut_labels(action);
+            if !shortcuts.is_empty() {
+                rows.push((action, shortcuts.join(", ")));
+            }
+        }
+        rows
     }
 
     fn from_config(config: &Config, surface_only: bool) -> Self {
@@ -6084,12 +6168,13 @@ type PaneParts<T> = (Option<T>, Option<T>, T, Option<T>);
 fn pane_parts_for_virtual_rect(
     rect: VirtualRect,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     has_browser_omnibar: bool,
 ) -> Option<PaneParts<VirtualRect>> {
     let local =
         Rect { x: 0, y: rect.y, width: u16::try_from(rect.width).ok()?, height: rect.height };
     let (bar, omnibar, content, track) =
-        pane_parts_for_rect(local, scrollbar_position, has_browser_omnibar);
+        pane_parts_for_rect(local, scrollbar_position, pane_padding, has_browser_omnibar);
     Some((
         bar.map(|part| virtualize_local_rect(rect.x, part)),
         omnibar.map(|part| virtualize_local_rect(rect.x, part)),
@@ -6116,6 +6201,7 @@ struct PaneAreaProjection<'a> {
     stacked_headers: &'a HashSet<PaneId>,
     area: Rect,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
     viewport_offset: Option<u64>,
 }
@@ -6148,6 +6234,7 @@ fn full_pane_parts_for_layout(
     full_rect: VirtualRect,
     stacked_headers: &HashSet<PaneId>,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
 ) -> Option<(SurfaceId, PaneParts<VirtualRect>)> {
     let surface_id = pane.active_surface()?;
@@ -6158,7 +6245,12 @@ fn full_pane_parts_for_layout(
     } else if stacked_headers.contains(&pane.id) {
         stacked_header_parts_for_virtual_rect(full_rect)?
     } else {
-        pane_parts_for_virtual_rect(full_rect, scrollbar_position, has_browser_omnibar)?
+        pane_parts_for_virtual_rect(
+            full_rect,
+            scrollbar_position,
+            pane_padding,
+            has_browser_omnibar,
+        )?
     };
     Some((surface_id, parts))
 }
@@ -6169,6 +6261,7 @@ fn pane_area_source(
     full_rect: VirtualRect,
     stacked_headers: &HashSet<PaneId>,
     scrollbar_position: ScrollbarPosition,
+    pane_padding: u16,
     surface_only: Option<SurfaceId>,
 ) -> Option<PaneAreaSource> {
     let (surface, (full_bar, full_omnibar, full_content, full_track)) = full_pane_parts_for_layout(
@@ -6176,6 +6269,7 @@ fn pane_area_source(
         full_rect,
         stacked_headers,
         scrollbar_position,
+        pane_padding,
         surface_only,
     )?;
     Some(PaneAreaSource {
@@ -6207,6 +6301,7 @@ impl ViewportPaneAreaProjection {
             layout,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
             ..
         } = projection;
@@ -6230,6 +6325,7 @@ impl ViewportPaneAreaProjection {
                     full_rect,
                     stacked_headers,
                     scrollbar_position,
+                    pane_padding,
                     surface_only,
                 )
             },
@@ -6274,6 +6370,7 @@ fn swept_viewport_size_leases(
         stacked_headers,
         area,
         scrollbar_position,
+        pane_padding,
         surface_only,
         viewport_offset,
     } = projection;
@@ -6292,6 +6389,7 @@ fn swept_viewport_size_leases(
             full_rect,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
         ) else {
             continue;
@@ -6396,6 +6494,7 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
         stacked_headers,
         area,
         scrollbar_position,
+        pane_padding,
         surface_only,
         viewport_offset,
     } = projection;
@@ -6413,6 +6512,7 @@ fn rebuild_pane_areas(pane_areas: &mut Vec<PaneArea>, projection: PaneAreaProjec
             full_rect,
             stacked_headers,
             scrollbar_position,
+            pane_padding,
             surface_only,
         ) else {
             continue;
@@ -6576,6 +6676,7 @@ pub struct App {
     machine_selection_intent: Option<MachineKey>,
     machine_selection_generation: u64,
     machine_presented: Option<MachineKey>,
+    machine_deleted_rail_index: Option<usize>,
     machine_provider_reconnect_attempts: u8,
     machine_provider_reconnect_retry_at: Option<Instant>,
     pending_machine_replacement: Option<PendingMachineReplacement>,
@@ -6630,6 +6731,12 @@ pub struct App {
     viewport_virtual_width: u64,
     viewport_offset: u64,
     pane_focus_history: PaneFocusHistory,
+    /// Last focus reported to the mux, None until a baseline is adopted from
+    /// the session's own tree so adoption never echoes back as a mutation.
+    reported_focus: Option<crate::session::ClientFocus>,
+    /// Durable identity for per-client focus memory on the mux
+    /// (client-focus-v1); None when no config directory is available.
+    client_focus_id: Option<String>,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -6714,6 +6821,12 @@ pub struct App {
     selection_generation: u64,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
+    /// The last status message written to the client log, so a message that
+    /// stays on screen across frames is recorded once.
+    logged_status_message: Option<String>,
+    /// The most recent informational provider notice routed through the
+    /// status line, so the client log records it as INFO, not ERROR.
+    status_notice_text: Option<String>,
     input_revision: u64,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -6753,11 +6866,59 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+    /// Latest output per status-bar command segment, keyed by the segment's
+    /// combined left-then-right index. Written by the status command worker.
+    status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
+    /// Stop signal for the running status segment workers, if any.
+    status_command_worker_stop: Option<Arc<StatusWorkerStop>>,
+    /// Coalesces status redraw pokes across workers: set when an event is
+    /// in flight, cleared when the event loop consumes it.
+    status_poke_pending: Arc<AtomicBool>,
+    /// One worker thread per configured status command segment.
+    status_command_workers: Vec<JoinHandle<()>>,
+    /// Stopped worker generations that have not finished yet; bounded, so
+    /// reload storms cannot stack live workers.
+    retiring_status_workers: Vec<JoinHandle<()>>,
+    /// Bumped by segment workers when any command output changes; part of
+    /// the resolved-segment cache fingerprint.
+    status_outputs_generation: Arc<AtomicU64>,
+    /// Resolved status segments, rebuilt only when the fingerprint of their
+    /// inputs changes, so drawing does not re-expand templates every frame.
+    status_segments_cache: Option<(u64, Arc<ResolvedStatusSegments>)>,
 }
 
 struct QueuedDurableNotice {
     notice: DurableProviderNotice,
     painted_at: Option<Instant>,
+}
+
+/// A durable random id naming this client install for per-client focus
+/// memory on the mux (client-focus-v1). Stored next to the TUI config;
+/// created on first use.
+fn client_focus_identity() -> Option<String> {
+    let path = crate::config::config_path().ok()?.parent()?.join("client-id");
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let existing = existing.trim();
+        if !existing.is_empty()
+            && existing.len() <= 128
+            && existing.bytes().all(|byte| byte.is_ascii_graphic())
+        {
+            return Some(existing.to_string());
+        }
+    }
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    let mut id = String::with_capacity(39);
+    id.push_str("client-");
+    use std::fmt::Write as _;
+    for byte in bytes {
+        write!(&mut id, "{byte:02x}").ok()?;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, format!("{id}\n")).ok()?;
+    Some(id)
 }
 
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
@@ -6854,6 +7015,641 @@ fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option
     (effective_max >= MIN_RAIL_WIDTH).then(|| desired.clamp(MIN_RAIL_WIDTH, effective_max))
 }
 
+/// Resolved left and right status segments, in draw order.
+type ResolvedStatusSegments = (Vec<StatusSegmentView>, Vec<StatusSegmentView>);
+
+/// The values one status template expansion can interpolate.
+struct StatusTemplateValues<'a> {
+    session: &'a str,
+    workspace: &'a str,
+    screen: &'a str,
+    screens: &'a str,
+    title: &'a str,
+    user: &'a str,
+}
+
+/// Expand `{variable}` tokens in one left-to-right pass, so an inserted
+/// value is never rescanned: a workspace literally named `{screens}` stays
+/// `{screens}` in the output. Unknown tokens stay literal.
+fn expand_status_tokens(template: &str, values: &StatusTemplateValues<'_>) -> String {
+    let mut result = String::with_capacity(template.len() + 16);
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        result.push_str(&rest[..start]);
+        let candidate = &rest[start..];
+        let Some(end) = candidate.find('}') else {
+            result.push_str(candidate);
+            return result;
+        };
+        match &candidate[1..end] {
+            "session" => result.push_str(values.session),
+            "workspace" => result.push_str(values.workspace),
+            "screen" => result.push_str(values.screen),
+            "screens" => result.push_str(values.screens),
+            "title" => result.push_str(values.title),
+            "user" => result.push_str(values.user),
+            _ => result.push_str(&candidate[..=end]),
+        }
+        rest = &candidate[end + 1..];
+    }
+    result.push_str(rest);
+    result
+}
+
+/// One status segment resolved for drawing.
+#[derive(Clone)]
+pub(crate) struct StatusSegmentView {
+    pub(crate) text: String,
+    pub(crate) fg: Option<Color>,
+    pub(crate) bg: Option<Color>,
+}
+
+/// Shared stop signal for status workers. `raise` wakes idle waiters
+/// immediately, so retiring a worker never waits out a sleep interval, and
+/// an idle worker wakes once per interval instead of polling.
+struct StatusWorkerStop {
+    raised: AtomicBool,
+    lock: Mutex<()>,
+    condvar: Condvar,
+}
+
+impl StatusWorkerStop {
+    fn new() -> Self {
+        Self { raised: AtomicBool::new(false), lock: Mutex::new(()), condvar: Condvar::new() }
+    }
+
+    fn raise(&self) {
+        self.raised.store(true, Ordering::Release);
+        let _guard = self.lock.lock().unwrap();
+        self.condvar.notify_all();
+    }
+
+    fn is_raised(&self) -> bool {
+        self.raised.load(Ordering::Acquire)
+    }
+
+    /// Wait until raised or the duration elapses; returns whether raised.
+    fn wait_timeout(&self, duration: Duration) -> bool {
+        let deadline = Instant::now() + duration;
+        let mut guard = self.lock.lock().unwrap();
+        while !self.is_raised() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let (next, _) = self.condvar.wait_timeout(guard, remaining).unwrap();
+            guard = next;
+        }
+        self.is_raised()
+    }
+}
+
+/// Per-segment status worker: runs one command on its own interval, so one
+/// slow command never delays another segment, and publishes on change.
+/// The capture path checks the stop flag every poll tick and the idle wait
+/// is condvar-based, so a stopped worker exits within milliseconds and an
+/// idle worker never busy-polls. The shared `poke` flag coalesces redraw
+/// events: when several segments change together, only one event is sent
+/// until the event loop consumes it.
+struct StatusSegmentWorker {
+    index: usize,
+    argv: Vec<String>,
+    interval: Duration,
+    outputs: Arc<Mutex<HashMap<usize, String>>>,
+    generation: Arc<AtomicU64>,
+    poke: Arc<AtomicBool>,
+    events: SyncSender<AppEvent>,
+    stop: Arc<StatusWorkerStop>,
+}
+
+fn run_status_segment_loop(worker: StatusSegmentWorker) {
+    const STATUS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+    let StatusSegmentWorker { index, argv, interval, outputs, generation, poke, events, stop } =
+        worker;
+    let mut pending_notify = false;
+    let mut unreaped: Option<std::process::Child> = None;
+    while !stop.is_raised() {
+        // A previous command stuck in uninterruptible kernel I/O survives
+        // SIGKILL; never stack another process behind it, and reap it once
+        // the kernel releases it, so stuck processes stay bounded at one
+        // per segment with no lasting zombie.
+        // A reaped predecessor is dropped by the reassignment below.
+        if let Some(child) = unreaped.as_mut()
+            && matches!(child.try_wait(), Ok(None))
+        {
+            if stop.wait_timeout(interval) {
+                return;
+            }
+            continue;
+        }
+        let (output, stuck_child) = run_status_command(&argv, STATUS_COMMAND_TIMEOUT, &stop);
+        unreaped = stuck_child;
+        if stop.is_raised() {
+            return;
+        }
+        let changed = {
+            let mut map = outputs.lock().unwrap();
+            if map.get(&index) != Some(&output) {
+                map.insert(index, output);
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            generation.fetch_add(1, Ordering::Release);
+            pending_notify = true;
+        }
+        try_send_status_poke(&poke, &events, &mut pending_notify);
+        // Sleep out the interval, but wake on a short cadence while a poke
+        // is still pending so a transiently full event queue delays the
+        // update by moments, not by the configured interval. The command
+        // itself never re-runs before its interval elapses.
+        let deadline = Instant::now() + interval;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let wait =
+                if pending_notify { remaining.min(Duration::from_millis(500)) } else { remaining };
+            if stop.wait_timeout(wait) {
+                return;
+            }
+            try_send_status_poke(&poke, &events, &mut pending_notify);
+        }
+    }
+}
+
+/// Attempt to deliver one coalesced status redraw poke. Clears
+/// `pending_notify` when this worker's poke was delivered or another
+/// worker's poke is already in flight (that draw reads the same shared
+/// outputs); releases the poke on a full queue so the retry stays possible.
+fn try_send_status_poke(
+    poke: &AtomicBool,
+    events: &SyncSender<AppEvent>,
+    pending_notify: &mut bool,
+) {
+    if !*pending_notify {
+        return;
+    }
+    if poke.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if events.try_send(AppEvent::StatusCommandsUpdated).is_ok() {
+            *pending_notify = false;
+        } else {
+            poke.store(false, Ordering::Release);
+        }
+    } else {
+        *pending_notify = false;
+    }
+}
+
+/// Run one status command with a bounded runtime and return its last
+/// nonempty stdout line, stripped of escape sequences and length-capped.
+/// The capture path uses no reader thread: on Unix the pipe is
+/// non-blocking and drained from this loop while the child runs in its own
+/// process group (a timeout or stop kills the whole tree), and on Windows
+/// stdout goes to a temporary file, which reads without blocking on
+/// writers. Setting `stop` makes the call return within one poll tick.
+/// The `USER` environment value, read once: template expansion runs on the
+/// draw path and the value cannot change within one process.
+fn cached_status_user() -> &'static str {
+    static USER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    USER.get_or_init(|| {
+        std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default()
+    })
+}
+
+/// Returns the segment text plus the child when it could not be reaped
+/// (stuck in uninterruptible kernel I/O); the segment loop keeps at most
+/// one such child and never starts another command behind it.
+fn run_status_command(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (String, Option<std::process::Child>) {
+    const MAX_STATUS_OUTPUT_CHARS: usize = 200;
+    let (captured, stuck_child) = capture_status_output(argv, timeout, stop);
+    let text = String::from_utf8_lossy(&captured);
+    let line = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+    (strip_escape_sequences(line).chars().take(MAX_STATUS_OUTPUT_CHARS).collect(), stuck_child)
+}
+
+const MAX_STATUS_OUTPUT_BYTES: usize = 64 * 1024;
+const STATUS_POLL_TICK: Duration = Duration::from_millis(25);
+
+#[cfg(unix)]
+fn capture_status_output(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (Vec<u8>, Option<std::process::Child>) {
+    use std::io::Read;
+
+    let Some(program) = argv.first() else { return (Vec::new(), None) };
+    let mut command = std::process::Command::new(program);
+    command
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    // Final unlocked stop check directly before the spawn. Holding the
+    // raise lock across spawn would let a stalled filesystem block reload
+    // and shutdown on the UI thread, so the residual race is resolved the
+    // other way: a command that spawns against a concurrent raise is
+    // killed at the first poll tick below.
+    if stop.is_raised() {
+        return (Vec::new(), None);
+    }
+    let Ok(mut child) = command.spawn() else { return (Vec::new(), None) };
+    let mut child_reaped = false;
+    let mut stdout = child.stdout.take();
+    if let Some(pipe) = stdout.as_ref() {
+        use std::os::fd::AsRawFd;
+        // SAFETY: fcntl flag update on a pipe fd this function owns.
+        let nonblocking = unsafe {
+            let fd = pipe.as_raw_fd();
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) == 0
+        };
+        if !nonblocking {
+            // Fail closed: a blocking pipe would defeat the deadline and
+            // stop checks, so never enter the capture loop with one.
+            let reaped = kill_status_command_group(&mut child);
+            return (Vec::new(), (!reaped).then_some(child));
+        }
+    }
+    let group = child.id() as i32;
+    let deadline = Instant::now() + timeout;
+    let mut captured: Vec<u8> = Vec::new();
+    let mut exited = false;
+    loop {
+        // Drain what is available, keeping only the bounded tail so the
+        // final line survives even when a command writes more than the cap.
+        // Each poll pass reads a bounded amount, so a command that writes
+        // continuously cannot keep this loop away from the stop, timeout,
+        // and exit checks below.
+        if let Some(pipe) = stdout.as_mut() {
+            // While the command runs, each pass reads a bounded amount so a
+            // continuous writer cannot keep the loop away from the stop and
+            // timeout checks. The final pass after exit drains what the pipe
+            // buffered (kernels allow enlarged pipes) so the documented last
+            // line is the real one; it stays finite so a lingering
+            // descendant cannot pin this loop either.
+            const EXIT_DRAIN_CAP: usize = 4 * 1024 * 1024;
+            let pass_cap = if exited { EXIT_DRAIN_CAP } else { MAX_STATUS_OUTPUT_BYTES };
+            let mut chunk = [0u8; 4096];
+            let mut drained = 0usize;
+            loop {
+                if drained >= pass_cap {
+                    break;
+                }
+                match pipe.read(&mut chunk) {
+                    Ok(0) => {
+                        stdout = None;
+                        break;
+                    }
+                    Ok(read) => {
+                        drained += read;
+                        captured.extend_from_slice(&chunk[..read]);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(_) => {
+                        stdout = None;
+                        break;
+                    }
+                }
+            }
+            // Compact to the tail once per pass, not per chunk, so a
+            // continuously writing command costs one bounded copy here.
+            if captured.len() > MAX_STATUS_OUTPUT_BYTES {
+                let excess = captured.len() - MAX_STATUS_OUTPUT_BYTES;
+                captured.drain(..excess);
+            }
+        }
+        if exited {
+            break;
+        }
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            // One more drain pass picks up bytes written before exit.
+            child_reaped = true;
+            exited = true;
+            continue;
+        }
+        if stop.is_raised() || Instant::now() >= deadline {
+            child_reaped = kill_status_command_group(&mut child);
+            exited = true;
+            continue;
+        }
+        std::thread::sleep(STATUS_POLL_TICK);
+    }
+    // A status command must not outlive its collection: descendants that
+    // detached from the exited command (for example `cmd &`) would
+    // otherwise accumulate one per interval. Idempotent when the group is
+    // already gone.
+    // SAFETY: plain syscall on the spawned child's own process group id.
+    unsafe {
+        libc::kill(-group, libc::SIGKILL);
+    }
+    (captured, (!child_reaped).then_some(child))
+}
+
+#[cfg(windows)]
+fn capture_status_output(
+    argv: &[String],
+    timeout: Duration,
+    stop: &StatusWorkerStop,
+) -> (Vec<u8>, Option<std::process::Child>) {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::sync::atomic::AtomicU64;
+
+    static CAPTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let Some(program) = argv.first() else { return (Vec::new(), None) };
+    let path = std::env::temp_dir().join(format!(
+        "cmux-status-{}-{}.out",
+        std::process::id(),
+        CAPTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let Ok(file) = std::fs::File::create(&path) else { return (Vec::new(), None) };
+    let mut command = std::process::Command::new(program);
+    command
+        .args(&argv[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(file))
+        .stderr(std::process::Stdio::null());
+    // Start suspended so the job assignment below covers the process
+    // before it can spawn any descendant; resume only after assignment.
+    {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
+        command.creation_flags(CREATE_SUSPENDED);
+    }
+    // Final unlocked stop check; see the Unix path for the trade-off.
+    if stop.is_raised() {
+        let _ = std::fs::remove_file(&path);
+        return (Vec::new(), None);
+    }
+    let Ok(mut child) = command.spawn() else {
+        let _ = std::fs::remove_file(&path);
+        return (Vec::new(), None);
+    };
+    // The job's kill-on-close limit terminates the whole descendant tree
+    // when this function returns, mirroring the Unix process-group kill.
+    // Fail closed: without a job there is no tree-kill guarantee, so the
+    // suspended child is discarded before it ever runs.
+    let job = match StatusCommandJob::assign(&child) {
+        Ok(job) => job,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&path);
+            return (Vec::new(), None);
+        }
+    };
+    if resume_suspended_status_child(&child).is_err() {
+        job.terminate();
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_file(&path);
+        return (Vec::new(), None);
+    }
+    let mut child_reaped = false;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            child_reaped = true;
+            break;
+        }
+        // Bound the file while the command runs: a spewing command is
+        // killed once the file passes the cap, so it cannot fill the
+        // temporary volume for the rest of the timeout. The bound is
+        // enforced per poll tick, so up to one tick of disk throughput can
+        // land past the cap before the kill; the file is removed below
+        // either way.
+        let oversized = std::fs::metadata(&path)
+            .is_ok_and(|metadata| metadata.len() > MAX_STATUS_OUTPUT_BYTES as u64);
+        if oversized || stop.is_raised() || Instant::now() >= deadline {
+            job.terminate();
+            child_reaped = kill_status_command_group(&mut child);
+            break;
+        }
+        std::thread::sleep(STATUS_POLL_TICK);
+    }
+    drop(job);
+    // A file read never blocks on writers, so lingering descendants cannot
+    // pin this call open. Read the bounded tail so the final line survives
+    // a command that writes more than the cap.
+    let mut captured = Vec::new();
+    if let Ok(mut file) = std::fs::File::open(&path) {
+        if let Ok(metadata) = file.metadata() {
+            let length = metadata.len();
+            let cap = MAX_STATUS_OUTPUT_BYTES as u64;
+            if length > cap {
+                let _ = file.seek(SeekFrom::Start(length - cap));
+            }
+        }
+        let _ = file.take(MAX_STATUS_OUTPUT_BYTES as u64).read_to_end(&mut captured);
+    }
+    let _ = std::fs::remove_file(&path);
+    (captured, (!child_reaped).then_some(child))
+}
+
+/// Windows job object with the kill-on-close limit, so every process a
+/// status command started dies when the capture returns. Same pattern as
+/// the journal hook runner in cmux-tui-core.
+#[cfg(windows)]
+struct StatusCommandJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl StatusCommandJob {
+    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = Self { handle };
+        let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let information_size =
+            u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
+                .expect("Windows job information fits in u32");
+        if unsafe {
+            SetInformationJobObject(
+                job.handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::from_ref(&information).cast(),
+                information_size,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
+        if process.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
+        let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        unsafe {
+            CloseHandle(process);
+        }
+        if let Some(error) = assign_error {
+            return Err(error);
+        }
+        Ok(job)
+    }
+
+    fn terminate(&self) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        unsafe {
+            TerminateJobObject(self.handle, 1);
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for StatusCommandJob {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        // Kill-on-close terminates any remaining descendants here.
+        unsafe {
+            CloseHandle(self.handle);
+        }
+    }
+}
+
+/// Resume the suspended status command after its job assignment, same
+/// pattern as the journal hook runner in cmux-tui-core.
+#[cfg(windows)]
+fn resume_suspended_status_child(child: &std::process::Child) -> std::io::Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = (|| {
+        let mut thread_entry = THREADENTRY32 {
+            dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
+                .expect("Windows thread entry size fits in u32"),
+            ..THREADENTRY32::default()
+        };
+        if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        loop {
+            if thread_entry.th32OwnerProcessID == child.id() {
+                let thread =
+                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
+                if thread.is_null() {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let resume_result = unsafe { ResumeThread(thread) };
+                let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                unsafe {
+                    CloseHandle(thread);
+                }
+                return resume_error.map_or(Ok(()), Err);
+            }
+            if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "suspended status command has no thread to resume",
+                ));
+            }
+        }
+    })();
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    result
+}
+
+/// Kill a status command and, on Unix, its whole process group so every
+/// descendant exits with it. Reaping is bounded: a child stuck in
+/// uninterruptible kernel I/O survives SIGKILL until the kernel releases
+/// it, and blocking on it would transitively hang reload and shutdown.
+/// Returns whether the child was reaped; the caller keeps an unreaped
+/// child and refuses to start another command behind it.
+fn kill_status_command_group(child: &mut std::process::Child) -> bool {
+    #[cfg(unix)]
+    // SAFETY: plain syscall on the child's own process group id.
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    let _ = child.kill();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => return false,
+            _ => return true,
+        }
+    }
+}
+
+/// Drop ESC-introduced sequences (CSI/OSC and two-byte escapes) and other
+/// control characters so colored tool output degrades to its plain text.
+/// Tabs become single spaces.
+fn strip_escape_sequences(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character == '\u{1b}' {
+            match chars.next() {
+                Some('[') => {
+                    for terminator in chars.by_ref() {
+                        if ('@'..='~').contains(&terminator) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    while let Some(next) = chars.next() {
+                        if next == '\u{7}' {
+                            break;
+                        }
+                        if next == '\u{1b}' && chars.peek() == Some(&'\\') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if character == '\t' {
+            result.push(' ');
+        } else if !character.is_control() {
+            result.push(character);
+        }
+    }
+    result
+}
+
 fn sidebar_layout_for(
     config: &Config,
     visible: bool,
@@ -6892,7 +7688,9 @@ fn sidebar_layout_for_state(
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
     let (width, height) = size;
-    let content_height = height.saturating_sub(1);
+    // The bottom row belongs to the screens status bar unless the user
+    // hides it; a hidden bar gives the row back to the panes.
+    let content_height = if config.status_bar.visible { height.saturating_sub(1) } else { height };
     if !visible {
         return SidebarLayout {
             content: Rect { x: 0, y: 0, width, height: content_height },
@@ -7039,13 +7837,21 @@ fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u
     clamp_rail_width(desired, configured_max, available)
 }
 
-fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
-    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, false);
+fn content_size_for_rect(
+    rect: Rect,
+    scrollbar: ScrollbarPosition,
+    padding: u16,
+) -> Option<(u16, u16)> {
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, padding, false);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
-fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
-    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, true);
+fn browser_content_size_for_rect(
+    rect: Rect,
+    scrollbar: ScrollbarPosition,
+    padding: u16,
+) -> Option<(u16, u16)> {
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, padding, true);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
@@ -7159,6 +7965,7 @@ fn clamp_split_ratio_for_tab_bars(root: &Node, split: SplitId, height: u16, requ
 fn pane_parts_for_rect(
     rect: Rect,
     scrollbar: ScrollbarPosition,
+    padding: u16,
     browser_omnibar: bool,
 ) -> PaneParts<Rect> {
     let (bar, mut content, track) = if rect.width > 2 && rect.height > 2 {
@@ -7190,6 +7997,16 @@ fn pane_parts_for_rect(
     } else {
         (None, rect, None)
     };
+    // Configured padding: blank cells between border and content, applied
+    // only while at least one content cell survives on that axis.
+    if content.width > 0 && content.height > 0 {
+        let pad_x = padding.min(content.width.saturating_sub(1) / 2);
+        let pad_y = padding.min(content.height.saturating_sub(1) / 2);
+        content.x = content.x.saturating_add(pad_x);
+        content.width = content.width.saturating_sub(pad_x.saturating_mul(2)).max(1);
+        content.y = content.y.saturating_add(pad_y);
+        content.height = content.height.saturating_sub(pad_y.saturating_mul(2)).max(1);
+    }
     let omnibar = if browser_omnibar && content.height >= 2 {
         let row = Rect { height: 1, ..content };
         content.y = content.y.saturating_add(1);
@@ -7579,17 +8396,25 @@ fn prepare_machine_session(
     preparation: MachineSessionPreparation,
     app_events: SyncSender<AppEvent>,
 ) -> anyhow::Result<PreparedMachineSession> {
+    // The managed-workspace guard runs on every presentation, reused or
+    // not: a pooled session can change state while it is not presented, and
+    // the guard is the invariant that makes presenting it safe. Only the
+    // cosmetic default-colors round-trip is skipped for reused sessions.
     ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = replacement
-        .session
-        .set_default_colors(preparation.default_colors)
-        .err()
-        .map(|error| error.to_string());
+    let color_error = if replacement.reused {
+        None
+    } else {
+        replacement
+            .session
+            .set_default_colors(preparation.default_colors)
+            .err()
+            .map(|error| error.to_string())
+    };
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
@@ -7848,7 +8673,8 @@ fn run_with_machine_updates_inner(
             SidebarWidthOverrides::default(),
         )
         .content;
-        content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
+        content_size_for_rect(pane, config.scrollbar.position, config.pane.padding)
+            .unwrap_or((1, 1))
     });
     ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
     let initial_workspace_error = recover_initial_workspace_failure(
@@ -7895,7 +8721,14 @@ fn run_with_machine_updates_inner(
         .map(|controller| MachineActionWorker::spawn(controller, tx.clone()))
         .transpose()?;
 
+    // One line per launch, so every stretch of the log names the build that
+    // produced it. Sink initialization is asynchronous (writer thread), so
+    // this never blocks startup however slow the log target is.
+    crate::client_log::info("startup", &crate::version_string());
     enable_raw_mode()?;
+    // The TUI owns the terminal now: stray stderr writes (panics, libraries)
+    // would corrupt the raw-mode screen, so route fd 2 into the client log.
+    crate::client_log::redirect_stderr_into_log();
     let mut terminal_restore = TerminalRestoreGuard::new(stdout_lock.clone());
     if let Err(e) = (|| -> anyhow::Result<()> {
         let _guard = stdout_lock.lock();
@@ -8061,6 +8894,7 @@ fn run_with_machine_updates_inner(
         machine_selection_intent,
         machine_selection_generation: 0,
         machine_presented,
+        machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
         pending_machine_replacement: None,
@@ -8106,6 +8940,8 @@ fn run_with_machine_updates_inner(
         viewport_virtual_width: 0,
         viewport_offset: 0,
         pane_focus_history: PaneFocusHistory::default(),
+        reported_focus: None,
+        client_focus_id: client_focus_identity(),
         rendered_terminal_bounds: HashMap::new(),
         rendered_kitty_graphics: HashMap::new(),
         visible_size_surfaces: HashSet::new(),
@@ -8171,6 +9007,8 @@ fn run_with_machine_updates_inner(
         selection_generation: 0,
         status_selection: None,
         rendered_status_message: None,
+        logged_status_message: None,
+        status_notice_text: None,
         input_revision: 0,
         status_message: initial_machine_notice,
         cell_pixels,
@@ -8204,7 +9042,15 @@ fn run_with_machine_updates_inner(
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
+        status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
+        status_command_worker_stop: None,
+        status_poke_pending: Arc::new(AtomicBool::new(false)),
+        status_command_workers: Vec::new(),
+        retiring_status_workers: Vec::new(),
+        status_outputs_generation: Arc::new(AtomicU64::new(0)),
+        status_segments_cache: None,
     };
+    app.ensure_status_command_worker();
     if app.session_available() {
         app.session.refresh_clients_background();
     }
@@ -8318,7 +9164,12 @@ impl TerminalRestoreGuard {
         if let Some(graphics_shutdown) = &self.graphics_shutdown {
             graphics_shutdown.cancel_and_wait();
         }
-        restore_terminal(Some(&self.stdout_lock), &self.host_keyboard_protocol)
+        let result = restore_terminal(Some(&self.stdout_lock), &self.host_keyboard_protocol);
+        // The terminal is the user's again; diagnostics from here on must
+        // reach it instead of the client log. Explicit restoration disarms
+        // the guard, so Drop will not do this (idempotent regardless).
+        crate::client_log::restore_stderr_from_log();
+        result
     }
 
     fn restore_after_error(&mut self, error: anyhow::Error) -> anyhow::Error {
@@ -8347,6 +9198,9 @@ impl Drop for TerminalRestoreGuard {
             with_panic_stdout_lock(&self.stdout_lock, || {
                 let _ = restore_terminal_unlocked(&self.host_keyboard_protocol);
             });
+            // The terminal is the user's again; exit-time diagnostics should
+            // reach it instead of the client log.
+            crate::client_log::restore_stderr_from_log();
         }
     }
 }
@@ -8618,15 +9472,81 @@ impl App {
         self.machine_selection_intent.or(self.machine_presented)
     }
 
-    pub(crate) fn machine_transition(&self) -> Option<(&str, MachineConnectionPhase)> {
+    pub(crate) fn machine_transition(&self) -> Option<MachineTransitionView<'_>> {
         let selected = self.machine_selection_intent?;
         let ui = self.machine_ui.as_ref()?;
         if self.machine_presented == Some(selected) && ui.session_available {
             return None;
         }
-        let name =
-            ui.snapshot.machines.iter().find(|machine| machine.key == selected)?.name.as_str();
-        Some((name, ui.connection_phase(selected)))
+        // Switching to a machine whose connection is already warm settles in
+        // one round-trip: keep painting the current machine instead of
+        // blanking the content with a "connecting" interstitial. Only while
+        // the current machine is actually paintable - if its session is gone
+        // (it paused; its stream died), "keep painting it" would show a dead
+        // screen with no sign a switch is running.
+        if self.machine_presented.is_some()
+            && self.machine_presented != Some(selected)
+            && ui.session_available
+            && ui.connection_phase(selected) == MachineConnectionPhase::Ready
+        {
+            return None;
+        }
+        let machine = ui.snapshot.machines.iter().find(|machine| machine.key == selected)?;
+        Some(MachineTransitionView {
+            name: machine.name.as_str(),
+            phase: ui.connection_phase(selected),
+            status: machine.status,
+            progress: ui.connection_progress(selected),
+        })
+    }
+
+    /// Latest provider progress for a machine that is opening. Presentation
+    /// only: dropped when the switch settles, fails, or is re-aimed.
+    fn apply_connection_progress(
+        &mut self,
+        machine_id: String,
+        latest: Arc<Mutex<Option<String>>>,
+    ) -> RenderAction {
+        // Latest-value cell: the pump overwrites it while this update sat in
+        // the queue, so this read is the newest stage; an emptied cell means
+        // a newer update for this machine already consumed it.
+        let Some(message) = latest.lock().unwrap_or_else(|p| p.into_inner()).take() else {
+            return RenderAction::None;
+        };
+        let Some(ui) = self.machine_ui.as_mut() else { return RenderAction::None };
+        let Some(key) = ui
+            .snapshot
+            .machines
+            .iter()
+            .find(|machine| machine.id == machine_id)
+            .map(|machine| machine.key)
+        else {
+            return RenderAction::None;
+        };
+        // Progress is only meaningful while an open for this machine is
+        // being shown. A late event queued before the open settled (failed,
+        // or presented) must not repopulate the stage the settle cleared.
+        match ui.connection_phase(key) {
+            MachineConnectionPhase::Connecting => {}
+            MachineConnectionPhase::Ready
+                if self.machine_selection_intent == Some(key)
+                    && self.machine_presented != Some(key) =>
+            {
+                // The aim believed this target was warm, but the provider is
+                // narrating an open: the pooled session was dead and a real
+                // (re)connect or wake is running. Flip to Connecting so the
+                // interstitial appears instead of silently showing the old
+                // machine for the whole reconnect.
+                ui.set_connection_phase(key, MachineConnectionPhase::Connecting);
+            }
+            _ => return RenderAction::None,
+        }
+        ui.set_connection_progress(key, message);
+        if self.machine_selection_intent == Some(key) {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        }
     }
 
     fn select_machine_intent(&mut self, machine: MachineKey) {
@@ -8635,9 +9555,24 @@ impl App {
             self.machine_selection_generation =
                 self.machine_selection_generation.wrapping_add(1).max(1);
             self.machine_selection_intent = Some(machine);
+            // A fresh aim starts with a fresh interstitial, not the last
+            // attempt's progress message.
+            if let Some(ui) = self.machine_ui.as_mut() {
+                ui.clear_connection_progress(machine);
+            }
         }
+        let presented_live = self.machine_presented == Some(machine)
+            && self.machine_ui.as_ref().is_some_and(|ui| ui.session_available);
         if let Some(ui) = self.machine_ui.as_mut() {
-            let phase = if self.machine_presented == Some(machine) {
+            let phase = if presented_live
+                || ui.connection_phase(machine) == MachineConnectionPhase::Ready
+            {
+                // A warm pooled connection stays Ready: the switch reuses it,
+                // so neither the rail badge nor the content interstitial
+                // should flash "connecting". A presented machine whose
+                // session is gone (it paused; the stream died) is NOT ready:
+                // reselecting it starts a real wake, and the interstitial
+                // must say so instead of briefly claiming Ready.
                 MachineConnectionPhase::Ready
             } else {
                 MachineConnectionPhase::Connecting
@@ -8814,15 +9749,21 @@ impl App {
         let messages = &localization::catalog().sidebar;
         spec.actions
             .iter()
-            .copied()
-            .flat_map(|action| {
+            .flat_map(|action_spec| {
+                let action = action_spec.action;
+                let label_override = action_spec.label.as_deref();
                 if action == Action::NewWorkspace {
                     return self
                         .workspace_creation_modes()
                         .into_iter()
                         .map(|mode| SidebarActionRow {
                             label: match mode {
-                                None => messages.new_workspace.to_string(),
+                                // A configured label renames the plain
+                                // button; the provider-specific isolated and
+                                // shared variants keep their catalog labels.
+                                None => {
+                                    label_override.unwrap_or(messages.new_workspace).to_string()
+                                }
                                 Some(WorkspaceCreationMode::Isolated) => {
                                     messages.new_isolated_workspace.to_string()
                                 }
@@ -8836,13 +9777,58 @@ impl App {
                 }
                 self.action_available(action)
                     .then(|| SidebarActionRow {
-                        label: localization::catalog().action_label(action).to_string(),
+                        label: label_override
+                            .map(str::to_string)
+                            .unwrap_or_else(|| self.action_display_label(action).to_string()),
                         target: SidebarActionTarget::Run(action),
                     })
                     .into_iter()
                     .collect()
             })
             .collect()
+    }
+
+    /// Menu items for a configurable `+` button's right-click menu.
+    fn plus_menu_items(
+        &self,
+        plus: &crate::config::PlusButton,
+        pane: Option<PaneId>,
+    ) -> Vec<MenuItem> {
+        plus.menu
+            .iter()
+            .filter(|spec| self.action_available(spec.action))
+            .map(|spec| MenuItem::LabeledAction {
+                label: spec
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| self.action_display_label(spec.action).to_string()),
+                action: MenuAction::RunConfigured { action: spec.action, pane },
+            })
+            .collect()
+    }
+
+    /// Where the workspace rail's pinned action buttons render.
+    pub(crate) fn workspace_actions_position(&self) -> crate::config::ActionsPosition {
+        self.view_index_for_rail(RailKind::Workspace)
+            .and_then(|index| self.config.sidebar.views.get(index))
+            .map(|spec| spec.actions_position)
+            .unwrap_or_default()
+    }
+
+    /// Expand the configured workspace row label template. The default
+    /// template borrows the name, so ordinary draws do not allocate.
+    pub(crate) fn workspace_button_label<'a>(
+        &self,
+        index: usize,
+        name: &'a str,
+    ) -> std::borrow::Cow<'a, str> {
+        let template = &self.config.sidebar.workspace_label;
+        if template == "{name}" {
+            return std::borrow::Cow::Borrowed(name);
+        }
+        std::borrow::Cow::Owned(
+            template.replace("{index}", &index.to_string()).replace("{name}", name),
+        )
     }
 
     pub(crate) fn projection_rail_state_mut(&mut self, index: usize) -> &mut ProjectionRailState {
@@ -9358,6 +10344,17 @@ impl App {
     }
 
     fn shutdown_background_workers(&mut self) {
+        if let Some(stop) = self.status_command_worker_stop.take() {
+            stop.raise();
+        }
+        // Join, so a status command's process group is reaped before exit.
+        // The capture loop observes the flag every poll tick, so each join
+        // is bounded by that tick.
+        for handle in
+            self.status_command_workers.drain(..).chain(self.retiring_status_workers.drain(..))
+        {
+            let _ = handle.join();
+        }
         self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {
             updates.stop_and_join();
@@ -9396,6 +10393,10 @@ impl App {
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
         };
+        crate::client_log::info(
+            "machine",
+            &format!("dispatching machine request: {}", request.kind()),
+        );
         if let MachineRequest::Switch(machine) = &request {
             self.select_machine_intent(*machine);
         }
@@ -9407,7 +10408,11 @@ impl App {
             return RenderAction::None;
         };
         let preparation = MachineSessionPreparation {
-            initial_size: content_size_for_rect(self.content_area, self.config.scrollbar.position),
+            initial_size: content_size_for_rect(
+                self.content_area,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+            ),
             default_colors: self.default_colors,
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
@@ -9558,10 +10563,19 @@ impl App {
     }
 
     fn fail_machine_action(&mut self, request: Option<&MachineRequest>) {
+        crate::client_log::info(
+            "machine",
+            &format!(
+                "machine request failed: {}",
+                request.map(MachineRequest::kind).unwrap_or("none")
+            ),
+        );
         if let Some(MachineRequest::Switch(machine)) = request
             && let Some(ui) = self.machine_ui.as_mut()
         {
             ui.set_connection_phase(*machine, MachineConnectionPhase::Failed);
+            // A stale progress message must not sit under "unavailable".
+            ui.clear_connection_progress(*machine);
         }
     }
 
@@ -9719,6 +10733,12 @@ impl App {
                             .is_none_or(|machine| self.machine_selection_intent == Some(machine)),
                         _ => true,
                     };
+                crate::client_log::info(
+                    "machine",
+                    &format!(
+                        "replacement prepared: present={present} canceled={connection_canceled}"
+                    ),
+                );
                 self.pending_machine_replacement =
                     Some(PendingMachineReplacement { action_id, present, action: *action });
                 if self
@@ -9783,13 +10803,42 @@ impl App {
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
                             prepared;
                         let target = session.machine;
+                        crate::client_log::info(
+                            "machine",
+                            &format!(
+                                "replacement settled: present={present} target={:?} ui_active={:?}",
+                                target.map(|k| k.0),
+                                ui.snapshot.active.map(|k| k.0),
+                            ),
+                        );
                         if present {
                             self.machine_presented = target.or(ui.snapshot.active);
+                            // A runtime-driven replacement (deleting the open
+                            // machine) presents without a Switch dispatch, so
+                            // the aim never moved; align it, or every later
+                            // keystroke fails the intent==presented gate and
+                            // input goes nowhere.
+                            if let Some(machine) = self.machine_presented {
+                                self.select_machine_intent(machine);
+                            }
+                            if let Some(machine) = self.machine_presented
+                                && let Some(machine_ui) = self.machine_ui.as_mut()
+                            {
+                                machine_ui.clear_connection_progress(machine);
+                            }
                             self.install_prepared_machine_session(session, false);
                             if let Some(label) = session_label {
                                 self.session_label = label;
                             }
                             action = action.merge(self.apply_machine_ui_update(ui));
+                            // The rail follows the machine that now presents,
+                            // not whatever row reconciliation kept (the
+                            // deleted machine's recoverable ghost, usually).
+                            if let Some(machine) = self.machine_presented
+                                && let Some(machine_ui) = self.machine_ui.as_mut()
+                            {
+                                machine_ui.select_rail_target(MachineRailTarget::Machine(machine));
+                            }
                             // Provider notices apply before local mirror errors so they cannot mask them.
                             if let Some(mutation) = session_mutation {
                                 self.apply_managed_workspace_session_mutation(mutation);
@@ -9809,6 +10858,7 @@ impl App {
                         self.complete_connection_transaction(request.as_ref(), connection_attempt);
                     }
                     Ok(false) => {
+                        crate::client_log::info("machine", "replacement settled: not committed");
                         drop(pending);
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
@@ -9894,9 +10944,163 @@ impl App {
             self.machine_selection_intent = update.snapshot.active;
             self.machine_presented = update.snapshot.active;
         }
-        update.snapshot.active = self.machine_presented.filter(|presented| {
-            update.snapshot.machines.iter().any(|machine| machine.key == *presented)
-        });
+        // A machine is "usable" while it is in the catalog and not soft
+        // deleted: providers with recovery keep deleted machines listed as
+        // Recoverable rows, which can be restored or purged but never
+        // presented.
+        let machine_usable = |update: &MachineUiState, key: MachineKey| {
+            update.snapshot.machines.iter().any(|machine| machine.key == key)
+                && update
+                    .managed_machine(key)
+                    .is_none_or(|managed| managed.status != ManagedMachineStatus::Recoverable)
+        };
+        update.snapshot.active =
+            self.machine_presented.filter(|presented| machine_usable(&update, *presented));
+        // A queued switch aimed at a machine that just became unusable (the
+        // wake that raced its own deletion) must not survive: it would both
+        // fail pointlessly and block the failover below.
+        let doomed_request = match &update.request {
+            // The wake that raced its own deletion.
+            Some(MachineRequest::Switch(target)) => !machine_usable(&update, *target),
+            // The stream-loss recovery for the machine being deleted: the
+            // provider link is demonstrably alive (this update just arrived
+            // over it), and reconnecting would only reopen the deleted
+            // machine. Let the failover below aim somewhere usable instead.
+            Some(MachineRequest::ReconnectProvider) => {
+                self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented))
+            }
+            _ => false,
+        };
+        if doomed_request {
+            crate::client_log::info(
+                "machine",
+                "dropped a queued request aimed at a deleted machine",
+            );
+            update.request = None;
+            // An intent left aiming at the deleted machine would fail the
+            // input-routing gate forever (intent != presented with nothing
+            // queued to repair it): fall back to the still-usable presented
+            // machine, or clear it so the failover below takes over.
+            if self.machine_selection_intent.is_some_and(|intent| !machine_usable(&update, intent))
+            {
+                self.machine_selection_intent =
+                    self.machine_presented.filter(|presented| machine_usable(&update, *presented));
+            }
+        }
+        // The presented machine was deleted (gone from the catalog, or left
+        // behind as a Recoverable row): its session is dead, so input must
+        // never route into it, whatever else is queued or in flight.
+        let presented_deleted =
+            self.machine_presented.is_some_and(|presented| !machine_usable(&update, presented));
+        if !presented_deleted {
+            // A deferred deletion can recover before failover runs. Do not
+            // carry its old slot into a later, unrelated deletion.
+            self.machine_deleted_rail_index = None;
+        }
+        if presented_deleted {
+            if self.machine_deleted_rail_index.is_none()
+                && let Some(presented) = self.machine_presented
+            {
+                self.machine_deleted_rail_index = self.machine_ui.as_ref().and_then(|previous| {
+                    previous.snapshot.machines.iter().position(|machine| machine.key == presented)
+                });
+            }
+            update.session_available = false;
+        }
+        // Switch to the next available machine instead of leaving the dead
+        // session on screen. "Next" is the usable machine at or after its
+        // old list slot, else the last usable one. Deferred (input stays
+        // gated above) while another request occupies the queue slot or the
+        // user is already aiming somewhere else usable; the next update
+        // with a free slot re-enters this path.
+        let mut failover_rail_target = None;
+        let failed_intent_is_stale = self
+            .machine_selection_intent
+            .filter(|intent| Some(*intent) != self.machine_presented)
+            .is_some_and(|intent| {
+                !self.machine_action_in_flight
+                    && update.connection_phase(intent) == MachineConnectionPhase::Failed
+            });
+        if presented_deleted
+            && let Some(presented) = self.machine_presented
+            && update.request.is_none()
+            && !self.machine_action_in_flight
+            && self.machine_selection_intent.is_none_or(|intent| {
+                intent == presented || !machine_usable(&update, intent) || failed_intent_is_stale
+            })
+        {
+            let previous_index = self
+                .machine_deleted_rail_index
+                .or_else(|| {
+                    self.machine_ui
+                        .as_ref()
+                        .and_then(|previous| {
+                            previous
+                                .snapshot
+                                .machines
+                                .iter()
+                                .position(|machine| machine.key == presented)
+                        })
+                        .or_else(|| {
+                            update
+                                .snapshot
+                                .machines
+                                .iter()
+                                .position(|machine| machine.key == presented)
+                        })
+                })
+                .unwrap_or(0);
+            let next_key = update
+                .snapshot
+                .machines
+                .iter()
+                .enumerate()
+                .filter(|(_, machine)| machine_usable(&update, machine.key))
+                .map(|(index, machine)| (index, machine.key))
+                .fold(None, |best: Option<(usize, MachineKey)>, (index, key)| match best {
+                    // Prefer the first usable machine at or after the old
+                    // slot; otherwise keep the last usable one before it.
+                    Some((chosen, _)) if chosen >= previous_index => best,
+                    _ if index >= previous_index => Some((index, key)),
+                    _ => Some((index, key)),
+                })
+                .map(|(_, key)| key);
+            match next_key {
+                Some(next_key) => {
+                    crate::client_log::info(
+                        "machine",
+                        &format!(
+                            "presented machine {} was deleted; switching to {}",
+                            presented.0, next_key.0
+                        ),
+                    );
+                    update.request = Some(MachineRequest::Switch(next_key));
+                    failover_rail_target = Some(next_key);
+                    self.machine_deleted_rail_index = None;
+                    // The presented session belongs to a deleted machine:
+                    // gate input away from it while the failover switch runs
+                    // (a failed switch leaves the rail on the replacement,
+                    // where Enter retries).
+                    update.session_available = false;
+                }
+                None => {
+                    crate::client_log::info(
+                        "machine",
+                        &format!(
+                            "presented machine {} was deleted; no usable machine remains",
+                            presented.0
+                        ),
+                    );
+                    // Nothing usable remains: drop the presentation instead
+                    // of routing input into the deleted machine's dead
+                    // session. The rail keeps its create and connect rows.
+                    self.machine_presented = None;
+                    self.machine_selection_intent = None;
+                    self.machine_deleted_rail_index = None;
+                    update.session_available = false;
+                }
+            }
+        }
         let guard_error = (uses_provider_managed_workspaces(Some(&update))
             && !self.session.workspaces_are_provider_managed())
         .then(|| self.session.mark_workspaces_provider_managed().err())
@@ -9937,11 +11141,22 @@ impl App {
         if let Some(previous) = self.machine_ui.as_ref() {
             if let Some(MachineRequest::Switch(machine)) = previous.request.as_ref()
                 && self.machine_selection_intent == Some(*machine)
+                && machine_usable(&update, *machine)
+                && update.request.is_none()
             {
+                crate::client_log::info(
+                    "machine",
+                    &format!("preserving the pending switch to {}", machine.0),
+                );
                 update.request = Some(MachineRequest::Switch(*machine));
             }
             update.extend_connection_phases_from(previous);
             update.reconcile_navigation_from(previous);
+        }
+        if let Some(next_key) = failover_rail_target {
+            // After reconciliation, which would otherwise keep the still
+            // listed (recoverable) row selected.
+            update.select_rail_target(MachineRailTarget::Machine(next_key));
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
@@ -9950,6 +11165,7 @@ impl App {
         if let Some(error) = guard_error {
             self.status_message = Some(error);
         } else if let Some(notice) = notice {
+            self.status_notice_text = Some(notice.clone());
             self.status_message = Some(notice);
         }
         RenderAction::Draw
@@ -9977,6 +11193,12 @@ impl App {
             self.schedule_machine_provider_reconnect();
             return RenderAction::None;
         }
+        let level = match notice.level {
+            DurableNoticeLevel::Error => "ERROR",
+            DurableNoticeLevel::Warning => "WARN",
+            DurableNoticeLevel::Info => "INFO",
+        };
+        crate::client_log::log(level, "provider-notice", &notice.message);
         self.durable_notices.push_back(QueuedDurableNotice { notice, painted_at: None });
         RenderAction::Draw
     }
@@ -10150,6 +11372,10 @@ impl App {
         self.viewport_offset = 0;
         self.pane_focus_history = PaneFocusHistory::default();
         self.pane_focus_history.sync_membership(&self.tree);
+        // The adopted tree's focus is the server's own; report only what the
+        // user changes afterwards.
+        self.reported_focus = self.current_client_focus();
+        self.restore_client_focus_from_session();
         self.rendered_terminal_sizes.clear();
         self.rendered_terminal_pointer_semantics.clear();
         self.rendered_pane_content_generations.clear();
@@ -10212,13 +11438,71 @@ impl App {
 
     fn request_current_machine_session(&mut self) -> bool {
         let Some(machine) = self.machine_ui.as_mut() else { return false };
-        if machine.request.is_none() {
-            machine.request = Some(
-                machine
-                    .snapshot
-                    .active
-                    .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch),
+        // A machine that is sleeping or stopped lost its stream BECAUSE it
+        // was paused; reconnecting would start it right back up and make
+        // pause impossible. Present it as asleep instead - the user's next
+        // input (or a rail click) wakes it through the normal switch path.
+        if let Some(active) = machine.snapshot.active
+            && machine.snapshot.machines.iter().any(|descriptor| {
+                descriptor.key == active
+                    && matches!(
+                        descriptor.status,
+                        crate::machine::MachineStatus::Sleeping
+                            | crate::machine::MachineStatus::Stopped
+                    )
+            })
+        {
+            crate::client_log::info(
+                "machine",
+                &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
             );
+            machine.session_available = false;
+            machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
+            // The previous open's narration is stale now; a later wake
+            // reuses the same selection intent, so select_machine_intent
+            // will not clear it.
+            machine.clear_connection_progress(active);
+            return true;
+        }
+        if machine.request.is_none() {
+            let request = machine
+                .snapshot
+                .active
+                .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch);
+            crate::client_log::info(
+                "machine",
+                &format!("stream lost; queueing {request:?} to reconnect"),
+            );
+            machine.request = Some(request);
+        }
+        true
+    }
+
+    /// The user typed at a machine whose session is gone (it paused or the
+    /// stream died while they were away). Queue a switch back to it: the
+    /// provider resumes the VM and the interstitial shows the live loading
+    /// states. Returns false when there is nothing sensible to wake.
+    fn wake_presented_machine(&mut self) -> bool {
+        let Some(presented) = self.machine_presented else { return false };
+        // While a switch to a DIFFERENT machine is in flight the key must
+        // not re-aim back at the old machine (that could resume a machine
+        // the user deliberately left paused). Consume it; the transition
+        // interstitial is visible and the switch will settle.
+        if self.machine_selection_intent.is_some_and(|intent| intent != presented) {
+            return true;
+        }
+        {
+            let Some(machine) = self.machine_ui.as_mut() else { return false };
+            if machine.request.is_some() {
+                return true;
+            }
+            machine.request = Some(MachineRequest::Switch(presented));
+        }
+        self.select_machine_intent(presented);
+        if let Some(ui) = self.machine_ui.as_mut() {
+            // select_machine_intent keeps the presented machine's phase; the
+            // wake is a real reconnect, so the interstitial must show it.
+            ui.set_connection_phase(presented, MachineConnectionPhase::Connecting);
         }
         true
     }
@@ -10436,8 +11720,6 @@ impl App {
         match hit {
             Hit::NewVm
             | Hit::ConnectMachine
-            | Hit::ProviderScope
-            | Hit::ProviderActions
             | Hit::CreateWorkspace { .. }
             | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(_), .. } => {
                 machine_context.cloned().map(PointerHitIdentity::MachineContext)
@@ -10481,7 +11763,7 @@ impl App {
             Hit::Workspace { .. }
             | Hit::ProjectionRow { .. }
             | Hit::ProjectionToggle { .. }
-            | Hit::RailHeader(_)
+            | Hit::RailPad(_)
             | Hit::SidebarAction { .. }
             | Hit::ScreenEntry { .. }
             | Hit::StatusMessage
@@ -11312,6 +12594,14 @@ impl App {
             .get(self.sidebar_workspace_selection)
             .map(|workspace| workspace.id);
         preserve_client_view(&self.tree, &mut tree);
+        let first_adoption = self.reported_focus.is_none();
+        if first_adoption {
+            // First adopted tree: its focus is the server's own baseline.
+            self.reported_focus = tree
+                .active_screen()
+                .and_then(|screen| screen.panes.iter().find(|pane| pane.id == screen.active_pane))
+                .map(|pane| crate::session::ClientFocus { pane: pane.id, tab: pane.active_tab });
+        }
         if let Some(surface) = self.surface_only
             && !tree.select_surface(surface)
         {
@@ -11361,6 +12651,9 @@ impl App {
             && let Some(active) = self.active_pane()
         {
             self.pane_focus_history.record(active);
+        }
+        if first_adoption {
+            self.restore_client_focus_from_session();
         }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
@@ -12067,6 +13360,195 @@ impl App {
             help.scroll_offset = help.scroll_offset.min(help.max_scroll(help.rows.len()));
         }
         self.sidebar_followed_surface = None;
+        self.ensure_status_command_worker();
+    }
+
+    /// Stop any running status command worker and start a new one when the
+    /// visible status bar has command segments. Called at startup and after
+    /// every config reload.
+    fn ensure_status_command_worker(&mut self) {
+        if let Some(stop) = self.status_command_worker_stop.take() {
+            stop.raise();
+        }
+        // Stopped workers observe the flag at every capture poll tick, so
+        // they exit within milliseconds. Keep their handles and enforce a
+        // hard bound anyway, so even a reload storm cannot stack live
+        // worker generations; a join past the bound is bounded by that same
+        // poll tick.
+        const MAX_RETIRING_STATUS_WORKERS: usize = 32;
+        self.retiring_status_workers.append(&mut self.status_command_workers);
+        self.retiring_status_workers.retain(|handle| !handle.is_finished());
+        while self.retiring_status_workers.len() > MAX_RETIRING_STATUS_WORKERS {
+            let handle = self.retiring_status_workers.remove(0);
+            let _ = handle.join();
+        }
+        // A fresh map per generation: a stopped worker mid-command can only
+        // write into its own orphaned map, never under an index that now
+        // belongs to a different segment.
+        self.status_command_outputs = Arc::new(Mutex::new(HashMap::new()));
+        self.status_outputs_generation = Arc::new(AtomicU64::new(1));
+        self.status_poke_pending = Arc::new(AtomicBool::new(false));
+        self.status_segments_cache = None;
+        if !self.config.status_bar.visible || self.is_surface_only() {
+            return;
+        }
+        let commands = self.config.status_bar.command_segments();
+        if commands.is_empty() {
+            return;
+        }
+        let stop = Arc::new(StatusWorkerStop::new());
+        for (index, argv, interval) in commands {
+            let outputs = self.status_command_outputs.clone();
+            let generation = self.status_outputs_generation.clone();
+            let poke = self.status_poke_pending.clone();
+            let events = self.app_events.clone();
+            let worker_stop = stop.clone();
+            match std::thread::Builder::new().name(format!("status-segment-{index}")).spawn(
+                move || {
+                    run_status_segment_loop(StatusSegmentWorker {
+                        index,
+                        argv,
+                        interval,
+                        outputs,
+                        generation,
+                        poke,
+                        events,
+                        stop: worker_stop,
+                    });
+                },
+            ) {
+                Ok(handle) => self.status_command_workers.push(handle),
+                Err(error) => {
+                    crate::client_log::stderr_log!(
+                        "status-segment",
+                        "cmux-tui: could not start a status segment worker: {error}"
+                    );
+                }
+            }
+        }
+        self.status_command_worker_stop = Some(stop);
+    }
+
+    /// Resolve the configured status segments to displayable text: literal
+    /// segments expand `{variable}`s, command segments read the worker's
+    /// latest output. The resolved result is cached against a fingerprint
+    /// of every expansion input, so an ordinary draw reuses the previous
+    /// strings instead of re-expanding templates.
+    pub(crate) fn resolved_status_segments(&mut self) -> Arc<ResolvedStatusSegments> {
+        static EMPTY: std::sync::OnceLock<Arc<ResolvedStatusSegments>> = std::sync::OnceLock::new();
+        if self.config.status_bar.left.is_empty() && self.config.status_bar.right.is_empty() {
+            return EMPTY.get_or_init(|| Arc::new((Vec::new(), Vec::new()))).clone();
+        }
+        let fingerprint = self.status_segments_fingerprint();
+        if self.status_segments_cache.as_ref().map(|(cached, _)| *cached) != Some(fingerprint) {
+            let resolved = Arc::new(self.resolve_status_segments_now());
+            self.status_segments_cache = Some((fingerprint, resolved));
+        }
+        self.status_segments_cache
+            .as_ref()
+            .map(|(_, resolved)| Arc::clone(resolved))
+            .unwrap_or_else(|| EMPTY.get_or_init(|| Arc::new((Vec::new(), Vec::new()))).clone())
+    }
+
+    /// Allocation-free hash of every input `resolve_status_segments_now`
+    /// reads: command outputs (via the workers' change counter) plus the
+    /// interpolated session, workspace, screen, and title values. The
+    /// frequently-changing tab title participates only when a configured
+    /// template actually uses `{title}`, so ordinary title churn does not
+    /// rebuild fixed segments.
+    fn status_segments_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.status_outputs_generation.load(Ordering::Acquire).hash(&mut hasher);
+        self.session_label.hash(&mut hasher);
+        if let Some(workspace) = self.tree.active_workspace() {
+            workspace.name.hash(&mut hasher);
+            workspace.screens.len().hash(&mut hasher);
+            workspace.active_screen.hash(&mut hasher);
+            if let Some(screen) = workspace.screens.get(workspace.active_screen) {
+                screen.name.hash(&mut hasher);
+            }
+        }
+        if self.status_templates_use("{title}")
+            && let Some(tab) = self
+                .tree
+                .active_screen()
+                .and_then(|screen| screen.pane(screen.active_pane))
+                .and_then(|pane| pane.tabs.get(pane.active_tab))
+        {
+            tab.name.hash(&mut hasher);
+            tab.title.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Whether any configured literal status segment contains `token`.
+    fn status_templates_use(&self, token: &str) -> bool {
+        self.config.status_bar.left.iter().chain(self.config.status_bar.right.iter()).any(
+            |segment| match &segment.content {
+                crate::config::StatusSegmentContent::Text(template) => template.contains(token),
+                crate::config::StatusSegmentContent::Command { .. } => false,
+            },
+        )
+    }
+
+    fn resolve_status_segments_now(&self) -> ResolvedStatusSegments {
+        let outputs = self.status_command_outputs.lock().unwrap();
+        let mut index = 0usize;
+        let mut resolve = |segments: &[crate::config::StatusSegment]| {
+            segments
+                .iter()
+                .map(|segment| {
+                    let text = match &segment.content {
+                        crate::config::StatusSegmentContent::Text(template) => {
+                            self.expand_status_template(template)
+                        }
+                        crate::config::StatusSegmentContent::Command { .. } => {
+                            outputs.get(&index).cloned().unwrap_or_default()
+                        }
+                    };
+                    index += 1;
+                    StatusSegmentView { text, fg: segment.fg, bg: segment.bg }
+                })
+                .collect::<Vec<_>>()
+        };
+        let left = resolve(&self.config.status_bar.left);
+        let right = resolve(&self.config.status_bar.right);
+        (left, right)
+    }
+
+    /// `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and
+    /// `{user}`. Unknown braces stay literal.
+    fn expand_status_template(&self, template: &str) -> String {
+        if !template.contains('{') {
+            return template.to_string();
+        }
+        let workspace = self.tree.active_workspace();
+        let workspace_name = workspace.map(|ws| ws.name.clone()).unwrap_or_default();
+        let screens = workspace.map(|ws| ws.screens.len()).unwrap_or(0).to_string();
+        let screen_name = workspace
+            .and_then(|ws| {
+                ws.screens.get(ws.active_screen).map(|screen| screen.display_name(ws.active_screen))
+            })
+            .unwrap_or_default();
+        let title = self
+            .tree
+            .active_screen()
+            .and_then(|screen| screen.pane(screen.active_pane))
+            .and_then(|pane| pane.tabs.get(pane.active_tab))
+            .map(|tab| tab.name.clone().unwrap_or_else(|| tab.title.clone()))
+            .unwrap_or_default();
+        expand_status_tokens(
+            template,
+            &StatusTemplateValues {
+                session: &self.session_label,
+                workspace: &workspace_name,
+                screen: &screen_name,
+                screens: &screens,
+                title: &title,
+                user: cached_status_user(),
+            },
+        )
     }
 
     fn focused_surface_cwd(&self) -> Option<PathBuf> {
@@ -12171,6 +13653,7 @@ impl App {
                 stacked_headers: &self.viewport_stacked_headers,
                 area: self.content_area,
                 scrollbar_position: self.config.scrollbar.position,
+                pane_padding: self.config.pane.padding,
                 surface_only: self.surface_only,
                 viewport_offset: Some(self.viewport_offset),
             });
@@ -12355,6 +13838,7 @@ impl App {
             stacked_headers: &layout.stacked_headers,
             area,
             scrollbar_position: self.config.scrollbar.position,
+            pane_padding: self.config.pane.padding,
             surface_only: self.surface_only,
             viewport_offset: viewport_enabled.then_some(self.viewport_offset),
         };
@@ -12387,6 +13871,7 @@ impl App {
                     stacked_headers: &layout.stacked_headers,
                     area,
                     scrollbar_position: self.config.scrollbar.position,
+                    pane_padding: self.config.pane.padding,
                     surface_only: self.surface_only,
                     viewport_offset: Some(self.viewport_offset),
                 },
@@ -12976,6 +14461,14 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
+            AppEvent::StatusCommandsUpdated => {
+                self.status_poke_pending.store(false, Ordering::Release);
+                Ok(if self.config.status_bar.visible && !self.is_surface_only() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                })
+            }
             AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
                 destination_generation,
@@ -13052,6 +14545,9 @@ impl App {
                 Ok(match *update {
                     MachineUpdate::Ui(update) => self.apply_machine_ui_update(*update),
                     MachineUpdate::DurableNotice(notice) => self.accept_durable_notice(notice),
+                    MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                        self.apply_connection_progress(machine_id, latest)
+                    }
                 })
             }
             AppEvent::MachineControllerCompleted(completion) => {
@@ -13420,7 +14916,10 @@ impl App {
                         self.session.refresh_clients_background();
                     }
                     SessionMutationOutcome::CreationResponseAmbiguous(error) => {
-                        eprintln!("cmux-tui: session creation response was ambiguous: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session creation response was ambiguous: {error}"
+                        );
                         self.status_message =
                             Some(localization::catalog().session.creation_reconciling.to_string());
                         self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
@@ -13429,7 +14928,10 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::MutationTimedOut(error) => {
-                        eprintln!("cmux-tui: session operation timed out: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session operation timed out: {error}"
+                        );
                         if let Some(intent) = semantic_intent {
                             // A peer without creation receipts cannot identify
                             // which surface, if any, a timed-out creation made.
@@ -13445,7 +14947,10 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
-                        eprintln!("cmux-tui: session operation failed: {error}");
+                        crate::client_log::stderr_log!(
+                            "session",
+                            "cmux-tui: session operation failed: {error}"
+                        );
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
                             self.status_message =
@@ -14330,7 +15835,64 @@ impl App {
         self.tree.active_surface()
     }
 
+    /// Adopt this client's own remembered focus from the mux (or the
+    /// session's last reported focus when this client has none), when the
+    /// server has one whose pane still exists in the adopted tree; otherwise
+    /// the tree's own focus stays. Sets the report baseline either way.
+    fn restore_client_focus_from_session(&mut self) {
+        let Some(client_id) = self.client_focus_id.clone() else { return };
+        let Some(focus) = self.session.client_focus(&client_id) else { return };
+        let mut location = None;
+        for (workspace_index, workspace) in self.tree.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                if let Some(pane) = screen.panes.iter().find(|pane| pane.id == focus.pane) {
+                    let tab = focus.tab.min(pane.tabs.len().saturating_sub(1));
+                    location = Some((workspace_index, screen_index, pane.id, tab));
+                }
+            }
+        }
+        let Some((workspace_index, screen_index, pane_id, tab_index)) = location else { return };
+        self.tree.active_workspace = workspace_index;
+        if let Some(workspace) = self.tree.workspaces.get_mut(workspace_index) {
+            workspace.active_screen = screen_index;
+            if let Some(screen) = workspace.screens.get_mut(screen_index) {
+                screen.active_pane = pane_id;
+                if let Some(pane) = screen.panes.iter_mut().find(|pane| pane.id == pane_id) {
+                    pane.active_tab = tab_index;
+                }
+            }
+        }
+        self.sidebar_workspace_selection =
+            workspace_index.min(self.tree.workspaces.len().saturating_sub(1));
+        self.pane_focus_history.record(pane_id);
+        self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
+    }
+
+    /// Report the client's focus (pane and tab; the server derives workspace
+    /// and screen at restore time) to the server's focus memory. The first
+    /// observation after adopting a tree is recorded as the baseline without
+    /// sending, so attaching never mutates the server; only later user
+    /// navigation does.
+    fn current_client_focus(&self) -> Option<crate::session::ClientFocus> {
+        let screen = self.tree.active_screen()?;
+        let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
+        Some(crate::session::ClientFocus { pane: pane.id, tab: pane.active_tab })
+    }
+
+    fn report_client_focus(&mut self) {
+        let Some(focus) = self.current_client_focus() else { return };
+        match self.reported_focus {
+            None => self.reported_focus = Some(focus),
+            Some(previous) if previous == focus => {}
+            Some(previous) => {
+                self.session.report_focus(Some(previous), focus, self.client_focus_id.as_deref());
+                self.reported_focus = Some(focus);
+            }
+        }
+    }
+
     fn claim_active_terminal_geometry(&mut self, force: bool) {
+        self.report_client_focus();
         let terminal = self.tree.active_screen().and_then(|screen| {
             let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
             let tab = pane.tabs.get(pane.active_tab)?;
@@ -14662,6 +16224,10 @@ impl App {
     }
 
     pub(crate) fn reset_rendered_status_message(&mut self) {
+        // Per-frame render reset. `logged_status_message` deliberately
+        // survives it: a message that stays visible across redraws is one
+        // event, not one per frame. Dismissal (`hide_status_message`) clears
+        // it, so a message that reappears later logs again.
         self.rendered_status_message = None;
     }
 
@@ -14672,11 +16238,27 @@ impl App {
                 self.drag = None;
             }
         }
+        // Every visible status message passes through here; persist each new
+        // one so warnings survive the session in the client log. Provider
+        // notices ("VM created") share the status line but are not errors.
+        if self.logged_status_message.as_deref() != Some(text.as_str()) {
+            if self.status_notice_text.as_deref() == Some(text.as_str()) {
+                crate::client_log::info("status", &text);
+            } else {
+                crate::client_log::error("status", &text);
+            }
+            self.logged_status_message = Some(text.clone());
+        }
         self.rendered_status_message = Some(RenderedStatusMessage { rect, text });
     }
 
     pub(crate) fn hide_status_message(&mut self) {
         self.rendered_status_message = None;
+        self.logged_status_message = None;
+        // The notice marker only describes the currently shown message; a
+        // later status with the same text is a fresh event and must be
+        // classified on its own.
+        self.status_notice_text = None;
         self.status_selection = None;
         if matches!(self.drag, Some(Drag::StatusMessage { .. })) {
             self.drag = None;
@@ -14739,7 +16321,7 @@ impl App {
 
     /// Content size for a pane filling `rect`.
     fn size_of_rect(&self, rect: Rect) -> Option<(u16, u16)> {
-        content_size_for_rect(rect, self.config.scrollbar.position)
+        content_size_for_rect(rect, self.config.scrollbar.position, self.config.pane.padding)
     }
 
     /// Size hint for splitting `pane`: the second side of its rect.
@@ -14802,6 +16384,28 @@ impl App {
             self.terminal_tab_size_hint(pane),
             selector_candidates,
             semantic_intent,
+        )
+    }
+
+    /// Run one configured user command as a new PTY tab in the target pane.
+    /// The server defaults the working directory to the pane's current
+    /// directory when the command has no configured `cwd`.
+    fn run_user_command(&mut self, index: usize, pane: Option<PaneId>) -> anyhow::Result<()> {
+        // `action_available` already rejects user commands for single-surface
+        // clients; keep the invariant local so no future route can create a
+        // tab this mode cannot reach.
+        if self.is_surface_only() {
+            return Ok(());
+        }
+        let Some(command) = self.config.commands.get(index) else {
+            return Ok(());
+        };
+        let pane = pane.or_else(|| self.active_pane());
+        self.session.run_command(
+            command.run.clone(),
+            pane,
+            command.cwd.clone(),
+            self.terminal_tab_size_hint(pane),
         )
     }
 
@@ -15377,7 +16981,9 @@ impl App {
                 return KeyboardIngress::Handled(RenderAction::Draw);
             };
             let was_sidebar_focused = self.workspace_sidebar_focused();
-            if !(was_sidebar_focused && action == Action::SendPrefix) {
+            let keep_machine_rail_focus =
+                self.machine_sidebar_focused() && action == Action::ProviderMenu;
+            if !(was_sidebar_focused && action == Action::SendPrefix) && !keep_machine_rail_focus {
                 self.focus = FocusTarget::Pane;
             }
             if was_sidebar_focused && action == Action::FocusSidebar {
@@ -15531,6 +17137,14 @@ impl App {
     }
 
     fn handle_machine_sidebar_key(&mut self, key: &KeyEvent) -> RenderAction {
+        if self.config.keys.action_for(key) == Some(Action::ProviderMenu)
+            || (!self.config.keys.provider_menu_overridden
+                && key.modifiers == KeyModifiers::NONE
+                && key.code == KeyCode::Char('m'))
+        {
+            let _ = self.open_provider_rail_menu(1, 2);
+            return RenderAction::Draw;
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             self.focus_adjacent_rail(RailKind::Machine, -1);
             return RenderAction::Draw;
@@ -15582,7 +17196,16 @@ impl App {
                 .rail_target()
                 .and_then(|selected| targets.iter().position(|target| *target == selected))
                 .unwrap_or_default();
-            if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+            let provider_menu = self.config.keys.action_for(key) == Some(Action::ProviderMenu)
+                || (!self.config.keys.provider_menu_overridden
+                    && key.modifiers == KeyModifiers::NONE
+                    && key.code == KeyCode::Char('m'));
+            if provider_menu {
+                // Resolve the configured action before the built-in movement
+                // keys. A valid provider-menu binding may intentionally use
+                // j, k, h, l, or an arrow key.
+                Some(MachineRailCommand::ProviderMenu)
+            } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
@@ -15631,8 +17254,6 @@ impl App {
                 }
             } else if key.code == KeyCode::Enter {
                 match targets.get(current).copied() {
-                    Some(MachineRailTarget::Scope) => Some(MachineRailCommand::OpenScopes),
-                    Some(MachineRailTarget::Actions) => Some(MachineRailCommand::OpenActions),
                     Some(MachineRailTarget::NewVm) => Some(MachineRailCommand::Create),
                     Some(MachineRailTarget::ConnectMachine) => Some(MachineRailCommand::Connect),
                     Some(MachineRailTarget::Machine(_)) | None => None,
@@ -15655,8 +17276,9 @@ impl App {
             Some(MachineRailCommand::Purge(machine)) => {
                 self.open_purge_managed_machine_prompt(machine);
             }
-            Some(MachineRailCommand::OpenScopes) => self.open_provider_scope_menu(1, 2),
-            Some(MachineRailCommand::OpenActions) => self.open_provider_actions_menu(1, 3),
+            Some(MachineRailCommand::ProviderMenu) => {
+                self.open_provider_rail_menu(1, 2);
+            }
             Some(MachineRailCommand::Create) => {
                 self.open_machine_creation_menu(1, 3);
             }
@@ -15881,14 +17503,60 @@ impl App {
         self.show_toast("Copied".to_string());
     }
 
-    fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
+    /// Open the provider scope/actions menu near (x, y). The active scope
+    /// starts selected, exactly like the removed dedicated scope row, so a
+    /// plain Enter never switches scope by accident. False when the provider
+    /// offers nothing to show.
+    fn open_provider_rail_menu(&mut self, x: u16, y: u16) -> bool {
+        let scopes = self.provider_scope_menu_items();
+        let selected_scope = if scopes.is_empty() {
+            None
+        } else {
+            self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()).and_then(|provider| {
+                provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id)
+            })
+        };
+        let actions = self.provider_actions_menu_items();
+        if scopes.is_empty() && actions.is_empty() {
+            return false;
+        }
+        let has_scopes = !scopes.is_empty();
+        let mut groups = Vec::new();
+        if !scopes.is_empty() {
+            groups.push(scopes);
+        }
+        if !actions.is_empty() {
+            groups.push(actions);
+        }
+        groups.push(self.global_menu_items());
+        let mut menu = ContextMenu::with_groups(x, y, groups);
+        if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_scope) {
+            level.selected = selected;
+            level.ensure_selection_visible();
+        } else if !has_scopes {
+            // One scope is not a switch choice. Keep the combined menu inert
+            // until the user moves or clicks, so Enter cannot invoke its
+            // first provider action as a side effect of opening the menu.
+            if let Some(level) = menu.levels.first_mut() {
+                level.selection_active = false;
+            }
+        }
+        self.menu = Some(menu);
+        self.capture_menu_resources();
+        true
+    }
+
+    /// Scope-switch entries for the provider rail menu. Empty when only one
+    /// scope exists (nothing to switch to).
+    fn provider_scope_menu_items(&self) -> Vec<MenuItem> {
         let messages = &localization::catalog().sidebar;
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
-            return;
+            return Vec::new();
         };
-        let selected_index =
-            provider.scopes.iter().position(|scope| scope.id == provider.selected_scope_id);
-        let items = provider
+        if provider.scopes.len() < 2 {
+            return Vec::new();
+        }
+        provider
             .scopes
             .iter()
             .enumerate()
@@ -15904,23 +17572,14 @@ impl App {
                     action: MenuAction::SelectProviderScope(index),
                 }
             })
-            .collect::<Vec<_>>();
-        if !items.is_empty() {
-            let mut menu = ContextMenu::with_groups(x, y, vec![items]);
-            if let (Some(level), Some(selected)) = (menu.levels.first_mut(), selected_index) {
-                level.selected = selected;
-                level.ensure_selection_visible();
-            }
-            self.menu = Some(menu);
-            self.capture_menu_resources();
-        }
+            .collect()
     }
 
-    fn open_provider_actions_menu(&mut self, x: u16, y: u16) {
+    fn provider_actions_menu_items(&self) -> Vec<MenuItem> {
         let Some(provider) = self.machine_ui.as_ref().and_then(|ui| ui.provider.as_ref()) else {
-            return;
+            return Vec::new();
         };
-        let items = provider
+        provider
             .actions
             .iter()
             .enumerate()
@@ -15932,11 +17591,7 @@ impl App {
                 },
                 action: MenuAction::InvokeProviderAction(index),
             })
-            .collect::<Vec<_>>();
-        if !items.is_empty() {
-            self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
-            self.capture_menu_resources();
-        }
+            .collect()
     }
 
     fn begin_provider_action(&mut self, index: usize) {
@@ -16888,6 +18543,11 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
+            Action::ProviderMenu => {
+                if self.focus == FocusTarget::MachineRail {
+                    self.open_provider_rail_menu(1, 2);
+                }
+            }
             Action::NewPaneRight => self.new_pane_right(pane, fallback_pane, semantic_intent)?,
             Action::UndoLayout => {
                 if let Some(pane) = pane {
@@ -16955,6 +18615,11 @@ impl App {
                 // running server-side (detach).
                 self.quit = true;
                 return Ok(RenderAction::None);
+            }
+            Action::UserCommand(_) => {
+                if let Some(index) = action.user_command_index() {
+                    self.run_user_command(index, pane)?;
+                }
             }
         }
         if !self.status_message_hovered() {
@@ -17050,13 +18715,21 @@ impl App {
     fn browser_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
         match pane {
             Some(pane) => self.pane_areas.iter().find(|area| area.pane == pane).and_then(|area| {
-                browser_content_size_for_rect(area.logical_rect(), self.config.scrollbar.position)
+                browser_content_size_for_rect(
+                    area.logical_rect(),
+                    self.config.scrollbar.position,
+                    self.config.pane.padding,
+                )
             }),
             None => self
                 .active_pane()
                 .and_then(|pane| self.browser_tab_size_hint(Some(pane)))
                 .or_else(|| {
-                    browser_content_size_for_rect(self.content_area, self.config.scrollbar.position)
+                    browser_content_size_for_rect(
+                        self.content_area,
+                        self.config.scrollbar.position,
+                        self.config.pane.padding,
+                    )
                 }),
         }
     }
@@ -17109,8 +18782,12 @@ impl App {
         let has_omnibar = if area.surface == surface {
             area.omnibar.is_some()
         } else {
-            let (_, omnibar, _, _) =
-                pane_parts_for_rect(area.rect, self.config.scrollbar.position, true);
+            let (_, omnibar, _, _) = pane_parts_for_rect(
+                area.rect,
+                self.config.scrollbar.position,
+                self.config.pane.padding,
+                true,
+            );
             omnibar.is_some()
         };
         if !has_omnibar {
@@ -17425,6 +19102,9 @@ impl App {
                     self.begin_machine_connection(target, MachineConnectRoute::Local);
                 }
             }
+            MenuAction::RunConfigured { action, pane } => {
+                self.run_action_for_pane(action, pane.or_else(|| self.active_pane()))?;
+            }
             MenuAction::ConnectOtherMachine => {
                 let prompt = self.connect_machine_prompt();
                 self.prompt = Some(prompt);
@@ -17632,6 +19312,11 @@ impl App {
 
     fn forward_key(&mut self, input: keys::KeyboardInput) {
         if !self.session_available() {
+            // Coming back to a machine that paused or lost its stream: the
+            // first keystroke wakes it instead of bouncing off a dead pane.
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -17642,6 +19327,9 @@ impl App {
 
     fn forward_key_to_surface(&mut self, input: keys::KeyboardInput, surface_id: SurfaceId) {
         if !self.session_available() {
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -17682,6 +19370,9 @@ impl App {
             return;
         }
         if !self.session_available() {
+            if self.wake_presented_machine() {
+                return;
+            }
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
@@ -19391,20 +21082,6 @@ impl App {
                     }
                     self.open_machine_connection_menu(x, y);
                 }
-                Hit::ProviderScope => {
-                    self.machine_rail_follow_selection = true;
-                    if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Scope;
-                    }
-                    self.open_provider_scope_menu(x, y);
-                }
-                Hit::ProviderActions => {
-                    self.machine_rail_follow_selection = true;
-                    if let Some(machine) = self.machine_ui.as_mut() {
-                        machine.rail_selection = MachineRailSelection::Actions;
-                    }
-                    self.open_provider_actions_menu(x, y);
-                }
                 Hit::Workspace { index, id } => {
                     self.workspace_rail_follow_selection = true;
                     self.focus = FocusTarget::Pane;
@@ -19436,7 +21113,7 @@ impl App {
                     self.activate_projection_target(target)?;
                     self.focus = FocusTarget::Pane;
                 }
-                Hit::RailHeader(kind) => {
+                Hit::RailPad(kind) => {
                     self.focus_rail(kind);
                 }
                 Hit::SidebarAction { view, action } => {
@@ -19506,7 +21183,12 @@ impl App {
                 Hit::CopyStatusMessage => self.copy_status_message(),
                 Hit::NewScreen => {
                     self.focus = FocusTarget::Pane;
-                    self.new_screen(None)?;
+                    if let Some(action) = self.config.status_bar.screens_plus.action {
+                        let pane = self.active_pane();
+                        self.run_action_for_pane(action, pane)?;
+                    } else {
+                        self.new_screen(None)?;
+                    }
                 }
                 Hit::Tab { pane, index } => {
                     if let Some(surface) = self
@@ -19520,7 +21202,9 @@ impl App {
                 }
                 Hit::NewTab { pane } => {
                     self.focus_pane_after_input(pane);
-                    if self.prepare_pty_input_before_mutation() {
+                    if let Some(action) = self.config.tabs.plus.action {
+                        self.run_action_for_pane(action, Some(pane))?;
+                    } else if self.prepare_pty_input_before_mutation() {
                         self.session
                             .new_tab(Some(pane), self.terminal_tab_size_hint(Some(pane)))?;
                     }
@@ -19959,6 +21643,7 @@ impl App {
     }
 
     fn show_toast(&mut self, text: String) {
+        crate::client_log::info("toast", &text);
         self.toast = Some(Toast { text, deadline: Instant::now() + Duration::from_millis(1500) });
     }
 
@@ -20395,6 +22080,17 @@ impl App {
         action_available_in_mode(action, self.surface_only.is_some())
     }
 
+    /// The display label for an action: the localized catalog label, or the
+    /// user's configured command name for `Action::UserCommand`.
+    pub(crate) fn action_display_label(&self, action: Action) -> &str {
+        if let Some(index) = action.user_command_index()
+            && let Some(command) = self.config.commands.get(index)
+        {
+            return command.name.as_str();
+        }
+        localization::catalog().action_label(action)
+    }
+
     fn sidebar_menu_actions(&self) -> Vec<MenuAction> {
         vec![
             MenuAction::ToggleSidebar { visible: self.sidebar_visible },
@@ -20564,6 +22260,33 @@ impl App {
             ));
             return;
         }
+        // Configurable `+` buttons: a right click opens their configured
+        // menu when one exists; without one the generic paths below apply.
+        if let Some(Hit::NewTab { pane }) = hit {
+            let items = self.plus_menu_items(&self.config.tabs.plus, Some(pane));
+            if !items.is_empty() {
+                self.menu =
+                    Some(ContextMenu::with_groups(x, y, vec![items, self.global_menu_items()]));
+                return;
+            }
+        }
+        // "+ new vm" and the machine rail's top pad carry the provider
+        // scope switcher and provider actions since their dedicated rail
+        // rows were removed (`m` is the keyboard twin).
+        if matches!(hit, Some(Hit::NewVm) | Some(Hit::RailPad(RailKind::Machine)))
+            && self.open_provider_rail_menu(x, y)
+        {
+            return;
+        }
+        if matches!(hit, Some(Hit::NewScreen)) {
+            let items =
+                self.plus_menu_items(&self.config.status_bar.screens_plus, self.active_pane());
+            if !items.is_empty() {
+                self.menu =
+                    Some(ContextMenu::with_groups(x, y, vec![items, self.global_menu_items()]));
+                return;
+            }
+        }
         if self.total_sidebar_width() > 0 && x < self.total_sidebar_width() {
             let mut groups = Vec::new();
             match hit {
@@ -20681,6 +22404,10 @@ impl App {
             groups.push(vec![self.sidebar_presentation_menu_item()]);
             groups.push(self.menu_group([MenuAction::ShowShortcuts]));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
+            // Provider scope/action entries dispatch by displayed index;
+            // capture the stable resources behind them (see the identity
+            // tests) exactly like the dedicated menus used to.
+            self.capture_menu_resources();
             return;
         }
         match hit {
@@ -21215,6 +22942,7 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::ToggleSidebarCompact
             | Action::ToggleSidebarView
             | Action::FocusSidebar
+            | Action::ProviderMenu
             | Action::FocusLeft
             | Action::FocusRight
             | Action::FocusUp
@@ -21222,6 +22950,7 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ProviderMenu
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
     )
@@ -21455,22 +23184,23 @@ mod tests {
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
         SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, disable_host_keyboard_protocol,
-        enable_host_keyboard_protocol, forward_host_input, forward_mux_event, forward_mux_events,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
         keyboard_protocol_accepts, layout_undo_error_completion,
         negotiate_host_keyboard_protocol_with, outer_cursor_escape, outer_cursor_escape_if_changed,
         pane_area_projection_work, pane_context_menu_groups, pane_parts_for_rect,
         prepare_ordered_session, preserve_client_view, rail_drag_width, rebuild_pane_areas,
         record_surface_resize_dispatch_result, report_after_unwind,
-        reset_pane_area_projection_work, should_claim_clear_history_shortcut, sidebar_layout_for,
-        sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
+        reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
+        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
         start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
@@ -21499,7 +23229,7 @@ mod tests {
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use ratatui::style::Modifier;
+    use ratatui::style::{Color, Modifier};
     use unicode_width::UnicodeWidthStr;
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
@@ -21510,9 +23240,9 @@ mod tests {
     use crate::localization;
     use crate::machine::{
         DurableNoticeDelivery, DurableNoticeLevel, DurableProviderNotice, MachineActionResult,
-        MachineCapabilities, MachineConnectionTarget, MachineController, MachineCreationSource,
-        MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest, MachineSnapshot,
-        MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
+        MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineController,
+        MachineCreationSource, MachineDescriptor, MachineKey, MachineRailSelection, MachineRequest,
+        MachineSnapshot, MachineStatus, MachineUiState, MachineUpdate, ManagedMachineCapabilities,
         ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceCapabilities,
         ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
         ProviderActionContext, ProviderActionDescriptor, ProviderActionFieldDescriptor,
@@ -22734,6 +24464,175 @@ mod tests {
         mux.close_surface(hidden.id).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn status_command_runner_returns_last_clean_line() {
+        let run = StatusWorkerStop::new();
+        let (output, _) = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "printf 'one\\ntwo\\n\\n'".to_string()],
+            Duration::from_secs(5),
+            &run,
+        );
+        assert_eq!(output, "two", "the last nonempty line wins");
+        let (colored, _) = run_status_command(
+            &[
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                "printf '\\033[31mred\\033[0m done'".to_string(),
+            ],
+            Duration::from_secs(5),
+            &run,
+        );
+        assert_eq!(colored, "red done", "escape sequences are stripped");
+        assert_eq!(
+            run_status_command(
+                &["/nonexistent-status-cmd".to_string()],
+                Duration::from_secs(1),
+                &run,
+            )
+            .0,
+            "",
+            "spawn failures resolve to an empty segment"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_command_timeout_kills_the_process_tree_and_keeps_partial_output() {
+        let started = Instant::now();
+        let run = StatusWorkerStop::new();
+        let (output, stuck) = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "echo early; sleep 60".to_string()],
+            Duration::from_secs(1),
+            &run,
+        );
+        assert_eq!(output, "early", "output before the timeout survives the group kill");
+        assert!(stuck.is_none(), "a killable command is reaped within the bound");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the runtime bound is real: {:?}",
+            started.elapsed()
+        );
+
+        // A raised stop flag makes the capture return within one poll tick
+        // instead of running out the timeout, so config reloads and app
+        // shutdown never wait on a slow command.
+        let stopped = StatusWorkerStop::new();
+        stopped.raise();
+        let started = Instant::now();
+        let (output, _) = run_status_command(
+            &["/bin/sh".to_string(), "-c".to_string(), "sleep 60".to_string()],
+            Duration::from_secs(60),
+            &stopped,
+        );
+        assert_eq!(output, "");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "stop preempts the timeout: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn status_token_expansion_never_rescans_inserted_values() {
+        let values = StatusTemplateValues {
+            session: "s",
+            workspace: "{screens}",
+            screen: "main",
+            screens: "3",
+            title: "{user}",
+            user: "lawrence",
+        };
+        assert_eq!(
+            expand_status_tokens("{workspace} of {screens} · {title}", &values),
+            "{screens} of 3 · {user}",
+            "inserted values stay literal"
+        );
+        assert_eq!(
+            expand_status_tokens("{unknown} {session", &values),
+            "{unknown} {session",
+            "unknown tokens and unterminated braces stay literal"
+        );
+        assert_eq!(expand_status_tokens("plain", &values), "plain");
+    }
+
+    #[test]
+    fn status_segments_expand_variables_and_read_command_outputs() {
+        let (mux, _surface) = test_mux("status-segments-test", None);
+        let (mut app, _events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.status_bar.left = vec![crate::config::StatusSegment {
+            content: crate::config::StatusSegmentContent::Text(
+                " {session} {workspace} {screens} ".to_string(),
+            ),
+            fg: None,
+            bg: None,
+        }];
+        app.config.status_bar.right = vec![crate::config::StatusSegment {
+            content: crate::config::StatusSegmentContent::Command {
+                argv: vec!["true".to_string()],
+                interval: Duration::from_secs(5),
+            },
+            fg: Some(Color::Indexed(114)),
+            bg: None,
+        }];
+        app.status_command_outputs.lock().unwrap().insert(1, "widget".to_string());
+
+        let segments = app.resolved_status_segments();
+        let (left, right) = (&segments.0, &segments.1);
+        assert_eq!(left.len(), 1);
+        assert!(
+            left[0].text.contains(" work 1 "),
+            "workspace and screen count expand: {:?}",
+            left[0].text
+        );
+        assert!(!left[0].text.contains('{'), "no unexpanded braces: {:?}", left[0].text);
+        assert_eq!(right[0].text, "widget", "command segments read the worker output");
+        assert_eq!(right[0].fg, Some(Color::Indexed(114)));
+
+        for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn user_command_action_runs_configured_argv_in_a_new_tab() {
+        let (mux, _surface) = test_mux("user-command-run-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.config.commands = vec![crate::config::UserCommandConfig {
+            id: "sleeper".to_string(),
+            name: "Sleeper".to_string(),
+            run: vec!["/bin/sh".to_string(), "-c".to_string(), "sleep 30".to_string()],
+            cwd: None,
+        }];
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let initial_surfaces = mux.with_state(|state| state.surfaces.len());
+
+        app.run_action_for_pane(Action::user_command(0).unwrap(), Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), initial_surfaces + 1);
+
+        // An index without a configured command is a no-op.
+        app.run_action_for_pane(Action::user_command(1).unwrap(), Some(pane)).unwrap();
+        while app.session.has_pending_mutations() {
+            let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            app.handle(event).unwrap();
+        }
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), initial_surfaces + 1);
+
+        // The shortcut modal shows the configured display name.
+        assert_eq!(app.action_display_label(Action::user_command(0).unwrap()), "Sleeper");
+
+        for surface in mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>()) {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
     #[test]
     fn single_surface_client_rejects_hidden_browser_creation() {
         let (mux, surface) = test_mux("single-surface-browser-creation-test", None);
@@ -23553,7 +25452,7 @@ mod tests {
     }
 
     #[test]
-    fn focused_sidebar_uses_an_accent_header_and_divider() {
+    fn focused_sidebar_uses_an_accent_divider() {
         let (mux, _) = test_mux("focused-sidebar-style-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
@@ -23571,9 +25470,6 @@ mod tests {
         assert_eq!(divider.symbol(), "┃");
         assert_eq!(divider.fg, app.config.theme.border_active);
         assert!(divider.modifier.contains(Modifier::BOLD));
-        let header = &terminal.backend().buffer()[(1, 0)];
-        assert_eq!(header.bg, app.chrome.status_active_bg);
-        assert_eq!(header.fg, app.config.theme.border_active);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -23680,7 +25576,8 @@ mod tests {
         let focused = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 30,
             max_width: 0,
             collapse_priority: 30,
@@ -23810,7 +25707,7 @@ mod tests {
 
         assert!(rendered.contains("isolated attach error"), "{rendered}");
         assert!(!rendered.contains("screens"), "{rendered}");
-        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, ratatui::style::Color::Red);
+        assert_eq!(terminal.backend().buffer()[(0, 7)].fg, Color::Red);
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -23922,7 +25819,10 @@ mod tests {
             app.handle(event).unwrap();
         }
         assert_eq!(app.active_pane(), Some(bottom_right));
+        // Focus reports only write the session's focus memory for later
+        // attaches; the live shared focus never follows client navigation.
         assert_eq!(Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane, left);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
         assert!(!app.session.has_pending_mutations());
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
@@ -24573,6 +26473,7 @@ mod tests {
                 stacked_headers: &HashSet::new(),
                 area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
+                pane_padding: 0,
                 surface_only: None,
                 viewport_offset: Some(0),
             },
@@ -24631,6 +26532,7 @@ mod tests {
                 stacked_headers: &HashSet::new(),
                 area: Rect { x: 0, y: 0, width: 80, height: 24 },
                 scrollbar_position: ScrollbarPosition::Column,
+                pane_padding: 0,
                 surface_only: None,
                 viewport_offset: Some(0),
             },
@@ -24770,6 +26672,7 @@ mod tests {
             stacked_headers: &stacked_headers,
             area,
             scrollbar_position: ScrollbarPosition::Column,
+            pane_padding: 0,
             surface_only: None,
             viewport_offset: Some(0),
         });
@@ -24812,6 +26715,7 @@ mod tests {
                     stacked_headers: &stacked_headers,
                     area,
                     scrollbar_position: ScrollbarPosition::Column,
+                    pane_padding: 0,
                     surface_only: None,
                     viewport_offset: Some(offset),
                 },
@@ -25019,7 +26923,11 @@ mod tests {
         app.session.remote = true;
         app.select_screen_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        // Client navigation is optimistic and client-local; it records the
+        // session's focus memory for later attaches without moving the live
+        // shared focus.
         assert_eq!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
@@ -25050,12 +26958,87 @@ mod tests {
         app.session.remote = true;
         app.select_workspace_for_client(Some(1), None);
         app.sync_layout((80, 31));
+        // Client navigation is optimistic and client-local; it records the
+        // session's focus memory for later attaches without moving the live
+        // shared focus.
         assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        assert_eq!(mux.session_focus().map(|(pane, _)| pane), Some(bottom_right));
 
         app.move_focus(Direction::Left);
         assert_eq!(app.active_pane(), Some(left));
         app.move_focus(Direction::Right);
         assert_eq!(app.active_pane(), Some(bottom_right));
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn client_navigation_records_the_session_focus_without_moving_the_mux() {
+        let mux = Mux::new("client-focus-report-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.select_workspace(Some(0), None);
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        // Adopting a tree records the baseline without reporting.
+        assert_eq!(mux.session_focus(), None);
+
+        app.select_workspace_for_client(Some(1), None);
+        // The report records the session's last focus for later attaches and
+        // leaves the live shared focus alone, so attached clients stay put.
+        let second_pane = app.tree.workspaces[1].screens[0].active_pane;
+        assert_eq!(mux.with_state(|state| state.active_workspace), 0);
+        assert_eq!(mux.session_focus(), Some((second_pane, Some(0))));
+
+        // A client with no memory of its own adopts the session's last
+        // reported focus on first attach.
+        let mut second = test_app(Session::Local(mux.clone()));
+        second.sidebar_visible = false;
+        second.client_focus_id = Some("bob".to_string());
+        second.replace_tree(second.session.tree());
+        assert_eq!(second.tree.active_workspace, 1);
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn reconnecting_client_restores_its_own_focus() {
+        let mux = Mux::new("client-focus-reconnect-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.new_workspace(None, Some((80, 30))).unwrap();
+        mux.select_workspace(Some(0), None);
+
+        let mut first = test_app(Session::Local(mux.clone()));
+        first.sidebar_visible = false;
+        first.client_focus_id = Some("alice".to_string());
+        first.replace_tree(first.session.tree());
+        first.select_workspace_for_client(Some(1), None);
+        drop(first);
+
+        // Another client later reports focus elsewhere, moving the session's
+        // last reported focus (the cross-client adoption default).
+        let mut other = test_app(Session::Local(mux.clone()));
+        other.sidebar_visible = false;
+        other.client_focus_id = Some("bob".to_string());
+        other.replace_tree(other.session.tree());
+        other.select_workspace_for_client(Some(0), None);
+        drop(other);
+
+        let mut second = test_app(Session::Local(mux.clone()));
+        second.sidebar_visible = false;
+        second.client_focus_id = Some("alice".to_string());
+        second.replace_tree(second.session.tree());
+        // Reconnection restores this client's own remembered focus, not the
+        // session focus another client reported afterwards.
+        assert_eq!(second.tree.active_workspace, 1);
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
@@ -26319,10 +28302,41 @@ mod tests {
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
         let (_bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Column, true);
+            pane_parts_for_rect(rect, ScrollbarPosition::Column, 0, true);
         assert_eq!(omnibar, Some(Rect { x: 11, y: 5, width: 77, height: 1 }));
         assert_eq!(content, Rect { x: 11, y: 6, width: 77, height: 21 });
         assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
+    }
+
+    #[test]
+    fn pane_padding_insets_content_and_keeps_at_least_one_cell() {
+        let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
+        let (bar, _, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Column, 2, false);
+        // Bar and track keep the border geometry; only content is inset.
+        assert_eq!(bar, Some(Rect { x: 10, y: 4, width: 80, height: 1 }));
+        assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
+        assert_eq!(content, Rect { x: 13, y: 7, width: 73, height: 18 });
+
+        // A tiny pane never pads itself out of existence.
+        let tiny = Rect { x: 0, y: 0, width: 5, height: 4 };
+        let (_, _, content, _) = pane_parts_for_rect(tiny, ScrollbarPosition::Border, 4, false);
+        assert!(content.width >= 1 && content.height >= 1, "content survived: {content:?}");
+
+        // Padded content sizes drive PTY sizing through the same helper.
+        assert_eq!(content_size_for_rect(rect, ScrollbarPosition::Column, 0), Some((77, 22)));
+        assert_eq!(content_size_for_rect(rect, ScrollbarPosition::Column, 2), Some((73, 18)));
+    }
+
+    #[test]
+    fn hidden_status_bar_gives_the_bottom_row_to_panes() {
+        let mut config = Config::default();
+        let overrides = SidebarWidthOverrides::default();
+        let visible = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
+        assert_eq!(visible.content.height, 29);
+        config.status_bar.visible = false;
+        let hidden = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
+        assert_eq!(hidden.content.height, 30);
     }
 
     #[test]
@@ -26461,7 +28475,7 @@ mod tests {
     fn browser_omnibar_degrades_gracefully_with_one_content_row() {
         let rect = Rect { x: 0, y: 0, width: 20, height: 3 };
         let (_bar, omnibar, content, _track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Border, true);
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, true);
         assert_eq!(omnibar, None);
         assert_eq!(content, Rect { x: 1, y: 1, width: 18, height: 1 });
     }
@@ -26471,7 +28485,7 @@ mod tests {
         for height in [1, 2] {
             let rect = Rect { x: 4, y: 5, width: 20, height };
             let (bar, omnibar, content, track) =
-                pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+                pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, false);
 
             assert_eq!(bar, Some(Rect { height: 1, ..rect }));
             assert_eq!(omnibar, None);
@@ -26484,7 +28498,7 @@ mod tests {
     fn narrow_tall_pane_keeps_unboxed_terminal_content() {
         let rect = Rect { x: 4, y: 5, width: 2, height: 20 };
         let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, ScrollbarPosition::Border, false);
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, 0, false);
 
         assert_eq!(bar, None);
         assert_eq!(omnibar, None);
@@ -26495,7 +28509,10 @@ mod tests {
     #[test]
     fn browser_tab_size_hint_uses_omnibar_reduced_content() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
-        assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column), Some((77, 21)));
+        assert_eq!(
+            browser_content_size_for_rect(rect, ScrollbarPosition::Column, 0),
+            Some((77, 21))
+        );
     }
 
     #[test]
@@ -29336,8 +31353,12 @@ mod tests {
         app.replace_tree(app.session.tree());
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
-        let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+        let (bar, omnibar, content, track) = pane_parts_for_rect(
+            rect,
+            app.config.scrollbar.position,
+            app.config.pane.padding,
+            false,
+        );
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;
@@ -29404,8 +31425,12 @@ mod tests {
         app.replace_tree(app.session.tree());
 
         let rect = Rect { x: 0, y: 0, width: 80, height: 23 };
-        let (bar, omnibar, content, track) =
-            pane_parts_for_rect(rect, app.config.scrollbar.position, false);
+        let (bar, omnibar, content, track) = pane_parts_for_rect(
+            rect,
+            app.config.scrollbar.position,
+            app.config.pane.padding,
+            false,
+        );
         app.sidebar_visible = false;
         app.sidebar_width = 0;
         app.content_area = rect;
@@ -34510,8 +36535,8 @@ mod tests {
         assert_eq!(buffer[(12, 2)].symbol(), "│");
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.notification_warning));
         assert!(row_contains(buffer, 1, "•"), "tab bar should contain unread dot");
-        assert_eq!(buffer[(0, 2)].symbol(), "▎", "sidebar should retain the active rail");
-        assert_eq!(buffer[(1, 2)].symbol(), "•", "sidebar should contain unread dot");
+        assert_eq!(buffer[(0, 1)].symbol(), "▎", "sidebar should retain the active rail");
+        assert_eq!(buffer[(1, 1)].symbol(), "•", "sidebar should contain unread dot");
 
         app.replace_tree(notify_tree(surface.id, false));
         let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
@@ -34523,7 +36548,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.border_active));
         assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
-        assert_ne!(buffer[(1, 2)].symbol(), "•", "sidebar dot should clear");
+        assert_ne!(buffer[(1, 1)].symbol(), "•", "sidebar dot should clear");
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -34789,7 +36814,7 @@ mod tests {
         assert_eq!(app.sidebar_view, SidebarView::Workspaces);
         let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        assert!(buffer_text(terminal.backend().buffer()).contains("workspaces"));
+        assert!(buffer_text(terminal.backend().buffer()).contains("+ new workspace"));
 
         app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_view, SidebarView::Files);
@@ -35066,6 +37091,598 @@ mod tests {
 
         assert_eq!(app.focus, FocusTarget::Pane);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+    }
+
+    #[test]
+    fn machine_transition_shows_progress_then_status_aware_default() {
+        let mux = Mux::new("machine-transition-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(7),
+                id: "vm-7".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.set_connection_phase(MachineKey(7), MachineConnectionPhase::Connecting);
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(7));
+
+        // Status-aware default: a sleeping machine renders as waking, which
+        // the interstitial derives from status when no progress arrived.
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, None);
+        assert_eq!(view.status, MachineStatus::Sleeping);
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+
+        // A provider connection_progress event renders live while the switch
+        // is still in flight.
+        let action = app.apply_connection_progress(
+            "vm-7".into(),
+            Arc::new(Mutex::new(Some("resuming the machine".into()))),
+        );
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.progress, Some("resuming the machine"));
+
+        // A failed switch drops the stale message under "unavailable".
+        app.fail_machine_action(Some(&MachineRequest::Switch(MachineKey(7))));
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.phase, MachineConnectionPhase::Failed);
+        assert_eq!(view.progress, None);
+    }
+
+    #[test]
+    fn paused_machine_is_not_auto_resumed_and_wakes_on_input() {
+        let mux = Mux::new("machine-sleep-wake-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(9),
+                id: "vm-9".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(9));
+        app.machine_presented = Some(MachineKey(9));
+
+        // Stream death for a machine that is asleep: no auto-resume switch;
+        // it presents as sleeping instead, so pause stays paused.
+        assert!(app.request_current_machine_session());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "a paused machine must not auto-resume");
+        assert!(!ui.session_available);
+        let view = app.machine_transition().unwrap();
+        assert_eq!(view.phase, MachineConnectionPhase::Disconnected);
+        assert_eq!(view.status, MachineStatus::Sleeping);
+
+        // The first keystroke wakes it through the normal switch path with
+        // the connecting interstitial.
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
+        assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
+        assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn reselecting_a_sleeping_presented_machine_queues_a_wake_switch() {
+        let mux = Mux::new("machine-sleep-reselect-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![MachineDescriptor {
+                key: MachineKey(9),
+                id: "vm-9".into(),
+                name: "maple".into(),
+                subtitle: "freestyle · paused".into(),
+                status: MachineStatus::Sleeping,
+            }],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        app.machine_ui = Some(ui);
+        app.machine_selection_intent = Some(MachineKey(9));
+        app.machine_presented = Some(MachineKey(9));
+        assert!(app.request_current_machine_session());
+
+        // Rail click on the same, now-asleep machine: the switch is queued
+        // (session_available is false) and the interstitial must not claim
+        // Ready while the wake is in flight.
+        app.activate_machine(MachineKey(9));
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(9))));
+        assert_eq!(ui.connection_phase(MachineKey(9)), MachineConnectionPhase::Connecting);
+    }
+
+    #[test]
+    fn switching_away_from_a_dead_machine_keeps_interstitial_and_input_safe() {
+        let mux = Mux::new("machine-dead-switch-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle · paused".into(),
+                    status: MachineStatus::Sleeping,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = false;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        // The presented machine is dead, so the warm-target shortcut must
+        // not hide that a switch is running.
+        assert!(app.machine_transition().is_some(), "interstitial must render");
+
+        // A keystroke mid-switch must not re-aim (and wake) the old paused
+        // machine.
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "no wake switch back to the old machine");
+        assert!(app.status_message.is_none());
+    }
+
+    #[test]
+    fn keystrokes_never_reach_the_old_machine_during_a_warm_switch() {
+        // While a warm switch is in flight the OLD machine is still live and
+        // on screen (session_available field true), but the aim mismatch must
+        // gate input away from it: session_available() requires
+        // selection_intent == presented, and the wake gate consumes the key
+        // instead of forwarding or re-aiming.
+        let mux = Mux::new("machine-warm-switch-input-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+
+        assert!(!app.session_available(), "aim mismatch must gate the old session");
+        app.forward_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE).into());
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert!(ui.request.is_none(), "the key must not queue any machine request");
+        assert!(app.status_message.is_none(), "the key is consumed silently mid-switch");
+    }
+
+    #[test]
+    fn progress_for_a_stale_ready_target_reveals_the_reconnect() {
+        let mux = Mux::new("machine-stale-ready-progress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(9),
+                    id: "vm-9".into(),
+                    name: "maple".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(10),
+                    id: "vm-10".into(),
+                    name: "oak".into(),
+                    subtitle: "freestyle".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(9)),
+            capabilities: MachineCapabilities::default(),
+        });
+        ui.session_available = true;
+        // The aim trusted a warm connection, but the pooled session was dead:
+        // the provider starts narrating a real open.
+        ui.set_connection_phase(MachineKey(10), MachineConnectionPhase::Ready);
+        app.machine_ui = Some(ui);
+        app.machine_presented = Some(MachineKey(9));
+        app.machine_selection_intent = Some(MachineKey(10));
+        assert!(app.machine_transition().is_none(), "warm shortcut hides the interstitial");
+
+        let action = app.apply_connection_progress(
+            "vm-10".into(),
+            Arc::new(Mutex::new(Some("waiting for sshd".into()))),
+        );
+        assert_eq!(action, RenderAction::Draw);
+        let view = app.machine_transition().expect("reconnect must surface");
+        assert_eq!(view.phase, MachineConnectionPhase::Connecting);
+        assert_eq!(view.progress, Some("waiting for sshd"));
+    }
+
+    #[test]
+    fn deleting_the_presented_machine_switches_to_the_next_available_one() {
+        let mux = Mux::new("machine-delete-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "birch"), descriptor(3, "cedar")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // The presented middle machine is deleted: the update must aim at the
+        // machine that took its slot (cedar), not leave a dead session up.
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(3, "cedar")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(3))));
+        assert!(!ui.session_available, "input must not reach the deleted machine's session");
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(3)))
+        );
+
+        // Deleting the LAST machine clamps to the new last one.
+        app.machine_presented = Some(MachineKey(3));
+        app.machine_selection_intent = Some(MachineKey(3));
+        app.machine_ui.as_mut().unwrap().request = None;
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+
+        // Deleting the only remaining machine drops the presentation and
+        // lands the rail on the first action row, not the SSH footer that
+        // happens to share the old index.
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(1));
+        app.machine_ui.as_mut().unwrap().request = None;
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: true, connect: true },
+        });
+        app.apply_machine_ui_update(update);
+        assert_eq!(app.machine_presented, None);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, None);
+        assert!(!ui.session_available);
+        assert_eq!(ui.rail_target(), Some(crate::machine::MachineRailTarget::NewVm));
+    }
+
+    #[test]
+    fn m_on_the_machine_rail_opens_the_provider_menu_with_active_scope_selected() {
+        let mux = Mux::new("provider-menu-keyboard-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.menu.as_ref().and_then(ContextMenu::selected_action),
+            Some(MenuAction::SelectProviderScope(1)),
+            "the ACTIVE scope starts selected"
+        );
+        app.handle_menu_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::SelectProviderScope("personal".into()))
+        );
+    }
+
+    #[test]
+    fn modified_m_on_the_machine_rail_does_not_open_the_provider_menu() {
+        let mux = Mux::new("provider-menu-modified-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT)).unwrap();
+        assert!(app.menu.is_none(), "Alt-m must not open the provider menu");
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL)).unwrap();
+        assert!(app.menu.is_none(), "Ctrl-m must not open the provider menu");
+    }
+
+    #[test]
+    fn configured_provider_menu_binding_opens_from_the_machine_rail() {
+        let mux = Mux::new("provider-menu-configured-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "provider-menu".to_string(),
+            Value::String("x".to_string()),
+        )]));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+        assert!(app.menu.is_some(), "configured provider-menu chord must open on the rail");
+    }
+
+    #[test]
+    fn configured_provider_menu_navigation_chord_wins_over_rail_navigation() {
+        let mux = Mux::new("provider-menu-navigation-key-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "provider-menu".to_string(),
+            Value::String("j".to_string()),
+        )]));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)).unwrap();
+        assert!(app.menu.is_some(), "configured navigation chord must open the provider menu");
+    }
+
+    #[test]
+    fn single_provider_scope_menu_starts_inert() {
+        let mux = Mux::new("provider-menu-single-scope-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = provider_controls_ui();
+        ui.provider.as_mut().unwrap().scopes.truncate(1);
+        app.machine_ui = Some(ui);
+
+        assert!(app.open_provider_rail_menu(1, 2));
+        let menu = app.menu.as_ref().unwrap();
+        assert!(!menu.levels[0].selection_active);
+        assert_eq!(menu.selected_action(), None);
+    }
+
+    #[test]
+    fn soft_deleting_the_presented_machine_switches_to_the_next_usable_one() {
+        // Recovery-capable providers (Freestyle) keep a deleted machine in
+        // the catalog as a Recoverable row; failover must treat that exactly
+        // like a hard delete and must skip other recoverable rows.
+        let mux = Mux::new("machine-soft-delete-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let managed = |key: u64, status: ManagedMachineStatus| ManagedMachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: format!("vm-{key}"),
+            status,
+            version: 1,
+            recoverable_until: None,
+            capabilities: ManagedMachineCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar"), descriptor(3, "oak")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar is soft deleted; oak (the next slot) is ALSO a recoverable
+        // leftover, so the failover must land on ash.
+        let mut update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar"), descriptor(3, "oak")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        update.set_managed_machines(vec![
+            managed(2, ManagedMachineStatus::Recoverable),
+            managed(3, ManagedMachineStatus::Recoverable),
+        ]);
+        // The deletion races its own stream death: live Freestyle dogfood
+        // queued a provider RECONNECT for the dying machine (snapshot.active
+        // was already gone), which is not a Switch and must equally not
+        // block the failover.
+        app.machine_ui.as_mut().unwrap().request = Some(MachineRequest::ReconnectProvider);
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+        assert!(!ui.session_available);
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(1)))
+        );
+    }
+
+    #[test]
+    fn deleting_a_switch_target_falls_back_to_the_still_usable_presented_machine() {
+        // A queued switch whose target is deleted before it dispatches must
+        // not strand the selection intent on the dead machine: input would
+        // stay gated forever (intent != presented, nothing queued).
+        let mux = Mux::new("machine-doomed-switch-intent-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar vanishes while its switch is still queued; ash stays healthy.
+        let mut update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash")],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        update.request = Some(MachineRequest::Switch(MachineKey(2)));
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, None);
+        assert_eq!(app.machine_selection_intent, Some(MachineKey(1)));
+        assert_eq!(app.machine_presented, Some(MachineKey(1)));
+        assert!(ui.session_available, "input keeps flowing to the presented machine");
+    }
+
+    #[test]
+    fn deleting_the_presented_machine_behind_a_queued_request_gates_input_then_fails_over() {
+        // The failover cannot use the request slot while an unrelated
+        // request occupies it, but input must be gated away from the deleted
+        // machine's dead session immediately, and the switch must happen on
+        // the next free-slot update.
+        let mux = Mux::new("machine-delete-queued-request-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let descriptor = |key: u64, name: &str| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: name.into(),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let snapshot = || MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        };
+        let recoverable_cedar = || ManagedMachineDescriptor {
+            key: MachineKey(2),
+            id: "vm-2".into(),
+            name: "vm-2".into(),
+            status: ManagedMachineStatus::Recoverable,
+            version: 1,
+            recoverable_until: None,
+            capabilities: ManagedMachineCapabilities {
+                rename: false,
+                delete: false,
+                restore: true,
+                purge: true,
+            },
+        };
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
+            active: Some(MachineKey(2)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.machine_presented = Some(MachineKey(2));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        // cedar is soft deleted while a scope selection is still queued.
+        let mut update = MachineUiState::new(snapshot());
+        update.set_managed_machines(vec![recoverable_cedar()]);
+        update.request = Some(MachineRequest::SelectProviderScope("personal".into()));
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(
+            ui.request,
+            Some(MachineRequest::SelectProviderScope("personal".into())),
+            "the queued request keeps the slot"
+        );
+        assert!(!ui.session_available, "input must not reach the deleted machine's session");
+        assert_eq!(app.machine_presented, Some(MachineKey(2)));
+
+        // The queued request settles; the next update has a free slot and
+        // the deferred failover fires.
+        let mut update = MachineUiState::new(snapshot());
+        update.set_managed_machines(vec![recoverable_cedar()]);
+        update.session_available = true;
+        app.apply_machine_ui_update(update);
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(1))));
+        assert!(!ui.session_available);
+        assert_eq!(
+            ui.rail_target(),
+            Some(crate::machine::MachineRailTarget::Machine(MachineKey(1)))
+        );
+    }
+
+    #[test]
+    fn deleting_presented_machine_retries_failover_after_failed_switch() {
+        let mux = Mux::new("machine-failed-switch-failover-test", SurfaceOptions::default());
+        let descriptor = |key: u64| MachineDescriptor {
+            key: MachineKey(key),
+            id: format!("vm-{key}"),
+            name: format!("vm-{key}"),
+            subtitle: String::new(),
+            status: MachineStatus::Running,
+        };
+        let mut app = test_app(Session::Local(mux));
+        let mut previous = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(1), descriptor(2)],
+            active: Some(MachineKey(1)),
+            capabilities: MachineCapabilities::default(),
+        });
+        previous.set_connection_phase(MachineKey(2), MachineConnectionPhase::Failed);
+        app.machine_ui = Some(previous);
+        app.machine_presented = Some(MachineKey(1));
+        app.machine_selection_intent = Some(MachineKey(2));
+
+        let update = MachineUiState::new(MachineSnapshot {
+            machines: vec![descriptor(2)],
+            active: None,
+            capabilities: MachineCapabilities::default(),
+        });
+        app.apply_machine_ui_update(update);
+
+        let ui = app.machine_ui.as_ref().unwrap();
+        assert_eq!(ui.request, Some(MachineRequest::Switch(MachineKey(2))));
+        assert!(!ui.session_available);
     }
 
     #[test]
@@ -35964,14 +38581,14 @@ mod tests {
         );
 
         app.machine_ui.as_mut().unwrap().request = None;
-        let header = app
+        let pad = app
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                matches!(hit, super::Hit::RailHeader(RailKind::Workspace)).then_some(*rect)
+                matches!(hit, super::Hit::RailPad(RailKind::Workspace)).then_some(*rect)
             })
             .unwrap();
-        app.handle_left_down(header.x, header.y, KeyModifiers::NONE).unwrap();
+        app.handle_left_down(pad.x, pad.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
@@ -36071,27 +38688,43 @@ mod tests {
         ui
     }
 
+    /// Draw the app and open the context menu on the "+ new vm" row - the
+    /// home of the provider scope and action entries now that their rail
+    /// rows are gone.
+    fn open_new_vm_context_menu(app: &mut App) {
+        app.sync_layout((100, 16));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(app, frame)).unwrap();
+        let rect = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::NewVm).then_some(*rect))
+            .expect("new vm row");
+        app.open_context_menu(rect.x, rect.y);
+    }
+
     #[test]
-    fn provider_scope_row_switches_team_with_keyboard_menu() {
+    fn provider_scope_switches_from_the_new_vm_context_menu() {
         let mux = Mux::new("provider-scope-keyboard-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.focus = FocusTarget::MachineRail;
-        app.sync_layout((100, 16));
+        open_new_vm_context_menu(&mut app);
 
-        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        let menu = app.menu.as_ref().expect("new vm context menu");
         assert_eq!(
-            app.machine_ui.as_ref().map(|ui| ui.rail_selection),
-            Some(MachineRailSelection::Scope)
+            menu.levels[0].items.first(),
+            Some(&MenuItem::LabeledAction {
+                label: "  Personal (personal)".into(),
+                action: MenuAction::SelectProviderScope(0),
+            })
         );
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        // The ACTIVE scope starts selected, so Enter alone changes nothing.
         assert_eq!(
             app.menu.as_ref().and_then(ContextMenu::selected_action),
             Some(MenuAction::SelectProviderScope(1))
         );
-
-        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::SelectProviderScope("personal".into()))
@@ -36100,35 +38733,24 @@ mod tests {
     }
 
     #[test]
-    fn provider_rows_and_action_prompt_are_mouse_accessible() {
+    fn provider_actions_and_prompt_are_reachable_from_the_new_vm_menu() {
         let mux = Mux::new("provider-actions-mouse-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.sync_layout((100, 16));
-        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
-        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        open_new_vm_context_menu(&mut app);
 
-        let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("team · Acme"), "{text}");
-        assert!(text.contains("actions"), "{text}");
-        assert!(app.hits.iter().any(|(_, hit)| matches!(hit, super::Hit::ProviderScope)));
-        let actions = app
-            .hits
+        let menu = app.menu.as_ref().expect("new vm context menu");
+        let invite = MenuItem::LabeledAction {
+            label: "Invite member".into(),
+            action: MenuAction::InvokeProviderAction(0),
+        };
+        let index = menu.levels[0]
+            .items
             .iter()
-            .find_map(|(rect, hit)| matches!(hit, super::Hit::ProviderActions).then_some(*rect))
-            .expect("provider actions hit");
-
-        app.handle_left_down(actions.x, actions.y, KeyModifiers::NONE).unwrap();
-        let menu = app.menu.as_ref().expect("action menu opened by mouse");
-        assert_eq!(
-            menu.levels[0].items[0],
-            MenuItem::LabeledAction {
-                label: "Invite member".into(),
-                action: MenuAction::InvokeProviderAction(0),
-            }
-        );
+            .position(|item| *item == invite)
+            .expect("provider action in the new vm menu");
         let item_x = menu.levels[0].rect.x + 2;
-        let item_y = menu.levels[0].rect.y + 1;
+        let item_y = menu.levels[0].rect.y + 1 + index as u16;
         app.handle_left_down(item_x, item_y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.prompt.as_ref().map(|prompt| prompt.label.as_str()), Some("Member email"));
 
@@ -36286,29 +38908,11 @@ mod tests {
     }
 
     #[test]
-    fn personal_scope_row_does_not_repeat_the_same_label() {
-        let mux = Mux::new("provider-personal-scope-style-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        let mut ui = provider_controls_ui();
-        let mut provider = ui.provider.clone().unwrap();
-        provider.selected_scope_id = "personal".into();
-        ui.set_provider_presentation(provider);
-        app.machine_ui = Some(ui);
-        app.sync_layout((100, 16));
-        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
-        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-
-        let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains(" Personal ▾"), "{text}");
-        assert!(!text.contains("personal · Personal"), "{text}");
-    }
-
-    #[test]
     fn provider_snapshot_update_invalidates_stale_menu_and_prompt() {
         let mux = Mux::new("provider-overlay-invalidation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_actions_menu(1, 3);
+        open_new_vm_context_menu(&mut app);
         assert!(app.menu.as_ref().is_some_and(ContextMenu::targets_provider_state));
 
         let mut update = provider_controls_ui();
@@ -36334,7 +38938,7 @@ mod tests {
         let mux = Mux::new("provider-action-menu-identity-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_actions_menu(1, 3);
+        open_new_vm_context_menu(&mut app);
 
         let action = MenuAction::InvokeProviderAction(0);
         assert!(
@@ -36344,6 +38948,15 @@ mod tests {
             ),
             "provider actions must capture the stable action behind their displayed index"
         );
+        // The combined menu leads with scope entries; move the selection onto
+        // the displayed action before the provider array changes.
+        for _ in 0..16 {
+            if app.menu.as_ref().and_then(ContextMenu::selected_action) == Some(action) {
+                break;
+            }
+            app.handle_menu_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        }
+        assert_eq!(app.menu.as_ref().and_then(ContextMenu::selected_action), Some(action));
 
         app.machine_ui.as_mut().unwrap().provider.as_mut().unwrap().actions.swap(0, 1);
         app.handle_menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
@@ -36359,7 +38972,7 @@ mod tests {
         let mux = Mux::new("provider-scope-menu-identity-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_controls_ui());
-        app.open_provider_scope_menu(1, 2);
+        open_new_vm_context_menu(&mut app);
 
         let action = MenuAction::SelectProviderScope(1);
         assert!(
@@ -36459,12 +39072,10 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("machines"), "{text}");
         assert!(text.contains("no machines"), "{text}");
-        assert!(text.contains("new machine"), "{text}");
-        assert!(!text.contains("new VM"), "{text}");
-        assert!(text.contains("connect machine"), "{text}");
-        assert!(text.contains("workspaces"), "{text}");
+        assert!(text.contains("+ new vm"), "{text}");
+        assert!(text.contains("+ ssh host"), "{text}");
+        assert!(!text.contains("+ +"), "the renderer owns the plus prefix: {text}");
         assert!(
             !app.hits.iter().any(|(_, hit)| { matches!(hit, super::Hit::CreateWorkspace { .. }) })
         );
@@ -36821,16 +39432,11 @@ mod tests {
         app.sync_layout((100, 9));
 
         app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
+        assert!(matches!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Scope)
-        );
+            Some(crate::machine::MachineRailTarget::Machine(_))
+        ));
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
-        assert_eq!(
-            app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
-            Some(crate::machine::MachineRailTarget::Actions)
-        );
-        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
             Some(crate::machine::MachineRailTarget::NewVm)
@@ -36983,7 +39589,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_headers_are_the_only_pointer_entrypoint_for_rail_focus() {
+    fn sidebar_top_pads_are_the_only_pointer_entrypoint_for_rail_focus() {
         let (mux, surface) = test_mux("sidebar-pointer-focus-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         let mut machine_ui = provider_machine_ui();
@@ -37320,6 +39926,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -37397,6 +40004,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -37431,6 +40039,7 @@ mod tests {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -37468,6 +40077,7 @@ mod tests {
             id: "agents".into(),
             levels: vec![SidebarResourceKind::Agents],
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -37617,7 +40227,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -37629,10 +40240,9 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let rendered = buffer_text(terminal.backend().buffer());
-        assert!(rendered.contains("workspaces › agents"), "{rendered}");
         assert!(rendered.contains("working · agent-session"), "{rendered}");
         assert!(
-            rendered.contains("new workspace"),
+            rendered.contains("+ new workspace"),
             "a configured workspace representation must preserve its native creation action: {rendered}"
         );
         assert!(app.hits.iter().any(|(_, hit)| matches!(
@@ -37716,7 +40326,8 @@ mod tests {
         app.config.sidebar.views = vec![SidebarViewSpec {
             id: "workspace-agents".into(),
             levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
-            actions: vec![Action::NewWorkspace],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 40,
             max_width: 0,
             collapse_priority: 30,
@@ -39511,6 +42122,7 @@ mod tests {
             machine_selection_intent: None,
             machine_selection_generation: 0,
             machine_presented: None,
+            machine_deleted_rail_index: None,
             machine_provider_reconnect_attempts: 0,
             machine_provider_reconnect_retry_at: None,
             pending_machine_replacement: None,
@@ -39555,6 +42167,8 @@ mod tests {
             viewport_virtual_width: 0,
             viewport_offset: 0,
             pane_focus_history: PaneFocusHistory::default(),
+            reported_focus: None,
+            client_focus_id: None,
             rendered_terminal_bounds: HashMap::new(),
             rendered_kitty_graphics: HashMap::new(),
             visible_size_surfaces: HashSet::new(),
@@ -39620,6 +42234,8 @@ mod tests {
             selection_generation: 0,
             status_selection: None,
             rendered_status_message: None,
+            logged_status_message: None,
+            status_notice_text: None,
             input_revision: 0,
             status_message: None,
             cell_pixels: (8, 16),
@@ -39652,6 +42268,13 @@ mod tests {
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
+            status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
+            status_command_worker_stop: None,
+            status_poke_pending: Arc::new(AtomicBool::new(false)),
+            status_command_workers: Vec::new(),
+            retiring_status_workers: Vec::new(),
+            status_outputs_generation: Arc::new(AtomicU64::new(0)),
+            status_segments_cache: None,
         };
         (app, receiver)
     }

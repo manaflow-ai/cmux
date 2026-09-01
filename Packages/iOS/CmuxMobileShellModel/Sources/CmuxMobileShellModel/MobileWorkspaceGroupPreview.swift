@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// A lightweight, `Sendable` snapshot of a remote workspace group shown in the
@@ -63,10 +64,11 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
         guard let macDeviceID, !macDeviceID.isEmpty else {
             return rpcGroupID.rawValue
         }
-        guard let macInstanceTag, !macInstanceTag.isEmpty else {
-            return "\(macDeviceID)\u{1F}\(rpcGroupID.rawValue)"
-        }
-        return "\(macDeviceID)\u{1F}\(macInstanceTag)\u{1F}\(rpcGroupID.rawValue)"
+        let ownerID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: macInstanceTag
+        ).id
+        return "\(ownerID)\u{1F}\(rpcGroupID.rawValue)"
     }
 
     /// Creates a workspace group preview.
@@ -93,8 +95,17 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.remoteGroupID = remoteGroupID
-        self.macDeviceID = macDeviceID
-        self.macInstanceTag = macInstanceTag
+        if let macDeviceID, !macDeviceID.isEmpty {
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: macInstanceTag
+            )
+            self.macDeviceID = identity.macDeviceID
+            self.macInstanceTag = identity.instanceTag
+        } else {
+            self.macDeviceID = nil
+            self.macInstanceTag = nil
+        }
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned

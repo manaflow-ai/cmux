@@ -1659,7 +1659,7 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         let shortcutKey = key.lowercased()
-        if Self.usesDirectKeyCodeMatching(shortcutKey) {
+        if Self.usesPhysicalKeyCodeMatching(shortcutKey) {
             guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
                 return false
             }
@@ -1978,6 +1978,18 @@ struct ShortcutStroke: Equatable, Hashable {
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
         key == "\t" || key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+    }
+
+    /// Arrow glyphs are persisted by name in hand-written config, but AppKit
+    /// reports them as private-use function-key characters. Match their stable
+    /// physical key codes without changing the bare-key recording policy.
+    private static func usesPhysicalKeyCodeMatching(_ key: String) -> Bool {
+        switch key {
+        case "←", "→", "↓", "↑":
+            return true
+        default:
+            return usesDirectKeyCodeMatching(key)
+        }
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {

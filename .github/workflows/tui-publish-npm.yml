@@ -180,6 +180,13 @@ jobs:
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ inputs.version }}" \
+            --install-npm-package cmux-tui-linux-x64
+
       - name: Publish platform packages
         run: |
           set -euo pipefail

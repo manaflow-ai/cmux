@@ -72,6 +72,16 @@ struct BrowserInsecureHTTPSettingsTests {
     }
 
     @Test
+    func testExplicitlyEmptyAllowlistRemovesTheLoopbackDefaults() {
+        checkEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: ""),
+            []
+        )
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: ""))
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: ""))
+    }
+
+    @Test
     func testWildcardAndExactHostMatching() {
         checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
         checkTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))

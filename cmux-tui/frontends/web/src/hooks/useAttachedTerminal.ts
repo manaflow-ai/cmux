@@ -22,7 +22,7 @@ import {
   colorsToSelectionThemePatch,
 } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
-import { tryLoadWebglRenderer } from "../lib/webglRenderer";
+import { retagWebglDisplayP3, tryLoadWebglRenderer } from "../lib/webglRenderer";
 
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
@@ -59,6 +59,9 @@ export function useAttachedTerminal({
     terminal.loadAddon(fit);
     terminal.open(host);
     const webgl = tryLoadWebglRenderer(terminal);
+    // Match desktop Ghostty's Display P3 presentation; no-op where the
+    // browser (or the DOM fallback renderer) cannot retag the buffer.
+    if (webgl !== null) retagWebglDisplayP3(host);
 
     const handleFocusIn = () => setFocused(true);
     const handleFocusOut = () => {

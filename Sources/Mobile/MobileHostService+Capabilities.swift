@@ -45,6 +45,8 @@ extension MobileHostService {
         "mobile.events.unsubscribe",
         "mobile.host.status",
         "mobile.rpc.methods",
+        "mobile.simulator.device.select",
+        "mobile.simulator.devices.list",
         "mobile.simulator.input.button",
         "mobile.simulator.input.pointer",
         "mobile.simulator.input.text",
@@ -142,7 +144,12 @@ extension MobileHostService {
             ),
             includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileTaskComposerFlag
-            )
+            ),
+            // Managed policy only: under it every browser pane is closed, so
+            // no browser affordance can work. A user-level disable keeps live
+            // panes (session restore re-materializes them), and iOS must
+            // still be able to view/stream those, so keep advertising then.
+            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy
         )
     }
 
@@ -160,7 +167,8 @@ extension MobileHostService {
     nonisolated static func mobileHostCapabilities(
         includingWorkspaceChanges: Bool,
         includingSimulator: Bool = true,
-        includingTaskComposer: Bool = true
+        includingTaskComposer: Bool = true,
+        includingBrowser: Bool = true
     ) -> [String] {
         var capabilities = [
             Self.irohPrivatePathsCapability,
@@ -172,6 +180,8 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
             MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            MobileSimulatorStreamCapability.current.streamV2Identifier,
+            MobileSimulatorStreamCapability.current.devicesIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -235,6 +245,8 @@ extension MobileHostService {
                 MobileSimulatorStreamCapability.current.inputIdentifier,
                 MobileSimulatorStreamCapability.current.ownershipIdentifier,
                 MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+                MobileSimulatorStreamCapability.current.streamV2Identifier,
+                MobileSimulatorStreamCapability.current.devicesIdentifier,
             ]
             capabilities.removeAll { simulatorCapabilities.contains($0) }
         }
@@ -248,6 +260,18 @@ extension MobileHostService {
                 Self.taskDirectorySearchV2Capability,
             ]
             capabilities.removeAll { taskComposerCapabilities.contains($0) }
+        }
+        if !includingBrowser {
+            // The embedded browser is disabled by MDM policy: every pane is
+            // closed and none can be created, so stop advertising browser
+            // streaming/creation and iOS feature-detects the affordances away.
+            let browserCapabilities: Set<String> = [
+                MobileBrowserStreamCapability.identifier,
+                MobileBrowserStreamCapability.viewportIdentifier,
+                MobileBrowserStreamCapability.dialogIdentifier,
+                MobileBrowserStreamCapability.createIdentifier,
+            ]
+            capabilities.removeAll { browserCapabilities.contains($0) }
         }
         return applyingDebugCapabilitySuppressions(capabilities)
     }

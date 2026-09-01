@@ -35,7 +35,8 @@ struct MobileStateSyncFrameCodingTests {
                     surfaceID: "surface-future",
                     kind: "simulator",
                     title: "iPhone 17 Pro",
-                    filePath: nil
+                    filePath: nil,
+                    isFocused: true
                 ),
                 WorkspaceSyncRecord.Surface(
                     surfaceID: "surface-todo",
@@ -81,6 +82,7 @@ struct MobileStateSyncFrameCodingTests {
         #expect(surfaces?.first?["surface_id"] as? String == "surface-future")
         #expect(surfaces?.first?["kind"] as? String == "simulator")
         #expect(surfaces?.first?["file_path"] == nil)
+        #expect(surfaces?.first?["is_focused"] as? Bool == true)
         let todo = surfaces?[1]["todo"] as? [String: Any]
         #expect(todo?["status"] as? String == "needs-attention")
         #expect(todo?["status_hidden"] as? Bool == false)

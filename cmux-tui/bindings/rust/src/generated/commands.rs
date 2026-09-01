@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529.
+// cmux-tui mux protocol 12, IR b4e69e774777172ac0198454e7f068e53f7a74501dc787b58f3ead05d17b4af6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -254,6 +254,19 @@ pub struct ClearWindowTitleRequest {
 
 #[rustfmt::skip]
 pub type ClearWindowTitleResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientFocusRequest {
+    pub client_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientFocusResult {
+    pub pane: Nullable<T::Id>,
+    pub tab: Nullable<u64>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -930,6 +943,18 @@ pub struct ReportAgentRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReportFocusRequest {
+    pub client_id: String,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ReportFocusResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResizeAttachedViewRequest {
     pub cols: u16,
     pub lease: String,
@@ -1367,6 +1392,10 @@ impl CmuxClient {
         self.execute(&CLEAR_WINDOW_TITLE_METADATA, &request)
     }
 
+    pub fn client_focus(&mut self, request: ClientFocusRequest) -> Result<ClientFocusResult> {
+        self.execute(&CLIENT_FOCUS_METADATA, &request)
+    }
+
     pub fn close_pane(&mut self, request: ClosePaneRequest) -> Result<ClosePaneResult> {
         self.execute(&CLOSE_PANE_METADATA, &request)
     }
@@ -1639,6 +1668,10 @@ impl CmuxClient {
 
     pub fn report_agent(&mut self, request: ReportAgentRequest) -> Result<T::ReportAgentResult> {
         self.execute(&REPORT_AGENT_METADATA, &request)
+    }
+
+    pub fn report_focus(&mut self, request: ReportFocusRequest) -> Result<ReportFocusResult> {
+        self.execute(&REPORT_FOCUS_METADATA, &request)
     }
 
     pub fn resize_attached_view(&mut self, request: ResizeAttachedViewRequest) -> Result<ResizeAttachedViewResult> {

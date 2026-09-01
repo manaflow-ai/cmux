@@ -11,6 +11,7 @@ import {
   englishFallbackContentLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
@@ -195,6 +196,11 @@ export const agentReadablePages = [
   { path: "/docs/notifications", title: "Notifications" },
   { path: "/docs/ssh", title: "SSH" },
   { path: "/docs/remote-tmux", title: "Remote tmux", locales: remoteTmuxDocsLocales },
+  {
+    path: "/docs/managed-policies",
+    title: "Managed Policies (MDM)",
+    locales: managedPoliciesDocsLocales,
+  },
   { path: "/docs/ios", title: "iOS App" },
   {
     path: "/docs/agent-integrations/claude-code-teams",

@@ -128,6 +128,13 @@ jobs:
       - name: Install npm with OIDC support
         run: npm install -g npm@11.5.1
 
+      - name: Revalidate packed npm contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --npm-packages dist/npm-packages \
+            --version "${{ needs.version.outputs.npm_version }}" \
+            --install-npm-package cmux-tui-linux-x64
+
       - name: Publish platform packages with nightly dist-tag
         run: |
           set -euo pipefail
@@ -157,11 +164,23 @@ jobs:
       name: pypi-tui
       url: https://pypi.org/p/cmux
     steps:
+      - name: Checkout immutable nightly source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.version.outputs.head_sha }}
+
       - name: Download PyPI wheels
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: pypi-wheels
           path: dist
+
+      - name: Revalidate PyPI wheel contract
+        run: |
+          python3 cmux-tui/dist/scripts/validate_package_contract.py \
+            --pypi-wheels dist \
+            --version "${{ needs.version.outputs.pypi_version }}"
 
       - name: Publish nightly package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1

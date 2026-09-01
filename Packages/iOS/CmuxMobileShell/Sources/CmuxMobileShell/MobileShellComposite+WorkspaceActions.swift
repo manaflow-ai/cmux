@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -812,25 +813,81 @@ extension MobileShellComposite {
 
     /// Persist the user's computer order for
     /// ``MobileWorkspaceSortMode/computerPriority``, highest priority first,
-    /// as Mac device ids. Device-local, like the mode.
-    public func setWorkspaceComputerPriority(_ deviceIDs: [String]) {
-        guard workspaceComputerPriority != deviceIDs else { return }
-        workspaceSortStore.setComputerPriority(deviceIDs)
-        workspaceComputerPriority = deviceIDs
+    /// as device-plus-build pairing ids. Device-local, like the mode.
+    public func setWorkspaceComputerPriority(_ computerIDs: [String]) {
+        guard workspaceComputerPriority != computerIDs else { return }
+        workspaceSortStore.setComputerPriority(computerIDs)
+        workspaceComputerPriority = computerIDs
         recomputeDerivedWorkspaceState()
-        recordAppEvent(.workspaceComputerOrderChanged, count: deviceIDs.count)
+        recordAppEvent(.workspaceComputerOrderChanged, count: computerIDs.count)
     }
 
-    /// The stored computer order expanded with each computer's stored alias
-    /// device ids, so a per-Mac state that reports an alias id still ranks
-    /// with its computer. Aliases follow their representative id directly,
-    /// keeping one physical Mac's entries adjacent in the expanded order.
+    /// Upgrade pre-build-scoped computer-order entries after paired Macs load.
+    /// A legacy bare device id expands to every currently stored pairing for
+    /// that physical device, preserving the user's order across Stable,
+    /// Nightly, and untagged rows without making the bare id a new wildcard.
+    func migrateLegacyWorkspaceComputerPriority(loadedMacs: [MobilePairedMac]) {
+        guard workspaceSortStore.needsComputerIdentityMigration else { return }
+        var migrated: [String] = []
+        for computerID in workspaceComputerPriority {
+            let identity = CmxMacAppInstanceIdentity(id: computerID)
+            guard identity.instanceTag == nil else {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            let matches = loadedMacs.filter {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).macDeviceID == identity.macDeviceID
+            }
+            if matches.isEmpty {
+                if !migrated.contains(identity.id) { migrated.append(identity.id) }
+                continue
+            }
+            for mac in matches.sorted(by: {
+                let lhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).instanceTag
+                let rhsTag = CmxMacAppInstanceIdentity(
+                    macDeviceID: $1.macDeviceID,
+                    instanceTag: $1.instanceTag
+                ).instanceTag
+                if lhsTag == nil { return rhsTag != nil }
+                if rhsTag == nil { return false }
+                return lhsTag! < rhsTag!
+            }) {
+                let pairingID = CmxMacAppInstanceIdentity(
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                ).id
+                if !migrated.contains(pairingID) { migrated.append(pairingID) }
+            }
+        }
+        workspaceSortStore.migrateLegacyComputerPriority(migrated)
+        workspaceComputerPriority = migrated
+    }
+
+    /// The stored computer order expanded with each app instance's stored
+    /// device aliases, so a per-Mac state that reports an alias id still ranks
+    /// with its computer. The instance tag stays attached to every alias;
+    /// otherwise prioritizing Nightly would also prioritize Stable.
     func expandedWorkspaceComputerPriority() -> [String] {
         var expanded: [String] = []
-        for deviceID in workspaceComputerPriority {
-            expanded.append(deviceID)
-            for alias in pairedMacAliasIDs(for: deviceID) where !expanded.contains(alias) {
-                expanded.append(alias)
+        for computerID in workspaceComputerPriority {
+            let identity = MobilePairedMac.pairingIdentity(from: computerID)
+            for aliasDeviceID in pairedMacAliasIDs(
+                for: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            ) {
+                let aliasComputerID = MobilePairedMac.pairingID(
+                    macDeviceID: aliasDeviceID,
+                    instanceTag: identity.instanceTag
+                )
+                if !expanded.contains(aliasComputerID) {
+                    expanded.append(aliasComputerID)
+                }
             }
         }
         return expanded

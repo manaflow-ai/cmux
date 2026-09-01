@@ -122,13 +122,12 @@ import Testing
         #expect(rows.first?.teamID == nil)
     }
 
-    @Test func buildScopeHidesSiblingTagAndMatchingLegacyPeer() async throws {
+    @Test func buildScopeKeepsSiblingTagsAndHidesMatchingLegacyPeer() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let scope = try #require(MobileIOSBuildScope("feature"))
-        let feature = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "feature"
-        ).scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
+        let feature = MobileMacBuildCompatibilityPolicy.development
+            .scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
 
         try await feature.upsert(
             macDeviceID: "mac-a",
@@ -163,7 +162,7 @@ import Testing
 
         let rows = try await feature.loadAll(stackUserID: "user-1", teamID: "team-a")
 
-        #expect(rows.map(\.instanceTag) == ["feature"])
+        #expect(Set(rows.compactMap(\.instanceTag)) == ["feature", "other"])
     }
 
     @Test func compatibleSiblingTagsSurviveFullBuildScopeDecoratorRail() async throws {
@@ -173,10 +172,7 @@ import Testing
             inner: inner,
             scope: try #require(MobileIOSBuildScope("phand1"))
         )
-        let production = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "phand1",
-            additionalInstanceTags: ["phand2", "phand3"]
-        ).scoping(scoped)
+        let production = MobileMacBuildCompatibilityPolicy.development.scoping(scoped)
 
         for (index, tag) in ["phand1", "phand2", "phand3"].enumerated() {
             try await production.upsert(
@@ -200,13 +196,12 @@ import Testing
         ])
     }
 
-    @Test func newerTeamlessSiblingTagIsNotVisibleOrActive() async throws {
+    @Test func newerTeamlessSiblingTagIsVisibleWithoutStealingActiveSelection() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let scope = try #require(MobileIOSBuildScope("feature"))
-        let feature = MobileMacBuildCompatibilityPolicy.development(
-            expectedInstanceTag: "feature"
-        ).scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
+        let feature = MobileMacBuildCompatibilityPolicy.development
+            .scoping(IOSBuildScopedPairedMacStore(inner: inner, scope: scope))
         try await feature.upsert(
             macDeviceID: "mac-a",
             displayName: "Selected",
@@ -231,7 +226,7 @@ import Testing
         let rows = try await feature.loadAll(
             stackUserID: "user-1", teamID: "team-a"
         )
-        #expect(rows.count == 1)
+        #expect(Set(rows.compactMap(\.instanceTag)) == ["feature", "feature-b"])
         let selected = try #require(rows.first { $0.instanceTag == "feature" })
         #expect(selected.teamID == "team-a")
         #expect(selected.routes == [try route("10.0.0.1")])
@@ -470,9 +465,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let scope = try #require(MobileIOSBuildScope("feature"))
         let scoped = IOSBuildScopedPairedMacStore(inner: inner, scope: scope)
-        let stack = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: "feature")
-            .scoping(scoped)
+        let stack = MobileMacBuildCompatibilityPolicy.development.scoping(scoped)
 
         // A team-scoped row for the device, written through the full rail.
         try await stack.upsert(

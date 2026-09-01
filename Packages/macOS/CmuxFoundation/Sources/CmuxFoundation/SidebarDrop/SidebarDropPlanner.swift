@@ -227,7 +227,10 @@ public struct SidebarDropPlanner {
         }
     }
 
-    /// Returns whether sidebar rows should publish frame anchors for workspace drop targeting.
+    /// Returns whether the parent sidebar drop overlay should collect row frames.
+    ///
+    /// Row views must remain render-only: this gate feeds one parent-owned drop
+    /// destination rather than installing a validator on every row.
     public func shouldCollectWorkspaceDropTargets(
         draggedTabId: UUID?,
         isBonsplitWorkspaceDropActive: Bool = false

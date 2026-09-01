@@ -224,15 +224,19 @@ extension MobileShellComposite {
             return false
         }
         taskTemplateStore.setLastTemplateID(snapshot.templateID)
-        taskTemplateStore.setLastMacDeviceID(snapshot.macDeviceID)
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: snapshot.macDeviceID,
+            instanceTag: snapshot.macInstanceTag
+        )
+        taskTemplateStore.setLastMacDeviceID(pairingID)
         taskTemplateStore.setLastDirectory(
             snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
-            macDeviceID: snapshot.macDeviceID
+            macDeviceID: pairingID
         )
         if !snapshot.trimmedDirectory.isEmpty {
             taskTemplateStore.recordRecentDirectory(
                 snapshot.trimmedDirectory,
-                macDeviceID: snapshot.macDeviceID,
+                macDeviceID: pairingID,
                 at: Date()
             )
         }
@@ -309,8 +313,13 @@ extension MobileShellComposite {
             )))
         }
         guard let pinnedContext = captureWorkspaceCreateContext(),
-              pinnedContext.macDeviceID == macDeviceID,
-              instanceTag == nil || pinnedContext.instanceTag == instanceTag else {
+              MacPairingKey(
+                  macDeviceID: pinnedContext.macDeviceID ?? "",
+                  instanceTag: pinnedContext.instanceTag
+              ) == MacPairingKey(
+                  macDeviceID: macDeviceID,
+                  instanceTag: instanceTag
+              ) else {
             return finish(.failure(.notConnected(
                 hostDisplayName: taskComposerTargetName(
                     macDeviceID: macDeviceID,
@@ -338,20 +347,30 @@ extension MobileShellComposite {
 
     func taskComposerTargetName(macDeviceID: String, instanceTag: String?) -> String {
         displayPairedMacs.first {
-            $0.macDeviceID == macDeviceID
-                && (instanceTag == nil || $0.instanceTag == instanceTag)
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }?.resolvedName
             ?? pairedMacs.first {
-                $0.macDeviceID == macDeviceID
-                    && (instanceTag == nil || $0.instanceTag == instanceTag)
+                MacPairingKey($0) == MacPairingKey(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
             }?.resolvedName
             ?? macDeviceID
     }
 
-    /// Whether the foreground connection already targets this Mac pairing.
-    /// A `nil` `instanceTag` keeps legacy device-level matching.
+    /// Whether the foreground connection already targets this exact Mac pairing.
+    /// A missing tag matches only another untagged legacy pairing.
     func matchesForegroundPairing(macDeviceID: String, instanceTag: String?) -> Bool {
-        foregroundMacDeviceID == macDeviceID
-            && (instanceTag == nil || activeMacInstanceTag == instanceTag)
+        guard let foregroundMacDeviceID else { return false }
+        return MacPairingKey(
+            macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag
+        ) == MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
     }
 }

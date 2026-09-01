@@ -77,9 +77,10 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     ///   - instanceTag: Authenticated app-instance tag, or `nil` for a legacy host.
     /// - Returns: An identifier unique to the physical Mac and app instance.
     public static func pairingID(macDeviceID: String, instanceTag: String?) -> String {
-        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        guard let instanceTag, !instanceTag.isEmpty else { return canonicalDeviceID }
-        return "\(canonicalDeviceID)\u{1F}\(instanceTag)"
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
     }
 
     /// Splits a pairing identity received from backup into its physical Mac id
@@ -87,15 +88,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public static func pairingIdentity(
         from pairingID: String
     ) -> (macDeviceID: String, instanceTag: String?) {
-        let parts = pairingID.split(
-            separator: "\u{1F}",
-            maxSplits: 1,
-            omittingEmptySubsequences: false
-        )
-        guard parts.count == 2, !parts[1].isEmpty else {
-            return (cmxCanonicalDeviceID(pairingID), nil)
-        }
-        return (cmxCanonicalDeviceID(String(parts[0])), String(parts[1]))
+        let identity = CmxMacAppInstanceIdentity(id: pairingID)
+        return (identity.macDeviceID, identity.instanceTag)
     }
 
     /// The name to show: the user's custom override if set, else the Mac-reported

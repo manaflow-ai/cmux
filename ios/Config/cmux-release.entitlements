@@ -21,5 +21,10 @@
 	<!-- Allows the .time-sensitive interruption level used by agent push. -->
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
 	<true/>
+
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	</array>
 </dict>
 </plist>

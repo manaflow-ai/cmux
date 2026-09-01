@@ -840,6 +840,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
+    /// Applies MDM managed-policy transitions (browser/remote-control) while
+    /// the app runs. Installed once from `installManagedPolicyEnforcement()`.
+    var managedPolicyEnforcementObserver: ManagedPolicyEnforcementObserver?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -2017,7 +2020,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
                 self.terminateCleanupPhase = .freshSnapshot
-                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh()
+                let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
+                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
+                    ttyDeviceBindings: ttyDeviceBindings
+                )
                 guard !Task.isCancelled else { return }
                 _ = self.saveSessionSnapshot(
                     includeScrollback: true,
@@ -2354,6 +2360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
+        installManagedPolicyEnforcement()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
@@ -3598,6 +3605,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(
             primaryWindow: primaryWindow
         )
+        if !didApplyStartupSessionRestore, didAttemptStartupSessionRestore {
+            // No snapshot restore ran (fresh start / restore disabled):
+            // replay the agent journal now. When a restore DID run,
+            // completeSessionRestoreOperation triggers replay after the
+            // restored panel-identity aliases are recorded.
+            AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
+        }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
@@ -3706,6 +3720,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
+        // Every restored workspace has enqueued its identity aliases by now;
+        // the journal consumer is FIFO, so the replay fold sees all of them.
+        AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
         startupSessionSnapshot = nil
         let wasApplyingSessionRestore = isApplyingSessionRestore
         isApplyingSessionRestore = false
@@ -4127,7 +4144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh()
+                let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
+                let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
+                    ttyDeviceBindings: ttyDeviceBindings
+                )
                 _ = self.saveSessionSnapshot(
                     includeScrollback: true,
                     removeWhenEmpty: false,
@@ -4512,7 +4532,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load(
+            ttyDeviceBindings: ttyDeviceBindings
+        )
 #if DEBUG
         loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
@@ -4587,6 +4610,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Captures the live pane-to-PTY identity before the process scan leaves
+    /// the main actor.  Plain `ssh` commonly drops the CMUX_* environment when
+    /// it is exec'd by a user's shell, so process detection cannot safely use
+    /// environment scope alone.  The terminal surface owns the controlling
+    /// TTY and is the authoritative mapping for this save pass.
+    @MainActor
+    private func currentSurfaceTTYDeviceBindings()
+        -> [SurfaceResumeBindingIndex.PanelKey: Int64] {
+        var bindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                for (panelID, panel) in workspace.panels {
+                    guard let terminal = panel as? TerminalPanel else { continue }
+                    let device = workspace.surfaceTTYDevices[panelID]
+                        ?? terminal.surface.controllingTTYDeviceIdentifier
+                    guard let device, device > 0 else { continue }
+                    bindings[
+                        SurfaceResumeBindingIndex.PanelKey(
+                            workspaceId: workspace.id,
+                            panelId: panelID
+                        )
+                    ] = device
+                }
+            }
+        }
+        return bindings
+    }
+
     @discardableResult
     private func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
@@ -4595,8 +4646,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Synchronous lifecycle backstops cannot wait for the authoritative off-main load.
         // Revalidate only the already-cached process generations and argv, and fail closed
         // with an empty index when startup has not populated that cache yet.
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
-            cachedRestorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+        let resumeIndexes = ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
         )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
@@ -4612,8 +4663,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
+        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
         Task { @MainActor [weak self] in
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+            let resumeIndexes = await ProcessDetectedResumeIndexes.load(
+                ttyDeviceBindings: ttyDeviceBindings
+            )
             guard let self,
                   !self.isTerminatingApp,
                   self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
@@ -7710,6 +7764,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         bringWindowForward: Bool = false,
         debugSource: String = "mobileConnect"
     ) -> Workspace? {
+        // Shared chokepoint for every pairing-window entry (Settings, palette,
+        // menu): pairing is unavailable under a managed remote-control disable.
+        guard MobileRemoteControlPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("mobileConnect.blocked_managed_policy source=\(debugSource)")
+#endif
+            return nil
+        }
         guard !enforceFeatureFlag || CmuxFeatureFlags.shared.isMobileConnectButtonEnabled else {
 #if DEBUG
             cmuxDebugLog("mobileConnect.blocked_flag source=\(debugSource)")
@@ -10252,7 +10314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
         let tab = tabManager.addTab()
-        let config = GhosttyConfig.load()
+        let config = GhosttyConfig.loadForCmux()
         let minimumTargetBytes = 2_000_000
         let maximumTargetBytes = 200_000_000
         let minimumLineCount = 2000
@@ -18082,12 +18144,20 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        let shouldBypassPrintableOptionText = shortcutRoutingShouldBypassForPrintableOptionText(event: event)
+        // AppKit can send Option-only keys through a text/terminal fast path
+        // before the normal menu route. Give the shared configured-shortcut
+        // dispatcher first ownership for every Option-only event; an unmatched
+        // printable event still takes the text-input branch below.
+        if ShortcutRoutingPolicy.isOptionOnly(event),
+           !browserWebKitKeyDownReentry,
+           !firstResponderHasMarkedText,
+           !(firstResponderGhosttyView?.hasMarkedText() ?? false),
+           AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+            return true
+        }
+        if shouldBypassPrintableOptionText {
             if browserWebKitKeyDownReentry { return false }
-            if !firstResponderHasMarkedText,
-               AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
-                return true
-            }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder

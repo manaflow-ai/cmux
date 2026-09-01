@@ -462,6 +462,7 @@ private extension GhosttyRuntime {
         // grids (bytes, not rows).
         let defaults = """
         scrollback-limit = 16000000
+        scroll-to-bottom = keystroke, no-output
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
@@ -516,6 +517,7 @@ private extension GhosttyRuntime {
         guard !fileManager.fileExists(atPath: configFile.path) else { return }
 
         let defaultConfig = """
+        scroll-to-bottom = keystroke, no-output
         font-family = Menlo
         font-size = 10
         window-padding-balance = false

@@ -366,6 +366,14 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "process-detected"
     }
 
+    /// Plain interactive SSH bindings are intentionally durable across a
+    /// restore pass.  Their process is expected to be absent while the new
+    /// local PTY is starting, so a transiently empty process scan must not
+    /// erase the command before the next autosave can observe it again.
+    var isPlainSSHProcessDetectedBinding: Bool {
+        isProcessDetected && kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ssh"
+    }
+
     var isAgentHookBinding: Bool {
         source == "agent-hook"
     }

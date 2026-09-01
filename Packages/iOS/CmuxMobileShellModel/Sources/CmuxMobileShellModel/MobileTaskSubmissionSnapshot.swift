@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Immutable inputs and derived command for one task-composer submission.
@@ -17,6 +18,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let prompt: String
     /// Optional CLI model identifier captured from the composer.
     public let modelID: String?
+    /// Optional model-specific effort captured from the composer.
+    public let effortID: String?
     /// Optional workspace name exactly as entered in the composer.
     public let workspaceName: String
     /// Workspace name with surrounding whitespace removed.
@@ -47,6 +50,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     ///   - template: Task template selected when submission begins.
     ///   - prompt: Prompt text to compose into the template command.
     ///   - modelID: Optional CLI model identifier to apply to the command.
+    ///   - effortID: Optional effort reported by the selected exact model.
     ///   - macDeviceID: Identifier of the Mac that should create the task.
     ///   - macInstanceTag: Exact paired app instance to target, or `nil`.
     ///   - directory: Working-directory text shown in the composer.
@@ -59,6 +63,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         template: MobileTaskTemplate,
         prompt: String,
         modelID: String? = nil,
+        effortID: String? = nil,
         macDeviceID: String,
         macInstanceTag: String? = nil,
         directory: String,
@@ -69,10 +74,15 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         operationID: UUID
     ) {
         self.templateID = template.id
-        self.macDeviceID = macDeviceID
-        self.macInstanceTag = macInstanceTag
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: macInstanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
+        self.macInstanceTag = identity.instanceTag
         self.prompt = prompt
         self.modelID = modelID
+        self.effortID = effortID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.workspaceGroupID = workspaceGroupID
@@ -84,7 +94,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.composition = MobileTaskCommandComposer().compose(
             template: template,
             prompt: prompt,
-            modelID: modelID
+            modelID: modelID,
+            effortID: effortID
         )
     }
 
@@ -115,6 +126,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             macInstanceTag: macInstanceTag,
             prompt: prompt,
             modelID: modelID,
+            effortID: effortID,
             workspaceName: workspaceName,
             workspaceGroupID: workspaceGroupID,
             directory: directory,
@@ -171,6 +183,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         MobileTaskComposerDraft(
             prompt: prompt,
             modelID: modelID,
+            effortID: effortID,
             templateID: templateID,
             macDeviceID: macDeviceID.isEmpty ? nil : macDeviceID,
             macInstanceTag: macDeviceID.isEmpty ? nil : macInstanceTag,
@@ -188,6 +201,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         macInstanceTag: String?,
         prompt: String,
         modelID: String?,
+        effortID: String?,
         workspaceName: String,
         workspaceGroupID: MobileWorkspaceGroupPreview.ID?,
         directory: String,
@@ -203,6 +217,7 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.macInstanceTag = macInstanceTag
         self.prompt = prompt
         self.modelID = modelID
+        self.effortID = effortID
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = trimmedWorkspaceName
         self.workspaceGroupID = workspaceGroupID

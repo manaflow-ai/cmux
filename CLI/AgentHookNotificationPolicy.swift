@@ -17,8 +17,38 @@ enum AgentHookNotifyCategory: String {
     /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. `.other` is the
     /// explicit ungated category and never rides the wire.
     func metaSegment(pending: Bool) -> String? {
+        metaSegment(pending: pending, agentKind: nil, isSubagent: nil)
+    }
+
+    /// Extended meta segment carrying optional agent-event context for the
+    /// app's notification-policy hooks:
+    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>]` (canonical field
+    /// order; `a=` is the stable lowercase agent slug, `n=` marks a nested
+    /// subagent session). An agent kind that fails slug validation is dropped
+    /// rather than risking the app-side parser folding the whole meta back
+    /// into the body.
+    func metaSegment(pending: Bool, agentKind: String?, isSubagent: Bool?) -> String? {
         guard self != .other else { return nil }
-        return "c=\(rawValue);p=\(pending ? 1 : 0)"
+        var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
+        if let agentKind, Self.isValidAgentKindTag(agentKind) {
+            segment += ";a=\(agentKind)"
+        }
+        if let isSubagent {
+            segment += ";n=\(isSubagent ? 1 : 0)"
+        }
+        return segment
+    }
+
+    /// Mirror of the app-side `AgentNotificationMeta` slug grammar: 1-64
+    /// characters of `[a-z0-9._-]`. Both sides must agree exactly or the app
+    /// folds the meta back into the notification body.
+    static func isValidAgentKindTag(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 64 else { return false }
+        return value.allSatisfy { character in
+            character.isASCII
+                && (character.isLowercase || character.isNumber
+                    || character == "." || character == "_" || character == "-")
+        }
     }
 }
 
@@ -102,14 +132,15 @@ enum AgentHookNotificationClassifier {
                 notifyCategory: .idleReminder
             )
         }
-        let body = String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.body.needsAttention", defaultValue: "%@ needs your attention"),
-            displayName
-        )
+        // No usable message and no matching cue: nothing is fabricated. The
+        // empty body tells callers to reuse a stored summary or skip the
+        // banner, and the nil status makes no lifecycle claim — the old
+        // "%@ needs your attention" needs-input fallback is deliberately
+        // gone (semantic journal events carry state now).
         return AgentHookNotificationSummary(
             subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
-            body: body,
-            status: .needsInput,
+            body: "",
+            status: nil,
             isFallback: true,
             notifyCategory: .idleReminder
         )

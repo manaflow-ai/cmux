@@ -1255,6 +1255,19 @@ class ClearWindowTitleRequest:
 
 
 @dataclass(frozen=True)
+class ClientFocusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/client-focus/request'
+    client_id: str
+
+
+@dataclass(frozen=True)
+class ClientFocusResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/client-focus/result'
+    pane: Union[Id, None]
+    tab: Union[int, None]
+
+
+@dataclass(frozen=True)
 class ClosePaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-pane/request'
     pane: Id
@@ -1710,6 +1723,14 @@ class ReportAgentRequest:
     state: AgentState
     source: AgentReportSource
     session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ReportFocusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/report-focus/request'
+    pane: Id
+    client_id: str
+    tab: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2603,6 +2624,8 @@ __all__ = [
     'BrowserWheelGuardedRequest',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
+    'ClientFocusRequest',
+    'ClientFocusResult',
     'ClosePaneRequest',
     'CloseProviderManagedWorkspaceRequest',
     'CloseScreenRequest',
@@ -2660,6 +2683,7 @@ __all__ = [
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
     'ReportAgentRequest',
+    'ReportFocusRequest',
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',

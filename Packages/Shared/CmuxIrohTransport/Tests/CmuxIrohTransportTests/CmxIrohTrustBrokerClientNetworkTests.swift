@@ -130,6 +130,7 @@ extension CmxIrohTrustBrokerClientTests {
             tokenSource: CmxIrohBrokerTokenSource(
                 credentialPair: { nil }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
         await #expect(throws: CmxIrohTrustBrokerClientError.missingAuthentication) {
@@ -149,6 +150,7 @@ extension CmxIrohTrustBrokerClientTests {
             tokenSource: CmxIrohBrokerTokenSource(
                 credentialPair: { throw CancellationError() }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
         await #expect(throws: CancellationError.self) {
@@ -172,6 +174,7 @@ extension CmxIrohTrustBrokerClientTests {
             tokenSource: CmxIrohBrokerTokenSource(
                 credentialPair: { throw TransientTokenReadError() }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
         await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
@@ -186,6 +189,7 @@ extension CmxIrohTrustBrokerClientTests {
             _ = try CmxIrohTrustBrokerClient(
                 baseURL: #require(URL(string: "http://cmux.example")),
                 tokenSource: Self.networkTokenSource,
+                clientNamespace: "legacy",
                 transport: RecordingBrokerTransport(responses: [])
             )
         }
@@ -232,6 +236,7 @@ extension CmxIrohTrustBrokerClientTests {
             let client = try CmxIrohTrustBrokerClient(
                 baseURL: try #require(URL(string: "https://cmux.example")),
                 tokenSource: Self.networkTokenSource,
+                clientNamespace: "legacy",
                 transport: CmxIrohURLSessionTransport(configuration: configuration),
                 requestTimeout: 0.1
             )
@@ -248,6 +253,7 @@ extension CmxIrohTrustBrokerClientTests {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: Self.networkTokenSource,
+            clientNamespace: "legacy",
             transport: transport
         )
     }

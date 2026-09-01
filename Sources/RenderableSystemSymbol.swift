@@ -138,6 +138,25 @@ enum RenderableSystemSymbol {
         renderabilityCache.isRenderable(symbol)
     }
 
+    /// Resolves a bounded set of symbols before a view enters an AppKit
+    /// window's constraint/layout cycle.
+    @MainActor
+    static func prewarmAppKitImages(
+        systemNames: [String],
+        pointSizes: [CGFloat],
+        weight: Font.Weight? = nil
+    ) {
+        for systemName in systemNames {
+            for pointSize in pointSizes {
+                _ = configuredAppKitImage(
+                    systemName: systemName,
+                    pointSize: pointSize,
+                    weight: weight
+                )
+            }
+        }
+    }
+
     static func clampedRasterPointSize(_ pointSize: CGFloat) -> CGFloat {
         guard pointSize.isFinite else {
             return minimumRasterPointSize
@@ -186,9 +205,14 @@ enum RenderableSystemSymbol {
             weight: fontWeight
         )
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
-        let image = (configuredImage.copy() as? NSImage) ?? configuredImage
+        let imageSize = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
+        guard let image = materializedImage(configuredImage, size: imageSize) else {
+            return nil
+        }
+        // Keep the template contract used by the SwiftUI and AppKit callers,
+        // while replacing AppKit's lazy symbol representation with a bitmap
+        // that cannot be materialized again from an NSWindow layout pass.
         image.isTemplate = true
-        image.size = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
         appKitImageCache[cacheKey] = image
         appKitImageCacheInsertionOrder.append(cacheKey)
         while appKitImageCacheInsertionOrder.count > appKitImageCacheLimit {
@@ -196,6 +220,77 @@ enum RenderableSystemSymbol {
             appKitImageCache.removeValue(forKey: evictedKey)
         }
         return image
+    }
+
+    /// Draws a symbol into an owned bitmap before handing it to AppKit views.
+    ///
+    /// `NSImage(systemSymbolName:)` stores a lazy symbol representation. If
+    /// that representation reaches an `NSImageView` while AppKit is solving
+    /// window constraints, the first provider lookup can block the main
+    /// thread for several seconds. A bitmap representation makes all later
+    /// intrinsic-size and layout queries constant-time.
+    @MainActor
+    private static func materializedImage(_ source: NSImage, size: NSSize) -> NSImage? {
+        let image = NSImage(size: size)
+        // Keep native reps for both common display scales. AppKit can then
+        // select a fully materialized bitmap instead of resampling a 2x rep
+        // on a 1x display (or vice versa).
+        for pixelScale in [CGFloat(2), CGFloat(1)] {
+            guard let bitmap = materializedBitmap(source, size: size, pixelScale: pixelScale) else {
+                return nil
+            }
+            image.addRepresentation(bitmap)
+        }
+        image.cacheMode = .never
+        return image
+    }
+
+    @MainActor
+    private static func materializedBitmap(
+        _ source: NSImage,
+        size: NSSize,
+        pixelScale: CGFloat
+    ) -> NSBitmapImageRep? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: max(1, Int(ceil(size.width * pixelScale))),
+            pixelsHigh: max(1, Int(ceil(size.height * pixelScale))),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+
+        // NSGraphicsContext derives its point-to-pixel CTM from the bitmap's
+        // point-space size. Set it before creating the context so the backing
+        // pixels are used for the symbol draw, rather than only when the
+        // representation is later displayed.
+        bitmap.size = size
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return nil
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        graphicsContext.imageInterpolation = .high
+        source.draw(
+            in: NSRect(origin: .zero, size: size),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+        return bitmap
     }
 
     static func symbolImageSize(_ naturalSize: NSSize, fallbackDimension: CGFloat) -> NSSize {

@@ -64,7 +64,12 @@ struct DockPanelView: View {
         // hosting boundary. Re-inject the snapshot authority at the Dock root
         // so none of that chrome falls back to macOS's ambient appearance.
         .environment(\.colorScheme, windowAppearance.resolvedColorScheme)
-        .background(Color(nsColor: windowAppearance.resolvedChromeBackgroundColor))
+        // The window root (or the right-sidebar material) owns the backdrop.
+        // Bonsplit terminal surfaces are intentionally clear, so a concrete
+        // composited chrome color here would cut them off from that owner.
+        .background(
+            WindowBackdropLayer(role: .bonsplitChrome, snapshot: windowAppearance)
+        )
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)

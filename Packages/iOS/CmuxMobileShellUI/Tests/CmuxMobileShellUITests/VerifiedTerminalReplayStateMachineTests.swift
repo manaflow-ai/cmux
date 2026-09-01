@@ -122,6 +122,51 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(machine.isFrozen)
     }
 
+    @Test("a remount accepts a fresh full replay without admitting stale completion")
+    func remountReactivatesReplayVerification() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let beforeUnmount = try frame(
+            renderEpoch: "epoch-before-unmount",
+            renderRevision: 1,
+            stateSeq: 1,
+            columns: 80,
+            text: "before unmount"
+        )
+        let staleTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: beforeUnmount))
+        )
+
+        machine.invalidate()
+        machine.prepareForMount()
+
+        #expect(
+            machine.complete(
+                transactionID: staleTransaction.id,
+                observedFrame: beforeUnmount
+            ) == .ignoreStaleCompletion
+        )
+
+        let afterRemount = try frame(
+            renderEpoch: "epoch-after-remount",
+            renderRevision: 1,
+            stateSeq: 2,
+            columns: 80,
+            text: "after remount"
+        )
+        let remountTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: afterRemount))
+        )
+        #expect(remountTransaction.id != staleTransaction.id)
+        #expect(
+            machine.complete(
+                transactionID: remountTransaction.id,
+                observedFrame: afterRemount
+            ) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "after remount")
+        #expect(!machine.isFrozen)
+    }
+
     @Test("a viewport acknowledgement rejects frames captured before the resize settled")
     func viewportAcknowledgementRejectsOlderCapture() throws {
         let machine = VerifiedTerminalReplayStateMachine()

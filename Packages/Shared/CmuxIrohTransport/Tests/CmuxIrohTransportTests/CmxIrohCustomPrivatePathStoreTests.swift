@@ -46,6 +46,61 @@ struct CmxIrohCustomPrivatePathStoreTests {
     }
 
     @Test
+    func siblingBuildPreferencesRemainIndependent() async throws {
+        let store = CmxIrohCustomPrivatePathStore(
+            store: CustomPrivatePathMemoryStore()
+        )
+        _ = try await store.upsert(
+            CmxIrohCustomPrivatePathDraft(
+                macDeviceID: macA,
+                instanceTag: "stable",
+                macDisplayName: "Work Mac",
+                addresses: ["10.0.0.8"],
+                isEnabled: true
+            ),
+            accountID: "account-a"
+        )
+        let saved = try await store.upsert(
+            CmxIrohCustomPrivatePathDraft(
+                macDeviceID: macA,
+                instanceTag: "nightly",
+                macDisplayName: "Work Mac",
+                addresses: ["10.0.0.9"],
+                isEnabled: true
+            ),
+            accountID: "account-a"
+        )
+
+        #expect(saved.configurations.count == 2)
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "stable",
+            accountID: "account-a"
+        ).map(\.address.value) == ["10.0.0.8"])
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "nightly",
+            accountID: "account-a"
+        ).map(\.address.value) == ["10.0.0.9"])
+
+        _ = try await store.remove(
+            macDeviceID: macA,
+            instanceTag: "stable",
+            accountID: "account-a"
+        )
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "stable",
+            accountID: "account-a"
+        ).isEmpty)
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "nightly",
+            accountID: "account-a"
+        ).map(\.address.value) == ["10.0.0.9"])
+    }
+
+    @Test
     func disabledAndRemovedPreferencesRevokeProfileAuthority() async throws {
         let store = CmxIrohCustomPrivatePathStore(
             store: CustomPrivatePathMemoryStore()

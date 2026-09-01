@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import Foundation
 import GhosttyKit
 
 /// Immutable payload dereferenced only by the surface's serial Ghostty queue.
@@ -27,5 +28,34 @@ nonisolated struct VerifiedReplayRenderSubmission: @unchecked Sendable {
     // use is enqueued on the same generation-bound surface work queue.
     let surface: ghostty_surface_t
     let token: UInt64
+}
+
+extension VerifiedReplaySurfaceRead {
+    /// Exports the locally reconstructed grid on the serial Ghostty queue.
+    /// Keeping this operation on the read payload avoids attaching a pure
+    /// export helper to the stateful UIKit surface type.
+    func exportGridSynchronously() -> MobileTerminalRenderGridFrame? {
+        let exported = surfaceID.withCString { pointer in
+            // Screen-anchored frames verify against the ACTIVE area so a
+            // locally scrolled viewport cannot fail the read-back;
+            // viewport-anchored frames keep the historical viewport read.
+            ghostty_surface_render_grid_json_v2(
+                surface,
+                pointer,
+                UInt(surfaceID.utf8.count),
+                stateSeq,
+                0,
+                false,
+                anchor == .screen
+            )
+        }
+        defer { ghostty_string_free(exported) }
+        guard let pointer = exported.ptr, exported.len > 0 else { return nil }
+        let data = Data(bytes: pointer, count: Int(exported.len))
+        guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
+        frame.renderEpoch = renderEpoch
+        frame.renderRevision = renderRevision
+        return frame
+    }
 }
 #endif

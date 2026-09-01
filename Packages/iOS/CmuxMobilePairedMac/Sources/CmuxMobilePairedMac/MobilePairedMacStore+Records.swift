@@ -340,6 +340,44 @@ extension MobilePairedMacStore {
         return routes
     }
 
+    /// Whether this owner scope already has an app-tagged row for the device.
+    /// Device-only writes must fail closed when such a sibling exists, even if
+    /// no legacy nil-tag row has been stored yet.
+    func hasClaimedSibling(
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) throws -> Bool {
+        var clauses = [
+            "mac_device_id = ?",
+            "instance_tag IS NOT NULL",
+            "stack_user_id IS ?",
+        ]
+        var bindings: [BindValue] = [
+            .text(macDeviceID),
+            stackUserID.map(BindValue.text) ?? .null,
+        ]
+        if let teamID {
+            clauses.append("(team_id IS ? OR team_id IS NULL)")
+            bindings.append(.text(teamID))
+        } else {
+            clauses.append("team_id IS NULL")
+        }
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT 1 FROM paired_macs WHERE \(clauses.joined(separator: " AND ")) LIMIT 1;"
+        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: bindings)
+        let step = sqlite3_step(statement)
+        guard step == SQLITE_ROW || step == SQLITE_DONE else {
+            throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
+        }
+        return step == SQLITE_ROW
+    }
+
     static func encodeRoute(_ route: CmxAttachRoute) throws -> String {
         let encoder = JSONEncoder()
         let data = try encoder.encode(route)

@@ -426,7 +426,9 @@ extension MobileShellComposite {
                 cmxCanonicalDeviceID($0.macDeviceID)
                     == cmxCanonicalDeviceID(macDeviceID)
             }
-            guard storedSiblings.count <= 1 else { return nil }
+            guard entry.key.normalizedInstanceTag == nil,
+                  storedSiblings.count == 1,
+                  storedSiblings[0].instanceTag == nil else { return nil }
         }
         return entry.key
     }

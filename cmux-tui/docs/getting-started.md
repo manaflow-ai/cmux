@@ -2,12 +2,7 @@
 
 ## Prerequisites
 
-Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts.
-
-```bash
-cd cmux-tui
-cargo build -p cmux-tui
-```
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule. `ghostty-vt-sys` compiles `libghostty-vt.a` from that submodule, so an uninitialized submodule fails before the TUI starts. The first `cargo run` below compiles the TUI and then starts it.
 
 ## Local session
 
@@ -79,7 +74,7 @@ To share an existing local session through cmux.cloud without a public listener,
 npx cmux machine-agent --session agents
 ```
 
-Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ Connect machine` on cmux.cloud.
+Run this command from an interactive terminal with `/dev/tty`; the agent fails closed without a controlling terminal, including on reconnects. The first registration prints the one-time code used by `+ ssh host` on cmux.cloud.
 
 ## Sessions and sockets
 

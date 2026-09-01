@@ -132,6 +132,23 @@ pub mod transport {
     }
 }
 
+/// The path to exec THIS running build again (terminal hosts, headless
+/// daemons). On Linux this is the open inode via `/proc/self/exe`, so an
+/// in-place binary upgrade can never break a running process's self-spawns:
+/// `std::env::current_exe()` resolves to "<path> (deleted)" after the file
+/// is replaced and exec then fails, which broke every new tab on a
+/// long-lived daemon. Elsewhere it is the resolved executable path.
+pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        Ok(PathBuf::from("/proc/self/exe"))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::env::current_exe()
+    }
+}
+
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
     runtime_base_dir().join(format!("cmux-tui-{}", user_id_component()))
@@ -182,6 +199,19 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
             },
         )
     }
+}
+
+/// Path of the client's bounded rolling log file: the `cmux-tui` state root
+/// (the parent of the sessions directory), so it survives session cleanup and
+/// sits where users already look for state. `CMUX_TUI_LOG_FILE` overrides it.
+pub fn client_log_path() -> Option<PathBuf> {
+    if let Some(path) = env_path("CMUX_TUI_LOG_FILE") {
+        return Some(path);
+    }
+    workspace_state_dir().map(|sessions| match sessions.parent() {
+        Some(root) => root.join("client.log"),
+        None => sessions.join("client.log"),
+    })
 }
 
 /// User config file path, honoring explicit env overrides before the default

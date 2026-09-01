@@ -90,6 +90,7 @@ extension CmxIrohClientRuntime {
         let expectation = try CmxIrohLocalBindingExpectation(
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: binding.clientNamespace,
             tag: binding.tag,
             platform: binding.platform,
             endpointID: binding.endpointID,

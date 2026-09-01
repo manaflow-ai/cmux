@@ -53,7 +53,10 @@ struct MobileIrohPrivateNetworksSection: View {
                             set: { setEnabled(configuration, $0) }
                         )) {
                             VStack(alignment: .leading) {
-                                Text(displayName(configuration))
+                                Text(MacAppInstanceDisplayFormatter().displayName(
+                                    configuration.macDisplayName,
+                                    instanceTag: configuration.instanceTag
+                                ))
                                 Text(configuration.addresses.joined(separator: ", "))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -62,13 +65,13 @@ struct MobileIrohPrivateNetworksSection: View {
                         }
                         Menu {
                             Button(L10n.string("mobile.common.edit", defaultValue: "Edit")) {
-                                edit(configuration.macDeviceID)
+                                edit(configuration.id)
                             }
                             Button(
                                 L10n.string("mobile.common.remove", defaultValue: "Remove"),
                                 role: .destructive
                             ) {
-                                requestRemoval(configuration.macDeviceID)
+                                requestRemoval(configuration.id)
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
@@ -110,19 +113,8 @@ struct MobileIrohPrivateNetworksSection: View {
     }
 
     var unconfiguredMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac] {
-        let configuredIDs = Set(configurations.map(\.macDeviceID))
+        let configuredIDs = Set(configurations.map(\.id))
         return availableMacs.filter { !configuredIDs.contains($0.id) }
-    }
-
-    private func displayName(
-        _ configuration: CmxIrohSettingsSnapshot.CustomPrivateNetwork
-    ) -> String {
-        let trimmed = configuration.macDisplayName.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        return trimmed.isEmpty
-            ? L10n.string("mobile.iroh.private.custom.unnamedMac", defaultValue: "Mac")
-            : trimmed
     }
 }
 #endif

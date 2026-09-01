@@ -113,7 +113,7 @@ struct NotificationFeedRow: View, Equatable {
     }
 
     private var accessibilitySuffix: String {
-        "\(item.macDeviceID)-\(item.notificationID)"
+        "\(item.macDeviceID)-\(item.macInstanceTag ?? "legacy")-\(item.notificationID)"
     }
 
     /// Joins the precomputed details with a render-time relative date, so the

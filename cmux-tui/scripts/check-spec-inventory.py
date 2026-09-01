@@ -744,6 +744,10 @@ def menu_action_variants() -> set[str]:
 
 
 MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
+    "RunConfigured": {
+        "classification": "composite",
+        "route": "frontend configured menu + the referenced action's own route",
+    },
     "RenameClientMachine": {
         "classification": "composite",
         "route": "frontend prompt + client-local machine catalog",

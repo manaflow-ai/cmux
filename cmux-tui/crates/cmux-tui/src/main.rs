@@ -12,6 +12,7 @@ mod agent_hook_install;
 mod app;
 mod browser_input;
 mod cli;
+mod client_log;
 mod config;
 mod host_colors;
 mod keys;
@@ -55,7 +56,8 @@ mod remote_cli {
     }
 
     pub fn run(_: &[String], _: &str) -> i32 {
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
             std::env::consts::OS
         );
@@ -412,7 +414,8 @@ START OPTIONS
                     Refresh the relay ticket from an argv-based command.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: xterm-256color).
+  --term <value>     TERM for child shells (default: keep the outer terminal's
+                     xterm-ghostty, else xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
 ";
@@ -746,11 +749,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
                 print!("{}", usage());
-                std::process::exit(0);
+                client_log::exit(0);
             }
             "-V" | "--version" => {
                 println!("cmux {}", version_string());
-                std::process::exit(0);
+                client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -765,7 +768,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     Ok(out)
 }
 
-fn version_string() -> String {
+pub(crate) fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
     // it enters an app bundle. Local builds report the crate version alone.
@@ -1054,6 +1057,17 @@ fn resolve_provider_launch(
     let launch = if let Some(socket) = &args.machine_provider {
         Some(ProviderLaunch::Unix(socket.clone()))
     } else if let Some(command) = &args.machine_provider_command {
+        Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
+    } else if let Some(command) =
+        // Config parity with --machine-provider-command. Any explicit CLI
+        // provider mode above wins; an explicit --cloud also wins below, so
+        // the config command only applies when the CLI chose nothing.
+        config
+            .machine_provider
+            .command
+            .as_ref()
+            .filter(|_| !args.cloud_cli_requested())
+    {
         Some(ProviderLaunch::Command(command.iter().map(OsString::from).collect()))
     } else if args.cloud_cli_requested() || config.machine_provider.cloud.enabled {
         let cloud = &config.machine_provider.cloud;
@@ -1362,10 +1376,18 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() {
+    run_main();
+    // Reached only by the normal return paths, which never call
+    // client_log::exit; flush so the last queued records (final status,
+    // shutdown diagnostics) reach the client log on every platform.
+    client_log::flush_for_exit();
+}
+
+fn run_main() {
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
-        std::process::exit(agent_browser_provider::run());
+        client_log::exit(agent_browser_provider::run());
     }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
@@ -1374,48 +1396,55 @@ fn main() {
     // semantics.
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
-            eprintln!("cmux-tui terminal host: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
+            client_log::exit(1);
         }
         return;
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
-            eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: cannot protect machine-provider credentials: {error}"
+            );
+            client_log::exit(1);
         }
         discard_provider_secret_environment();
-        std::process::exit(config::run_ghostty_config_helper());
+        client_log::exit(config::run_ghostty_config_helper());
     }
     if let Err(error) = harden_provider_secret_process() {
-        eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: cannot protect machine-provider credentials: {error}"
+        );
+        client_log::exit(1);
     }
     if let Err(error) = install_signal_handlers() {
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: {}",
             localization::catalog().runtime.signal_handlers_failed(&error.to_string())
         );
-        std::process::exit(1);
+        client_log::exit(1);
     }
     #[cfg(target_os = "linux")]
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
-        std::process::exit(exit_code);
+        client_log::exit(exit_code);
     }
     if let Err(error) = normalize_remote_resource_args(&mut raw_args) {
-        eprintln!("cmux-tui: {error}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+        client_log::exit(1);
     }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(remote_cli::run(&raw_args, &usage()));
+        client_log::exit(remote_cli::run(&raw_args, &usage()));
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
         discard_provider_secret_environment();
         if let Err(error) = run_relay(args) {
-            eprintln!("cmux-tui: {error}");
-            std::process::exit(1);
+            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
+            client_log::exit(1);
         }
         return;
     }
@@ -1423,11 +1452,15 @@ fn main() {
     if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
         discard_provider_secret_environment();
         if let Err(error) = machine_agent::run(&raw_args[1..]) {
-            eprintln!("cmux-tui: {error}");
+            crate::client_log::stderr_log!("startup", "cmux-tui: {error}");
             if error.show_help() {
-                eprintln!("{}", localization::catalog().machine_agent.help);
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "{}",
+                    localization::catalog().machine_agent.help
+                );
             }
-            std::process::exit(1);
+            client_log::exit(1);
         }
         return;
     }
@@ -1437,7 +1470,7 @@ fn main() {
     rewrite_server_start(&mut raw_args);
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
-        std::process::exit(cli::run(&raw_args, &usage()));
+        client_log::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
     #[cfg(unix)]
@@ -1488,8 +1521,8 @@ fn main() {
         None => run_server(args, provider_workspace_authority),
     };
     if let Err(e) = result {
-        eprintln!("cmux-tui: {e}");
-        std::process::exit(1);
+        crate::client_log::stderr_log!("startup", "cmux-tui: {e}");
+        client_log::exit(1);
     }
 }
 
@@ -1938,14 +1971,15 @@ fn run_server(
                 return Err(error);
             }
         };
-        eprintln!(
+        crate::client_log::stderr_log!(
+            "startup",
             "cmux-tui: remote daemon {}, link {}, admin {}",
             runtime.info().daemon_fingerprint,
             runtime.info().link_socket.display(),
             runtime.info().admin_socket.display()
         );
         for route in &runtime.info().routes {
-            eprintln!("cmux-tui: remote route {route}");
+            crate::client_log::stderr_log!("startup", "cmux-tui: remote route {route}");
         }
         Some(runtime)
     } else {
@@ -1979,7 +2013,11 @@ fn run_server(
         }
     };
     if let Some(server) = &websocket_server {
-        eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
+        crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: WebSocket control at ws://{}",
+            server.local_addr()
+        );
     }
     let served_socket = pending_server.into_bound_path();
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
@@ -2223,6 +2261,7 @@ fn run_machine_client_with_hub(
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let mut machine_ui = runtime.ui_state(active);
     machine_ui.set_connection_phases(connections.phases());
+    connections.note_presented(Some(active));
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, connections, pending: None });
     match run_tui_once(session, label, None, owner_mux, Some(machine_ui), Some(controller))? {
@@ -2294,6 +2333,7 @@ impl MachineController for StaticMachineController {
         })?;
         if present {
             self.active = machine;
+            self.connections.note_presented(Some(machine));
         }
         Ok(())
     }
@@ -2315,11 +2355,11 @@ impl MachineController for StaticMachineController {
 impl StaticMachineController {
     fn switch(&mut self, machine: machine::MachineKey) -> anyhow::Result<MachineActionResult> {
         self.register(machine)?;
-        let session = self.connections.connect(machine)?;
+        let (session, reused) = self.connections.connect_tracked(machine)?;
         let label = self.runtime.name(machine).unwrap_or("machine").to_string();
         self.pending = Some(machine);
         let ui = self.ui_state(machine);
-        Ok(MachineActionResult::replace(ui, session, label))
+        Ok(MachineActionResult::replace(ui, session, label).with_reused_session(reused))
     }
 
     fn notice(&self, notice: impl Into<String>) -> MachineActionResult {
@@ -2422,7 +2462,7 @@ fn run_tui_once(
     let color_result = publish_session_default_colors(&session, colors, surface_only);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {
-        eprintln!("cmux-tui: failed to set default colors: {err}");
+        crate::client_log::stderr_log!("startup", "cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
     app::run_with_machine_updates(
@@ -2444,7 +2484,11 @@ fn run_headless<F>(
 where
     F: Fn() -> bool,
 {
-    eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
+    crate::client_log::stderr_log!(
+        "startup",
+        "cmux-tui: headless, control socket at {}",
+        socket_path.display()
+    );
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
@@ -2466,8 +2510,8 @@ where
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux: {msg}\n\n{}", usage());
-    std::process::exit(2);
+    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    client_log::exit(2);
 }
 
 #[cfg(all(test, unix))]
@@ -2993,6 +3037,119 @@ mod tests {
 
         connections.close();
         assert_eq!(dropped.load(Ordering::SeqCst), 2, "all leases close with the connection hub");
+    }
+
+    #[test]
+    fn presented_connection_survives_warm_pool_eviction() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-presented-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let third = machine::MachineKey(3);
+        let connections = MachineConnectionHub::with_warm_limit(
+            [connector(first), connector(second), connector(third)],
+            2,
+        );
+
+        // `first` is presented but has the OLDEST use stamp once the others
+        // connect - exactly the shape where plain LRU would evict the
+        // session still on screen mid-switch.
+        connections.connect(first).unwrap();
+        connections.note_presented(Some(first));
+        connections.connect(second).unwrap();
+        connections.connect(third).unwrap();
+        assert_eq!(dropped.load(Ordering::SeqCst), 1, "one eviction past the limit");
+
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(reused, "the presented machine's connection must survive eviction");
+
+        connections.close();
+    }
+
+    #[test]
+    fn connection_hub_evicts_least_recently_used_beyond_the_warm_limit() {
+        use std::sync::atomic::AtomicUsize;
+
+        struct CountedLease(Arc<AtomicUsize>);
+
+        impl Drop for CountedLease {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let connects = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connects = Arc::clone(&connects);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                connects.fetch_add(1, Ordering::SeqCst);
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-lru-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
+        };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let third = machine::MachineKey(3);
+        let connections = MachineConnectionHub::with_warm_limit(
+            [connector(first), connector(second), connector(third)],
+            2,
+        );
+
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(!reused, "first connect opens fresh");
+        connections.connect(second).unwrap();
+        assert_eq!(dropped.load(Ordering::SeqCst), 0, "two warm connections fit the limit");
+
+        connections.connect(third).unwrap();
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "a third connection evicts the least recently used one"
+        );
+
+        // `second` stayed warm; returning to it is a reuse, not a reconnect.
+        let (_, reused) = connections.connect_tracked(second).unwrap();
+        assert!(reused, "recently used connections survive eviction");
+        assert_eq!(connects.load(Ordering::SeqCst), 3);
+
+        // `first` was evicted back to Disconnected; its connector reconnects.
+        let (_, reused) = connections.connect_tracked(first).unwrap();
+        assert!(!reused, "evicted machines reconnect through their connector");
+        assert_eq!(connects.load(Ordering::SeqCst), 4);
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "reconnecting evicted the next oldest");
+
+        connections.close();
+        assert_eq!(dropped.load(Ordering::SeqCst), 4, "all leases close with the connection hub");
     }
 
     #[cfg(unix)]

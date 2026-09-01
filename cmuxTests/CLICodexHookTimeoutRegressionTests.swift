@@ -244,9 +244,11 @@ struct CLICodexHookTimeoutRegressionTests {
                 return event["hook_event_name"] as? String == "PreToolUse"
             }
         })
-        #expect(commands.snapshot().contains {
-            $0.hasPrefix("set_agent_lifecycle codex needsInput --tab=\(workspaceId)")
-                && $0.contains("--panel=\(surfaceId)")
+        #expect(AgentJournalAppendCapture.captures(in: commands.snapshot()).contains { capture in
+            capture.kind == "agent.approval.requested"
+                && capture.agentKey == "codex"
+                && capture.workspaceId == workspaceId
+                && capture.surfaceId == surfaceId
         })
     }
 
@@ -911,7 +913,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         let sentCommands = commands.snapshot()
-        #expect(!sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex unknown ") })
+        #expect(!AgentJournalAppendCapture.contains(sentCommands, kind: "agent.session.started", agentKey: "codex"))
         #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "feed.push" })
         #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
 
@@ -994,7 +996,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         let sentCommands = commands.snapshot()
-        #expect(sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex unknown ") })
+        #expect(AgentJournalAppendCapture.contains(sentCommands, kind: "agent.session.started", agentKey: "codex"))
         #expect(sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
 
         let saved = try #require(
@@ -1105,7 +1107,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
         let sentCommands = commands.snapshot()
-        #expect(!sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex unknown ") })
+        #expect(!AgentJournalAppendCapture.contains(sentCommands, kind: "agent.session.started", agentKey: "codex"))
         #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
 
         let saved = try #require(

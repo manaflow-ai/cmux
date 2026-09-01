@@ -757,6 +757,8 @@ pub(crate) struct SidebarMessages {
     pub managed_workspace_operation_not_allowed: &'static str,
     pub running: &'static str,
     pub connecting: &'static str,
+    pub waking: &'static str,
+    pub sleeping_wake_hint: &'static str,
     pub sleeping: &'static str,
     pub stopped: &'static str,
     pub unavailable: &'static str,
@@ -1514,8 +1516,8 @@ OPTIONS:
         tabs: "tabs",
         agents: "agents",
         projection_path_separator: " › ",
-        new_machine: "new machine",
-        connect_machine: "connect machine",
+        new_machine: "new vm",
+        connect_machine: "ssh host",
         no_machines: "no machines",
         no_workspaces: "no workspaces",
         no_panes: "no panes",
@@ -1544,6 +1546,8 @@ OPTIONS:
         managed_workspace_operation_not_allowed: "The provider does not allow this operation for this workspace; use an action shown in its menu",
         running: "running",
         connecting: "connecting",
+        waking: "waking",
+        sleeping_wake_hint: "sleeping — press any key to wake",
         sleeping: "sleeping",
         stopped: "stopped",
         unavailable: "unavailable",
@@ -2101,8 +2105,8 @@ ID とセッション:
         tabs: "タブ",
         agents: "エージェント",
         projection_path_separator: " › ",
-        new_machine: "新規マシン",
-        connect_machine: "マシンを接続",
+        new_machine: "新規VM",
+        connect_machine: "SSHホスト",
         no_machines: "マシンがありません",
         no_workspaces: "ワークスペースがありません",
         no_panes: "ペインがありません",
@@ -2131,6 +2135,8 @@ ID とセッション:
         managed_workspace_operation_not_allowed: "プロバイダーはこのワークスペースでこの操作を許可していません。メニューに表示される操作を使用してください",
         running: "実行中",
         connecting: "接続中",
+        waking: "再開中",
+        sleeping_wake_hint: "スリープ中 — 任意のキーで再開",
         sleeping: "スリープ中",
         stopped: "停止",
         unavailable: "利用不可",
@@ -2403,8 +2409,8 @@ mod tests {
             catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
             "Host address or pairing code"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new machine");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規マシン");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new vm");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規VM");
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"

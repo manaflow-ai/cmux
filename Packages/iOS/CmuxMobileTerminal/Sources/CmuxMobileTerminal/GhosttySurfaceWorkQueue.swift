@@ -7,6 +7,8 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     #if DEBUG
     /// Accessed only from ``queue`` while producing DEBUG accessibility snapshots.
     var lastAccessibilityTextTime: CFTimeInterval = 0
+    /// Accessed only from ``queue``; rate-limits slow-output perf log lines.
+    var lastOutputPerfLogTime: CFTimeInterval = 0
     #endif
 
     init(generation: UInt64) {

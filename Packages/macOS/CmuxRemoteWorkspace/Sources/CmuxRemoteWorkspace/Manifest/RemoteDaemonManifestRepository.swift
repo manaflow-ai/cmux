@@ -72,6 +72,11 @@ public struct RemoteDaemonManifestRepository: Sendable {
     public func validatedCachedBinary(entry: WorkspaceRemoteDaemonManifest.Entry, version: String) throws -> URL? {
         let cacheURL = try cachedBinaryURL(version: version, goOS: entry.goOS, goArch: entry.goArch)
         guard fileManager.fileExists(atPath: cacheURL.path) else { return nil }
+        let fileSize = (try? cacheURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard fileSize > 0 else {
+            try? fileManager.removeItem(at: cacheURL)
+            return nil
+        }
         let cachedSHA = try sha256Hex(forFile: cacheURL)
         if cachedSHA == entry.sha256.lowercased(),
            fileManager.isExecutableFile(atPath: cacheURL.path) {

@@ -28,19 +28,19 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
     AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken,
-    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, ClientDescriptor, CloseMachineParams,
-    CloseMachineResult, ConnectExternalMachineParams, ConnectExternalMachineResult,
-    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
-    DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope,
-    ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
-    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
-    MachineMutationParams, MachineMutationResult, NegotiateClientCapabilitiesParams,
-    NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId, OpenMachineParams,
-    OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError,
-    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
-    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
-    SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor,
-    TransportHandshake, TransportHandshakeResult, TransportRole, Version,
+    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, CONNECTION_PROGRESS_CLIENT_CAPABILITY,
+    ClientDescriptor, CloseMachineParams, CloseMachineResult, ConnectExternalMachineParams,
+    ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
+    CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
+    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
+    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
+    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult,
+    NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
+    OpenMachineParams, OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol,
+    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
+    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
+    SnapshotParams, SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult,
+    TransportDescriptor, TransportHandshake, TransportHandshakeResult, TransportRole, Version,
     WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
     WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
@@ -1058,7 +1058,10 @@ impl ProviderClient {
         if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
             return Ok(());
         }
-        let requested = vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()];
+        let requested = vec![
+            PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+            CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
+        ];
         let result: NegotiateClientCapabilitiesResult =
             self.request(ProviderRequest::NegotiateClientCapabilities(
                 NegotiateClientCapabilitiesParams { capabilities: requested.clone() },

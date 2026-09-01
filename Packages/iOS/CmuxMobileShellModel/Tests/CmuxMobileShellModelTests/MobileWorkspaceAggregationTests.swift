@@ -388,7 +388,7 @@ import Testing
         #expect(ordered == ["mac-b", "mac-a"])
     }
 
-    @Test func computerPriorityKeepsSiblingBuildsOfOneMacAdjacent() {
+    @Test func computerPriorityDoesNotRankAnUnlistedSiblingBuild() {
         var nightly = state("mac-a", name: "Alpha", ["a-nightly"])
         nightly.instanceTag = "nightly"
         var stable = state("mac-a", name: "Alpha", ["a-stable"])
@@ -403,9 +403,52 @@ import Testing
             foregroundMacDeviceID: "mac-b",
             computerPriority: ["mac-a"]
         )
-        // Both builds of mac-a share one rank and stay adjacent (tag tiebreak),
-        // ahead of the unprioritized foreground Mac.
-        #expect(ordered == ["mac-a", "mac-a\u{1F}nightly", "mac-b"])
+        // Stable is pinned. The separately identified Nightly build remains
+        // unprioritized, so the unprioritized foreground Mac comes before it.
+        #expect(ordered == ["mac-a", "mac-b", "mac-a\u{1F}nightly"])
+    }
+
+    @Test func computerPriorityOrdersSiblingBuildsIndependently() {
+        var nightly = state("mac-a", name: "Alpha", ["a-nightly"])
+        nightly.instanceTag = "nightly"
+        var stable = state("mac-a", name: "Alpha", ["a-stable"])
+        stable.instanceTag = "stable"
+        let states = [
+            "mac-a\u{1F}nightly": nightly,
+            "mac-a\u{1F}stable": stable,
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: states,
+            foregroundMacDeviceID: "mac-b",
+            computerPriority: [
+                "mac-a\u{1F}nightly",
+                "mac-b",
+                "mac-a\u{1F}stable",
+            ]
+        )
+
+        #expect(ordered == [
+            "mac-a\u{1F}nightly",
+            "mac-b",
+            "mac-a\u{1F}stable",
+        ])
+    }
+
+    @Test func foregroundOrderUsesCanonicalPairingIdentity() {
+        let state = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: " nightly ",
+            displayName: "Alpha",
+            status: .connected
+        )
+        let ordered = MobileWorkspaceAggregation().orderedMacIDs(
+            statesByMac: [state.id: state],
+            foregroundMacDeviceID: "mac-a\u{1F} nightly "
+        )
+
+        #expect(ordered == ["mac-a\u{1F}nightly"])
+        #expect(state.id == "mac-a\u{1F}nightly")
     }
 
     @Test func lastOpenedOrdersUnprioritizedMacsByRecencyThenName() {
