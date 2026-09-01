@@ -474,6 +474,51 @@ final class BrowserShortcutCaptureTests {
     }
 
     @Test
+    func numberedShortcutFamilyCapturesEveryDigit() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        try withCaptureEnabled { harness in
+            installCmuxUnitTestCmuxWebViewKeyDownOverride()
+            var browserKeyDownCount = 0
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
+                if webView === harness.webView {
+                    browserKeyDownCount += 1
+                }
+                return false
+            }, for: harness.webView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
+
+            let numberedShortcut = BrowserCaptureStoredShortcut(
+                key: "1",
+                command: false,
+                shift: false,
+                option: false,
+                control: true
+            )
+            let ctrl1 = try #require(makeKeyDownEvent(
+                key: "1",
+                modifiers: [.control],
+                keyCode: 18,
+                windowNumber: harness.window.windowNumber
+            ))
+            let ctrl3 = try #require(makeKeyDownEvent(
+                key: "3",
+                modifiers: [.control],
+                keyCode: 20,
+                windowNumber: harness.window.windowNumber
+            ))
+
+            withTemporaryShortcut(action: .selectSurfaceByNumber, shortcut: numberedShortcut) {
+                #expect(appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: ctrl1))
+                #expect(appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: ctrl3))
+                NSApp.sendEvent(ctrl1)
+                NSApp.sendEvent(ctrl3)
+            }
+
+            #expect(browserKeyDownCount == 2)
+        }
+    }
+
+    @Test
     func standalonePopupBrowserScopedShortcutsYieldToWebKitWhenCaptureDisabled() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let opener = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
