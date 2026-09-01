@@ -1131,7 +1131,9 @@ struct AgentRosterHost {
 }
 
 fn retained_journal_tail_has_gap(cursor: u64, first_sequence: Option<u64>) -> bool {
-    first_sequence.is_some_and(|sequence| sequence != cursor.saturating_add(1))
+    // Subtraction avoids overflow at the upper sequence bound and rejects
+    // both skipped records and an unexpectedly repeated/rewound sequence.
+    first_sequence.is_some_and(|sequence| sequence.checked_sub(cursor) != Some(1))
 }
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
