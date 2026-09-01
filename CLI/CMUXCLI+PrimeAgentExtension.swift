@@ -2,7 +2,6 @@ import Foundation
 
 extension CMUXCLI {
     static let primeAgentExtensionMarker = "cmux-prime-agent-session-extension-marker"
-    static let primeAgentExtensionFilename = "cmux-prime-agent-session.ts"
     static let primeAgentExtensionSource = #"""
 // cmux-prime-agent-session-extension-marker v1
 // Bridges Prime Agent session lifecycle events into cmux's managed resume store.
