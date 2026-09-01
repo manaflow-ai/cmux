@@ -280,9 +280,24 @@ cmux_attach_wait_for_usable_session() {
   started_ms="$(cmux_attach_monotonic_milliseconds)"
   deadline_ms="$((started_ms + timeout * 1000))"
   cursor="$baseline"
+  # The app settles its first dial as timed out at ~30s and keeps dialing
+  # with 2-60s backoff, adopting an abandoned dial that completes late, so
+  # readiness routinely lands moments after a fixed cliff. One bounded grace
+  # extension re-checks the retained event stream instead of failing a
+  # session that is about to become usable.
+  local grace_seconds="${CMUX_ATTACH_READY_GRACE_SECONDS:-45}"
+  local grace_remaining="$grace_seconds"
   while true; do
     remaining_ms="$((deadline_ms - $(cmux_attach_monotonic_milliseconds)))"
-    (( remaining_ms > 0 )) || break
+    if (( remaining_ms <= 0 )); then
+      if (( grace_remaining > 0 )); then
+        deadline_ms="$(($(cmux_attach_monotonic_milliseconds) + grace_remaining * 1000))"
+        grace_remaining=0
+        echo "warn: readiness deadline reached; re-checking ${grace_seconds}s for a late usable session (the app keeps dialing past its first attempt)" >&2
+        continue
+      fi
+      break
+    fi
     remaining_seconds="$(((remaining_ms + 999) / 1000))"
     if ! event="$(cmux_attach_events \
       "$tag" \
@@ -293,7 +308,10 @@ cmux_attach_wait_for_usable_session() {
       --timeout "$remaining_seconds" \
       --no-ack \
       --no-heartbeat)"; then
-      break
+      # A transient events-CLI failure must not abandon the remaining wait
+      # window; the cursor mechanics replay anything that raced the gap.
+      sleep 2
+      continue
     fi
     event_client_id="$(printf '%s' "$event" | /usr/bin/python3 -c '
 import json
