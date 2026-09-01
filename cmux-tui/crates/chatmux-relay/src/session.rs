@@ -457,12 +457,13 @@ pub async fn stay_online(
     // connections on loopback 127.0.0.1:9776. Managed sandboxes ONLY — this
     // branch is the gate; paired human machines never start the listener.
     // Best-effort: a failed bind degrades to the relay-socket terminal path.
-    #[cfg(unix)]
     let mut tunnel_listener = None;
+    let tunnel_listener_cancel = cancellation.child_token();
+    #[cfg(unix)]
     if state.managed {
         match crate::tunnel_terminal::start_tunnel_terminal_listener(
             Arc::clone(&runtime.pty),
-            cancellation.child_token(),
+            tunnel_listener_cancel.clone(),
             crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
             crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
         )
@@ -492,8 +493,8 @@ pub async fn stay_online(
                 }
             }
             Err(RelayError::Fatal { message, exit_code }) => {
+                tunnel_listener_cancel.cancel();
                 if let Some(task) = tunnel_listener.take() {
-                    task.abort();
                     let _ = task.await;
                 }
                 return Err(RelayError::Fatal { message, exit_code });
