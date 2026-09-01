@@ -53,7 +53,7 @@ Right-click anywhere inside the sidebar, including its top pad, empty space, fil
 
 Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 
-Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
+Menus draw bordered overlays. Divider rows collapse as needed to keep every action visible when the flat menu would fit. When rows overflow, the menu draws the shared native scrollbar and supports wheel, track click, and thumb drag. Up and Down move the selected row, Home and End jump to the first and last action, Enter activates it, and Esc closes the menu. A right press, drag to a row, and release activates that row. A plain right-click opens the menu and leaves it open.
 
 ## Selection and Clipboard
 
