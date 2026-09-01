@@ -3789,6 +3789,24 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
+    # Keep the line-oriented detectors on the same source-aware executable
+    # view used by the network detector.  The lexical mask is computed once
+    # for the whole source so multiline literals/comments cannot leak tokens
+    # into a later physical line.
+    executable_source = _executable_code_positions(text, suffix)
+    executable_lines: list[str] = []
+    source_offset = 0
+    for source_line in text.splitlines(keepends=True):
+        content = source_line.rstrip("\r\n")
+        content_end = source_offset + len(content)
+        mask = executable_source[source_offset:content_end]
+        executable_lines.append(
+            "".join(
+                character if mask[index] else " "
+                for index, character in enumerate(content)
+            )
+        )
+        source_offset += len(source_line)
     findings: list[Finding] = []
     if _NETWORK_VERB.search(text) and _contains_public_network_url(text):
         network_source = _strip_comments(text, suffix)
