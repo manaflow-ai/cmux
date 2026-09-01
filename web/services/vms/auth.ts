@@ -13,7 +13,15 @@ import {
   billingTeamFromUnknown,
   resolveBillingTeam,
   type BillingTeamLike,
+  type BillingTeamMemberListOptions,
+  type BillingTeamMemberList,
 } from "../billing/teamResolution";
+import { FREE_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
+import {
+  resolveTeamSeatEntitlement,
+  teamSeatMemberListingAvailable,
+  type TeamSeatResolverOptions,
+} from "../billing/teamSeats";
 
 export type AuthedUser = {
   id: string;
@@ -469,7 +477,11 @@ export async function verifyRequest(
       options.subrouterAuthorizationSignal,
     );
     if (user) {
-      const authed = await authedUserFromStackUser(user, options);
+      const authed = await authedUserFromStackUser(
+        user,
+        options,
+        stackServerApp,
+      );
       if (authed && cacheKey) {
         writeNativeAuthCache(cacheKey, authed, tokens, authCacheTtlMs());
       }
@@ -495,7 +507,7 @@ export async function verifyRequest(
     options.subrouterAuthorizationSignal,
   );
   if (user) {
-    return await authedUserFromStackUser(user, options);
+    return await authedUserFromStackUser(user, options, stackServerApp);
   }
   return null;
 }
@@ -503,6 +515,7 @@ export async function verifyRequest(
 async function authedUserFromStackUser(
   user: StackUserLike,
   options: VerifyRequestOptions,
+  stackApp: TeamSeatResolverOptions["stackApp"],
 ): Promise<AuthedUser | null> {
   if (!options.allowDeletingAccount && await isAccountDeletionAuthBlocked(user)) {
     return null;
@@ -537,23 +550,39 @@ async function authedUserFromStackUser(
     ...listedTeams.map((team) => team.id),
   ]);
   const teams = uniqueTeams([selectedTeam, ...listedTeams]);
-  const billingTeam = await resolveBillingTeam({
-    selectedTeam,
-    listTeams: async () => listedTeams,
-  });
-  const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
-  const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const rawTeams = new Map<string, unknown>();
   if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
   for (const raw of listedTeamRaw) {
     const team = billingTeamFromUnknown(raw);
     if (team) rawTeams.set(team.id, raw);
   }
+  const seatCheckedTeams = await Promise.all(
+    teams.map((team) => teamWithSeatCheckedPlan(
+      team,
+      user.id,
+      stackApp,
+      rawTeams.get(team.id),
+    )),
+  );
+  const seatCheckedTeamsById = new Map(
+    seatCheckedTeams.map((team) => [team.id, team]),
+  );
+  const seatCheckedSelectedTeam = selectedTeam
+    ? seatCheckedTeamsById.get(selectedTeam.id) ?? selectedTeam
+    : null;
+  const seatCheckedListedTeams = listedTeams.map((team) =>
+    seatCheckedTeamsById.get(team.id) ?? team);
+  const billingTeam = await resolveBillingTeam({
+    selectedTeam: seatCheckedSelectedTeam,
+    listTeams: async () => seatCheckedListedTeams,
+  });
+  const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const enforceSubrouterPermissions =
     options.subrouterAuthorizationSignal
       ? subrouterPermissionEnforcementEnabled()
       : false;
-  const authedTeams = teams.map((team) => ({
+  const authedTeams = seatCheckedTeams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
     billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
@@ -599,6 +628,47 @@ async function authedUserFromStackUser(
       return pending;
     },
   };
+}
+
+async function teamWithSeatCheckedPlan(
+  team: BillingTeamLike,
+  userId: string,
+  stackApp: TeamSeatResolverOptions["stackApp"],
+  rawTeam: unknown,
+): Promise<BillingTeamLike> {
+  if (billingPlanIdFromMetadata(team.clientReadOnlyMetadata)?.toLowerCase() !== TEAM_PLAN_ID) {
+    return team;
+  }
+  const stackTeam = stackTeamWithMemberListing(rawTeam) ?? team;
+  const seatOptions: TeamSeatResolverOptions = { stackApp, stackTeam };
+  if (!teamSeatMemberListingAvailable(seatOptions)) return team;
+
+  const seat = await resolveTeamSeatEntitlement(team.id, userId, seatOptions);
+  if (seat.status === "inactive" || seat.entitled) return team;
+  return {
+    ...team,
+    clientReadOnlyMetadata: freeTeamPlanMetadata(team.clientReadOnlyMetadata),
+  };
+}
+
+function stackTeamWithMemberListing(value: unknown): TeamSeatResolverOptions["stackTeam"] {
+  if (!value || typeof value !== "object") return null;
+  const listUsers = (value as { readonly listUsers?: unknown }).listUsers;
+  if (typeof listUsers !== "function") return null;
+  return {
+    listUsers: async (options?: BillingTeamMemberListOptions) =>
+      await (listUsers as (
+        options?: BillingTeamMemberListOptions,
+      ) => Promise<unknown> | unknown).call(value, options) as BillingTeamMemberList,
+  };
+}
+
+function freeTeamPlanMetadata(metadata: unknown): Record<string, unknown> {
+  const record = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? { ...(metadata as Record<string, unknown>) }
+    : {};
+  record.cmuxPlan = FREE_PLAN_ID;
+  return record;
 }
 
 async function subrouterPermissions(

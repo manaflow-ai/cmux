@@ -109,6 +109,8 @@ export type StripeBillingStatus = {
   readonly hasCustomer: boolean;
   /** Whether the newest subscription grants current Pro access. */
   readonly hasActiveSubscription: boolean;
+  /** Team subscription quantity. Personal subscriptions always return null. */
+  readonly seats: number | null;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -471,6 +473,7 @@ export async function stripeBillingStatusForTeam(
         cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
         currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
         updatedAt: stripeSubscriptions.updatedAt,
+        seats: stripeSubscriptions.seats,
       })
       .from(stripeSubscriptions)
       .where(
@@ -493,10 +496,14 @@ export async function stripeBillingStatusForTeam(
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
     const subscription = pickPortalMetadataRow(subscriptionRows);
+    const activeSubscription = subscriptionRows.find((row) =>
+      (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)) ??
+      (hasActiveSubscription ? subscriptionRows[0] : undefined);
     return stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
       hasActiveSubscription,
+      activeSubscription?.seats ?? null,
     );
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
@@ -654,6 +661,7 @@ function stripeBillingStatusFromRows(
     readonly cancelAtPeriodEnd?: boolean | null;
   } | undefined,
   activeSubscriptionOverride?: boolean,
+  seats: number | null = null,
 ): StripeBillingStatus {
   const subscriptionStatus = subscription?.status ??
     (activeSubscriptionOverride ? "active" : null);
@@ -666,6 +674,7 @@ function stripeBillingStatusFromRows(
       subscriptionStatus !== null &&
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
+    seats,
   };
 }
 
@@ -676,5 +685,6 @@ function emptyStripeBillingStatus(): StripeBillingStatus {
     cancelAtPeriodEnd: false,
     hasCustomer: false,
     hasActiveSubscription: false,
+    seats: null,
   };
 }
