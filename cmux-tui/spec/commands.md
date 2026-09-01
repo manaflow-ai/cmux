@@ -2847,13 +2847,16 @@ Errors:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`.
-The server clamps an out-of-range destination index to the end. For a same-pane
-move, the index is interpreted after removing the tab, so an index after the
-current position is reduced by one. Moving a tab to its current position is an
-`ok:true` no-op and leaves the active tab unchanged. A cross-pane move removes
-the tab from its source, collapses an empty source pane, and inserts it at the
-clamped destination index.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based
+`index`. The destination index uses the pre-move tab list's insertion
+coordinates. For a same-pane move, the server removes the tab, subtracts one
+from `index` when it is greater than the tab's current index, then clamps the
+adjusted index to the last valid position in the shortened list. For example,
+with tabs `[A,B,C]`, moving `A` with `index:2` produces `[B,A,C]`, while
+`index:3` produces `[B,C,A]`; `index:0` and `index:1` leave the order unchanged.
+A same-pane no-op returns `ok:true` and leaves the active tab unchanged. A
+cross-pane move removes the tab from its source, collapses an empty source
+pane, and inserts it at the clamped destination index.
 
 Params:
 
