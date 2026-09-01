@@ -13253,7 +13253,7 @@ mod tests {
             Ok(_) => panic!("symlinked start lock must be rejected"),
             Err(error) => error,
         };
-        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
     }
 
     #[cfg(unix)]
