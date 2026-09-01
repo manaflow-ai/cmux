@@ -3012,7 +3012,10 @@ impl Terminal {
     /// Move a screen selection point from a wide grapheme's trailing spacer
     /// cell to its leading cell. Mouse reports identify grid cells, so a
     /// click on either half of a wide character must address the same text.
-    pub fn normalize_selection_point_screen(&self, point: SelectionPoint) -> Option<SelectionPoint> {
+    pub fn normalize_selection_point_screen(
+        &self,
+        point: SelectionPoint,
+    ) -> Option<SelectionPoint> {
         let width = self.cell_width_screen(point)?;
         if width != CellWidth::SpacerTail || point.column == 0 {
             return Some(point);
@@ -3022,11 +3025,8 @@ impl Terminal {
     }
 
     fn cell_width_screen(&self, point: SelectionPoint) -> Option<CellWidth> {
-        let grid_ref = self.grid_ref(
-            sys::GHOSTTY_POINT_TAG_SCREEN,
-            point.column,
-            u64::from(point.row),
-        )?;
+        let grid_ref =
+            self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))?;
         let mut raw = sys::GhosttyCell::default();
         check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
         Some(crate::render::cell_width(raw))
