@@ -1,0 +1,92 @@
+import AppKit
+import CmuxSettings
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("Window video background controller", .serialized)
+@MainActor
+struct WindowVideoBackgroundControllerTests {
+    private func makeDefaults() throws -> UserDefaults {
+        let suiteName = "cmux.tests.videoBackground.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    private func hostView(in window: NSWindow) -> NSView? {
+        window.contentView?.superview?.subviews.first { $0 is VideoBackgroundHostView }
+    }
+
+    @Test
+    func disabledSettingInstallsNothingAndReportsInactive() throws {
+        let defaults = try makeDefaults()
+        defaults.set("/tmp/cmux-video-background-test.mp4", forKey: VideoBackgroundSettings.sourceKey)
+        let window = makeWindow()
+
+        let controller = WindowVideoBackgroundController.ensure(on: window, defaults: defaults)
+
+        #expect(controller.presentation.isActive == false)
+        #expect(hostView(in: window) == nil)
+    }
+
+    @Test
+    func installsBelowContentViewAndPublishesActiveState() throws {
+        let defaults = try makeDefaults()
+        defaults.set(true, forKey: VideoBackgroundSettings.enabledKey)
+        defaults.set("/tmp/cmux-video-background-test.mp4", forKey: VideoBackgroundSettings.sourceKey)
+        let window = makeWindow()
+
+        let controller = WindowVideoBackgroundController.ensure(on: window, defaults: defaults)
+
+        #expect(controller.presentation.isActive)
+        let themeFrame = try #require(window.contentView?.superview)
+        let hostIndex = try #require(themeFrame.subviews.firstIndex { $0 is VideoBackgroundHostView })
+        let contentIndex = try #require(themeFrame.subviews.firstIndex { $0 === window.contentView })
+        #expect(hostIndex < contentIndex, "video layer must composite below the content view")
+        #expect(WindowVideoBackgroundController.ensure(on: window, defaults: defaults) === controller)
+    }
+
+    @Test
+    func playerFailureRemovesTheLayerAndReportsInactiveUntilTheSourceChanges() throws {
+        let defaults = try makeDefaults()
+        defaults.set(true, forKey: VideoBackgroundSettings.enabledKey)
+        defaults.set("/tmp/cmux-video-background-broken.mp4", forKey: VideoBackgroundSettings.sourceKey)
+        let window = makeWindow()
+        let controller = WindowVideoBackgroundController.ensure(on: window, defaults: defaults)
+        #expect(controller.presentation.isActive)
+
+        controller.handlePlayerFailure(reason: "test")
+
+        #expect(controller.presentation.isActive == false)
+        #expect(hostView(in: window) == nil)
+
+        // The failed source stays latched: re-running the configuration pass
+        // must not reinstall a layer that would fail again.
+        controller.refresh()
+        #expect(controller.presentation.isActive == false)
+        #expect(hostView(in: window) == nil)
+
+        // Editing the source clears the latch and retries.
+        defaults.set("/tmp/cmux-video-background-fixed.mp4", forKey: VideoBackgroundSettings.sourceKey)
+        controller.refresh()
+        #expect(controller.presentation.isActive)
+        #expect(hostView(in: window) != nil)
+    }
+}

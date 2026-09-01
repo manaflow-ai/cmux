@@ -13,8 +13,13 @@ import CmuxBrowser
 @MainActor
 final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     private let webView: VideoBackgroundWebView
-    private let bridge: VideoBackgroundWebViewBridge
+    /// Internal so tests can drive page events without a live WebKit page.
+    let bridge: VideoBackgroundWebViewBridge
     private var desiredPaused = false
+
+    /// Runs a script in the embed page. Replaceable so tests can observe
+    /// which pause/resume scripts the view issues without a live page.
+    var evaluateScript: (String) -> Void
 
     init(source: VideoBackgroundSource, onFailure: @escaping @MainActor (String) -> Void) {
         let bridge = VideoBackgroundWebViewBridge(onPlayerError: onFailure)
@@ -37,9 +42,13 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
         // A Safari-compatible identity keeps YouTube from serving a degraded player.
         webView.applyBrowserUserAgentPolicy(for: VideoBackgroundEmbedPage.baseURL)
         self.webView = webView
+        self.evaluateScript = { [weak webView] script in
+            webView?.evaluateJavaScript(script, completionHandler: nil)
+        }
 
         super.init(frame: .zero)
         wantsLayer = true
+        bridge.onPlayerReady = { [weak self] in self?.applyDesiredPausedState() }
         webView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(webView)
         NSLayoutConstraint.activate([
@@ -63,7 +72,15 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     func setPaused(_ paused: Bool) {
         guard desiredPaused != paused else { return }
         desiredPaused = paused
-        let script = paused ? VideoBackgroundEmbedPage.pauseScript : VideoBackgroundEmbedPage.resumeScript
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        applyDesiredPausedState()
+    }
+
+    /// Pushes `desiredPaused` into the page. Called on every state change and
+    /// replayed when the page loads and when the player becomes ready: a
+    /// script evaluated before the document exists (a window created while
+    /// occluded, for example) is silently dropped, and the page would
+    /// otherwise autoplay with a stale `pendingPaused`.
+    private func applyDesiredPausedState() {
+        evaluateScript(desiredPaused ? VideoBackgroundEmbedPage.pauseScript : VideoBackgroundEmbedPage.resumeScript)
     }
 }

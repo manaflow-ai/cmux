@@ -13,6 +13,12 @@ import CmuxBrowser
 final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let onPlayerError: @MainActor (String) -> Void
 
+    /// Invoked when the embed page finishes loading and again when the
+    /// YouTube player reports ready. Scripts evaluated before either point
+    /// land in a document that has no player yet, so the host replays its
+    /// desired pause state here instead of trusting earlier evaluations.
+    @MainActor var onPlayerReady: (@MainActor () -> Void)?
+
     init(onPlayerError: @escaping @MainActor (String) -> Void) {
         self.onPlayerError = onPlayerError
     }
@@ -42,23 +48,37 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
         }
     }
 
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        MainActor.assumeIsolated {
+            onPlayerReady?()
+        }
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard let body = message.body as? [String: Any],
-              let event = body["event"] as? String else { return }
-        let code = body["code"].map { "\($0)" } ?? "unknown"
         // WebKit delivers script messages on the main thread; apply synchronously
         // to preserve delivery order relative to navigation callbacks.
         MainActor.assumeIsolated {
-            switch event {
-            case "error":
-                onPlayerError("player-error: \(code)")
-            default:
-                // "ready" and "skipped" are informational; nothing to do.
-                break
-            }
+            handleScriptEvent(message.body)
+        }
+    }
+
+    /// Applies one `{event, code}` payload posted by the embed page.
+    @MainActor
+    func handleScriptEvent(_ body: Any) {
+        guard let body = body as? [String: Any],
+              let event = body["event"] as? String else { return }
+        let code = body["code"].map { "\($0)" } ?? "unknown"
+        switch event {
+        case "error":
+            onPlayerError("player-error: \(code)")
+        case "ready":
+            onPlayerReady?()
+        default:
+            // "skipped" is informational; nothing to do.
+            break
         }
     }
 }

@@ -2,8 +2,22 @@ import AppKit
 import CmuxBrowser
 import CmuxSettings
 import ObjectiveC
+import Observation
 
-private var windowVideoBackgroundControllerKey: UInt8 = 0
+/// Authoritative, observable playback state of one window's video background.
+///
+/// `isActive` is written only by ``WindowVideoBackgroundController`` and is
+/// `true` exactly while a player view is installed below the window's content
+/// view. The window-root backdrop dims against it — never against the raw
+/// settings — so a failed embed (or a window without a usable theme frame)
+/// restores the regular terminal background instead of leaving a dimmed fill
+/// over nothing.
+@MainActor
+@Observable
+final class VideoBackgroundPresentation {
+    /// Whether a video player is currently installed in the window.
+    fileprivate(set) var isActive = false
+}
 
 /// Owns one main window's dynamic video background layer.
 ///
@@ -15,7 +29,15 @@ private var windowVideoBackgroundControllerKey: UInt8 = 0
 /// driven by `NSWindow` occlusion-state notifications, never by polling.
 @MainActor
 final class WindowVideoBackgroundController {
+    private static let associatedObjectKey = UnsafeRawPointer(
+        UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+    )
+
+    /// Playback state the window-root backdrop observes.
+    let presentation = VideoBackgroundPresentation()
+
     private weak var window: NSWindow?
+    private let defaults: UserDefaults
     private var hostView: VideoBackgroundHostView?
     private var playerView: (any VideoBackgroundPlayerView)?
     private var activeSource: VideoBackgroundSource?
@@ -26,26 +48,25 @@ final class WindowVideoBackgroundController {
     ///
     /// Idempotent; called from the window-chrome configuration pass so the
     /// layer's position below `contentView` is re-asserted after glass-root
-    /// swaps and other content-view changes.
-    static func ensure(on window: NSWindow) {
+    /// swaps and other content-view changes. Returns the window's controller
+    /// so the caller can hand its ``presentation`` to the root backdrop.
+    @discardableResult
+    static func ensure(on window: NSWindow, defaults: UserDefaults = .standard) -> WindowVideoBackgroundController {
         let controller: WindowVideoBackgroundController
-        if let existing = objc_getAssociatedObject(window, &windowVideoBackgroundControllerKey)
+        if let existing = objc_getAssociatedObject(window, Self.associatedObjectKey)
             as? WindowVideoBackgroundController {
             controller = existing
         } else {
-            controller = WindowVideoBackgroundController(window: window)
-            objc_setAssociatedObject(
-                window,
-                &windowVideoBackgroundControllerKey,
-                controller,
-                .OBJC_ASSOCIATION_RETAIN
-            )
+            controller = WindowVideoBackgroundController(window: window, defaults: defaults)
+            objc_setAssociatedObject(window, Self.associatedObjectKey, controller, .OBJC_ASSOCIATION_RETAIN)
         }
         controller.refresh()
+        return controller
     }
 
-    private init(window: NSWindow) {
+    private init(window: NSWindow, defaults: UserDefaults) {
         self.window = window
+        self.defaults = defaults
         startObserving(window: window)
     }
 
@@ -76,8 +97,8 @@ final class WindowVideoBackgroundController {
 
     private func refreshIfSettingsChanged() {
         let policy = VideoBackgroundSettings()
-        let enabled = policy.isEnabled(defaults: .standard)
-        let sourceText = policy.sourceText(defaults: .standard)
+        let enabled = policy.isEnabled(defaults: defaults)
+        let sourceText = policy.sourceText(defaults: defaults)
         guard enabled != lastObservedEnabled || sourceText != lastObservedSourceText else { return }
         refresh()
     }
@@ -87,8 +108,8 @@ final class WindowVideoBackgroundController {
         guard let window else { return }
 
         let policy = VideoBackgroundSettings()
-        let enabled = policy.isEnabled(defaults: .standard)
-        let sourceText = policy.sourceText(defaults: .standard)
+        let enabled = policy.isEnabled(defaults: defaults)
+        let sourceText = policy.sourceText(defaults: defaults)
         lastObservedEnabled = enabled
         lastObservedSourceText = sourceText
 
@@ -108,6 +129,7 @@ final class WindowVideoBackgroundController {
             replacePlayerView(with: source)
         }
         updatePlaybackState()
+        presentation.isActive = playerView != nil
     }
 
     private func installHostViewIfNeeded(in window: NSWindow) {
@@ -166,17 +188,15 @@ final class WindowVideoBackgroundController {
         playerView = player
     }
 
-    /// Fails gracefully: the layer disappears and the terminal is untouched.
+    /// Fails gracefully: the layer disappears, ``presentation`` reports
+    /// inactive so the backdrop stops dimming, and the terminal is untouched.
     /// The failed source is remembered so a broken embed doesn't reload in a
     /// loop; editing the source setting clears the latch and retries.
-    private func handlePlayerFailure(reason: String) {
+    func handlePlayerFailure(reason: String) {
         #if DEBUG
         cmuxDebugLog("videoBackground.playerFailure reason=\(reason)")
         #endif
         failedSourceText = lastObservedSourceText
-        playerView?.removeFromSuperview()
-        playerView = nil
-        activeSource = nil
         removeLayer()
     }
 
@@ -193,6 +213,7 @@ final class WindowVideoBackgroundController {
         activeSource = nil
         hostView?.removeFromSuperview()
         hostView = nil
+        presentation.isActive = false
     }
 
     private func tearDownForWindowClose() {
