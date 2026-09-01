@@ -20358,7 +20358,7 @@ struct CMUXCLI {
         }
 
         guard sawNoCaller, !selectorFlags.isEmpty else { return }
-        let selectors = ListFormatter.localizedString(byJoining: selectorFlags)
+        let selectors = selectorFlags.formatted(.list(type: .or))
         throw CLIError(
             message: String(
                 format: String(
