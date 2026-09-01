@@ -853,6 +853,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(suppressedFeedbackCount, 0)
         XCTAssertEqual(store.phoneUnreadCountForTesting, phoneUnreadCountBefore)
         XCTAssertEqual(store.notificationFeedHistoryRevisionForTesting, feedRevisionBefore)
+        XCTAssertEqual(store.phoneVisibleNotifications.map(\.id), [unrelated.id])
         XCTAssertTrue(store.notifications.contains(where: { $0.id == unrelated.id }))
         let inventory = try XCTUnwrap(store.notifications.first(where: {
             $0.correlationKey == "session-restore-recovery"
@@ -871,6 +872,11 @@ final class NotificationDockBadgeTests: XCTestCase {
                 unrelated.id.uuidString,
             ]),
             [unrelated.id.uuidString]
+        )
+        store.markRead(id: inventory.id)
+        XCTAssertEqual(
+            store.externalNotificationIdentifiersForTesting([inventory.id.uuidString]),
+            []
         )
     }
 

@@ -19,8 +19,8 @@ extension TerminalController {
         responseID: String? = "notification.feed.list"
     ) async -> V2CallResult {
         let store = TerminalNotificationStore.shared
-        store.notificationFeedHistory.reconcileActiveNotifications(store.notifications)
-        let snapshot = store.notificationFeedHistory.snapshot
+        store.notificationFeedHistory.reconcileActiveNotifications(store.phoneVisibleNotifications)
+        let snapshot = store.phoneNotificationFeedSnapshot
         let items = snapshot.notifications.map(mobileNotificationFeedWireItem)
         let fittedItems = await Self.mobileNotificationFeedItemsFittingFrame(
             responseID: responseID,
@@ -244,7 +244,7 @@ extension TerminalController {
         let store = TerminalNotificationStore.shared
         return .ok([
             "handled_ids": store.reconcileHandledNotificationIDs(deliveredIDs: deliveredIDs),
-            "unread_count": store.unreadNotificationCount,
+            "unread_count": store.phoneUnreadNotificationCount,
         ])
     }
 

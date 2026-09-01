@@ -5,7 +5,7 @@ extension TerminalController {
     /// queue as a terminal notification, preserving the current badge count.
     func v2MobilePhonePushTest() -> V2CallResult {
         let admission = PhonePushClient.shared.forwardTest(
-            badgeCount: TerminalNotificationStore.shared.unreadNotificationCount
+            badgeCount: TerminalNotificationStore.shared.phoneUnreadNotificationCount
         )
         return .ok(["stage": admission.testStageRawValue])
     }

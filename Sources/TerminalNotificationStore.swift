@@ -189,6 +189,20 @@ final class TerminalNotificationStore: ObservableObject {
     /// workspace-level manual unread indicators, which have no phone banner.)
     var unreadNotificationCount: Int { indexes.unreadCount }
 
+    var phoneVisibleNotifications: [TerminalNotification] {
+        notifications.filter { $0.correlationKey != Self.sessionRestoreRecoveryCorrelationKey }
+    }
+
+    var phoneUnreadNotificationCount: Int { indexes.phoneUnreadCount }
+
+    var phoneNotificationFeedSnapshot: NotificationFeedHistorySnapshot {
+        let snapshot = notificationFeedHistory.snapshot
+        return NotificationFeedHistorySnapshot(
+            revision: snapshot.revision,
+            notifications: snapshot.notifications.filter { !localOnlyNotificationIDs.contains($0.id) }
+        )
+    }
+
     /// Recently dismissed/cleared notification ids, kept so the phone's
     /// foreground reconcile sweep can classify a delivered banner as "handled
     /// here" even after the entry left the store entirely (remove / clear-all
@@ -300,7 +314,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func emitNotificationsDismissed(ids: [String]) {
         let externalIDs = ids.filter { identifier in
             guard let id = UUID(uuidString: identifier) else { return true }
-            return localOnlyNotificationIDs.remove(id) == nil
+            return !localOnlyNotificationIDs.contains(id)
         }
         guard !externalIDs.isEmpty else { return }
         recordDismissTombstones(ids: externalIDs.compactMap { UUID(uuidString: $0) })
@@ -334,6 +348,8 @@ final class TerminalNotificationStore: ObservableObject {
     /// The last unread count pushed over ``badgeEventTopic``, so the chokepoint
     /// only emits on real transitions.
     private var lastEmittedPhoneBadgeCount: Int?
+    // Keep provenance after mark-read/removal: later cleanup of the same UUID
+    // must remain local and must never become a phone dismissal or feed row.
     private var localOnlyNotificationIDs: Set<UUID> = []
 
     /// Pushes the authoritative unread count to an attached phone whenever it
@@ -1617,7 +1633,6 @@ final class TerminalNotificationStore: ObservableObject {
         )
 #endif
         let externalIDsToClear = externalNotificationIdentifiers(idsToClear)
-        let externalIDsToClearSet = Set(externalIDsToClear)
         if !externalIDsToClear.isEmpty {
             removeDeliveredNotifications(withIdentifiers: externalIDsToClear)
             removePendingNotificationRequests(withIdentifiers: externalIDsToClear)
@@ -1641,11 +1656,6 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
-        for identifier in idsToClear where !externalIDsToClearSet.contains(identifier) {
-            if let id = UUID(uuidString: identifier) {
-                localOnlyNotificationIDs.remove(id)
-            }
-        }
     }
 
     private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -1691,7 +1701,7 @@ final class TerminalNotificationStore: ObservableObject {
         if shouldAttemptPhone {
             PhonePushClient.shared.forward(
                 notification,
-                badgeCount: indexes.unreadCount
+                badgeCount: indexes.phoneUnreadCount
             )
         }
         let superseded = supersededPhoneDismissBuffer.flush(forKey: key)
