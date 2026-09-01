@@ -432,6 +432,10 @@ struct Attachment {
     /// Serializes operations for this attachment only. The relay state lock
     /// must never be held while a PTY control method runs.
     operation_gate: Arc<Mutex<()>>,
+    /// Serializes open success publication with attachment retirement. This
+    /// is separate because start callbacks can emit output and re-enter the
+    /// operation gate.
+    publication_gate: Arc<Mutex<()>>,
     /// Releases this attachment (detach a viewer, close a control stream,
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
@@ -1033,6 +1037,8 @@ impl PtyManager {
         // identity is gone and cannot publish after revocation.
         let mut retired = Vec::new();
         for (id, candidate) in candidates {
+            let publication =
+                candidate.publication_gate.lock().expect("attachment publication lock");
             let operation = candidate.operation_gate.lock().expect("attachment operation lock");
             let removed = {
                 let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
@@ -1047,6 +1053,7 @@ impl PtyManager {
                 retired.push(removed);
             }
             drop(operation);
+            drop(publication);
         }
         RetiredAttachments { inner: Arc::clone(&self.inner), attachments: retired }
     }
@@ -1498,11 +1505,13 @@ impl Inner {
             let control = opened.control.take().expect("opened control handle");
             let start = opened.start.take().expect("opened start callback");
             let surface = opened.surface.take();
+            let publication_gate = Arc::new(Mutex::new(()));
             let previous = self.attachments.lock().expect("attach lock").insert(
                 pty_id.clone(),
                 Attachment {
                     closing,
                     operation_gate: Arc::new(Mutex::new(())),
+                    publication_gate: Arc::clone(&publication_gate),
                     control,
                     actor_id: actor.to_owned(),
                     owner: TransportOwner::from_context(context),
@@ -1512,10 +1521,36 @@ impl Inner {
             opening.cancellations.remove(&reservation_owner);
             opening.cancelled.remove(&pty_id);
             reservation.active = false;
-            (surface, start, previous)
+            (surface, start, previous, publication_gate)
         };
         if let Some(previous) = previous {
             self.retire_attachment(previous);
+        }
+
+        // Keep retirement behind the success frame and startup callbacks.
+        // Every attachment removal takes this gate, so a concurrent detach
+        // cannot revoke the attachment between the final check and publish.
+        let _publication = publication_gate.lock().expect("attachment publication lock");
+        let authority_current = self
+            .auth_for_transport(context)
+            .is_some_and(|auth| self.transport_auth_is_current(context, &auth));
+        let attachment_current = self
+            .attachments
+            .lock()
+            .expect("attach lock")
+            .get(&pty_id)
+            .is_some_and(|current| Arc::ptr_eq(&current.publication_gate, &publication_gate));
+        if !authority_current || !attachment_current {
+            let removed = {
+                let _state = self.tunnel_state.lock().expect("tunnel state lock");
+                let mut attachments = self.attachments.lock().expect("attach lock");
+                attachments.remove(&pty_id)
+            };
+            if let Some(removed) = removed {
+                removed.closing.store(true, Ordering::SeqCst);
+                self.retire_attachment(removed);
+            }
+            return;
         }
 
         let mut opened_frame = serde_json::Map::new();
@@ -1624,6 +1659,7 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
+        let _publication = attachment.publication_gate.lock().expect("attachment publication lock");
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
         let authorized = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
@@ -1631,6 +1667,7 @@ impl Inner {
         };
         if !authorized {
             drop(_operation);
+            drop(_publication);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "exit");
             return;
         }
@@ -1655,6 +1692,7 @@ impl Inner {
             "ptyId": pty_id,
             "code": code,
         }));
+        drop(_publication);
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -1672,10 +1710,25 @@ impl Inner {
                 opening.cancelled.insert(pty_id.to_owned(), owner);
                 return;
             }
-            self.attachments.lock().expect("attach lock").remove(pty_id)
+            self.attachments.lock().expect("attach lock").get(pty_id).cloned()
         };
         if let Some(attachment) = attachment {
-            self.retire_attachment(attachment);
+            let _publication =
+                attachment.publication_gate.lock().expect("attachment publication lock");
+            let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+            let removed = {
+                let _state = self.tunnel_state.lock().expect("tunnel state lock");
+                let mut attachments = self.attachments.lock().expect("attach lock");
+                let same = attachments.get(pty_id).is_some_and(|current| {
+                    Arc::ptr_eq(&current.publication_gate, &attachment.publication_gate)
+                });
+                if same { attachments.remove(pty_id) } else { None }
+            };
+            drop(_operation);
+            drop(_publication);
+            if let Some(removed) = removed {
+                self.retire_attachment(removed);
+            }
         }
     }
 
@@ -1834,6 +1887,7 @@ impl Inner {
         }
 
         let Some(attachment) = self.attachment(pty_id) else { return };
+        let _publication = attachment.publication_gate.lock().expect("attachment publication lock");
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
         let authorized = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
@@ -1841,6 +1895,7 @@ impl Inner {
         };
         if !authorized {
             drop(_operation);
+            drop(_publication);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "close");
             return;
         }
@@ -1921,8 +1976,10 @@ impl Inner {
     }
 
     fn retire_if_current(&self, pty_id: &str, attachment: &Attachment) {
-        // The operation gate is the publication/removal linearization point.
+        // The publication gate serializes open success with removal. The
+        // operation gate then protects the attachment's control lifecycle.
         // Callers must release any prior guard before entering this helper.
+        let publication = attachment.publication_gate.lock().expect("attachment publication lock");
         let operation = attachment.operation_gate.lock().expect("attachment operation lock");
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
@@ -1936,6 +1993,7 @@ impl Inner {
             removed.closing.store(true, Ordering::SeqCst);
         }
         drop(operation);
+        drop(publication);
         if let Some(removed) = removed {
             self.retire_attachment(removed);
         }
@@ -4440,6 +4498,7 @@ mod tests {
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    publication_gate: Arc::new(Mutex::new(())),
                     control: slow,
                     actor_id: "user_owner".to_owned(),
                     owner: owner_a,
@@ -4450,6 +4509,7 @@ mod tests {
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    publication_gate: Arc::new(Mutex::new(())),
                     control: Arc::new(fast),
                     actor_id: "user_owner".to_owned(),
                     owner: owner_b,
@@ -4503,6 +4563,7 @@ mod tests {
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    publication_gate: Arc::new(Mutex::new(())),
                     control: Arc::new(BlockingControl {
                         entered: Arc::clone(&entered),
                         release: Arc::clone(&release),
@@ -4555,6 +4616,7 @@ mod tests {
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    publication_gate: Arc::new(Mutex::new(())),
                     control: Arc::new(BlockingControl {
                         entered: Arc::clone(&entered),
                         release: Arc::clone(&release),
@@ -4628,6 +4690,7 @@ mod tests {
         let attachment = Attachment {
             closing: Arc::new(AtomicBool::new(false)),
             operation_gate: Arc::new(Mutex::new(())),
+            publication_gate: Arc::new(Mutex::new(())),
             control: Arc::new(pty),
             actor_id: "user_owner".to_owned(),
             owner: TransportOwner {
