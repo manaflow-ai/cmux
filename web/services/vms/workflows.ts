@@ -350,22 +350,25 @@ export function createVm(input: {
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-        homeVolume: input.perMachineHome
-          ? homeVolumeTemplateForUser(input.userId)
-          : input.persistentHome
-            ? homeVolumeNameForUser(input.userId)
-            : undefined,
-        memoryMb: input.memoryMb,
-        envs: input.envs,
-      }),
-    ).pipe(
+    const handle = yield* Effect.gen(function* () {
+      const envs = yield* resolveCreateEnvs(input);
+      return yield* measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+          homeVolume: input.perMachineHome
+            ? homeVolumeTemplateForUser(input.userId)
+            : input.persistentHome
+              ? homeVolumeNameForUser(input.userId)
+              : undefined,
+          memoryMb: input.memoryMb,
+          envs,
+        }),
+      );
+    }).pipe(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
@@ -489,6 +492,34 @@ export function resetBaseVm(input: {
   });
 }
 
+/**
+ * The create-time machine env for a create that is actually going to reach
+ * the provider. `envs` wins when given; otherwise `mintEnvs` runs here and
+ * only here, so an idempotent replay of a running machine never burns a
+ * stored bearer token on a mint. A rejected mint is a create failure like any
+ * other provider failure: it fails inside the caller's cleanup chain, so the
+ * reserved credit is refunded and the row is marked failed instead of leaking
+ * a provisioning VM.
+ */
+function resolveCreateEnvs(input: {
+  readonly provider: ProviderId;
+  readonly envs?: Readonly<Record<string, string>>;
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
+}): Effect.Effect<Readonly<Record<string, string>> | undefined, VmProviderOperationError> {
+  if (input.envs) return Effect.succeed(input.envs);
+  const mint = input.mintEnvs;
+  if (!mint) return Effect.succeed(undefined);
+  return Effect.tryPromise({
+    try: () => mint(),
+    catch: (cause) =>
+      new VmProviderOperationError({
+        provider: input.provider,
+        operation: "mint_envs",
+        cause,
+      }),
+  });
+}
+
 function finishBaseCreate(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -552,21 +583,19 @@ function finishBaseCreate(
       idempotencyKey,
     }, create.vm, creditReservation);
 
-    // The model-plane token is minted only on this branch: an idempotent
-    // re-open of a running Base never creates a machine and must not burn a
-    // stored bearer token for nothing.
-    const envs = input.envs ??
-      (input.mintEnvs ? yield* Effect.promise(input.mintEnvs) : undefined);
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-        envs,
-      }),
-    ).pipe(
+    const handle = yield* Effect.gen(function* () {
+      const envs = yield* resolveCreateEnvs(input);
+      return yield* measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          providerMetadata: create.vm.providerMetadata,
+          bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+          envs,
+        }),
+      );
+    }).pipe(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),

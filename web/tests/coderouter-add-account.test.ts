@@ -61,17 +61,16 @@ describe("coderouter addAccount", () => {
   // `cr add` on an account the vault marked expired or broken is a repair: the
   // credential is replaced, and the caller (and its 201) sees a new connection,
   // exactly as before the connected-account mirror was added.
-  test.each(["expired", "broken"])(
-    "repairing a %s account replaces the credential and is reported as new",
-    async (state) => {
+  for (const state of ["expired", "broken"]) {
+    test(`repairing a ${state} account replaces the credential and is reported as new`, async () => {
       const { add, calls } = adder({
         existing: { id: "acct-existing", state, vaultRevision: 3 },
       });
       const result = await add("team-1", credential);
       expect(result).toEqual({ accountId: "acct-existing", alreadyExists: false, refreshed: false });
       expect(calls).toEqual({ inserted: 0, replaced: 1 });
-    },
-  );
+    });
+  }
 
   test("the mirror repairing an expired account reports it refreshed, not already connected", async () => {
     const { add, calls } = adder({
