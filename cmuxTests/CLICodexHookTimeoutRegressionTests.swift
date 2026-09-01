@@ -108,6 +108,9 @@ struct CLICodexHookTimeoutRegressionTests {
         """
         try Data(hooksContent.utf8).write(to: hooksURL, options: .atomic)
         try Data(configContent.utf8).write(to: configURL, options: .atomic)
+        let hooksBeforeLaunch = try Data(contentsOf: hooksURL)
+        let configBeforeLaunch = try Data(contentsOf: configURL)
+
         let emit = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "inject-args"],
@@ -124,27 +127,22 @@ struct CLICodexHookTimeoutRegressionTests {
             "hooks",
             "--dangerously-bypass-hook-trust",
         ])
-        for eventName in wrapperEvents {
-            let installedProducerCount = installedHooks.filter {
-                $0.eventName == eventName
-                    && ($0.body.contains("hooks codex ")
-                        || $0.body.contains("hooks feed --source codex"))
-            }.count
-            let emittedProducerCount = emittedEvents.filter { $0 == eventName }.count
-            #expect(
-                installedProducerCount + emittedProducerCount == 1,
-                "Expected one cmux producer for \(eventName), installed=\(installedProducerCount) emitted=\(emittedProducerCount)"
-            )
-        }
-        #expect(installedHooks.contains { $0.command == userScript.path })
-        // Wrapper injection is on Codex's launch path. It must not collect or
-        // delete stale generated files just to reconcile the persistent
-        // config, so old cmux-owned files remain untouched here. They are
-        // eligible for the bounded collector only during an explicit
-        // `hooks codex install`.
-        #expect(FileManager.default.fileExists(atPath: legacyStopScript.path))
-        #expect(FileManager.default.fileExists(atPath: staleHashedScript.path))
-        #expect(FileManager.default.fileExists(atPath: userScript.path))
+        let expectedInjectedEvents: Set<String> = [
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "PermissionRequest",
+            "SubagentStart",
+            "SubagentStop",
+        ]
+        #expect(Set(emittedEvents) == expectedInjectedEvents)
+        #expect(emittedEvents.count == expectedInjectedEvents.count)
+
+        let hooksAfterLaunch = try Data(contentsOf: hooksURL)
+        let configAfterLaunch = try Data(contentsOf: configURL)
+        #expect(hooksAfterLaunch == hooksBeforeLaunch)
+        #expect(configAfterLaunch == configBeforeLaunch)
     }
 
     @Test func codexPermissionRequestHandlerPreservesFeedTelemetryAndNeedsInputState() throws {
