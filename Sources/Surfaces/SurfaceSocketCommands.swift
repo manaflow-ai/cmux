@@ -192,6 +192,12 @@ extension TerminalController {
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = await SurfaceCatalog.shared
+            // The same gate the sidebar applies (no port rows): a provider that cannot mint
+            // port URLs is refused up front, not after a pane opened on a failure page.
+            if let provider = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: vmId),
+               await !provider.capabilities.ports {
+                throw SurfaceCatalogError.unsupported("opening ports on \(vmId): its provider cannot expose machine ports as preview URLs (capabilities.ports = false); reach the service from inside the machine with `cmux vm exec`")
+            }
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
                 // not have been seen yet. Register it now and open it — a port pane is an

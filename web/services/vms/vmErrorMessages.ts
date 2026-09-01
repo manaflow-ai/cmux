@@ -36,8 +36,20 @@ export function vmRequestLocale(request: Request): Locale {
 }
 
 /** Load and translate the phase-specific unsupported-operation response copy. */
+export type VmUnsupportedOperationKey = "snapshot" | "restore" | "fork" | "openPort" | "getStats" | "default";
+
+/** The copy key for a provider operation the provider does not implement. */
+export function vmUnsupportedOperationKey(operation: string): VmUnsupportedOperationKey {
+  if (operation.includes("openPort")) return "openPort";
+  if (operation.includes("getStats")) return "getStats";
+  if (operation.includes("restore")) return "restore";
+  if (operation.includes("fork")) return "fork";
+  if (operation.includes("snapshot")) return "snapshot";
+  return "default";
+}
+
 export async function vmUnsupportedCopy(
-  phase: "snapshot" | "restore" | "fork" | "default",
+  phase: VmUnsupportedOperationKey,
   locale: Locale,
 ): Promise<VmUnsupportedCopy> {
   const translator = createTranslator({
@@ -45,7 +57,7 @@ export async function vmUnsupportedCopy(
     messages: await loadMessages(locale),
     namespace: "vmErrors.unsupported",
   }) as unknown as (key: string) => string;
-  const phaseKey = phase === "snapshot" || phase === "restore" || phase === "fork"
+  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort", "getStats"].includes(phase)
     ? phase
     : "default";
   return {

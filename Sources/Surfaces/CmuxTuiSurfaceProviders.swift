@@ -194,6 +194,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     var isAwake: Bool { summary.status == "running" }
+    /// What this machine's provider can honor (`vm ls --json` → `capabilities`).
+    var capabilities: VMCapabilities { summary.capabilities }
 
     func update(summary: VMSummary) {
         self.summary = summary
@@ -238,7 +240,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
             prefetchDesktopEndpoint()
         }
-        async let stats = try? client.stats(id: machineID)
+        // A provider that reports no stats (`capabilities.stats == false`) is not asked:
+        // the control plane would only answer 501 vm_operation_unsupported every sync.
+        async let stats: VMStats? = capabilities.stats ? (try? client.stats(id: machineID)) : nil
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
@@ -255,8 +259,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             }
-            for port in await ports(client: client, force: force) {
-                resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
+            // Port rows exist only where the provider can mint a preview URL for them
+            // (`capabilities.ports`); otherwise every row would open a pane that fails.
+            if capabilities.ports {
+                for port in await ports(client: client, force: force) {
+                    resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
+                }
             }
         } catch {
             let status = await links.status(machineID: machineID)

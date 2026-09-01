@@ -237,6 +237,10 @@ export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
+  /** The provider can mint a tokened preview URL for a machine port (`openPort`). */
+  readonly ports: boolean;
+  /** The provider reports live CPU/memory/disk (`getStats`). */
+  readonly stats: boolean;
 }
 
 export interface VMProvider {

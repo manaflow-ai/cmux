@@ -151,7 +151,9 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "openPort", () => {
       const impl = getProvider(provider);
       if (!impl.openPort) {
-        throw new Error(`provider ${provider} does not support opening ports`);
+        // Structured, like fork: the route answers 501 vm_operation_unsupported
+        // (retryable: false) instead of a retryable 502 the client keeps retrying.
+        throw new VmOperationUnsupportedError({ provider, operation: "openPort" });
       }
       return impl.openPort(vmId, port);
     }),
@@ -159,7 +161,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "getStats", () => {
       const impl = getProvider(provider);
       if (!impl.getStats) {
-        throw new Error(`provider ${provider} does not report machine stats`);
+        throw new VmOperationUnsupportedError({ provider, operation: "getStats" });
       }
       return impl.getStats(vmId);
     }),
