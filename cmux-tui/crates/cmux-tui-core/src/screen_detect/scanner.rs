@@ -102,6 +102,11 @@ pub(crate) fn scan(
     for (terminal_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
+        if mux.screen_detect_pending_for_terminal(terminal_id) {
+            // A queued emission must be admitted before newer screen states;
+            // otherwise retry order can invert and regress the roster.
+            continue;
+        }
         if let Some(pending) = tracker.pending_emission(terminal_id) {
             if mux.append_screen_detect_event(&pending).is_ok() {
                 tracker.clear_pending_emission(terminal_id);

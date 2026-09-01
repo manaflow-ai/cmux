@@ -2792,6 +2792,23 @@ impl Mux {
         Ok(())
     }
 
+    pub(crate) fn screen_detect_pending_for_terminal(&self, terminal_id: &str) -> bool {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections()
+            .map(|rows| {
+                rows.into_iter().any(|(_, origin, _, _, ingress)| {
+                    origin == "screen-detect"
+                        && ingress
+                            .subjects
+                            .iter()
+                            .any(|subject| subject.kind == "terminal" && subject.id == terminal_id)
+                })
+            })
+            .unwrap_or(false)
+    }
+
     fn retry_pending_agent_hooks_rows(
         &self,
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
