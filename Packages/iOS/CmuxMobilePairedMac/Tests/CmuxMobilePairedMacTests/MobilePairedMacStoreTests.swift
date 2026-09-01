@@ -273,7 +273,7 @@ import Testing
         )
 
         let active = try await store.activeMac(stackUserID: "user-1")
-        #expect(active?.legacyTailscaleRoutes == [tailscale])
+        #expect(active?.legacyTailscaleRoutes == nil)
         #expect(active?.userAuthorizedTailscaleRoutes == [tailscale])
     }
 
@@ -310,7 +310,10 @@ import Testing
         )
 
         #expect(
-            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
+            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == nil
+        )
+        #expect(
+            try await store.activeMac(stackUserID: "user-1")?.userAuthorizedTailscaleRoutes
                 == [tailscale]
         )
     }
@@ -364,7 +367,10 @@ import Testing
         )
 
         #expect(
-            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes
+            try await store.activeMac(stackUserID: "user-1")?.legacyTailscaleRoutes == nil
+        )
+        #expect(
+            try await store.activeMac(stackUserID: "user-1")?.userAuthorizedTailscaleRoutes
                 == [tailscale]
         )
     }

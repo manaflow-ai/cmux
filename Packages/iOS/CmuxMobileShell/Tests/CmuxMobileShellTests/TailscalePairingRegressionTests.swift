@@ -117,7 +117,7 @@ import Testing
         ])
         #expect((await router.authorization(for: "workspace.list")).first?.stackAccessToken == "test-stack-token")
         let saved = try await pairedMacStore.activeMac(stackUserID: "phone-user")
-        #expect(saved?.legacyTailscaleRoutes?.first?.endpoint == .hostPort(host: host, port: port))
+        #expect(saved?.userAuthorizedTailscaleRoutes?.first?.endpoint == .hostPort(host: host, port: port))
         #expect(saved?.connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue)
     }
 
@@ -159,7 +159,7 @@ import Testing
         #expect(factory.attemptedAuthorizationModes().count == 1)
         let saved = try #require(await pairedMacStore.activeMac(stackUserID: "phone-user"))
         #expect(saved.connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue)
-        #expect(saved.legacyTailscaleRoutes?.first?.endpoint == .hostPort(host: manualHost, port: port))
+        #expect(saved.userAuthorizedTailscaleRoutes?.first?.endpoint == .hostPort(host: manualHost, port: port))
 
         // Reload from the SQLite row and prove the exact user grant, rather
         // than the app default, selects the same route on the next launch.
@@ -233,6 +233,11 @@ import Testing
         store.pairingCode = qrCode(host: "100.71.210.42")
         #expect(await store.connectPairingInput() == .connected)
         #expect(store.connectionState == .connected)
+        #expect(
+            store.liveMacConnections.contains {
+                $0.macDeviceID == "first-mac" && $0.role == .control
+            }
+        )
 
         let saved = try await pairedMacStore.loadAll(stackUserID: "phone-user")
         #expect(Set(saved.map(\.macDeviceID)) == ["first-mac", "second-mac"])

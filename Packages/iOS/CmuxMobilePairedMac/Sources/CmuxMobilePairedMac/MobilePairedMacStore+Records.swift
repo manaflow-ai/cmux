@@ -260,7 +260,9 @@ extension MobilePairedMacStore {
                 macDeviceID: row.macDeviceID,
                 ownerKey: row.ownerKey
             )
-            let legacyTailscaleRoutes = tailscaleGrants.map(\.route)
+            let legacyTailscaleRoutes = tailscaleGrants
+                .filter { $0.origin == .migration }
+                .map(\.route)
             let userAuthorizedTailscaleRoutes = tailscaleGrants
                 .filter { $0.origin == .user }
                 .map(\.route)

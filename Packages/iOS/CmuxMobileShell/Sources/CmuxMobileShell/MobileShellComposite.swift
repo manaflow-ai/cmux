@@ -5164,7 +5164,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             reportedInstanceTag: status.macInstanceTag
         ) == .identityUnavailable,
            (MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
-               || legacyTailscaleAuthorizationEvidence != nil) {
+               || legacyTailscaleAuthorizationEvidence != nil
+               || userTailscalePairingAuthorization != nil) {
             // Status intentionally uses only a cached token. If it cannot prove
             // identity, perform one authorized request that may refresh Stack
             // credentials, then bind the status response to that exact token.
@@ -10227,12 +10228,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // when the app-wide method is Automatic, Iroh, or Tailscale Only.
         // `directOnly` is reserved for an already-paired Direct connection and
         // must remain the stronger, Iroh-only constraint.
-        if !directOnly,
-           let explicitlyAuthorizedRoutes = cmuxExplicitlyAuthorizedTailscaleRoutes(
-               from: supportedRoutes,
-               authorizations: userTailscalePairingAuthorizations
-           ) {
-            return explicitlyAuthorizedRoutes
+        if !directOnly {
+            let explicitlyAuthorizedRoutes = cmuxExplicitlyAuthorizedTailscaleRoutes(
+                from: supportedRoutes,
+                authorizations: userTailscalePairingAuthorizations
+            )
+            if !explicitlyAuthorizedRoutes.isEmpty {
+                return explicitlyAuthorizedRoutes
+            }
         }
 
         // The explicit Tailscale method is strict: only authorized Tailscale

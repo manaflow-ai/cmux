@@ -64,7 +64,7 @@ func cmuxUserTailscalePairingAuthorization(
 func cmuxExplicitlyAuthorizedTailscaleRoutes(
     from routes: [CmxAttachRoute],
     authorizations: [CmxUserTailscalePairingAuthorization]
-) -> [CmxAttachRoute]? {
+) -> [CmxAttachRoute] {
     let authorizedDestinations = Set(authorizations)
     let matches = routes.filter { route in
         cmuxUserTailscalePairingAuthorization(
@@ -72,7 +72,7 @@ func cmuxExplicitlyAuthorizedTailscaleRoutes(
             authorizations: authorizedDestinations
         ) != nil
     }
-    return matches.isEmpty ? nil : matches
+    return matches
 }
 
 func cmuxLegacyTailscaleAuthorizationSet(
@@ -157,7 +157,10 @@ func cmuxStoredMacTicket(
     pairedMacDeviceID: String
 ) throws -> CmxAttachTicket {
     try CmxAttachTicket(
-        workspaceID: "stored-workspace",
+        // An empty id deliberately requests the Mac-wide workspace list. A
+        // synthetic non-UUID id would be treated as a scoped workspace and
+        // could select the wrong workspace on a multi-workspace Mac.
+        workspaceID: "",
         terminalID: nil,
         macDeviceID: pairedMacDeviceID,
         macDisplayName: name,
