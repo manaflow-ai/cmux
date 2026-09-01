@@ -96,8 +96,7 @@ manifests and adapted detector sources live under
 - **License text:** `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
 - **Latest capability audit:** commit `0032c3b42751b6da9c5b1a91546b3c1a425d67f1`. The first-acquisition OSC retention fix from `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the userland tracker. The foreground group-leader CWD fix from `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by cmux's generic `foreground_cwd` resource. The shell-render refactor in `207be3c771d281baae6e5fa0fb74be9a056e97a2` is application/client architecture and is not copied. The latest Windows remote multiline paste fix is outside detector behavior and is not copied. Later Windows launch, process, job, input, and paste fixes remain outside this Unix-only package.
 
-Seventeen manifests are unchanged from the manifest snapshot. Claude, Codex,
-and GitHub Copilot include the upstream fixes in that snapshot. `grok.toml` is
+Twenty manifests are unchanged from the manifest snapshot. `grok.toml` is
 based on the snapshot file and contains one documented cmux precedence
 correction. The manifest engine, process discovery, state detector, and update
 logic are adapted for the cmux userland plugin contract. The source paths,
