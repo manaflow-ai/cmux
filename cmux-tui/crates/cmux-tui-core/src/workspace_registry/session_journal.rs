@@ -893,6 +893,15 @@ impl WorkspaceRegistry {
         &self,
         reducer_id: &str,
     ) -> anyhow::Result<Option<(u32, u64, String)>> {
+        Ok(self
+            .journal_reducer_state_with_order(reducer_id)?
+            .map(|(version, cursor, _ordering_token, snapshot)| (version, cursor, snapshot)))
+    }
+
+    pub(crate) fn journal_reducer_state_with_order(
+        &self,
+        reducer_id: &str,
+    ) -> anyhow::Result<Option<(u32, u64, u64, String)>> {
         let raw = self
             .connection
             .query_row(
@@ -910,9 +919,17 @@ impl WorkspaceRegistry {
             .and_then(Value::as_str)
             .and_then(|cursor| cursor.parse::<u64>().ok())
             .unwrap_or(0);
+        // Older reducer rows predate the ordering token. Their cursor is the
+        // best available ordering, and new writes immediately persist the
+        // explicit token.
+        let ordering_token = value
+            .get("ordering_token")
+            .and_then(Value::as_str)
+            .and_then(|token| token.parse::<u64>().ok())
+            .unwrap_or(cursor);
         let snapshot =
             value.get("snapshot").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
-        Ok(Some((version, cursor, snapshot)))
+        Ok(Some((version, cursor, ordering_token, snapshot)))
     }
 
     /// Durably record a reducer's fold position and state snapshot. Cursor
@@ -924,16 +941,53 @@ impl WorkspaceRegistry {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
+        self.put_journal_reducer_state_ordered(reducer_id, version, cursor, cursor, snapshot)
+    }
+
+    pub(crate) fn put_journal_reducer_state_ordered(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        ordering_token: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        // The ordering token is a durable write sequence for snapshots that
+        // share a journal cursor. Strict comparison rejects late writes.
         let value = serde_json::json!({
             "version": version,
             "cursor": cursor.to_string(),
+            "ordering_token": ordering_token.to_string(),
             "snapshot": snapshot,
         });
         self.connection.execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value
-             WHERE COALESCE(CAST(json_extract(meta.value, '$.cursor') AS INTEGER), 0)
-                   <= CAST(json_extract(excluded.value, '$.cursor') AS INTEGER)",
+             WHERE COALESCE(CAST(json_extract(meta.value, '$.ordering_token') AS INTEGER),
+                            CAST(json_extract(meta.value, '$.cursor') AS INTEGER), 0)
+                   < CAST(json_extract(excluded.value, '$.ordering_token') AS INTEGER)",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn clear_journal_reducer_state(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        // A reset is an explicit state transition, so it must bypass the
+        // monotonic guard even when the previous cursor is nonzero.
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": "0",
+            "ordering_token": "0",
+            "snapshot": snapshot,
+        });
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![format!("journal_reducer.{reducer_id}"), value.to_string()],
         )?;
         Ok(())
@@ -2090,9 +2144,7 @@ mod tests {
                 r#"{"entries":{"stale":{}}}"#,
             )
             .unwrap();
-        registry
-            .clear_journal_reducer_state("agent_roster", 3, r#"{"entries":{}}"#)
-            .unwrap();
+        registry.clear_journal_reducer_state("agent_roster", 3, r#"{"entries":{}}"#).unwrap();
 
         let (_, cursor, snapshot) =
             registry.journal_reducer_state("agent_roster").unwrap().unwrap();

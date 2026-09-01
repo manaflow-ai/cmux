@@ -1126,6 +1126,7 @@ fn parse_projection_agent_state(value: &str) -> AgentState {
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
+    ordering_token: u64,
 }
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
@@ -1139,13 +1140,15 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
     let mut reset_persisted_state = false;
-    let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
-        Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
+    let mut host = match registry.journal_reducer_state_with_order(AGENT_ROSTER_REDUCER_ID)? {
+        Some((version, cursor, ordering_token, snapshot))
+            if version == AGENT_ROSTER_REDUCER_VERSION =>
+        {
             // Never keep a cursor whose snapshot was rejected. The cursor is
             // only meaningful together with the state it follows; retaining
             // it would skip the journal prefix needed to rebuild the roster.
             match AgentRoster::restore(&snapshot) {
-                Some(roster) => AgentRosterHost { roster, cursor },
+                Some(roster) => AgentRosterHost { roster, cursor, ordering_token },
                 None => {
                     reset_persisted_state = true;
                     AgentRosterHost::default()
@@ -1158,6 +1161,14 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         }
         None => AgentRosterHost::default(),
     };
+    if reset_persisted_state {
+        let empty_snapshot = AgentRoster::default().snapshot().to_string();
+        registry.clear_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            AGENT_ROSTER_REDUCER_VERSION,
+            &empty_snapshot,
+        )?;
+    }
     let started_at = host.cursor;
     loop {
         let page = match registry.session_journal_after(host.cursor, 512) {
@@ -1169,10 +1180,9 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 // than exposing a partial state at a nonzero cursor.
                 eprintln!("cmux-tui: agent roster snapshot cannot be replayed: {error}");
                 let empty_snapshot = AgentRoster::default().snapshot().to_string();
-                if let Err(reset_error) = registry.put_journal_reducer_state(
+                if let Err(reset_error) = registry.clear_journal_reducer_state(
                     AGENT_ROSTER_REDUCER_ID,
                     AGENT_ROSTER_REDUCER_VERSION,
-                    0,
                     &empty_snapshot,
                 ) {
                     eprintln!(
@@ -1188,13 +1198,15 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         for record in &page.records {
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
+            host.ordering_token = host.ordering_token.saturating_add(1);
         }
     }
-    if host.cursor != started_at || reset_persisted_state {
-        registry.put_journal_reducer_state(
+    if host.cursor != started_at {
+        registry.put_journal_reducer_state_ordered(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
             host.cursor,
+            host.ordering_token,
             &host.roster.snapshot().to_string(),
         )?;
     }
@@ -5765,7 +5777,7 @@ impl Mux {
                 return;
             }
         };
-        let (deltas, cursor, snapshot) = {
+        let (deltas, cursor, ordering_token, snapshot) = {
             let mut host = self.agent_roster.lock().unwrap();
             if commit.sequence <= host.cursor {
                 // The startup tail replay already folded this sequence.
@@ -5773,14 +5785,18 @@ impl Mux {
             }
             let deltas = host.roster.apply(&RosterEvent::from_record(&record));
             host.cursor = host.cursor.max(commit.sequence);
-            (deltas, host.cursor, host.roster.snapshot().to_string())
+            host.ordering_token = host.ordering_token.saturating_add(1);
+            (deltas, host.cursor, host.ordering_token, host.roster.snapshot().to_string())
         };
-        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            cursor,
-            &snapshot,
-        ) {
+        if let Err(error) =
+            self.workspace_registry.lock().unwrap().put_journal_reducer_state_ordered(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                ordering_token,
+                &snapshot,
+            )
+        {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
         // Socket echo events already committed their projection and change
@@ -9738,15 +9754,20 @@ impl Mux {
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             let retired = host.roster.retire_terminal(terminal_id.as_str());
-            retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
+            retired.then(|| {
+                host.ordering_token = host.ordering_token.saturating_add(1);
+                (host.cursor, host.ordering_token, host.roster.snapshot().to_string())
+            })
         };
-        if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                cursor,
-                &snapshot,
-            )
+        if let Some((cursor, ordering_token, snapshot)) = retired
+            && let Err(error) =
+                self.workspace_registry.lock().unwrap().put_journal_reducer_state_ordered(
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                    cursor,
+                    ordering_token,
+                    &snapshot,
+                )
         {
             eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
         }
@@ -23808,7 +23829,7 @@ mod tests {
         // snapshot: an identical roster proves it derives from the journal.
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
-            .put_journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, 0, 0, "")
+            .clear_journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, 0, "")
             .unwrap();
         let reopened = Mux::from_workspace_registry(
             session.into(),
