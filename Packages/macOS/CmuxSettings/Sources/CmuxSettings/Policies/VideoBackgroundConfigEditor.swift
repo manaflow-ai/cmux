@@ -97,8 +97,7 @@ public struct VideoBackgroundConfigEditor: Sendable {
     /// JSONC comments and trailing commas are accepted. A missing file is
     /// treated as an empty config; malformed existing JSON is reported.
     public func read() throws -> Snapshot {
-        try withExclusiveFileLock {
-            let targetURL = Self.resolvedURL(for: fileURL)
+        try withExclusiveFileLock { targetURL in
             let root = try readRoot(from: targetURL)
             return snapshot(from: root)
         }
@@ -111,12 +110,7 @@ public struct VideoBackgroundConfigEditor: Sendable {
     /// user's intent is visible in `cmux.json`.
     @discardableResult
     public func update(_ mutation: Mutation) throws -> Snapshot {
-        try withExclusiveFileLock {
-            // Resolve the symlink once, inside the transaction. A retargeted
-            // cmux.json therefore cannot split this read/modify/write across
-            // two destinations, and the sidecar lock serializes editor
-            // instances (including separate CLI processes).
-            let targetURL = Self.resolvedURL(for: fileURL)
+        try withExclusiveFileLock { targetURL in
             var root = try readRoot(from: targetURL)
             if let existingTerminal = root["terminal"], !(existingTerminal is [String: Any]) {
                 throw JSONConfigStoreReadError.notADictionary
@@ -229,30 +223,39 @@ public struct VideoBackgroundConfigEditor: Sendable {
     /// processes. BSD `flock` is used at this file-I/O seam because an actor
     /// cannot protect independent synchronous CLI processes; the critical
     /// section never suspends and the kernel releases the lock on a crash.
-    private func withExclusiveFileLock<T>(_ operation: () throws -> T) throws -> T {
+    private func withExclusiveFileLock<T>(_ operation: (URL) throws -> T) throws -> T {
         // Use the canonical target for the lock identity. Callers may open the
         // same config through either `cmux.json` or its resolved target path;
-        // both must acquire the same sidecar lock.
-        let lockIdentity = Self.resolvedURL(for: fileURL).standardizedFileURL
-        let directory = lockIdentity.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let lockURL = directory.appendingPathComponent(
-            ".\(lockIdentity.lastPathComponent).video-background.lock",
-            isDirectory: false
-        )
-        let descriptor = lockURL.path.withCString {
-            Darwin.open($0, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
-        }
-        guard descriptor >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        defer { _ = Darwin.close(descriptor) }
-        while flock(descriptor, LOCK_EX) != 0 {
-            guard errno == EINTR else {
+        // both must acquire the same sidecar lock. A symlink can change while
+        // a descriptor waits, so validate the target after acquisition and
+        // retry against the new identity before touching any file.
+        for _ in 0..<4 {
+            let lockIdentity = Self.resolvedURL(for: fileURL).standardizedFileURL
+            let directory = lockIdentity.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let lockURL = directory.appendingPathComponent(
+                ".\(lockIdentity.lastPathComponent).video-background.lock",
+                isDirectory: false
+            )
+            let descriptor = lockURL.path.withCString {
+                Darwin.open($0, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+            }
+            guard descriptor >= 0 else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
+            do {
+                defer { _ = Darwin.close(descriptor) }
+                while flock(descriptor, LOCK_EX) != 0 {
+                    guard errno == EINTR else {
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                }
+                defer { _ = flock(descriptor, LOCK_UN) }
+                let targetURL = Self.resolvedURL(for: fileURL).standardizedFileURL
+                guard targetURL == lockIdentity else { continue }
+                return try operation(targetURL)
+            }
         }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        return try operation()
+        throw POSIXError(.EAGAIN)
     }
 }
