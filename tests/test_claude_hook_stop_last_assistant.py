@@ -255,9 +255,10 @@ def main() -> int:
         notify = notify_commands[-1]
         # Stop notifications carry the agent-notification gating meta as a 4th
         # pipe segment; no background_tasks/session_crons in the payload => p=0.
+        # The turn-complete sound tag selects the Claude per-agent override.
         expected_payload = (
             f"notify_target_async {workspace_id} {surface_id} "
-            "Claude Code|Completed in fun|2|c=turn-complete;p=0;a=claude;n=0"
+            "Claude Code|Completed in fun|2|c=turn-complete;p=0;a=claude;n=0;s=turnDone"
         )
         if notify != expected_payload:
             print("FAIL: expected stop notification to use final assistant text")
