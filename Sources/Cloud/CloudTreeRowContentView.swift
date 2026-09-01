@@ -97,7 +97,7 @@ struct CloudTreeRowContentView: View {
             )
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
-        case .display(let resource):
+        case .display(let resource, _):
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",

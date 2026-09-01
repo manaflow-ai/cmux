@@ -434,7 +434,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
                 nodeActions.project(row.resource.id, .split, true)
-            case .display(let resource), .port(let resource):
+            case .display(let resource, let openIn):
+                // A workspace's Desktop row opens INSIDE the local workspace showing
+                // that remote workspace — never a jump to a VNC pane in a different
+                // workspace. Pool rows (openIn == nil) keep the global open-or-focus.
+                if let openIn {
+                    nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                } else {
+                    nodeActions.project(resource.id, .split, true)
+                }
+            case .port(let resource):
                 nodeActions.project(resource.id, .split, true)
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
@@ -596,7 +605,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return items
             case .browser(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
-            case .display(let resource), .port(let resource):
+            case .display(let resource, let openIn):
+                return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn)
+            case .port(let resource):
                 return resourceMenuItems(resource, isLocal: false)
             case .browsersGroup, .portsGroup:
                 return [
@@ -611,9 +622,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The verbs every surface row shares: open (reusing an open pane), open as a
         /// tab, a second pane (cloud resources only — a local terminal has one pane),
         /// and copying the resource id agents use with `cmux vm open`.
-        private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool) -> [NSMenuItem] {
+        private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool, openInLocalWorkspace: UUID? = nil) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
-                item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in nodeActions.project(resource.id, .split, true) },
+                item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
+                    // Same scope rule as the row's open verb (one shared path).
+                    if let openInLocalWorkspace {
+                        nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
+                    } else {
+                        nodeActions.project(resource.id, .split, true)
+                    }
+                },
                 item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in nodeActions.project(resource.id, .tab, true) },
             ]
             if !isLocal {
