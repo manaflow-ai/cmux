@@ -167,7 +167,7 @@ enum WorkspaceTabColorSettings {
     }
 
     private static var defaultPaletteMap: [String: String] {
-        Dictionary(uniqueKeysWithValues: CmuxConfigWorkspaceColorPalette.defaultPalette.map { ($0.name, $0.hex) })
+        CmuxConfigWorkspaceColorPalette.defaultPaletteMap
     }
 
     private static func normalizedColorName(_ raw: String) -> String? {

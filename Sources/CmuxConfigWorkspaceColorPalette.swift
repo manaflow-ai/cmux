@@ -48,9 +48,14 @@ enum CmuxConfigWorkspaceColorPalette {
         }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return effectivePaletteMap(defaults: defaults).first {
-            $0.key.caseInsensitiveCompare(trimmed) == .orderedSame
-        }?.value
+        let palette = effectivePaletteMap(defaults: defaults)
+        if let exact = palette[trimmed] {
+            return exact
+        }
+        return palette
+            .filter { $0.key.caseInsensitiveCompare(trimmed) == .orderedSame }
+            .min { $0.key < $1.key }?
+            .value
     }
 
     static func effectivePaletteMap(defaults: UserDefaults = .standard) -> [String: String] {
@@ -101,7 +106,10 @@ enum CmuxConfigWorkspaceColorPalette {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        guard body.count == 6, UInt64(body, radix: 16) != nil else { return nil }
+        let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+        guard body.count == 6,
+              body.unicodeScalars.allSatisfy({ hexDigits.contains($0) }),
+              UInt64(body, radix: 16) != nil else { return nil }
         return "#" + body.uppercased()
     }
 
@@ -133,7 +141,7 @@ enum CmuxConfigWorkspaceColorPalette {
         }
     }
 
-    private static var defaultPaletteMap: [String: String] {
+    static var defaultPaletteMap: [String: String] {
         Dictionary(uniqueKeysWithValues: defaultPalette.map { ($0.name, $0.hex) })
     }
 }

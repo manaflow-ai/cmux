@@ -135,6 +135,32 @@ struct CmuxConfigReviewRegressionTests {
         #expect(paths.contains("surfaceTabBarButtons[0].icon.type"))
     }
 
+    @Test func runtimeValidatorAcceptsEveryMenuSectionOrderAlias() throws {
+        let acceptedOrders = [
+            "customFirst",
+            "workspaceFirst",
+            "newWorkspaceFirst",
+            "cloudFirst",
+            "cloudVMFirst",
+        ]
+
+        for order in acceptedOrders {
+            let object = try jsonObject("""
+            { "ui": { "newWorkspace": { "menuSectionOrder": "\(order)" } } }
+            """)
+            #expect(CmuxConfigValidator().validate(jsonObject: object).isEmpty)
+        }
+
+        let invalid = try jsonObject(#"{"ui":{"newWorkspace":{"menuSectionOrder":"unknown"}}}"#)
+        let issue = try #require(CmuxConfigValidator().validate(jsonObject: invalid).first)
+        #expect(issue.path == "ui.newWorkspace.menuSectionOrder")
+        #expect(issue.message.contains("customFirst"))
+        #expect(issue.message.contains("workspaceFirst"))
+        #expect(issue.message.contains("newWorkspaceFirst"))
+        #expect(issue.message.contains("cloudFirst"))
+        #expect(issue.message.contains("cloudVMFirst"))
+    }
+
     @Test func validatorCollectsIndependentActionAndSectionIssues() throws {
         let actionObject = try jsonObject(
             #"{"actions":{"bad":{"type":"command","command":"echo","target":"invalid","shortcut":"bare","icon":{"type":"unknown"}}}}"#
@@ -182,6 +208,28 @@ struct CmuxConfigReviewRegressionTests {
         }
         """.replacingOccurrences(of: "\"red\"", with: "\" custom 1 \""), colorDefaults: defaults)
         #expect(config.commands[0].workspace?.color == "#ABCDEF")
+    }
+
+    @Test func paletteResolutionUsesExactThenDeterministicCaseInsensitiveMatch() throws {
+        let suiteName = "cmux-config-review-palette-order-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set([
+            "Red": "#010203",
+            "red": "#040506",
+        ], forKey: CmuxConfigWorkspaceColorPalette.paletteKey)
+
+        #expect(CmuxConfigWorkspaceColorPalette.resolvedColorHex("red", defaults: defaults) == "#040506")
+        for _ in 0..<10 {
+            #expect(CmuxConfigWorkspaceColorPalette.resolvedColorHex("RED", defaults: defaults) == "#010203")
+        }
+    }
+
+    @Test func paletteHexNormalizationRejectsSignedValues() {
+        #expect(CmuxConfigWorkspaceColorPalette.normalizedHex("+ABCDEF") == nil)
+        #expect(CmuxConfigWorkspaceColorPalette.normalizedHex("#+ABCDEF") == nil)
+        #expect(CmuxConfigWorkspaceColorPalette.normalizedHex("abcdef") == "#ABCDEF")
     }
 }
 

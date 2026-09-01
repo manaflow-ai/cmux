@@ -52,14 +52,28 @@ extension CmuxConfigValidator {
         validateOptionalString(placement["action"], path: path + ".action", into: &issues)
         validateOptionalString(placement["tooltip"], path: path + ".tooltip", into: &issues)
         validateIcon(placement["icon"], path: path + ".icon", into: &issues)
+        let allowedMenuSectionOrders = [
+            "customFirst",
+            "workspaceFirst",
+            "newWorkspaceFirst",
+            "cloudFirst",
+            "cloudVMFirst",
+        ]
+        let allowedMenuSectionOrdersDescription = allowedMenuSectionOrders.joined(separator: ", ")
         if let rawOrder = placement["menuSectionOrder"] ?? placement["sectionOrder"],
            let order = rawOrder as? String {
             let normalized = order.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !["customFirst", "workspaceFirst", "newWorkspaceFirst", "cloudFirst", "cloudVMFirst"].contains(normalized) {
-                issues.append(issue(path + ".menuSectionOrder", "must be customFirst or cloudFirst"))
+            if !allowedMenuSectionOrders.contains(normalized) {
+                issues.append(issue(
+                    path + ".menuSectionOrder",
+                    "must be one of \(allowedMenuSectionOrdersDescription)"
+                ))
             }
         } else if placement["menuSectionOrder"] != nil || placement["sectionOrder"] != nil {
-            issues.append(issue(path + ".menuSectionOrder", "must be customFirst or cloudFirst"))
+            issues.append(issue(
+                path + ".menuSectionOrder",
+                "must be one of \(allowedMenuSectionOrdersDescription)"
+            ))
         }
         if let rawContextMenu = placement["contextMenu"] ?? placement["rightClick"] {
             guard let contextMenu = rawContextMenu as? [Any] else {
