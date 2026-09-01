@@ -116,6 +116,23 @@ struct AgentLaunchCommandRejectionReasonTests {
         #expect(object["rejectionReason"] == nil)
     }
 
+    @Test func typedUnavailableGroundWinsOverLegacyRejectedMarker() throws {
+        let stored = """
+        {
+          "arguments": [],
+          "source": "rejected",
+          "rejectionReason": "argvUnavailable"
+        }
+        """
+        let command = try JSONDecoder().decode(
+            AgentLaunchCommand.self,
+            from: Data(stored.utf8)
+        )
+
+        #expect(command.rejectionReason == .argvUnavailable)
+        #expect(command.isRejectedCapture == false)
+    }
+
     @Test func decodeFailureHasAStableForwardCompatibleToken() throws {
         let reason = AgentLaunchCaptureRejectionReason.argvDecodeFailed
         let encoded = try JSONEncoder().encode(reason)
