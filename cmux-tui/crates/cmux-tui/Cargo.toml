@@ -45,11 +45,11 @@ sha2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 fs4.workspace = true
+tokio.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
-tokio.workspace = true
 url.workspace = true
 async-trait.workspace = true
 
