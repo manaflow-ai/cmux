@@ -269,7 +269,7 @@ struct CodexApprovalNotificationPolicy: Sendable {
             in: rawObject,
             keys: ["turn_id", "turnId"]
         )
-        var latestTurnContext: [String: Any]?
+        guard let requestedTurnID else { return nil }
         for line in rolloutLines.reversed() {
             guard let data = line.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -277,22 +277,9 @@ struct CodexApprovalNotificationPolicy: Sendable {
                   let payload = object["payload"] as? [String: Any] else {
                 continue
             }
-            if latestTurnContext == nil {
-                latestTurnContext = payload
-            }
-            guard let requestedTurnID else {
-                return reviewRoute(in: payload)
-            }
             if firstString(in: payload, keys: ["turn_id", "turnId"]) == requestedTurnID {
                 return reviewRoute(in: payload)
             }
-        }
-
-        // Older rollout writers omitted turn_id. Only trust that fallback on
-        // the newest context; never borrow a route from a known older turn.
-        if let latestTurnContext,
-           firstString(in: latestTurnContext, keys: ["turn_id", "turnId"]) == nil {
-            return reviewRoute(in: latestTurnContext)
         }
         return nil
     }

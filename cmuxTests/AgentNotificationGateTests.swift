@@ -433,10 +433,17 @@ import Testing
         )
         #expect(fixture.clears.count == 1)
 
-        fixture.coordinator.resolve(
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
             surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "delayed duplicate",
             approvalID: Self.firstApprovalID
         )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
         #expect(fixture.clears.count == 1)
     }
 
