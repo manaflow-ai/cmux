@@ -827,6 +827,26 @@ mod tests {
     }
 
     #[test]
+    fn legacy_detected_source_reclaims_a_stale_hook_at_the_boundary() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
+        let screen = screen_payload("claude", "idle");
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
+        let deltas = roster.apply(&stamped_event(
+            10_000 + STALE_HOOK_MS,
+            "agent.state.changed",
+            &subjects,
+            &screen,
+        ));
+
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].source, "detected");
+        assert_eq!(roster.entries["term_a"].state, "idle");
+    }
+
+    #[test]
     fn screen_detect_beats_socket_reports_in_both_directions() {
         let subjects = terminal_subject("term_a");
         let socket_payload = json!({
