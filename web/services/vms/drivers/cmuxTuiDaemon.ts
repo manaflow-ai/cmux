@@ -223,7 +223,10 @@ export function cmuxTuiDaemonCommand(
     // Overwrite-latest, not append: a crash-looping daemon must not grow this file.
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s view-missing\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; } 2>/dev/null; ` +
     `cd ${backing} && exec env HOME=${backing} TERM=xterm-256color ${bin} ${args}; ` +
-    `elif id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && runuser -u ${user} -- test -w ${home} 2>/dev/null; then ` +
+    // A cmux session is promised passwordless sudo; without the binary it would be
+    // trapped unprivileged, so fall back to a (breadcrumbed) root session until
+    // the driver's sudo heal lands and the next daemon start re-evaluates.
+    `elif id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && runuser -u ${user} -- test -w ${home} 2>/dev/null; then ` +
     `cd ${home} && exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash TERM=xterm-256color ${bin} ${args}; ` +
     `else ` +
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s user-unusable\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; } 2>/dev/null; ` +

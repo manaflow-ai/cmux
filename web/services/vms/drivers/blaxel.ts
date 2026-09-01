@@ -150,7 +150,12 @@ export const CMUX_CLOUD_USER_SETUP_COMMAND = [
   `mkdir -p ${CMUX_CLOUD_HOME} /etc/sudoers.d`,
   `printf '${CMUX_CLOUD_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd`,
   `chmod 0440 /etc/sudoers.d/90-cmux-nopasswd`,
-  `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then ` +
+  // Serialized under an in-VM lock: concurrent setups (attach racing create, two
+  // attaches from different server instances) must not both see "view unmounted" —
+  // the loser would junk-clean a mountpoint the winner just turned into the
+  // persistent home. The mount state is re-evaluated inside the lock.
+  `mkdir -p /etc/cmux 2>/dev/null; ( flock 9; ` +
+    `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then ` +
     // bindfs ships in baked images from 2026-08-28-r10; older ones install it here,
     // synchronously, because the daemon must not start before the view exists.
     `command -v bindfs >/dev/null 2>&1` +
@@ -159,7 +164,8 @@ export const CMUX_CLOUD_USER_SETUP_COMMAND = [
     // On a volume machine the real home is the volume; whatever sits under the
     // mountpoint is disposable rootfs skel, and FUSE refuses non-empty mountpoints.
     `find ${CMUX_CLOUD_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; ` +
-    `${CMUX_HOME_BINDFS_COMMAND}; fi`,
+    `${CMUX_HOME_BINDFS_COMMAND}; fi ` +
+    `) 9>/etc/cmux/home-setup.lock`,
   // A failed view is not a failed machine: the daemon command's usable-user probe
   // falls back to a root daemon, which still attaches (the pre-layout behavior).
   `true`,
@@ -199,6 +205,7 @@ const CMUX_HOME_VIEW_MISSING_CONDITION =
 // always agree on which user owns the machine's sessions.
 const CMUX_CLOUD_USER_USABLE_CONDITION =
   `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
+  `command -v sudo >/dev/null 2>&1 && ` +
   `runuser -u ${CMUX_CLOUD_USER} -- test -w ${CMUX_CLOUD_HOME} 2>/dev/null`;
 
 // User-facing exec (`cmux vm exec`) runs as the same user a terminal pane would, so
@@ -209,12 +216,12 @@ const CMUX_CLOUD_USER_USABLE_CONDITION =
 export function userExecCommand(command: string): string {
   const quoted = shellQuote(command);
   return (
-    `if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c ${quoted}; ` +
+    `if mountpoint -q /root 2>/dev/null; then cd /root 2>/dev/null; exec env HOME=/root sh -c ${quoted}; ` +
     `elif ${CMUX_HOME_VIEW_MISSING_CONDITION}; then ` +
-    `exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} sh -c ${quoted}; ` +
+    `cd ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} sh -c ${quoted}; ` +
     `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
-    `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} sh -c ${quoted}; ` +
-    `else exec env HOME=${CMUX_CLOUD_HOME} sh -c ${quoted}; fi`
+    `cd ${CMUX_CLOUD_HOME} 2>/dev/null; exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} sh -c ${quoted}; ` +
+    `else cd ${CMUX_CLOUD_HOME} 2>/dev/null; exec env HOME=${CMUX_CLOUD_HOME} sh -c ${quoted}; fi`
   );
 }
 
@@ -721,6 +728,12 @@ export class BlaxelProvider implements VMProvider {
     if (userSetup.exitCode !== 0) {
       throw new ProviderError("blaxel", `cmux user setup in ${name} failed: ${userSetup.stderr || userSetup.stdout}`);
     }
+    // Readiness must imply working escalation: the sudo heal completes before the
+    // daemon can start, since session identity checks `command -v sudo`. Instant on
+    // current images; one bounded apt run on stamped pre-r12 images. Failures leave
+    // the in-VM breadcrumb and the daemon falls back to root sessions until healed.
+    await timedStep("sudo_heal", () =>
+      this.sandboxExec(sandboxUrl, CMUX_SUDO_INSTALL_COMMAND, CMUX_SUDO_INSTALL_TIMEOUT_MS).catch(() => undefined));
     // Everything after the user setup is mutually independent: the daemon install/start,
     // the watcher process, the hostname→VNC-heal chain (ordered within itself — the heal
     // only succeeds once the hostname resolves; runtime state, so it re-applies on
@@ -735,8 +748,6 @@ export class BlaxelProvider implements VMProvider {
         await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
         await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
       })(),
-      timedStep("sudo_heal", () =>
-        this.sandboxExec(sandboxUrl, CMUX_SUDO_INSTALL_COMMAND, CMUX_SUDO_INSTALL_TIMEOUT_MS).catch(() => undefined)),
       (async () => {
         await blaxelFetch("PUT", `${sandboxUrl}/filesystem/${CMUX_PROVISION_SCRIPT_PATH}`, { content: CMUX_PROVISION_SCRIPT, permissions: "0755" });
         await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {

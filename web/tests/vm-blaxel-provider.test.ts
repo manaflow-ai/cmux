@@ -499,6 +499,10 @@ describe("cloud work user setup", () => {
     // installed on demand for images that predate it being baked in.
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(CMUX_HOME_BINDFS_COMMAND);
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("if mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null");
+    // The whole view setup (mount check, junk clean, mount) is serialized under an
+    // in-VM flock so a concurrent setup can never junk-clean a just-mounted home.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("( flock 9; ");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(") 9>/etc/cmux/home-setup.lock");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
   });
 
@@ -520,14 +524,14 @@ describe("cloud work user setup", () => {
     const wrapped = userExecCommand("echo 'hi there'");
     expect(wrapped).toContain("runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux sh -c 'echo '\\''hi there'\\'''");
     // Legacy sandboxes (volume at /root) keep the historical root exec.
-    expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c");
+    expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then cd /root 2>/dev/null; exec env HOME=/root sh -c");
     // Volume mounted but the view missing: root exec homed on the persistent
     // backing path, matching where the daemon fail-over puts sessions.
     expect(wrapped).toContain(
-      "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then exec env HOME=/cmux/home sh -c",
+      "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then cd /cmux/home 2>/dev/null; exec env HOME=/cmux/home sh -c",
     );
     // No user/runuser: fall back to root rather than failing the exec.
-    expect(wrapped).toContain("else exec env HOME=/home/cmux sh -c");
+    expect(wrapped).toContain("else cd /home/cmux 2>/dev/null; exec env HOME=/home/cmux sh -c");
   });
 });
 
