@@ -35,7 +35,7 @@ public struct SidebarPeekPanelChrome<Content: View>: View {
 
     public var body: some View {
         content()
-            .background(shape.fill(material))
+            .background(surface)
             .overlay(rim)
             .clipShape(shape)
             .shadow(
@@ -45,8 +45,22 @@ public struct SidebarPeekPanelChrome<Content: View>: View {
                 y: metrics.shadowOffsetY
             )
             .padding(.leading, metrics.leadingInset)
-            .padding(.vertical, metrics.verticalInset)
+            .padding(.top, metrics.topInset)
+            .padding(.bottom, metrics.bottomInset)
             .accessibilityIdentifier("SidebarPeekPanel")
+    }
+
+    /// The card's ground: real behind-window glass with a legibility tint.
+    ///
+    /// The glass samples the terminal under the panel window; the tint is
+    /// what keeps row labels readable over it. Blur alone leaves ghosted
+    /// terminal text inside the card; the tint pushes it back to a shimmer
+    /// without going opaque, which is the whole glassmorphism effect.
+    private var surface: some View {
+        ZStack {
+            SidebarPeekGlassBackdrop(cornerRadius: metrics.cornerRadius)
+            shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.52))
+        }
     }
 
     private var shape: RoundedRectangle {

@@ -26,12 +26,15 @@ public struct SidebarPeekPolicy: Sendable, Hashable {
     ///
     /// 180ms of dwell is long enough that crossing the edge on the way
     /// somewhere else does not trigger a reveal, and short enough that a
-    /// deliberate rest feels immediate. 260ms of grace comfortably covers the
-    /// diagonal from the edge strip into the panel.
+    /// deliberate rest feels immediate. 250ms of grace covers the diagonal
+    /// from the edge strip into the panel and a grazing exit along a row,
+    /// while keeping the dismissal feeling immediate once the pointer has
+    /// genuinely left. The 10pt strip forgives a pointer thrown at the
+    /// screen edge that stops a few points short.
     public static let `default` = SidebarPeekPolicy(
-        dwell: .milliseconds(180),
-        grace: .milliseconds(260),
-        edgeWidth: 6,
+        dwell: .milliseconds(120),
+        grace: .milliseconds(250),
+        edgeWidth: 14,
         dismissesOnWorkspaceActivation: true,
         isEnabled: true
     )

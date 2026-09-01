@@ -10,8 +10,15 @@ public import SwiftUI
 public struct SidebarPeekPanelMetrics: Sendable, Equatable {
     /// Distance from the window's leading edge to the panel.
     public let leadingInset: CGFloat
-    /// Distance from the window's top and bottom to the panel.
-    public let verticalInset: CGFloat
+    /// Distance from the top of the content area to the panel.
+    ///
+    /// Larger than the other insets so the card hangs below the titlebar band
+    /// instead of sliding underneath it. A card that reaches into the titlebar
+    /// reads as part of the window chrome; starting it below the band is what
+    /// makes it read as a sheet lying over the content.
+    public let topInset: CGFloat
+    /// Distance from the window's bottom edge to the panel.
+    public let bottomInset: CGFloat
     /// The panel's corner radius.
     public let cornerRadius: CGFloat
     /// Radius of the drop shadow.
@@ -30,8 +37,9 @@ public struct SidebarPeekPanelMetrics: Sendable, Equatable {
     /// and soft rather than tight and dark, so the panel separates from a
     /// terminal's arbitrary background without printing a hard edge on it.
     public static let `default` = SidebarPeekPanelMetrics(
-        leadingInset: 8,
-        verticalInset: 10,
+        leadingInset: 10,
+        topInset: 10,
+        bottomInset: 10,
         cornerRadius: 12,
         shadowRadius: 22,
         shadowOffsetY: 6,
@@ -42,7 +50,8 @@ public struct SidebarPeekPanelMetrics: Sendable, Equatable {
     /// Creates panel metrics.
     public init(
         leadingInset: CGFloat,
-        verticalInset: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat,
         cornerRadius: CGFloat,
         shadowRadius: CGFloat,
         shadowOffsetY: CGFloat,
@@ -50,7 +59,8 @@ public struct SidebarPeekPanelMetrics: Sendable, Equatable {
         borderWidth: CGFloat
     ) {
         self.leadingInset = leadingInset
-        self.verticalInset = verticalInset
+        self.topInset = topInset
+        self.bottomInset = bottomInset
         self.cornerRadius = cornerRadius
         self.shadowRadius = shadowRadius
         self.shadowOffsetY = shadowOffsetY

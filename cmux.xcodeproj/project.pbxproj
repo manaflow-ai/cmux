@@ -3272,6 +3272,7 @@
 		EA1F00000000000000000001 /* SidebarPathFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1F00000000000000000002 /* SidebarPathFormatter.swift */; };
 		22326FBAA042DDAFA15F818C /* SidebarPeekController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B954AEE8BD37A8D69AA13832 /* SidebarPeekController.swift */; };
 		F3E95CEBB40A6AA79A9B4CEE /* SidebarPeekEdgeTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C733A9B22B4426FB8C1CD4F /* SidebarPeekEdgeTrackingView.swift */; };
+		12262B17C8E63041FCC7513B /* SidebarPeekPanelHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */; };
 		5842622F8ED35FF5B317C174 /* SidebarPeekPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 327A9185ED75125180313AF0 /* SidebarPeekPresentation.swift */; };
 		A80040010000000000000001 /* SidebarPointerFrameReportingModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80040020000000000000001 /* SidebarPointerFrameReportingModifier.swift */; };
 		A80040030000000000000001 /* SidebarPointerInteractionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80040040000000000000001 /* SidebarPointerInteractionMonitor.swift */; };
@@ -3330,6 +3331,7 @@
 		F7216006000000000000001 /* SidebarTabItemContextMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216006000000000000002 /* SidebarTabItemContextMenuState.swift */; };
 		8430A0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */; };
 		A6AC73F10000000000000001 /* SidebarTitleFirstLineCenterAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73F10000000000000002 /* SidebarTitleFirstLineCenterAlignment.swift */; };
+		5C01156CFF64659AE01583A0 /* SidebarToggleAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 599E6D613B9CD389A75B0B06 /* SidebarToggleAnimator.swift */; };
 		CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */; };
 		8430A0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430B0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift */; };
 		EDA24082C65B4E2A2A03F276 /* SidebarWorkspaceChecklistPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC8DE2AF74EC2C272681A75 /* SidebarWorkspaceChecklistPopover.swift */; };
@@ -7682,6 +7684,7 @@
 		EA1F00000000000000000002 /* SidebarPathFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarPathFormatter.swift; sourceTree = "<group>"; };
 		B954AEE8BD37A8D69AA13832 /* SidebarPeekController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekController.swift; sourceTree = "<group>"; };
 		2C733A9B22B4426FB8C1CD4F /* SidebarPeekEdgeTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekEdgeTrackingView.swift; sourceTree = "<group>"; };
+		1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekPanelHost.swift; sourceTree = "<group>"; };
 		327A9185ED75125180313AF0 /* SidebarPeekPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/Peek/SidebarPeekPresentation.swift; sourceTree = "<group>"; };
 		A80040020000000000000001 /* SidebarPointerFrameReportingModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarPointerFrameReportingModifier.swift; sourceTree = "<group>"; };
 		A80040040000000000000001 /* SidebarPointerInteractionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarPointerInteractionMonitor.swift; sourceTree = "<group>"; };
@@ -7739,6 +7742,7 @@
 		F7216006000000000000002 /* SidebarTabItemContextMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabItemContextMenuState.swift; sourceTree = "<group>"; };
 		8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabItemSettingsSnapshot.swift; sourceTree = "<group>"; };
 		A6AC73F10000000000000002 /* SidebarTitleFirstLineCenterAlignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarTitleFirstLineCenterAlignment.swift; sourceTree = "<group>"; };
+		599E6D613B9CD389A75B0B06 /* SidebarToggleAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarToggleAnimator.swift; sourceTree = "<group>"; };
 		EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
 		8430B0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceBranchDirectorySettings.swift; sourceTree = "<group>"; };
 		BAC8DE2AF74EC2C272681A75 /* SidebarWorkspaceChecklistPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceChecklistPopover.swift"; sourceTree = "<group>"; };
@@ -10134,6 +10138,8 @@
 				6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */,
 				A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */,
 				D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */,
+				599E6D613B9CD389A75B0B06 /* SidebarToggleAnimator.swift */,
+				1102C452474E10C5962941D3 /* SidebarPeekPanelHost.swift */,
 				A46624E7B573873D41B28E5C /* VerticalTabsSidebar+PresentationToggle.swift */,
 				62AA6EC5A67508F26074B60B /* SidebarFilterController.swift */,
 				0FA48771BCBE1F596B455835 /* SidebarFilterCorpusKey.swift */,
@@ -16024,6 +16030,7 @@
 				EA1F00000000000000000001 /* SidebarPathFormatter.swift in Sources */,
 				22326FBAA042DDAFA15F818C /* SidebarPeekController.swift in Sources */,
 				F3E95CEBB40A6AA79A9B4CEE /* SidebarPeekEdgeTrackingView.swift in Sources */,
+				12262B17C8E63041FCC7513B /* SidebarPeekPanelHost.swift in Sources */,
 				5842622F8ED35FF5B317C174 /* SidebarPeekPresentation.swift in Sources */,
 				A80040010000000000000001 /* SidebarPointerFrameReportingModifier.swift in Sources */,
 				A80040030000000000000001 /* SidebarPointerInteractionMonitor.swift in Sources */,
@@ -16067,6 +16074,7 @@
 				F7216006000000000000001 /* SidebarTabItemContextMenuState.swift in Sources */,
 				8430A0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift in Sources */,
 				A6AC73F10000000000000001 /* SidebarTitleFirstLineCenterAlignment.swift in Sources */,
+				5C01156CFF64659AE01583A0 /* SidebarToggleAnimator.swift in Sources */,
 				8430A0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift in Sources */,
 				EDA24082C65B4E2A2A03F276 /* SidebarWorkspaceChecklistPopover.swift in Sources */,
 				B290FAD92C810ACB2D9CD9C6 /* SidebarWorkspaceChecklistView.swift in Sources */,

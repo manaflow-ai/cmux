@@ -11,28 +11,25 @@ import SwiftUI
 /// on that: the reveal has no table to build, which is what lets it be
 /// instant instead of merely fast.
 struct SidebarPeekPresentation: ViewModifier {
-    /// Docked or floating.
-    let mode: SidebarPresentationMode
-    /// Whether the sidebar is docked open.
-    let isDockedVisible: Bool
-    /// Whether peek is currently presenting the floating panel.
-    let isPeeking: Bool
+    /// Whether the sidebar should be drawn at all, from any cause: docked
+    /// open, floating open, or temporarily revealed by peek.
+    let isRevealed: Bool
+    /// Whether to draw as a detached card rather than a flush pane.
+    ///
+    /// True whenever the sidebar is not taking layout width. Peek is a card by
+    /// nature: it is a temporary reveal over content that did not move aside
+    /// for it, so it draws as one even when the persisted mode is docked.
+    let rendersAsCard: Bool
     /// The sidebar's resolved width.
     let width: CGFloat
+    /// Whether a dismissal should skip the exit slide. True when the card
+    /// is being superseded by the docked pane: the fixed sidebar replaces it
+    /// in place, and a card gliding off underneath reads as a ghost.
+    var dismissesInstantly: Bool = false
     /// Card geometry for floating mode.
     let panelMetrics: SidebarPeekPanelMetrics
     /// Acquires and releases the pointer hold as the pointer crosses the panel.
     let onPanelHoverChange: (Bool) -> Void
-
-    /// Whether anything should be drawn at all.
-    private var isPresented: Bool {
-        switch mode {
-        case .docked:
-            return isDockedVisible
-        case .floating:
-            return isDockedVisible || isPeeking
-        }
-    }
 
     /// Outer width including the card's leading inset, so floating and docked
     /// place the list's leading edge identically.
@@ -41,14 +38,7 @@ struct SidebarPeekPresentation: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        switch mode {
-        case .docked:
-            content
-                .frame(width: isPresented ? width : 0, alignment: .leading)
-                .clipped()
-                .allowsHitTesting(isPresented)
-                .accessibilityHidden(!isPresented)
-        case .floating:
+        if rendersAsCard {
             SidebarPeekPanelChrome(metrics: panelMetrics) {
                 content.frame(width: width, alignment: .leading)
             }
@@ -56,12 +46,30 @@ struct SidebarPeekPresentation: ViewModifier {
             // Slide from just behind the window edge rather than from zero
             // width. Animating the frame would re-lay-out every row on every
             // frame of the reveal; translating a laid-out subtree does not.
-            .offset(x: isPresented ? 0 : -floatingWidth)
-            .opacity(isPresented ? 1 : 0)
-            .allowsHitTesting(isPresented)
-            .accessibilityHidden(!isPresented)
+            .offset(x: isRevealed ? 0 : -floatingWidth)
+            .opacity(isRevealed ? 1 : 0)
+            .allowsHitTesting(isRevealed)
+            .accessibilityHidden(!isRevealed)
             .onHover(perform: onPanelHoverChange)
-            .animation(SidebarPeekMotion.reveal, value: isPresented)
+            // The exit is its own curve: a reveal wants a touch of arrival
+            // settle, but a dismissal should read as the panel leaving the
+            // screen, fast and without ceremony.
+            .animation(
+                isRevealed
+                    ? SidebarPeekMotion.reveal
+                    : (dismissesInstantly ? nil : SidebarPeekMotion.dismiss),
+                value: isRevealed
+            )
+        } else {
+            // The width itself is live during a toggle: the toggle animator
+            // sweeps the real layout width (a synthetic divider drag), so the
+            // pane collapses and the terminal expands through the same
+            // proven live-resize path. No SwiftUI animation here at all.
+            content
+                .frame(width: isRevealed ? width : 0, alignment: .leading)
+                .clipped()
+                .allowsHitTesting(isRevealed)
+                .accessibilityHidden(!isRevealed)
         }
     }
 }
@@ -73,7 +81,11 @@ enum SidebarPeekMotion {
     /// A spring rather than an ease so an interrupted reveal (pointer leaves
     /// mid-animation) retargets from wherever the panel currently is instead of
     /// snapping. `bounce` is zero: this is a panel arriving, not a toy.
-    static let reveal = Animation.spring(response: 0.28, dampingFraction: 0.86)
+    static let reveal = Animation.spring(response: 0.21, dampingFraction: 0.9)
+
+    /// Dismissal: faster than the reveal and fully damped, so the panel
+    /// slides off the edge rather than lingering or bouncing on its way out.
+    static let dismiss = Animation.spring(response: 0.2, dampingFraction: 1.0)
 
     /// Switching between docked and floating.
     ///
@@ -85,17 +97,15 @@ enum SidebarPeekMotion {
 extension View {
     /// Applies ``SidebarPeekPresentation``.
     func sidebarPeekPresentation(
-        mode: SidebarPresentationMode,
-        isDockedVisible: Bool,
-        isPeeking: Bool,
+        isRevealed: Bool,
+        rendersAsCard: Bool,
         width: CGFloat,
         panelMetrics: SidebarPeekPanelMetrics = .default,
         onPanelHoverChange: @escaping (Bool) -> Void
     ) -> some View {
         modifier(SidebarPeekPresentation(
-            mode: mode,
-            isDockedVisible: isDockedVisible,
-            isPeeking: isPeeking,
+            isRevealed: isRevealed,
+            rendersAsCard: rendersAsCard,
             width: width,
             panelMetrics: panelMetrics,
             onPanelHoverChange: onPanelHoverChange

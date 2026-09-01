@@ -36,6 +36,13 @@ final class SidebarPeekController: ObservableObject {
     // MARK: - Events
 
     func pointerEnteredEdge() { send(.pointerEnteredEdge) }
+    /// Edge-enter with the dwell skipped: hovering an activation control (the
+    /// titlebar's sidebar toggle) is already a deliberate act, so the reveal
+    /// starts the moment the pointer lands instead of after the edge dwell.
+    func pointerEnteredActivationControl() {
+        send(.pointerEnteredEdge)
+        send(.dwellElapsed)
+    }
     func pointerExitedEdge() { send(.pointerExitedEdge) }
     func dragEnteredEdge() { send(.dragEnteredEdge) }
     func workspaceActivated() { send(.workspaceActivated) }
@@ -63,6 +70,9 @@ final class SidebarPeekController: ObservableObject {
 
     private func send(_ event: SidebarPeekEvent) {
         let effects = machine.apply(event, to: &state)
+#if DEBUG
+        cmuxDebugLog("sidebar.peek event=\(event) phase=\(state.phase.rawValue) holds=\(state.holds.rawValue)")
+#endif
         for effect in effects {
             perform(effect)
         }
