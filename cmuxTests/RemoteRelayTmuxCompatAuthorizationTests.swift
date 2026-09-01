@@ -76,6 +76,21 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
 
         let missingWorkspace = try fixture.authorize(method: "workspace.equalize_splits", params: ["orientation": "vertical"])
         #expect(missingWorkspace.errorResponse?.contains("remote_relay_workspace_denied") == true)
+
+        // Selector aliases satisfy the generic requirement checks but are
+        // ignored by the tmux-compat handlers, which would fall back to the
+        // selected workspace / focused surface. Exact keys are mandatory.
+        let aliasWorkspace = try fixture.authorize(method: "pane.list", params: [
+            "preferred_workspace_id": fixture.workspace.id.uuidString,
+        ])
+        #expect(aliasWorkspace.errorResponse?.contains("remote_relay_workspace_denied") == true)
+
+        let aliasSurface = try fixture.authorize(method: "surface.split", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "target_surface_id": fixture.panelID.uuidString,
+            "direction": "right",
+        ])
+        #expect(aliasSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
     }
 
     @MainActor
@@ -95,9 +110,32 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             let registeredWindowID = delegate.registerMainWindowContextForTesting(tabManager: manager)
             AppDelegate.shared = delegate
             delegate.tabManager = manager
+            let resolvedWorkspace: Workspace
+            let resolvedPanelID: UUID
             do {
-                workspace = try #require(manager.selectedWorkspace)
-                panelID = try #require(workspace.focusedPanelId)
+                resolvedWorkspace = try #require(manager.selectedWorkspace)
+                resolvedPanelID = try #require(resolvedWorkspace.focusedPanelId)
+                let configuration = WorkspaceRemoteConfiguration(
+                    transport: .ssh,
+                    terminalTransport: .ssh,
+                    destination: "tiny@remote-only",
+                    port: 22,
+                    identityFile: nil,
+                    sshOptions: [],
+                    localProxyPort: nil,
+                    relayPort: 22049,
+                    relayID: "cmux-11049-relay",
+                    relayToken: RemoteRelayTmuxCompatAuthorizationTests.relayToken,
+                    localSocketPath: nil,
+                    terminalStartupCommand: "cmux remote-shell",
+                    preserveAfterTerminalExit: true,
+                    persistentDaemonSlot: "cmux-11049-relay",
+                    skipDaemonBootstrap: false
+                )
+                try #require(
+                    resolvedWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+                )
+                resolvedWorkspace.trackRemoteTerminalSurface(resolvedPanelID)
             } catch {
                 // A throwing `#require` must not leak the shared-state
                 // mutations above into later tests: roll them back before
@@ -107,29 +145,12 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                 AppDelegate.shared = restoredAppDelegate
                 throw error
             }
+            workspace = resolvedWorkspace
+            panelID = resolvedPanelID
             previousAppDelegate = restoredAppDelegate
             appDelegate = delegate
             previousTabManager = restoredTabManager
             windowID = registeredWindowID
-            let configuration = WorkspaceRemoteConfiguration(
-                transport: .ssh,
-                terminalTransport: .ssh,
-                destination: "tiny@remote-only",
-                port: 22,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 22049,
-                relayID: "cmux-11049-relay",
-                relayToken: RemoteRelayTmuxCompatAuthorizationTests.relayToken,
-                localSocketPath: nil,
-                terminalStartupCommand: "cmux remote-shell",
-                preserveAfterTerminalExit: true,
-                persistentDaemonSlot: "cmux-11049-relay",
-                skipDaemonBootstrap: false
-            )
-            #expect(workspace.configureRemoteConnection(configuration, autoConnect: false))
-            workspace.trackRemoteTerminalSurface(panelID)
         }
 
         func authorize(method: String, params: [String: Any]) throws -> TerminalController.RemoteRelayAuthorizationResult {

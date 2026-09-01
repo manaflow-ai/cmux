@@ -102,6 +102,17 @@ extension TerminalController {
         "surface.send_text",
     ]
 
+    /// Tmux-compat surface mutations that must name their target surface with
+    /// the exact `surface_id` key (aliases satisfy the generic requirement
+    /// checks but are ignored by some handlers, which would then fall back to
+    /// focused-surface routing).
+    private nonisolated static let remoteRelayExactSurfaceSelectorMethods: Set<String> = [
+        "surface.split",
+        "surface.respawn",
+        "surface.close",
+        "surface.send_text",
+    ]
+
     private nonisolated static let remoteRelayWorkspaceSelectorKeys: Set<String> = [
         "workspace_id",
         "preferred_workspace_id",
@@ -254,6 +265,29 @@ extension TerminalController {
                 request,
                 code: "remote_relay_surface_denied",
                 message: "Relay method requires an explicit surface selector"
+            )
+        }
+        // The generic requirement checks above accept selector aliases
+        // (`preferred_workspace_id`, `target_surface_id`, …). Aliases are
+        // validated to stay inside the owner workspace, but a handler that
+        // ignores them would fall back to the *selected* workspace or focused
+        // surface — which may not be the owner's. The tmux-compat pane
+        // mutations therefore additionally require the exact selector keys
+        // their handlers consume.
+        if Self.remoteRelayTmuxCompatMethods.contains(request.method),
+           !(foundationParams["workspace_id"] is String) {
+            return deniedRemoteRelayRequest(
+                request,
+                code: "remote_relay_workspace_denied",
+                message: "Relay tmux-compat methods require an explicit workspace_id selector"
+            )
+        }
+        if Self.remoteRelayExactSurfaceSelectorMethods.contains(request.method),
+           !(foundationParams["surface_id"] is String) {
+            return deniedRemoteRelayRequest(
+                request,
+                code: "remote_relay_surface_denied",
+                message: "Relay tmux-compat surface methods require an explicit surface_id selector"
             )
         }
 
