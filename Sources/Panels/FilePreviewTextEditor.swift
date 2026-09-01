@@ -264,7 +264,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
-        private var panelIdentity: ObjectIdentifier
+        var panelIdentity: ObjectIdentifier
         var filePath: String
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
