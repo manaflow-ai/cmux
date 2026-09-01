@@ -1718,9 +1718,7 @@
 		6313B4A0 /* PaneMemoryPaneKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B4A1 /* PaneMemoryPaneKey.swift */; };
 		6313B5A0 /* PaneMemorySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B5A1 /* PaneMemorySample.swift */; };
 		6313B6A0 /* PaneMemoryWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B6A1 /* PaneMemoryWarning.swift */; };
-		A10525000000000000000004 /* PaneOuterSplitLayoutMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10525000000000000000003 /* PaneOuterSplitLayoutMutation.swift */; };
 		A10525000000000000000002 /* PaneOuterSplitMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10525000000000000000001 /* PaneOuterSplitMovement.swift */; };
-		A1052500000000000000000A /* PaneOuterSplitMovementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10525000000000000000009 /* PaneOuterSplitMovementTests.swift */; };
 		469200024692000146920001 /* PaneTransferDropRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200024692000146920002 /* PaneTransferDropRouter.swift */; };
 		469200034692000146920001 /* PaneTransferSourceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200034692000146920002 /* PaneTransferSourceResolver.swift */; };
 		E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */; };
@@ -4702,9 +4700,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		6313B4A1 /* PaneMemoryPaneKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryPaneKey.swift; sourceTree = "<group>"; };
 		6313B5A1 /* PaneMemorySample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemorySample.swift; sourceTree = "<group>"; };
 		6313B6A1 /* PaneMemoryWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryWarning.swift; sourceTree = "<group>"; };
-		A10525000000000000000003 /* PaneOuterSplitLayoutMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneOuterSplitLayoutMutation.swift; sourceTree = "<group>"; };
 		A10525000000000000000001 /* PaneOuterSplitMovement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneOuterSplitMovement.swift; sourceTree = "<group>"; };
-		A10525000000000000000009 /* PaneOuterSplitMovementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneOuterSplitMovementTests.swift; sourceTree = "<group>"; };
 		469200024692000146920002 /* PaneTransferDropRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTransferDropRouter.swift; sourceTree = "<group>"; };
 		469200034692000146920002 /* PaneTransferSourceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTransferSourceResolver.swift; sourceTree = "<group>"; };
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
@@ -6964,7 +6960,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */,
 				875200000000000000000004 /* SurfacePaneMovement.swift */,
 				A10525000000000000000001 /* PaneOuterSplitMovement.swift */,
-				A10525000000000000000003 /* PaneOuterSplitLayoutMutation.swift */,
 				A10525000000000000000005 /* Workspace+OuterPaneSplit.swift */,
 				822900000000000000000002 /* Workspace+TerminalResizeInteraction.swift */,
 				D93410030000000000000002 /* BrowserDownloadsPopoverAppearanceUITestPresenter.swift */,
@@ -8646,7 +8641,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */,
 				D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 				804100000000000000000004 /* ReorderShortcutActionTests.swift */,
-				A10525000000000000000009 /* PaneOuterSplitMovementTests.swift */,
 				A1052500000000000000000B /* WorkspaceOuterPaneSplitTests.swift */,
 				D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */,
 				4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */,
@@ -10632,7 +10626,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				6313B4A0 /* PaneMemoryPaneKey.swift in Sources */,
 				6313B5A0 /* PaneMemorySample.swift in Sources */,
 				6313B6A0 /* PaneMemoryWarning.swift in Sources */,
-				A10525000000000000000004 /* PaneOuterSplitLayoutMutation.swift in Sources */,
 				A10525000000000000000002 /* PaneOuterSplitMovement.swift in Sources */,
 				469200024692000146920001 /* PaneTransferDropRouter.swift in Sources */,
 				469200034692000146920001 /* PaneTransferSourceResolver.swift in Sources */,
@@ -12195,7 +12188,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
 					C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
 					6313FACE0000000000000000 /* PaneMemoryGuardrailTests.swift in Sources */,
-				A1052500000000000000000A /* PaneOuterSplitMovementTests.swift in Sources */,
 				B88350000000000000000003 /* PasteboardThreadSignalingDataProvider.swift in Sources */,
 				B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */,
 					D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,

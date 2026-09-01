@@ -1,6 +1,7 @@
 import Bonsplit
 import Foundation
 
+@MainActor
 extension Workspace {
     /// Moves the focused pane, with all of its live surfaces, to a new split
     /// around the workspace root.

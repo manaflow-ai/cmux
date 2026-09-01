@@ -1,9 +1,10 @@
-import Bonsplit
+public import Bonsplit
 import Foundation
 
 /// Performs the root-edge promotion used by workspace and Dock hosts.
 @MainActor
-protocol PaneOuterSplitLayoutMutating {
+public protocol PaneOuterSplitLayoutMutating {
+    /// Host-owned split operation used to create each scaffold pane.
     typealias Splitter = @MainActor (
         _ pane: PaneID,
         _ orientation: SplitOrientation,
@@ -27,15 +28,16 @@ protocol PaneOuterSplitLayoutMutating {
 /// root. This implementation rebuilds the tree from live tab metadata, so the
 /// tab and panel objects themselves are transferred rather than recreated.
 @MainActor
-struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
+public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
     /// Creates the stateless outer-pane layout service.
-    init() {}
+    nonisolated public init() {}
 
     private struct LayoutPane {
         let id: PaneID
         let tabIds: [TabID]
         let selectedTabId: TabID?
         let isFullWidthTabMode: Bool
+        let containsSource: Bool
     }
 
     private struct LayoutSplit {
@@ -43,6 +45,7 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         let dividerPosition: CGFloat
         let first: LayoutNode
         let second: LayoutNode
+        let containsSource: Bool
     }
 
     private indirect enum LayoutNode {
@@ -56,12 +59,10 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             }
         }
 
-        func contains(paneId: PaneID) -> Bool {
+        var containsSource: Bool {
             switch self {
-            case .pane(let pane): pane.id == paneId
-            case .split(let split):
-                split.first.contains(paneId: paneId)
-                    || split.second.contains(paneId: paneId)
+            case .pane(let pane): pane.containsSource
+            case .split(let split): split.containsSource
             }
         }
 
@@ -87,7 +88,7 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
     /// each host mark its own programmatic-split transaction, preventing its
     /// delegate from creating an extra terminal in each scaffold pane.
     @discardableResult
-    func movePane(
+    public func movePane(
         _ paneId: PaneID,
         in controller: BonsplitController,
         movement: PaneOuterSplitMovement,
@@ -95,11 +96,15 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
     ) -> Bool {
         guard controller.configuration.allowSplits,
               controller.configuration.allowCrossPaneTabMove,
-              let layout = captureLayout(from: controller.treeSnapshot(), controller: controller),
+              let layout = captureLayout(
+                  from: controller.treeSnapshot(),
+                  controller: controller,
+                  sourcePaneId: paneId
+              ),
               layout.paneCount > 1,
               let sourcePane = layout.pane(withId: paneId),
               !sourcePane.tabIds.isEmpty,
-              layout.contains(paneId: paneId),
+              layout.containsSource,
               !isAlreadyAtRequestedRootEdge(
                   layout,
                   paneId: paneId,
@@ -129,7 +134,8 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             orientation: movement.orientation,
             dividerPosition: 0.5,
             first: movement.insertFirst ? removedSource : remaining,
-            second: movement.insertFirst ? remaining : removedSource
+            second: movement.insertFirst ? remaining : removedSource,
+            containsSource: true
         )
         desiredLayout = .split(rootSplit)
 
@@ -138,17 +144,18 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         // no panel close callbacks are emitted because the tabs are moved,
         // not closed.
         let existingPaneIds = controller.allPaneIds
+        var sourceInsertionIndex = controller.tabs(inPane: paneId).count
         for existingPaneId in existingPaneIds where existingPaneId != paneId {
             let tabs = controller.tabs(inPane: existingPaneId)
             for tab in tabs {
-                let insertionIndex = controller.tabs(inPane: paneId).count
                 guard controller.moveTab(
                     tab.id,
                     toPane: paneId,
-                    atIndex: insertionIndex
+                    atIndex: sourceInsertionIndex
                 ) else {
                     return false
                 }
+                sourceInsertionIndex += 1
             }
         }
 
@@ -173,8 +180,8 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                 // Keep the existing pane on the branch containing the source
                 // pane. For branches unrelated to the source, retaining the
                 // existing pane as the first child preserves child order.
-                let containsSource = node.contains(paneId: paneId)
-                let sourceInFirst = layoutSplit.first.contains(paneId: paneId)
+                let containsSource = node.containsSource
+                let sourceInFirst = layoutSplit.first.containsSource
                 let keepExistingPane = !containsSource || sourceInFirst
                 let insertPlaceholderFirst = !keepExistingPane
                 guard let newPane = split(
@@ -211,12 +218,15 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         // deliberately left with its desired tabs until the end so Bonsplit's
         // automatic empty-source collapse cannot remove the preserved source
         // pane identity.
-        for layoutPane in desiredLayout.leaves where layoutPane.id != paneId {
+        let desiredLeaves = desiredLayout.leaves
+        var nextInsertionIndexByPane: [PaneID: Int] = [:]
+        for layoutPane in desiredLeaves where layoutPane.id != paneId {
             guard let targetPane = generatedPaneByOriginalPane[layoutPane.id] else {
                 return false
             }
+            var insertionIndex = nextInsertionIndexByPane[targetPane]
+                ?? controller.tabs(inPane: targetPane).count
             for tabId in layoutPane.tabIds {
-                let insertionIndex = controller.tabs(inPane: targetPane).count
                 guard controller.moveTab(
                     tabId,
                     toPane: targetPane,
@@ -224,17 +234,18 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                 ) else {
                     return false
                 }
+                insertionIndex += 1
             }
+            nextInsertionIndexByPane[targetPane] = insertionIndex
         }
 
         // Remove only our scaffolding tabs. Every real pane has at least one
         // live tab, so closing a placeholder cannot collapse the desired tree.
-        for (targetPane, placeholderId) in placeholderByGeneratedPane {
-            guard controller.allPaneIds.contains(targetPane) else { continue }
+        for (_, placeholderId) in placeholderByGeneratedPane {
             _ = controller.closeTab(placeholderId)
         }
 
-        for layoutPane in desiredLayout.leaves {
+        for layoutPane in desiredLeaves {
             guard let targetPane = generatedPaneByOriginalPane[layoutPane.id] else {
                 continue
             }
@@ -249,8 +260,7 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                 layoutPane.isFullWidthTabMode,
                 inPane: targetPane
             )
-            if let selectedTabId = layoutPane.selectedTabId,
-               controller.tabs(inPane: targetPane).contains(where: { $0.id == selectedTabId }) {
+            if let selectedTabId = layoutPane.selectedTabId {
                 controller.selectTab(selectedTabId)
             }
         }
@@ -259,8 +269,7 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             return false
         }
         controller.focusPane(destinationSourcePane)
-        if let selectedTabId = sourcePane.selectedTabId,
-           controller.tabs(inPane: destinationSourcePane).contains(where: { $0.id == selectedTabId }) {
+        if let selectedTabId = sourcePane.selectedTabId {
             controller.selectTab(selectedTabId)
         }
         return true
@@ -268,7 +277,8 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
 
     private func captureLayout(
         from node: ExternalTreeNode,
-        controller: BonsplitController
+        controller: BonsplitController,
+        sourcePaneId: PaneID
     ) -> LayoutNode? {
         switch node {
         case .pane(let pane):
@@ -281,7 +291,8 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                     id: paneId,
                     tabIds: tabs.map(\.id),
                     selectedTabId: controller.selectedTab(inPane: paneId)?.id,
-                    isFullWidthTabMode: controller.isFullWidthTabMode(inPane: paneId)
+                    isFullWidthTabMode: controller.isFullWidthTabMode(inPane: paneId),
+                    containsSource: paneId == sourcePaneId
                 )
             )
 
@@ -292,8 +303,16 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             case "vertical": orientation = .vertical
             default: return nil
             }
-            guard let first = captureLayout(from: split.first, controller: controller),
-                  let second = captureLayout(from: split.second, controller: controller) else {
+            guard let first = captureLayout(
+                      from: split.first,
+                      controller: controller,
+                      sourcePaneId: sourcePaneId
+                  ),
+                  let second = captureLayout(
+                      from: split.second,
+                      controller: controller,
+                      sourcePaneId: sourcePaneId
+                  ) else {
                 return nil
             }
             return .split(
@@ -301,7 +320,8 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                     orientation: orientation,
                     dividerPosition: CGFloat(split.dividerPosition),
                     first: first,
-                    second: second
+                    second: second,
+                    containsSource: first.containsSource || second.containsSource
                 )
             )
         }
@@ -333,7 +353,7 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             return nil
 
         case .split(let split):
-            if split.first.contains(paneId: paneId) {
+            if split.first.containsSource {
                 guard let first = removing(
                     paneId: paneId,
                     from: split.first,
@@ -346,7 +366,8 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                         orientation: split.orientation,
                         dividerPosition: split.dividerPosition,
                         first: first,
-                        second: split.second
+                        second: split.second,
+                        containsSource: first.containsSource || split.second.containsSource
                     )
                 )
             }
@@ -362,7 +383,8 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
                     orientation: split.orientation,
                     dividerPosition: split.dividerPosition,
                     first: split.first,
-                    second: second
+                    second: second,
+                    containsSource: split.first.containsSource || second.containsSource
                 )
             )
         }
@@ -400,16 +422,54 @@ struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         in pane: PaneID,
         controller: BonsplitController
     ) {
+        let initialTabs = controller.tabs(inPane: pane)
+        var currentTabIds = initialTabs.map(\.id)
+        var indexByTabId = Dictionary(
+            uniqueKeysWithValues: currentTabIds.enumerated().map { ($0.element, $0.offset) }
+        )
+        let pinnedByTabId = Dictionary(
+            uniqueKeysWithValues: initialTabs.map { ($0.id, $0.isPinned) }
+        )
+        let totalPinnedCount = initialTabs.reduce(into: 0) { count, tab in
+            if tab.isPinned { count += 1 }
+        }
+
         for (desiredIndex, tabId) in desiredTabIds.enumerated() {
-            guard let currentIndex = controller.tabs(inPane: pane)
-                .firstIndex(where: { $0.id == tabId }) else {
+            guard let currentIndex = indexByTabId[tabId] else {
                 continue
             }
             guard currentIndex != desiredIndex else { continue }
             let destinationIndex = currentIndex < desiredIndex
                 ? desiredIndex + 1
                 : desiredIndex
-            _ = controller.reorderTab(tabId, toIndex: destinationIndex)
+            guard controller.reorderTab(tabId, toIndex: destinationIndex) else {
+                continue
+            }
+
+            // Mirror Bonsplit's post-removal pinned-tab clamping locally. This
+            // keeps subsequent lookups indexed without rescanning the pane's
+            // complete tab collection for every desired item.
+            let movedTab = currentTabIds.remove(at: currentIndex)
+            let pinnedCountAfterRemoval = totalPinnedCount -
+                (pinnedByTabId[movedTab] == true ? 1 : 0)
+            let requestedIndex = destinationIndex > currentIndex
+                ? destinationIndex - 1
+                : destinationIndex
+            let adjustedIndex = pinnedByTabId[movedTab] == true
+                ? min(requestedIndex, pinnedCountAfterRemoval)
+                : max(requestedIndex, pinnedCountAfterRemoval)
+            let insertionIndex = min(
+                max(0, adjustedIndex),
+                currentTabIds.count
+            )
+            currentTabIds.insert(movedTab, at: insertionIndex)
+            let firstAffectedIndex = min(currentIndex, insertionIndex)
+            let lastAffectedIndex = max(currentIndex, insertionIndex)
+            if !currentTabIds.isEmpty {
+                for index in firstAffectedIndex...lastAffectedIndex {
+                    indexByTabId[currentTabIds[index]] = index
+                }
+            }
         }
     }
 }

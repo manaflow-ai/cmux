@@ -1,12 +1,7 @@
-import Bonsplit
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+import Bonsplit
+@testable import CmuxPanes
 
 @MainActor
 @Suite("Move pane to new outer split", .serialized)

@@ -1,14 +1,7 @@
-import Bonsplit
+import CmuxPanes
 import Foundation
 
-/// A direction in which the focused pane can be promoted to a new workspace
-/// edge split.
-enum PaneOuterSplitMovement: CaseIterable, Hashable, Sendable {
-    case left
-    case right
-    case above
-    case below
-
+extension PaneOuterSplitMovement {
     var shortcutAction: KeyboardShortcutSettings.Action {
         switch self {
         case .left: .movePaneToNewOuterSplitLeft
@@ -75,21 +68,6 @@ enum PaneOuterSplitMovement: CaseIterable, Hashable, Sendable {
         case .right: ["move", "pane", "outer", "root", "split", "right"]
         case .above: ["move", "pane", "outer", "root", "split", "above", "up"]
         case .below: ["move", "pane", "outer", "root", "split", "below", "down"]
-        }
-    }
-
-    var orientation: SplitOrientation {
-        switch self {
-        case .left, .right: .horizontal
-        case .above, .below: .vertical
-        }
-    }
-
-    /// Whether the promoted pane is inserted before the remaining root tree.
-    var insertFirst: Bool {
-        switch self {
-        case .left, .above: true
-        case .right, .below: false
         }
     }
 }
