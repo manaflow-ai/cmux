@@ -495,9 +495,9 @@ async function stripeCustomerForDunning(
     // only recipient source: a transient failure must stay Stripe-retryable
     // instead of becoming a silent no_customer_email drop.
     if (options.emailRequired) {
+      console.error("[billing] dunning customer lookup failed with no invoice email", error);
       throw new BillingDunningDeliveryRetryableError(
         "customer lookup failed while the invoice has no email",
-        { cause: error },
       );
     }
     return null;
