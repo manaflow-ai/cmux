@@ -19,6 +19,25 @@ final class SidebarWorkspaceTableDropTargetGeometryGate {
         self.containerView = containerView
     }
 
+    /// Converts visible table rows into Bonsplit targets while preserving the
+    /// table's display order. Divider rows are visual-only and must not be
+    /// offered to the workspace drop planner as UUID-bearing workspaces.
+    static func makeBonsplitTargets(
+        rows: [SidebarWorkspaceTableRowConfiguration],
+        rowRange: Range<Int>,
+        frameForRow: (Int) -> CGRect
+    ) -> [SidebarDropPlanner.WorkspaceDropTarget] {
+        rowRange.compactMap { row in
+            let configuration = rows[row]
+            guard !configuration.id.isDivider else { return nil }
+            return SidebarDropPlanner.WorkspaceDropTarget(
+                workspaceId: configuration.workspaceId,
+                isPinned: configuration.isPinned,
+                frame: frameForRow(row)
+            )
+        }
+    }
+
     @discardableResult
     func setBonsplitTargetCollectionActive(
         _ isActive: Bool,
@@ -48,14 +67,11 @@ final class SidebarWorkspaceTableDropTargetGeometryGate {
 
         let lower = max(0, visibleRange.location)
         let upper = min(rows.count, visibleRange.location + visibleRange.length)
-        bonsplitTargetBridge.updateTargets((lower..<upper).map { row in
-            let configuration = rows[row]
-            return SidebarDropPlanner.WorkspaceDropTarget(
-                workspaceId: configuration.workspaceId,
-                isPinned: configuration.isPinned,
-                frame: table.convert(table.rect(ofRow: row), to: container.bonsplitDropView)
-            )
-        })
+        bonsplitTargetBridge.updateTargets(
+            Self.makeBonsplitTargets(rows: rows, rowRange: lower..<upper) { row in
+                table.convert(table.rect(ofRow: row), to: container.bonsplitDropView)
+            }
+        )
         return true
     }
 

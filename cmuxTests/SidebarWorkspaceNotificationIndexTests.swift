@@ -170,6 +170,8 @@ struct SidebarWorkspaceContextMenuTargetAggregateTests {
             anchorWorkspaceIds: [anchorWorkspaceId],
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
             canCreateEmptyGroup: true,
+            sidebarDividerCanInsertAboveByWorkspaceId: [:],
+            sidebarDividerCanInsertBelowByWorkspaceId: [:],
             notificationIndex: notificationIndex
         )
 

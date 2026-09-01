@@ -41,7 +41,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
+            lhs.canInsertDividerAbove == rhs.canInsertDividerAbove &&
+            lhs.canInsertDividerBelow == rhs.canInsertDividerBelow
     }
 
     let groupId: UUID
@@ -75,6 +77,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    let canInsertDividerAbove: Bool
+    let canInsertDividerBelow: Bool
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
     let actions: SidebarGroupHeaderRowActions
@@ -319,6 +323,22 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 contextMenuVisible = false
                 onContextMenuDisappear()
             }
+            Button(
+                String(
+                    localized: "sidebar.divider.insertAbove",
+                    defaultValue: "Insert Divider Above"
+                ),
+                action: actions.onInsertDividerAbove
+            )
+            .disabled(!canInsertDividerAbove)
+            Button(
+                String(
+                    localized: "sidebar.divider.insertBelow",
+                    defaultValue: "Insert Divider Below"
+                ),
+                action: actions.onInsertDividerBelow
+            )
+            .disabled(!canInsertDividerBelow)
             Divider()
             Button(
                 String(

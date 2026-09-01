@@ -17,6 +17,7 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// The window's workspaces in sidebar order.
     public var tabs: [Tab] = [] {
         willSet { host?.workspaceTabsWillChange(to: newValue) }
+        didSet { normalizeSidebarDividers() }
     }
 
     /// Named groupings of workspaces shown as collapsible sections in the
@@ -30,6 +31,18 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
             )
             host?.workspaceGroupsWillChange(to: newValue)
         }
+        didSet {
+            remapSidebarDividersForGroupAnchorChanges(from: oldValue)
+            normalizeSidebarDividers()
+        }
+    }
+
+    /// Persistent lightweight separators between top-level sidebar rows.
+    /// Values are normalized before this property is assigned, so the host
+    /// never observes an invalid placement. Use
+    /// ``replaceSidebarDividers(_:)`` for complete-list replacement.
+    public private(set) var sidebarDividers: [WorkspaceSidebarDivider] = [] {
+        willSet { host?.workspaceSidebarDividersWillChange(to: newValue) }
     }
 
     /// O(1) display-title lookup for group anchors in title-churn observers.
@@ -54,5 +67,42 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// timing from the very first workspace insertion.
     public func attach(host: any WorkspacesHosting<Tab>) {
         self.host = host
+    }
+
+    /// Stores a divider list that has already been normalized by the model.
+    /// Keeping the assignment in this declaration lets the cross-file divider
+    /// extension retain the `private(set)` invariant while preserving the
+    /// synchronous host hook timing.
+    func assignNormalizedSidebarDividers(_ value: [WorkspaceSidebarDivider]) {
+        sidebarDividers = value
+    }
+
+    /// Keeps a divider attached to a surviving group when its lifecycle
+    /// promotes a new anchor workspace. The remap runs after the new group
+    /// array is stored, so the divider observer can validate the replacement
+    /// against the new top-level row immediately.
+    private func remapSidebarDividersForGroupAnchorChanges(
+        from oldGroups: [WorkspaceGroup]
+    ) {
+        let newAnchorsByGroupId = Dictionary(
+            workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let groupIdByOldAnchor = Dictionary(
+            oldGroups.map { ($0.anchorWorkspaceId, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var remapped = sidebarDividers
+        for index in remapped.indices {
+            guard let groupId = groupIdByOldAnchor[remapped[index].afterWorkspaceId],
+                  let newAnchor = newAnchorsByGroupId[groupId],
+                  newAnchor != remapped[index].afterWorkspaceId else {
+                continue
+            }
+            remapped[index].afterWorkspaceId = newAnchor
+        }
+        if remapped != sidebarDividers {
+            replaceSidebarDividers(remapped)
+        }
     }
 }

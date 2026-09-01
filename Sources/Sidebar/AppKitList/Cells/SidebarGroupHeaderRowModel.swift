@@ -38,6 +38,8 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    let canInsertDividerAbove: Bool
+    let canInsertDividerBelow: Bool
     /// Resolved cmux scheme used by native group-header chrome.
     let colorSchemeIsDark: Bool
 }
@@ -50,6 +52,8 @@ struct SidebarGroupHeaderRowActions {
     let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
+    let onInsertDividerAbove: () -> Void
+    let onInsertDividerBelow: () -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
     let onMarkRead: () -> Void

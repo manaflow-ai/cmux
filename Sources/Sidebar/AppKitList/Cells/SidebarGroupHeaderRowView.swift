@@ -563,6 +563,16 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             String(localized: "workspaceGroup.plus.contextMenu.newWorkspace", defaultValue: "New Workspace in Group"),
             action: actions.onTapPlus
         ))
+        menu.addItem(menuItem(
+            String(localized: "sidebar.divider.insertAbove", defaultValue: "Insert Divider Above"),
+            enabled: model.canInsertDividerAbove,
+            action: actions.onInsertDividerAbove
+        ))
+        menu.addItem(menuItem(
+            String(localized: "sidebar.divider.insertBelow", defaultValue: "Insert Divider Below"),
+            enabled: model.canInsertDividerBelow,
+            action: actions.onInsertDividerBelow
+        ))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.rename", defaultValue: "Rename Group..."),

@@ -188,6 +188,8 @@ struct SidebarWorkspaceDropTargetSuspensionTests {
             closeWorkspace: { _ in },
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
+            createDivider: {},
+            canCreateDivider: true,
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: {},

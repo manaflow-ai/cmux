@@ -142,6 +142,37 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func notificationBumpTreatsSidebarDividerAsSegmentBarrier() {
+        let (model, _, _, reorder) = makeWorld()
+        let first = CoordinatorStubTab()
+        let second = CoordinatorStubTab()
+        let bumped = CoordinatorStubTab()
+        let destination = CoordinatorStubTab()
+        model.tabs = [first, second, bumped, destination]
+        _ = model.insertSidebarDivider(after: second.id)
+
+        reorder.moveTabToTopForNotification(destination.id)
+
+        #expect(model.tabs.map(\.id) == [first.id, second.id, destination.id, bumped.id])
+        #expect(model.sidebarDivider(after: second.id) != nil)
+    }
+
+    @Test
+    func workspaceReorderPreservesDividerAnchoredToMovedWorkspace() {
+        let (model, _, _, reorder) = makeWorld()
+        let first = CoordinatorStubTab()
+        let second = CoordinatorStubTab()
+        let third = CoordinatorStubTab()
+        let fourth = CoordinatorStubTab()
+        model.tabs = [first, second, third, fourth]
+        _ = model.insertSidebarDivider(after: first.id)
+
+        #expect(reorder.reorderWorkspace(tabId: first.id, toIndex: 1))
+        #expect(model.tabs.map(\.id) == [second.id, first.id, third.id, fourth.id])
+        #expect(model.sidebarDivider(after: first.id) != nil)
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
@@ -213,6 +244,51 @@ struct WorkspaceCoordinatorTests {
         #expect(changed == [a.id, b.id])
         #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
         #expect(model.tabs.allSatisfy { !$0.isPinned })
+    }
+
+    @Test
+    func setPinnedBatchNormalizesGroupedMembersTogether() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let first = CoordinatorStubTab()
+        let second = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside, first, second]
+        let groupId = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [first.id, second.id]
+        ))
+
+        let changed = reorder.setPinned(
+            workspaceIds: [second.id, first.id],
+            pinned: true
+        )
+
+        #expect(changed == [second.id, first.id])
+        let groupedIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
+        #expect(groupedIds.dropFirst() == [first.id, second.id])
+        #expect(groupedIds.first == model.workspaceGroups.first?.anchorWorkspaceId)
+        #expect(model.tabs.allSatisfy { $0.groupId == groupId || !$0.isPinned })
+        #expect(model.tabs.map(\.id).contains(outside.id))
+    }
+
+    @Test
+    func notificationBumpOfPinnedGroupedMemberIsANoOp() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let anchor = CoordinatorStubTab()
+        let member = CoordinatorStubTab(isPinned: true)
+        let outside = CoordinatorStubTab()
+        model.tabs = [anchor, member, outside]
+        _ = try #require(groups.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [anchor.id, member.id]
+        ))
+        let originalOrder = model.tabs.map(\.id)
+
+        reorder.moveTabToTopForNotification(member.id)
+
+        #expect(model.tabs.map(\.id) == originalOrder)
     }
 
     @Test

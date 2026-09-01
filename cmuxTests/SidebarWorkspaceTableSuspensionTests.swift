@@ -913,6 +913,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
             rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
             topDropIndicatorVisible: false, bottomDropIndicatorVisible: false,
+            canInsertDividerAbove: true, canInsertDividerBelow: true,
             colorSchemeIsDark: false
         )
     }
@@ -922,7 +923,8 @@ struct SidebarWorkspaceTableSuspensionTests {
     ) -> SidebarGroupHeaderRowActions {
         SidebarGroupHeaderRowActions(
             onToggleCollapsed: onToggleCollapsed, onFocusAnchor: { _ in }, onTapPlus: {},
-            onRunResolvedItem: { _ in }, onRename: {}, onTogglePinned: {}, onMarkRead: {},
+            onRunResolvedItem: { _ in }, onInsertDividerAbove: {}, onInsertDividerBelow: {},
+            onRename: {}, onTogglePinned: {}, onMarkRead: {},
             onMarkUnread: {}, onClearLatestNotifications: {}, onMarkAllRead: {},
             onMarkAllUnread: {}, onUngroup: {}, onDelete: {}, onEditConfig: {}, onOpenDocs: {}
         )
@@ -943,6 +945,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             closeWorkspace: { _ in },
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
+            createDivider: {},
+            canCreateDivider: true,
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: endWorkspaceDrag,

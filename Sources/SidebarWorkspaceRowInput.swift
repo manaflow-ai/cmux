@@ -77,6 +77,8 @@ struct SidebarWorkspaceRowInput {
             isChecklistExpanded: isChecklistExpanded,
             checklistAddFieldActivationToken: checklistAddFieldActivationToken,
             isChecklistPopoverPresented: isChecklistPopoverPresented,
+            canInsertDividerAbove: list.sidebarDividerCanInsertAboveByWorkspaceId[workspaceId] ?? false,
+            canInsertDividerBelow: list.sidebarDividerCanInsertBelowByWorkspaceId[workspaceId] ?? false,
             contextMenu: SidebarWorkspaceContextMenuSnapshot(
                 targetWorkspaceIds: targetAggregate.targetWorkspaceIds,
                 remoteTargetWorkspaceIds: targetAggregate.remoteTargetWorkspaceIds,

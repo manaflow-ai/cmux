@@ -39,5 +39,7 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    let canInsertDividerAbove: Bool
+    let canInsertDividerBelow: Bool
     let shouldCollectWorkspaceDropTargets: Bool
 }

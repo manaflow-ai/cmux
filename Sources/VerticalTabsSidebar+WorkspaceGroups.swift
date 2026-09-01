@@ -109,6 +109,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            canInsertDividerAbove: renderContext.sidebarDividerCanInsertAboveByWorkspaceId[group.anchorWorkspaceId] ?? false,
+            canInsertDividerBelow: renderContext.sidebarDividerCanInsertBelowByWorkspaceId[group.anchorWorkspaceId] ?? false,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark
         )
         let actions = makeWorkspaceGroupHeaderActions(
@@ -267,6 +269,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+            canInsertDividerAbove: renderContext.sidebarDividerCanInsertAboveByWorkspaceId[group.anchorWorkspaceId] ?? false,
+            canInsertDividerBelow: renderContext.sidebarDividerCanInsertBelowByWorkspaceId[group.anchorWorkspaceId] ?? false,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
         )
     }
@@ -318,6 +322,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
+            canInsertDividerAbove: snapshot.canInsertDividerAbove,
+            canInsertDividerBelow: snapshot.canInsertDividerBelow,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}
@@ -359,6 +365,15 @@ extension VerticalTabsSidebar {
                 return nil
             }
             return (tabManager, anchorId)
+        }
+        let resolveDividerAnchor: () -> (TabManager, UUID)? = { [weak tabManager] in
+            guard let tabManager,
+                  let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
+                return nil
+            }
+            // Empty pinned groups have no live workspace anchor, but their
+            // stable header identity is still a legal divider anchor.
+            return (tabManager, group.anchorWorkspaceId)
         }
         let resolvePlacement: () -> WorkspaceGroupNewPlacement = {
             placement
@@ -415,6 +430,14 @@ extension VerticalTabsSidebar {
                     tabManager: tabManager,
                     groupId: groupId
                 )
+            },
+            onInsertDividerAbove: { [resolveDividerAnchor] in
+                guard let (tabManager, anchorId) = resolveDividerAnchor() else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(before: anchorId)
+            },
+            onInsertDividerBelow: { [resolveDividerAnchor] in
+                guard let (tabManager, anchorId) = resolveDividerAnchor() else { return }
+                _ = tabManager.workspaces.insertSidebarDivider(after: anchorId)
             },
             onRename: { [weak tabManager] in
                 guard let tabManager else { return }

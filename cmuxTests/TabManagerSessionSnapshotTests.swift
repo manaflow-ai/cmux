@@ -62,6 +62,86 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testSessionSnapshotPersistsSidebarDividerPlacementAcrossRestore() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let thirdWorkspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let dividerId = try XCTUnwrap(
+            manager.workspaces.insertSidebarDivider(after: firstWorkspace.id)
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let persistedDivider = try XCTUnwrap(snapshot.sidebarDividers?.first)
+        XCTAssertEqual(persistedDivider.id, dividerId)
+        XCTAssertEqual(persistedDivider.afterWorkspaceId, firstWorkspace.id)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredDivider = try XCTUnwrap(restored.sidebarDividers.first)
+        XCTAssertEqual(restoredDivider.id, dividerId)
+        XCTAssertEqual(restoredDivider.afterWorkspaceId, restored.tabs[0].id)
+        XCTAssertEqual(restored.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id, thirdWorkspace.id])
+    }
+
+    func testRestoreSessionSnapshotRemapsDividerWhenGroupAnchorWorkspaceIsMissing() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let outsideWorkspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let groupId = try XCTUnwrap(manager.createWorkspaceGroup(
+            name: "Grouped",
+            childWorkspaceIds: [firstWorkspace.id, secondWorkspace.id],
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ))
+        let group = try XCTUnwrap(manager.workspaceGroups.first { $0.id == groupId })
+        let dividerId = try XCTUnwrap(
+            manager.workspaces.insertSidebarDivider(after: group.anchorWorkspaceId)
+        )
+
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let anchorIndex = try XCTUnwrap(
+            snapshot.workspaces.firstIndex { $0.workspaceId == group.anchorWorkspaceId }
+        )
+        snapshot.workspaces.remove(at: anchorIndex)
+        snapshot.selectedWorkspaceIndex = nil
+
+        let persistedDivider = try XCTUnwrap(
+            snapshot.sidebarDividers?.first { $0.id == dividerId }
+        )
+        XCTAssertEqual(persistedDivider.afterWorkspaceId, group.anchorWorkspaceId)
+        XCTAssertEqual(persistedDivider.afterWorkspaceGroupId, groupId)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredGroup = try XCTUnwrap(restored.workspaceGroups.first { $0.id == groupId })
+        XCTAssertTrue(restored.tabs.contains { $0.id == outsideWorkspace.id })
+        XCTAssertEqual(restored.tabs.filter { $0.groupId == groupId }.count, 2)
+        let restoredDivider = try XCTUnwrap(restored.sidebarDividers.first { $0.id == dividerId })
+        XCTAssertEqual(restoredDivider.afterWorkspaceId, restoredGroup.anchorWorkspaceId)
+        XCTAssertNotEqual(restoredDivider.afterWorkspaceId, group.anchorWorkspaceId)
+    }
+
+    func testRestorableSidebarTopologyDropsFinalCappedRowButKeepsSurvivingGroupRow() {
+        let firstWorkspaceId = UUID()
+        let groupAnchorId = UUID()
+        let omittedWorkspaceId = UUID()
+        let groupId = UUID()
+
+        let restorableRows = TabManager.restorableSidebarTopLevelRowIds(
+            topLevelIds: [firstWorkspaceId, groupAnchorId, omittedWorkspaceId],
+            groupIdByAnchorWorkspaceId: [groupAnchorId: groupId],
+            restorableWorkspaceIds: [firstWorkspaceId],
+            restorableGroupIds: [groupId]
+        )
+
+        XCTAssertEqual(restorableRows, [firstWorkspaceId, groupAnchorId])
+        XCTAssertEqual(Set(restorableRows.dropLast()), [firstWorkspaceId])
+    }
+
     func testRestoreSessionSnapshotPreservesPersistedWorkspaceIdsAndOrder() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)

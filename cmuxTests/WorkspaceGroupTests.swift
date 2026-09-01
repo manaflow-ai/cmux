@@ -210,6 +210,8 @@ struct WorkspaceGroupTests {
                 break
             case .workspace(let workspaceId):
                 visibleWorkspaceIds.append(workspaceId)
+            case .divider:
+                break
             }
         }
 
@@ -225,6 +227,29 @@ struct WorkspaceGroupTests {
             group.anchorWorkspaceId,
             originalIds[3],
         ])
+    }
+
+    @Test func sidebarDividerRendersBetweenTopLevelRowsWithoutNumbering() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let workspaceIds = manager.tabs.map(\.id)
+        let dividerId = try #require(
+            manager.workspaces.insertSidebarDivider(after: workspaceIds[0])
+        )
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: [:],
+            dividers: manager.sidebarDividers
+        )
+
+        #expect(items.map(\.id) == [
+            .workspace(workspaceIds[0]),
+            .divider(dividerId),
+            .workspace(workspaceIds[1]),
+            .workspace(workspaceIds[2]),
+        ])
+        #expect(SidebarWorkspaceRenderItem.numberedWorkspaceIds(from: items) == workspaceIds)
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {

@@ -234,6 +234,14 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
+    /// Lightweight persistent separators between top-level sidebar rows.
+    /// Dividers are owned by `WorkspacesModel`; this forwarding accessor keeps
+    /// app-target callers on the same mutation path as tabs and groups.
+    var sidebarDividers: [WorkspaceSidebarDivider] {
+        get { workspaces.sidebarDividers }
+        set { workspaces.replaceSidebarDividers(newValue) }
+    }
+
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
@@ -280,6 +288,12 @@ class TabManager: ObservableObject {
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
         objectWillChange.send()
         workspaceGroupsPublisher.send(newValue)
+    }
+
+    /// Divider mutations participate in the same object-observation and
+    /// session-autosave invalidation path as workspace/group mutations.
+    func workspaceSidebarDividersWillChange(to newValue: [WorkspaceSidebarDivider]) {
+        objectWillChange.send()
     }
 
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
@@ -2417,16 +2431,12 @@ class TabManager: ObservableObject {
         finalizeWorkspaceForRemoval(workspace)
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, keep
-            // the group by promoting its first remaining member (in tabs order)
-            // to anchor so closing one workspace only closes that workspace and
-            // never scatters the rest of its group out to the ungrouped root
-            // tier. A group with no members left after the anchor's removal is
-            // dropped. This lives at the explicit close site (not in the tabs
-            // didSet) so transient remove/insert reorders never trigger the
-            // fixup.
-            let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+            // Real-close path: remove the workspace and, when needed, promote
+            // its group anchor in one model transaction. This keeps a divider
+            // anchored after the closing group row alive through normalization.
+            let promotedAnchorIds = workspaces.removeWorkspaceAndPromoteGroupAnchor(
+                closedWorkspaceId: workspace.id
+            )
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
@@ -4770,9 +4780,11 @@ class TabManager: ObservableObject {
         }
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            let removed = tabs.remove(at: currentIndex)
-            let insertIndex = min(max(entry.workspaceIndex, 0), tabs.count)
-            tabs.insert(removed, at: insertIndex)
+            var reorderedTabs = tabs
+            let restoredWorkspace = reorderedTabs.remove(at: currentIndex)
+            let insertIndex = min(max(entry.workspaceIndex, 0), reorderedTabs.count)
+            reorderedTabs.insert(restoredWorkspace, at: insertIndex)
+            tabs = reorderedTabs
         }
         if needsNormalize {
             workspaces.normalizeWorkspaceGroupContiguity()
@@ -6159,6 +6171,11 @@ extension TabManager {
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
         }
+        hasher.combine(sidebarDividers.count)
+        for divider in sidebarDividers {
+            hasher.combine(divider.id)
+            hasher.combine(divider.afterWorkspaceId)
+        }
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
@@ -6424,6 +6441,33 @@ extension TabManager {
         }
     }
 
+    /// Projects the live top-level sidebar rows onto the capped session
+    /// topology. Group rows survive when their snapshot is present even if
+    /// the live anchor workspace itself was omitted; the divider's group-id
+    /// fallback can then resolve the promoted anchor during restore.
+    static func restorableSidebarTopLevelRowIds(
+        topLevelIds: [UUID],
+        groupIdByAnchorWorkspaceId: [UUID: UUID],
+        restorableWorkspaceIds: Set<UUID>,
+        restorableGroupIds: Set<UUID>
+    ) -> [UUID] {
+        var result: [UUID] = []
+        result.reserveCapacity(topLevelIds.count)
+        var emittedGroupIds = Set<UUID>()
+        for topLevelId in topLevelIds {
+            if let groupId = groupIdByAnchorWorkspaceId[topLevelId] {
+                guard restorableGroupIds.contains(groupId),
+                      emittedGroupIds.insert(groupId).inserted else {
+                    continue
+                }
+                result.append(topLevelId)
+            } else if restorableWorkspaceIds.contains(topLevelId) {
+                result.append(topLevelId)
+            }
+        }
+        return result
+    }
+
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
@@ -6481,10 +6525,54 @@ extension TabManager {
                 }
             return snapshots.isEmpty ? nil : snapshots
         }()
+        let restorableWorkspaceIds = Set(restorableTabs.map(\.id))
+        // Pinned empty groups are persisted as durable header rows even though
+        // they have no restorable member workspace. Use the emitted group
+        // snapshot ids (rather than only occupied member groups) when deciding
+        // whether a divider anchored to such a header can be serialized.
+        let restorableGroupIds = Set(groupSnapshots?.map(\.id) ?? [])
+        let groupIdByAnchorWorkspaceId = Dictionary(
+            workspaceGroups.map { ($0.anchorWorkspaceId, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // Derive divider validity from the same capped/restorable topology as
+        // `workspaceSnapshots`. A divider after a group anchor that is not
+        // restorable itself remains eligible when another group member is
+        // restorable; its `afterWorkspaceGroupId` fallback remaps it during
+        // restore. Rows omitted by the cap (or by non-restorable workspace
+        // policy) are excluded before the final-row check.
+        let restorableTopLevelRowIds = Self.restorableSidebarTopLevelRowIds(
+            topLevelIds: workspaces.sidebarTopLevelWorkspaceIdsForSidebar(),
+            groupIdByAnchorWorkspaceId: groupIdByAnchorWorkspaceId,
+            restorableWorkspaceIds: restorableWorkspaceIds,
+            restorableGroupIds: restorableGroupIds
+        )
+        let validDividerAnchors = Set(
+            restorableTopLevelRowIds.dropLast()
+        )
+        let dividerSnapshots: [SessionWorkspaceSidebarDividerSnapshot] = {
+            let snapshots = sidebarDividers.compactMap { divider -> SessionWorkspaceSidebarDividerSnapshot? in
+                guard validDividerAnchors.contains(divider.afterWorkspaceId) else {
+                    return nil
+                }
+                let groupId = groupIdByAnchorWorkspaceId[divider.afterWorkspaceId]
+                guard restorableWorkspaceIds.contains(divider.afterWorkspaceId)
+                        || groupId.map({ restorableGroupIds.contains($0) }) == true else {
+                    return nil
+                }
+                return SessionWorkspaceSidebarDividerSnapshot(
+                    id: divider.id,
+                    afterWorkspaceId: divider.afterWorkspaceId,
+                    afterWorkspaceGroupId: groupId
+                )
+            }
+            return snapshots
+        }()
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            workspaceGroups: groupSnapshots,
+            sidebarDividers: dividerSnapshots.isEmpty ? nil : dividerSnapshots
         )
     }
 
@@ -6742,6 +6830,38 @@ extension TabManager {
             workspace.groupId = nil
         }
         workspaceGroups = restoredGroups
+        var restoredWorkspaceIdsByOriginalId: [UUID: UUID] = [:]
+        for (originalId, workspace) in zip(restoredOriginalWorkspaceIds, newTabs) {
+            guard let originalId else { continue }
+            // A malformed snapshot may repeat an original id; retaining the
+            // first restored workspace is deterministic and avoids trapping
+            // in Dictionary(uniqueKeysWithValues:).
+            restoredWorkspaceIdsByOriginalId[originalId] =
+                restoredWorkspaceIdsByOriginalId[originalId] ?? workspace.id
+        }
+        let groupsById = Dictionary(
+            workspaceGroups.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var topLevelAnchorByRestoredWorkspaceId: [UUID: UUID] = [:]
+        topLevelAnchorByRestoredWorkspaceId.reserveCapacity(newTabs.count)
+        for workspace in newTabs {
+            let anchorId = workspace.groupId
+                .flatMap { groupsById[$0]?.anchorWorkspaceId }
+                ?? workspace.id
+            topLevelAnchorByRestoredWorkspaceId[workspace.id] = anchorId
+        }
+        sidebarDividers = (snapshot.sidebarDividers ?? []).compactMap { dividerSnapshot in
+            let restoredAnchorId = restoredWorkspaceIdsByOriginalId[dividerSnapshot.afterWorkspaceId]
+                .flatMap { topLevelAnchorByRestoredWorkspaceId[$0] }
+                ?? dividerSnapshot.afterWorkspaceGroupId.flatMap { groupsById[$0]?.anchorWorkspaceId }
+            guard let restoredAnchorId else { return nil }
+            return WorkspaceSidebarDivider(
+                id: dividerSnapshot.id,
+                afterWorkspaceId: restoredAnchorId
+            )
+        }
+        workspaces.normalizeSidebarDividers()
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)

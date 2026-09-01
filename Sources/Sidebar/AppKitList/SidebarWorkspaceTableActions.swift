@@ -42,6 +42,10 @@ struct SidebarWorkspaceTableActions {
     let closeWorkspace: (UUID) -> Void
     let createWorkspaceAtEnd: () -> Void
     let createEmptyWorkspaceGroup: () -> Void
+    let createDivider: () -> Void
+    /// Whether the current render snapshot contains an unoccupied interior
+    /// gap where the empty-area menu can create a divider.
+    let canCreateDivider: Bool
     let beginWorkspaceDrag: (UUID) -> Void
     let movingWorkspaceCount: ((UUID) -> Int)?
     let endWorkspaceDrag: () -> Void
@@ -81,6 +85,8 @@ struct SidebarWorkspaceTableActions {
         closeWorkspace: @escaping (UUID) -> Void,
         createWorkspaceAtEnd: @escaping () -> Void,
         createEmptyWorkspaceGroup: @escaping () -> Void,
+        createDivider: @escaping () -> Void,
+        canCreateDivider: Bool,
         beginWorkspaceDrag: @escaping (UUID) -> Void,
         movingWorkspaceCount: ((UUID) -> Int)?,
         endWorkspaceDrag: @escaping () -> Void,
@@ -106,6 +112,8 @@ struct SidebarWorkspaceTableActions {
         self.closeWorkspace = closeWorkspace
         self.createWorkspaceAtEnd = createWorkspaceAtEnd
         self.createEmptyWorkspaceGroup = createEmptyWorkspaceGroup
+        self.createDivider = createDivider
+        self.canCreateDivider = canCreateDivider
         self.beginWorkspaceDrag = beginWorkspaceDrag
         self.movingWorkspaceCount = movingWorkspaceCount
         self.endWorkspaceDrag = endWorkspaceDrag

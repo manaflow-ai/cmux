@@ -28,6 +28,8 @@ struct SidebarWorkspaceRowActions {
     let performPin: () -> Void
     let createEmptyGroup: () -> Void
     let createGroup: ([UUID]) -> Void
+    let insertDividerAbove: ([UUID]) -> Void
+    let insertDividerBelow: ([UUID]) -> Void
     let addTargetsToGroup: ([UUID], UUID) -> Void
     let removeTargetsFromGroup: ([UUID]) -> Void
     let reconnectTargets: ([UUID]) -> Void

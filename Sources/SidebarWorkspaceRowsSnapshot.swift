@@ -10,6 +10,8 @@ struct SidebarWorkspaceRowsSnapshot {
     let groupRowsById: [UUID: SidebarWorkspaceGroupRowSnapshot]
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let canCreateEmptyGroup: Bool
+    let sidebarDividerCanInsertAboveByWorkspaceId: [UUID: Bool]
+    let sidebarDividerCanInsertBelowByWorkspaceId: [UUID: Bool]
     let selectedContextMenuTargetAggregate: SidebarWorkspaceContextMenuTargetAggregate
 
     private let anchorWorkspaceIds: Set<UUID>
@@ -23,12 +25,16 @@ struct SidebarWorkspaceRowsSnapshot {
         anchorWorkspaceIds: Set<UUID>,
         workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot,
         canCreateEmptyGroup: Bool,
+        sidebarDividerCanInsertAboveByWorkspaceId: [UUID: Bool],
+        sidebarDividerCanInsertBelowByWorkspaceId: [UUID: Bool],
         notificationIndex: SidebarWorkspaceNotificationIndex
     ) {
         self.workspaceRowsById = workspaceRowsById
         self.groupRowsById = groupRowsById
         self.workspaceGroupMenuSnapshot = workspaceGroupMenuSnapshot
         self.canCreateEmptyGroup = canCreateEmptyGroup
+        self.sidebarDividerCanInsertAboveByWorkspaceId = sidebarDividerCanInsertAboveByWorkspaceId
+        self.sidebarDividerCanInsertBelowByWorkspaceId = sidebarDividerCanInsertBelowByWorkspaceId
         self.anchorWorkspaceIds = anchorWorkspaceIds
         self.notificationIndex = notificationIndex
         selectedContextMenuTargetAggregate = SidebarWorkspaceContextMenuTargetAggregate(

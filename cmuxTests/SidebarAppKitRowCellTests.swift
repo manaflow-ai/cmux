@@ -139,6 +139,8 @@ struct SidebarAppKitRowCellTests {
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
             isChecklistPopoverPresented: false,
+            canInsertDividerAbove: true,
+            canInsertDividerBelow: true,
             contextMenu: SidebarWorkspaceContextMenuSnapshot(
                 targetWorkspaceIds: [],
                 remoteTargetWorkspaceIds: [],
@@ -2100,6 +2102,8 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
+            canInsertDividerAbove: true,
+            canInsertDividerBelow: true,
             colorSchemeIsDark: false
         ))
 

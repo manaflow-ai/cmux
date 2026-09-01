@@ -70,31 +70,25 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let previousOrder = model.tabs.map(\.id)
 
         if !model.workspaceGroups.isEmpty {
-            guard let topLevelId = model.topLevelWorkspaceIds(for: [tab]).first else { return }
-            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
-            guard !pinnedTopLevelIds.contains(topLevelId) else { return }
+            guard let desiredTopLevelIds = model.sidebarTopLevelWorkspaceIdsAfterNotificationMove(
+                for: tabId
+            ) else { return }
+            // Validate the notification move before touching grouped member
+            // order. Pinned/unknown rows are a true no-op and must not incur a
+            // hidden member shuffle just because the model has groups.
             model.moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [tabId])
-            var desiredTopLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
-            guard let fromIndex = desiredTopLevelIds.firstIndex(of: topLevelId) else { return }
-            let pinnedCount = desiredTopLevelIds.reduce(into: 0) { count, id in
-                if pinnedTopLevelIds.contains(id) {
-                    count += 1
-                }
-            }
-            if fromIndex != pinnedCount {
-                let movedId = desiredTopLevelIds.remove(at: fromIndex)
-                desiredTopLevelIds.insert(movedId, at: min(pinnedCount, desiredTopLevelIds.count))
-            }
             model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
             model.syncWorkspaceGroupsOrderToAnchorOrder(preferredTopLevelIds: desiredTopLevelIds)
         } else {
-            guard let index = model.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-            let pinnedCount = model.tabs.filter { $0.isPinned }.count
-            guard index != pinnedCount else { return }
-            let tab = model.tabs[index]
-            guard !tab.isPinned else { return }
-            model.tabs.remove(at: index)
-            model.tabs.insert(tab, at: pinnedCount)
+            guard let desiredTopLevelIds = model.sidebarTopLevelWorkspaceIdsAfterNotificationMove(
+                for: tabId
+            ),
+            let destinationIndex = desiredTopLevelIds.firstIndex(of: tabId),
+            let index = model.tabs.firstIndex(where: { $0.id == tabId }) else { return }
+            var reorderedTabs = model.tabs
+            reorderedTabs.remove(at: index)
+            reorderedTabs.insert(tab, at: destinationIndex)
+            model.tabs = reorderedTabs
         }
         if model.tabs.map(\.id) != previousOrder {
             host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
@@ -152,8 +146,10 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             return true
         }
 
-        let workspace = model.tabs.remove(at: plan.fromIndex)
-        model.tabs.insert(workspace, at: plan.toIndex)
+        var reorderedTabs = model.tabs
+        let workspace = reorderedTabs.remove(at: plan.fromIndex)
+        reorderedTabs.insert(workspace, at: plan.toIndex)
+        model.tabs = reorderedTabs
         if isDragOperation {
             applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
         } else if !model.workspaceGroups.isEmpty {
@@ -869,11 +865,11 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let changedIds = orderedTargetIds.filter { changedIdSet.contains($0) }
 
         if !model.workspaceGroups.isEmpty {
-            for id in changedIds {
-                if let workspace = workspacesById[id] {
-                    reorderTabForPinnedState(workspace)
-                }
-            }
+            // A grouped batch is one model mutation. Reordering each target
+            // independently repeatedly normalizes the full tab array, making
+            // the operation O(batchSize × workspaceCount) and exposing
+            // transient group/divider states to observers.
+            model.normalizeWorkspaceGroupContiguity()
             host?.workspaceOrderDidChange(movedWorkspaceIds: changedIds)
             return changedIds
         }
@@ -900,9 +896,11 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             model.normalizeWorkspaceGroupContiguity()
             return
         }
-        model.tabs.remove(at: index)
-        let pinnedCount = model.leadingGlobalPinnedRowCount()
-        let insertIndex = min(pinnedCount, model.tabs.count)
-        model.tabs.insert(tab, at: insertIndex)
+        var reorderedTabs = model.tabs
+        reorderedTabs.remove(at: index)
+        let pinnedCount = reorderedTabs.prefix(while: { model.isGlobalPinnedRow($0) }).count
+        let insertIndex = min(pinnedCount, reorderedTabs.count)
+        reorderedTabs.insert(tab, at: insertIndex)
+        model.tabs = reorderedTabs
     }
 }

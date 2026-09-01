@@ -111,6 +111,8 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
             isChecklistPopoverPresented: false,
+            canInsertDividerAbove: true,
+            canInsertDividerBelow: true,
             contextMenu: SidebarWorkspaceContextMenuSnapshot(
                 targetWorkspaceIds: [],
                 remoteTargetWorkspaceIds: [],
@@ -155,6 +157,8 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             performPin: {},
             createEmptyGroup: {},
             createGroup: { _ in },
+            insertDividerAbove: { _ in },
+            insertDividerBelow: { _ in },
             addTargetsToGroup: { _, _ in },
             removeTargetsFromGroup: { _ in },
             reconnectTargets: { _ in },
