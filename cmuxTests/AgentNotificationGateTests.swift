@@ -1,3 +1,4 @@
+import Foundation
 import CmuxSettings
 import Testing
 
@@ -225,5 +226,122 @@ import Testing
             AgentNotificationMeta(meta: "c=other;p=0;a=claude;s=errorStalled")?.soundContext
                 == NotificationSoundOverrideContext(agentID: "claude", alertType: .errorStalled)
         )
+    }
+}
+
+@MainActor
+@Suite struct AgentApprovalNotificationCoordinatorTests {
+    private static let workspaceID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+    private static let surfaceID = UUID(uuidString: "66666666-7777-8888-9999-AAAAAAAAAAAA")!
+    private static let firstApprovalID = "111111111111111111111111.aaaaaaaaaaaaaaaaaaaaaaaa"
+    private static let secondApprovalID = "111111111111111111111111.bbbbbbbbbbbbbbbbbbbbbbbb"
+
+    @Test func autoResolvedApprovalProducesNoNotification() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.isEmpty)
+        #expect(fixture.clears.isEmpty)
+    }
+
+    @Test func genuinelyBlockingApprovalNotifiesAfterSettleWindow() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        #expect(fixture.deliveries.isEmpty)
+
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.deliveries.first?.body == "shell needs approval")
+    }
+
+    @Test func pendingApprovalsInOnePaneCoalesceIntoOneNotification() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "first tool needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "second tool needs approval",
+            approvalID: Self.secondApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.deliveries.first?.body == "second tool needs approval")
+    }
+
+    @MainActor
+    private final class Fixture {
+        let scheduler = ManualScheduler()
+        var deliveries: [AgentApprovalNotificationCoordinator.Delivery] = []
+        var clears: [AgentApprovalNotificationCoordinator.Clear] = []
+        lazy var coordinator = AgentApprovalNotificationCoordinator(
+            settleDelay: 0.1,
+            schedule: scheduler.schedule(delay:action:),
+            deliver: { [weak self] in self?.deliveries.append($0) },
+            clear: { [weak self] in self?.clears.append($0) }
+        )
+    }
+
+    @MainActor
+    private final class ManualScheduler {
+        private final class Entry {
+            var isCancelled = false
+            let action: @MainActor () -> Void
+
+            init(action: @escaping @MainActor () -> Void) {
+                self.action = action
+            }
+        }
+
+        private var entries: [Entry] = []
+
+        func schedule(
+            delay _: TimeInterval,
+            action: @escaping @MainActor () -> Void
+        ) -> AgentApprovalNotificationCoordinator.Cancellation {
+            let entry = Entry(action: action)
+            entries.append(entry)
+            return { entry.isCancelled = true }
+        }
+
+        func runAll() {
+            let scheduled = entries
+            entries.removeAll()
+            for entry in scheduled where !entry.isCancelled {
+                entry.action()
+            }
+        }
     }
 }
