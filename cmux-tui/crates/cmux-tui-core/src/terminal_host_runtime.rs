@@ -1780,9 +1780,8 @@ mod unix {
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
         prepare_private_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
-        let record_path = crate::platform::normalize_filesystem_path(
-            root.join(format!("{terminal_hex}.json")),
-        );
+        let record_path =
+            crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }

@@ -536,9 +536,8 @@ impl PersistentSessionStateResetter {
             return Ok(reset);
         }
         let lease = if lock_session_dir_exists {
-            let lock_path = platform::normalize_filesystem_path(
-                session_dir.join(SESSION_WRITER_LOCK_FILE),
-            );
+            let lock_path =
+                platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
             Some(SessionLease::acquire(&lock_path)?)
         } else {
             None
@@ -5279,7 +5278,8 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
     let root = platform::normalize_filesystem_path(root.to_path_buf());
     fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
     platform::restrict_directory(&root)?;
-    let lock_path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE));
+    let lock_path =
+        platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE));
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -5305,7 +5305,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
             ResourceEffectPepper::from_bytes(bytes, &path)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            ensure_missing_pepper_can_migrate(root, &path)?;
+            ensure_missing_pepper_can_migrate(&root, &path)?;
             let pepper = ResourceEffectPepper::random()?;
             let mut options = OpenOptions::new();
             options.create_new(true).write(true);
@@ -5626,12 +5626,10 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{sequence:x}", std::process::id());
-                let registration_path = platform::normalize_filesystem_path(
-                    waiter_dir.join(format!("{token}.waiter")),
-                );
-                let temporary_path = platform::normalize_filesystem_path(
-                    waiter_dir.join(format!(".{token}.tmp")),
-                );
+                let registration_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
+                let temporary_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
                 let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
                 // SAFETY: fifo_path is a valid NUL-terminated path and mode
                 // only grants access to the current user.
@@ -5690,12 +5688,10 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
-                let registration_path = platform::normalize_filesystem_path(
-                    waiter_dir.join(format!("{token}.waiter")),
-                );
-                let temporary_path = platform::normalize_filesystem_path(
-                    waiter_dir.join(format!(".{token}.tmp")),
-                );
+                let registration_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
+                let temporary_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
                 let mut options = OpenOptions::new();
                 options.create_new(true).write(true);
                 #[cfg(unix)]
