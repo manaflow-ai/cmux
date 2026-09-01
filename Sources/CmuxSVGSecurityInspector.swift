@@ -22,7 +22,7 @@ final class CmuxSVGSecurityInspector: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        let loweredName = elementName.lowercased()
+        let loweredName = Self.localName(elementName)
         elementStack.append(loweredName)
         if loweredName == "style" {
             styleText = ""
@@ -84,23 +84,34 @@ final class CmuxSVGSecurityInspector: NSObject, XMLParserDelegate {
     }
 
     private static func isSafeSVGAttribute(name: String, value: String) -> Bool {
-        let loweredName = name.lowercased()
+        let qualifiedName = name.lowercased()
+        let loweredName = localName(name)
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let loweredValue = trimmedValue.lowercased()
+        if qualifiedName == "xmlns" || qualifiedName.hasPrefix("xmlns:") { return true }
         if loweredName.hasPrefix("on") { return false }
-        if loweredName == "xmlns" || loweredName.hasPrefix("xmlns:") { return true }
-        if loweredName == "href" || loweredName == "xlink:href" {
+        if loweredName == "style" { return isSafeSVGStyle(trimmedValue) }
+        if loweredName == "href" {
             return isSafeSVGReference(trimmedValue)
         }
+        // CSS escapes are meaningful in presentation attributes, so reject
+        // them instead of trying to duplicate a browser's CSS tokenizer.
+        if trimmedValue.contains("\\") { return false }
         if containsBlockedSVGValue(loweredValue) { return false }
         return !loweredValue.contains("url(") || containsOnlyInternalSVGURLs(trimmedValue)
     }
 
     private static func isSafeSVGStyle(_ value: String) -> Bool {
         let loweredValue = value.lowercased()
-        guard !loweredValue.contains("@import"),
+        guard !value.contains("\\"),
+              !loweredValue.contains("@import"),
               !containsBlockedSVGValue(loweredValue) else { return false }
         return !loweredValue.contains("url(") || containsOnlyInternalSVGURLs(value)
+    }
+
+    private static func localName(_ qualifiedName: String) -> String {
+        String(qualifiedName.split(separator: ":").last ?? Substring(qualifiedName))
+            .lowercased()
     }
 
     private static func isSafeSVGReference(_ value: String) -> Bool {

@@ -71,7 +71,7 @@ struct CmuxValidatedImageAsset {
         _ path: String,
         relativeToConfig configSourcePath: String?,
         globalConfigPath: String,
-        fileManager: FileManager = .default
+        readContents: (String) -> Data? = { FileManager.default.contents(atPath: $0) }
     ) -> Result<Prepared, Failure> {
         guard let resolvedPath = safeResolvedImagePath(
             path,
@@ -87,10 +87,10 @@ struct CmuxValidatedImageAsset {
             return .failure(.projectPathNotAllowed)
         }
 
-        guard fileManager.fileExists(atPath: resolvedPath) else {
+        guard FileManager.default.fileExists(atPath: resolvedPath) else {
             return .failure(.missingFile)
         }
-        guard let attributes = try? fileManager.attributesOfItem(atPath: resolvedPath),
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: resolvedPath),
               let fileType = attributes[.type] as? FileAttributeType,
               fileType == .typeRegular else {
             return .failure(.notRegularFile)
@@ -99,7 +99,7 @@ struct CmuxValidatedImageAsset {
            fileSize.uint64Value > UInt64(maxImageBytes) {
             return .failure(.tooLarge)
         }
-        guard let data = fileManager.contents(atPath: resolvedPath) else {
+        guard let data = readContents(resolvedPath) else {
             return .failure(.unreadableFile)
         }
         guard data.count <= maxImageBytes else {

@@ -60,12 +60,13 @@ struct AppIconCustomPickerRow: View {
     }
 
     static func displayName(for selectedPath: String) -> String {
-        guard !selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let normalizedPath = selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedPath.isEmpty else {
             return String(
                 localized: "settings.app.appIcon.custom.file.none",
                 defaultValue: "No file selected"
             )
         }
-        return URL(fileURLWithPath: selectedPath).lastPathComponent
+        return URL(fileURLWithPath: normalizedPath).lastPathComponent
     }
 }

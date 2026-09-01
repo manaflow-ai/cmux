@@ -559,11 +559,7 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
     }
 
     static func projectRoot(forConfigPath configPath: String) -> String {
-        let configDir = (configPath as NSString).deletingLastPathComponent
-        if (configDir as NSString).lastPathComponent == ".cmux" {
-            return (configDir as NSString).deletingLastPathComponent
-        }
-        return configDir
+        CmuxValidatedImageAsset.projectRoot(forConfigPath: configPath)
     }
 
     private static func trimmedString(

@@ -20,12 +20,12 @@ struct AppIconImageResolver {
         )
         guard case .success(let prepared) = result else {
             if case .failure(let failure) = result {
-                log("[AppIcon] rejected custom image path (\(path)): \(failure.description)")
+                log("[AppIcon] rejected custom image: \(failure.description)")
             }
             return nil
         }
         guard let image = NSImage(data: prepared.data), image.isValid else {
-            log("[AppIcon] custom image is not a supported image: \(prepared.resolvedPath)")
+            log("[AppIcon] custom image is not a supported image")
             return nil
         }
         return image

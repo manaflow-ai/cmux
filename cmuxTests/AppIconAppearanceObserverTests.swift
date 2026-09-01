@@ -212,15 +212,18 @@ struct AppIconAppearanceObserverTests {
 
         let imageURL = directory.appendingPathComponent("large.png")
         try Data(repeating: 0, count: CmuxValidatedImageAsset.maxImageBytes + 1).write(to: imageURL)
-        let fileManager = AppIconOversizedFileManager()
+        var requestedContentPaths: [String] = []
         let result = CmuxValidatedImageAsset.prepare(
             imageURL.path,
             relativeToConfig: nil,
             globalConfigPath: AppIconImageResolver.defaultConfigPath,
-            fileManager: fileManager
+            readContents: { path in
+                requestedContentPaths.append(path)
+                return nil
+            }
         )
         #expect(result == .failure(.tooLarge))
-        #expect(fileManager.requestedContentPaths.isEmpty)
+        #expect(requestedContentPaths.isEmpty)
     }
 
     @Test
@@ -333,15 +336,5 @@ struct AppIconAppearanceObserverTests {
         #expect(stopCount == 1)
         #expect(fallbackModeRequests == 0)
         #expect(notificationCount == 1)
-    }
-}
-
-// Each instance is confined to one synchronous test invocation.
-private final class AppIconOversizedFileManager: FileManager {
-    private(set) var requestedContentPaths: [String] = []
-
-    override func contents(atPath path: String) -> Data? {
-        requestedContentPaths.append(path)
-        return nil
     }
 }
