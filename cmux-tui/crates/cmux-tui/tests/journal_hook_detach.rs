@@ -102,11 +102,14 @@ fn detached_hook_writes_the_request_before_exiting_even_when_the_server_is_not_a
 }
 
 #[test]
-fn detached_hook_without_a_listener_exits_immediately() {
+fn detached_hook_without_a_listener_fails_immediately() {
     let socket = socket_path("dead");
     let started = Instant::now();
     let output = wait_with_output(spawn_hook(&socket, "Stop"), Duration::from_secs(3))
         .expect("hook must exit when no server listens");
-    assert!(output.status.success(), "{output:?}");
+    // No listener means this terminal is not attached to a live cmux-tui: the
+    // child gives up at once and the provider-facing process reports it,
+    // without spending the retry deadline.
+    assert!(!output.status.success(), "{output:?}");
     assert!(started.elapsed() < Duration::from_secs(2));
 }
