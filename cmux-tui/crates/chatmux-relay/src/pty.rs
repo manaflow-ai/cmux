@@ -1608,7 +1608,8 @@ impl Inner {
             self.retire_if_current(pty_id, &current_attachment);
             return;
         };
-        if !self.transport_auth_is_current(context, &auth)
+        if context.cancellation.is_cancelled()
+            || !self.transport_auth_is_current(context, &auth)
             || !self.attachment_snapshot_is_current(pty_id, &current_attachment)
         {
             self.retire_if_current(pty_id, &current_attachment);
@@ -1626,6 +1627,7 @@ impl Inner {
                 .attachment(pty_id)
                 .is_some_and(|attachment| self.attachment_snapshot_is_current(pty_id, &attachment))
         {
+            self.retire_if_current(pty_id, &current_attachment);
             return;
         }
         start();
@@ -2703,16 +2705,13 @@ struct ShellViewerControl {
 impl ShellViewerControl {
     fn release(&self) {
         self.released.store(true, Ordering::SeqCst);
-        let should_resume = {
+        {
             let _flow = self.session.flow_lock.lock().expect("shell flow lock");
             let mut inner = self.session.inner.lock().expect("shell inner lock");
             inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
             inner.paused_backlog.remove(&self.viewer_id);
             inner.draining_viewers.remove(&self.viewer_id);
-            inner.paused_viewers.remove(&self.viewer_id) && inner.paused_viewers.is_empty()
-        };
-        if should_resume {
-            self.session.control.resume();
+            inner.paused_viewers.remove(&self.viewer_id);
         }
     }
 }
@@ -2730,20 +2729,8 @@ impl PtyControl for ShellViewerControl {
             let mut inner = self.session.inner.lock().expect("shell inner lock");
             inner.paused_viewers.insert(self.viewer_id) && inner.paused_viewers.len() == 1
         };
-        if should_pause {
-            self.session.control.pause();
-            // A release may have removed the last paused viewer while the
-            // control call was in flight. Re-check the shared state and
-            // undo the stale pause so the shell cannot remain wedged.
-            let should_resume = {
-                let _flow = self.session.flow_lock.lock().expect("shell flow lock");
-                let inner = self.session.inner.lock().expect("shell inner lock");
-                inner.paused_viewers.is_empty()
-            };
-            if should_resume {
-                self.session.control.resume();
-            }
-        }
+        // The shared shell PTY stays running. Output fanout buffers only this
+        // viewer while it is paused, so one slow client cannot stall peers.
     }
     fn resume(&self) {
         let should_resume = {
@@ -2756,9 +2743,6 @@ impl PtyControl for ShellViewerControl {
             }
             removed && inner.paused_viewers.is_empty()
         };
-        if should_resume {
-            self.session.control.resume();
-        }
         self.drain_backlog();
     }
 
@@ -4117,7 +4101,7 @@ mod tests {
         assert!(pty.state.lock().unwrap().resized.contains(&(132, 43)));
 
         h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": true })).await;
-        assert!(pty.state.lock().unwrap().paused);
+        assert!(!pty.state.lock().unwrap().paused);
         h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": false })).await;
         assert!(!pty.state.lock().unwrap().paused);
     }
