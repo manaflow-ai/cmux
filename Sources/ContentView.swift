@@ -11297,7 +11297,22 @@ struct VerticalTabsSidebar: View, Equatable {
                 cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
                 tabManager.closeWorkspaceWithConfirmation(workspace)
-            }, onBeginWorkspaceDrag: { workspaceId, sourceView, event, draggingFrame, dragImage in
+            }, onBeginWorkspaceDrag: { dragId, sourceView, event, draggingFrame, dragImage in
+                let workspaceId: UUID
+                if tabManager.tabs.contains(where: { $0.id == dragId }) {
+                    workspaceId = dragId
+                } else if let group = tabManager.workspaceGroups.first(where: { $0.id == dragId }) {
+                    if group.isEmpty {
+                        workspaceId = group.id
+                    } else {
+                        guard let liveAnchorId = tabManager.workspaceGroupAnchor(for: group.id)?.id else {
+                            return false
+                        }
+                        workspaceId = liveAnchorId
+                    }
+                } else {
+                    return false
+                }
 #if DEBUG
                 cmuxDebugLog("sidebar.nativeDrag tab=\(workspaceId.uuidString.prefix(5))")
 #endif
@@ -11834,9 +11849,17 @@ struct VerticalTabsSidebar: View, Equatable {
                 group: group
             )
         }
+        // A group header is keyed by its stable group id, not by the mutable
+        // anchor workspace id. Keep the full live row identity set available
+        // while hidden so anchor promotion cannot prune a retained header.
+        let liveRowIds: [SidebarWorkspaceRenderItemID] = isPresented
+            ? renderContext.workspaceRenderItems.map(\.id)
+            : tabManager.workspaceGroups.map { .group($0.id) }
+                + tabManager.tabs.map { .workspace($0.id) }
         return SidebarWorkspaceTableView(
             contentUpdate: contentUpdate,
             workspaceIds: isPresented ? renderContext.workspaceIds : tabManager.tabs.map(\.id),
+            liveRowIds: liveRowIds,
             selectedWorkspaceId: selectedWorkspaceId,
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
@@ -11997,10 +12020,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
-        private func workspaceTableActions(
+    private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
-        SidebarWorkspaceTableActions(
+        var actions = SidebarWorkspaceTableActions(
             attachScrollView: { scrollView in
                 dragAutoScrollController.attach(scrollView: scrollView)
             },
@@ -12145,13 +12168,6 @@ struct VerticalTabsSidebar: View, Equatable {
             setBonsplitDropIndicator: { indicator in
                 dragState.setDropIndicator(indicator)
             },
-            workspaceIdForDrag: { rowId, fallbackId in
-                guard let groupId = rowId.groupId,
-                      let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
-                    return fallbackId
-                }
-                return group.isEmpty ? group.id : group.anchorWorkspaceId
-            },
             nativeWorkspaceDragLifecycle: SidebarWorkspaceTableActions.NativeWorkspaceDragLifecycle(
                 currentSessionId: { dragState.currentWorkspaceDragSessionId },
                 finish: { sessionId, capabilityValue in
@@ -12160,10 +12176,31 @@ struct VerticalTabsSidebar: View, Equatable {
                         capabilityValue: capabilityValue
                     )
                     dragAutoScrollController.stop()
+                },
+                reclaimSupersededNativeSources: { excludingSessionId in
+                    dragState.reclaimSupersededNativeSources(
+                        excludingSessionId: excludingSessionId
+                    )
                 }
             )
         )
-
+        actions.workspaceGroupAnchorIdsForDrag = { [weak tabManager] in
+            guard let tabManager else { return [:] }
+            let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))
+            return Dictionary(
+                uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
+                    if group.isEmpty {
+                        // Empty pinned groups still have a draggable header. Its
+                        // stable group identity is consumed by the reorder
+                        // resolver as `.reorderGroup`, not as a workspace id.
+                        return (group.id, group.id)
+                    }
+                    guard liveWorkspaceIds.contains(group.anchorWorkspaceId) else { return nil }
+                    return (group.id, group.anchorWorkspaceId)
+                }
+            )
+        }
+        return actions
     }
 
     /// Builds one pure-AppKit workspace row from the container-projected
