@@ -1,3 +1,5 @@
+import Foundation
+
 /// Classifies persisted restore provenance without launching an agent.
 public struct AgentRestoreRouteClassifier: Sendable {
     private static let claudePinnedEnvironmentKeys: Set<String> = [
@@ -50,16 +52,47 @@ public struct AgentRestoreRouteClassifier: Sendable {
         environment: [String: String]
     ) -> Bool {
         if kind == "claude" {
-            return nonempty(environment["ANTHROPIC_BASE_URL"])
+            return isKnownSubrouterURL(environment["ANTHROPIC_BASE_URL"])
         }
         guard kind == "codex" else { return false }
-        return normalizedArguments(arguments).contains { argument in
-            argument.contains("model_provider=\"subrouter\"")
-                || argument.contains("model_provider='subrouter'")
-                || argument.contains("model_provider=subrouter")
-                || argument.contains("model_providers.subrouter.")
-                || argument.contains("openai_base_url=")
+        return codexConfigValues(arguments).contains { value in
+            value == "model_provider=\"subrouter\""
+                || value == "model_provider='subrouter'"
+                || value == "model_provider=subrouter"
+                || value.hasPrefix("model_providers.subrouter.")
         }
+    }
+
+    private func codexConfigValues(_ arguments: [String]) -> [String] {
+        var values: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "-c" || argument == "--config" {
+                if index + 1 < arguments.count {
+                    values.append(normalized(arguments[index + 1]))
+                    index += 1
+                }
+            } else if argument.hasPrefix("-c=") {
+                values.append(normalized(String(argument.dropFirst(3))))
+            } else if argument.hasPrefix("--config=") {
+                values.append(normalized(String(argument.dropFirst(9))))
+            }
+            index += 1
+        }
+        return values
+    }
+
+    private func isKnownSubrouterURL(_ value: String?) -> Bool {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              let host = URLComponents(string: value)?.host?.lowercased() else {
+            return false
+        }
+        let firstLabel = host.split(separator: ".", maxSplits: 1).first.map(String.init)
+        return firstLabel == "subrouter"
+            || firstLabel?.hasPrefix("subrouter-") == true
+            || host.hasSuffix(".subrouter")
     }
 
     private func hasPinnedSelection(
@@ -76,13 +109,9 @@ public struct AgentRestoreRouteClassifier: Sendable {
         if nonempty(environment["CODEX_HOME"]) {
             return true
         }
-        return normalizedArguments(arguments).contains {
+        return codexConfigValues(arguments).contains {
             $0.contains("x-subrouter-account-id")
         }
-    }
-
-    private func normalizedArguments(_ arguments: [String]) -> [String] {
-        arguments.map { normalized($0) }
     }
 
     private func normalized(_ value: String) -> String {
