@@ -17072,6 +17072,22 @@ impl App {
                 SelectionMode::Cell => None,
             })
             .flatten();
+        let range = range.map(|range| {
+            if mode == SelectionMode::Word {
+                self.selection
+                    .filter(|selection| selection.surface == surface)
+                    .map(|selection| {
+                        let initial = selection.range();
+                        SelectionRange {
+                            start: initial.0.min(range.start),
+                            end: initial.1.max(range.end),
+                        }
+                    })
+                    .unwrap_or(range)
+            } else {
+                range
+            }
+        });
         if let Some(generation) = content_generation {
             self.semantic_selection_cache = Some(SemanticSelectionCache {
                 surface,
