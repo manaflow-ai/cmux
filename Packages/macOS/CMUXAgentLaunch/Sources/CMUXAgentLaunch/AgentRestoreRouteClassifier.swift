@@ -90,7 +90,9 @@ public struct AgentRestoreRouteClassifier: Sendable {
             return false
         }
         let firstLabel = host.split(separator: ".", maxSplits: 1).first.map(String.init)
-        return firstLabel == "subrouter"
+        return host == "sr.cmux.com"
+            || host == "staging.sr.cmux.com"
+            || firstLabel == "subrouter"
             || firstLabel?.hasPrefix("subrouter-") == true
             || host.hasSuffix(".subrouter")
     }
