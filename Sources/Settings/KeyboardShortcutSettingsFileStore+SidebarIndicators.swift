@@ -38,6 +38,8 @@ extension CmuxSettingsFileStore {
             } else {
                 logInvalid(sidebar.shortcutHintStyle.id, sourcePath: sourcePath)
             }
+        } else if section.keys.contains("shortcutHintStyle") {
+            logInvalid(sidebar.shortcutHintStyle.id, sourcePath: sourcePath)
         }
         if section.keys.contains("shortcutHintColor") {
             guard let value = parseNullableHex(
