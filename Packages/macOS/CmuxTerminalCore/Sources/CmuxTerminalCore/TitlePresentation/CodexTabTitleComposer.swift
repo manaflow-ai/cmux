@@ -35,7 +35,16 @@ public struct CodexTabTitleComposer: Sendable {
     private let runningMarker: String
     private let idleMarker: String
 
-    /// Creates a composer with localized marker strings supplied by the host.
+    /// Creates a composer using cmux's universal, non-linguistic status glyphs.
+    ///
+    /// The symbols are deliberately shared across locales: they communicate
+    /// state by shape, rather than by language. Use the marker-injecting
+    /// initializer when a host needs a different visual vocabulary.
+    public init() {
+        self.init(runningMarker: "\u{25D0} ", idleMarker: "\u{2733} ")
+    }
+
+    /// Creates a composer with marker strings supplied by the host.
     ///
     /// - Parameters:
     ///   - runningMarker: The marker prepended while a turn is running.

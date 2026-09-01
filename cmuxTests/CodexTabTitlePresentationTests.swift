@@ -107,6 +107,28 @@ struct CodexTabTitlePresentationTests {
         #expect(!tab.isLoading)
     }
 
+    @Test("a remote tmux mirror clears stale Codex tab presentation state")
+    func remoteMirrorDoesNotRetainCodexMarkerOrLoading() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "some-name"))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "◐ some-name")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+
+        // A mirror transition can leave the old local projection in Bonsplit
+        // until the next lifecycle/title event. Reconciliation must clear both
+        // transient fields when that event arrives.
+        workspace.isRemoteTmuxMirror = true
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.title == "some-name")
+        #expect(!tab.isLoading)
+    }
+
     @Test("another agent lifecycle key does not borrow Codex title markers")
     func nonCodexLifecycleIsIgnored() throws {
         let workspace = Workspace()

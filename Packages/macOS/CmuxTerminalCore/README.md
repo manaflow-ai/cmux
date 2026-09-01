@@ -27,10 +27,17 @@ All logic is pure or probe-injectable, so tests run headlessly with `swift test`
 let filter = TerminalTitleChurnFilter()
 #expect(filter.stableTitle(for: "⠋ Building") == "Building")
 
-let composer = CodexTabTitleComposer(runningMarker: "◐ ", idleMarker: "✳ ")
+let composer = CodexTabTitleComposer()
 #expect(composer.presentation(
     baseTitle: "Build",
     lifecycle: .running,
     hasUserOwnedTitle: false
 ).title == "◐ Build")
 ```
+
+The running (`◐`) and idle (`✳`) prefixes are non-linguistic status glyphs.
+They intentionally use the same shape in every locale, so they are kept as
+package presentation tokens rather than duplicated marker-only localization
+entries. Hosts may inject another visual vocabulary through
+`CodexTabTitleComposer(runningMarker:idleMarker:)` when their tab design calls
+for it.

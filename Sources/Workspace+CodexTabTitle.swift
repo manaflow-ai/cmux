@@ -2,18 +2,9 @@ import Foundation
 import CmuxTerminalCore
 
 extension Workspace {
-    /// Builds the pure composer with the host-localized marker strings.
+    /// Builds the pure composer with cmux's universal status glyphs.
     private nonisolated func codexTabTitleComposer() -> CodexTabTitleComposer {
-        CodexTabTitleComposer(
-            runningMarker: String(
-                localized: "tab.codex.runningMarker",
-                defaultValue: "◐ "
-            ),
-            idleMarker: String(
-                localized: "tab.codex.idleMarker",
-                defaultValue: "✳ "
-            )
-        )
+        CodexTabTitleComposer()
     }
 
     private func codexTabLifecycle(panelId: UUID) -> CodexTabTitleLifecycle? {
@@ -71,9 +62,15 @@ extension Workspace {
         }
 
         let titleUpdate: String? = existing.title == presentation.title ? nil : presentation.title
-        let animationUpdate: Bool? = isTerminal && !isRemoteTmuxMirror
-            ? (existing.isLoading == presentation.isAnimating ? nil : presentation.isAnimating)
-            : nil
+        let animationUpdate: Bool? = if isTerminal {
+            // A mirror can inherit a stale loading bit from the local tab it
+            // replaced. Explicitly clear it while keeping browser loading
+            // state outside this terminal-only projection.
+            let desiredLoading = !isRemoteTmuxMirror && presentation.isAnimating
+            existing.isLoading == desiredLoading ? nil : desiredLoading
+        } else {
+            nil
+        }
         let customTitle = panelCustomTitles[panelId] != nil
         let customTitleUpdate: Bool? = existing.hasCustomTitle == customTitle ? nil : customTitle
         guard titleUpdate != nil || animationUpdate != nil || customTitleUpdate != nil else {
