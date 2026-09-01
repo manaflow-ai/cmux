@@ -111,7 +111,11 @@ describe("billing plan route", () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
-    stripeSubscriptionResults = [[], [{ id: "sub_team" }]];
+    // resolveProPlanStatus reads the personal snapshot (subscription row plus
+    // the any-active EXISTS query) before the team-specific lookup. Keep the
+    // test double's call sequence explicit so a team row cannot be consumed as
+    // the personal subscription.
+    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
 
     const response = await planResponse();
 
