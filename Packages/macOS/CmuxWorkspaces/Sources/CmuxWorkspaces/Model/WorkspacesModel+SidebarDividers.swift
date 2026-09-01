@@ -3,6 +3,29 @@ public import Foundation
 // MARK: - Lightweight sidebar dividers
 
 extension WorkspacesModel {
+    /// Replaces every divider after validating it against the current sidebar
+    /// topology. Host observers therefore receive only the normalized value.
+    ///
+    /// - Parameter newValue: The candidate divider placements to normalize.
+    public func replaceSidebarDividers(_ newValue: [WorkspaceSidebarDivider]) {
+        assignNormalizedSidebarDividers(normalizedSidebarDividers(newValue))
+    }
+
+    /// Returns only unique, non-boundary divider placements for the current
+    /// top-level sidebar rows.
+    private func normalizedSidebarDividers(
+        _ dividers: [WorkspaceSidebarDivider]
+    ) -> [WorkspaceSidebarDivider] {
+        let topLevelIds = sidebarTopLevelWorkspaceIdsForSidebar()
+        guard !topLevelIds.isEmpty else { return [] }
+        let validAnchors = Set(topLevelIds.dropLast())
+        var seenAnchors = Set<UUID>()
+        return dividers.filter { divider in
+            validAnchors.contains(divider.afterWorkspaceId)
+                && seenAnchors.insert(divider.afterWorkspaceId).inserted
+        }
+    }
+
     /// Returns the top-level row ids in their current sidebar order.
     ///
     /// Group anchors represent their whole group; child workspaces are not
@@ -70,9 +93,8 @@ extension WorkspacesModel {
     public func insertSidebarDivider(after workspaceId: UUID) -> UUID? {
         guard canInsertSidebarDivider(after: workspaceId) else { return nil }
         let divider = WorkspaceSidebarDivider(afterWorkspaceId: workspaceId)
-        sidebarDividers.append(divider)
-        normalizeSidebarDividers()
-        return divider.id
+        replaceSidebarDividers(sidebarDividers + [divider])
+        return sidebarDividers.contains { $0.id == divider.id } ? divider.id : nil
     }
 
     /// Inserts one divider immediately before a top-level row and returns its id.
@@ -113,8 +135,9 @@ extension WorkspacesModel {
         guard canMoveSidebarDivider(id: dividerId, after: workspaceId) else {
             return false
         }
-        sidebarDividers[index].afterWorkspaceId = workspaceId
-        normalizeSidebarDividers()
+        var updated = sidebarDividers
+        updated[index].afterWorkspaceId = workspaceId
+        replaceSidebarDividers(updated)
         return sidebarDividers.contains { $0.id == dividerId && $0.afterWorkspaceId == workspaceId }
     }
 
@@ -122,7 +145,8 @@ extension WorkspacesModel {
     @discardableResult
     public func removeSidebarDivider(id dividerId: UUID) -> Bool {
         let oldCount = sidebarDividers.count
-        sidebarDividers.removeAll { $0.id == dividerId }
+        let updated = sidebarDividers.filter { $0.id != dividerId }
+        replaceSidebarDividers(updated)
         return oldCount != sidebarDividers.count
     }
 
@@ -132,19 +156,9 @@ extension WorkspacesModel {
     /// well as after direct divider edits. A closed anchor therefore removes
     /// only its divider and never changes any workspace or group state.
     public func normalizeSidebarDividers() {
-        let topLevelIds = sidebarTopLevelWorkspaceIdsForSidebar()
-        guard !topLevelIds.isEmpty else {
-            if !sidebarDividers.isEmpty { sidebarDividers = [] }
-            return
-        }
-        let validAnchors = Set(topLevelIds.dropLast())
-        var seenAnchors = Set<UUID>()
-        let normalized = sidebarDividers.filter { divider in
-            validAnchors.contains(divider.afterWorkspaceId)
-                && seenAnchors.insert(divider.afterWorkspaceId).inserted
-        }
+        let normalized = normalizedSidebarDividers(sidebarDividers)
         if normalized != sidebarDividers {
-            sidebarDividers = normalized
+            assignNormalizedSidebarDividers(normalized)
         }
     }
 

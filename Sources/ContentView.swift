@@ -11413,52 +11413,49 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             uniquingKeysWith: { first, _ in first }
         )
-        let canInsertDividerAboveByTopLevelId = Dictionary(
-            sidebarTopLevelWorkspaceIds.enumerated().map { index, topLevelId in
-                (
-                    topLevelId,
-                    index > 0
-                        && !sidebarDividerAnchors.contains(sidebarTopLevelWorkspaceIds[index - 1])
-                )
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let canInsertDividerBelowByTopLevelId = Dictionary(
-            sidebarTopLevelWorkspaceIds.enumerated().map { index, topLevelId in
-                (
-                    topLevelId,
-                    index < sidebarTopLevelWorkspaceIds.count - 1
-                        && !sidebarDividerAnchors.contains(topLevelId)
-                )
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let topLevelDividerCapabilities: (
+            above: [UUID: Bool],
+            below: [UUID: Bool]
+        ) = {
+            var above: [UUID: Bool] = [:]
+            var below: [UUID: Bool] = [:]
+            above.reserveCapacity(sidebarTopLevelWorkspaceIds.count)
+            below.reserveCapacity(sidebarTopLevelWorkspaceIds.count)
+            for (index, topLevelId) in sidebarTopLevelWorkspaceIds.enumerated() {
+                guard above[topLevelId] == nil else { continue }
+                above[topLevelId] = index > 0
+                    && !sidebarDividerAnchors.contains(sidebarTopLevelWorkspaceIds[index - 1])
+                below[topLevelId] = index < sidebarTopLevelWorkspaceIds.count - 1
+                    && !sidebarDividerAnchors.contains(topLevelId)
+            }
+            return (above: above, below: below)
+        }()
+        let canInsertDividerAboveByTopLevelId = topLevelDividerCapabilities.above
+        let canInsertDividerBelowByTopLevelId = topLevelDividerCapabilities.below
         // Group headers (including header-only pinned groups) use their stable
         // anchor identity as the row key. Include those ids alongside live
         // workspace ids so the capability snapshot does not silently disable
         // divider actions for an empty group.
         let sidebarDividerCapabilityRowIds = tabs.map(\.id)
             + workspaceGroups.map(\.anchorWorkspaceId)
-        let sidebarDividerCanInsertAboveByWorkspaceId = Dictionary(
-            sidebarDividerCapabilityRowIds.map { workspaceId in
-                (
-                    workspaceId,
-                    canInsertDividerAboveByTopLevelId[topLevelWorkspaceIdByWorkspaceId[workspaceId] ?? workspaceId]
-                        ?? false
-                )
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let sidebarDividerCanInsertBelowByWorkspaceId = Dictionary(
-            sidebarDividerCapabilityRowIds.map { workspaceId in
-                (
-                    workspaceId,
-                    canInsertDividerBelowByTopLevelId[topLevelWorkspaceIdByWorkspaceId[workspaceId] ?? workspaceId]
-                        ?? false
-                )
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let sidebarDividerCapabilitiesByWorkspaceId: (
+            above: [UUID: Bool],
+            below: [UUID: Bool]
+        ) = {
+            var above: [UUID: Bool] = [:]
+            var below: [UUID: Bool] = [:]
+            above.reserveCapacity(sidebarDividerCapabilityRowIds.count)
+            below.reserveCapacity(sidebarDividerCapabilityRowIds.count)
+            for workspaceId in sidebarDividerCapabilityRowIds {
+                guard above[workspaceId] == nil else { continue }
+                let topLevelId = topLevelWorkspaceIdByWorkspaceId[workspaceId] ?? workspaceId
+                above[workspaceId] = canInsertDividerAboveByTopLevelId[topLevelId] ?? false
+                below[workspaceId] = canInsertDividerBelowByTopLevelId[topLevelId] ?? false
+            }
+            return (above: above, below: below)
+        }()
+        let sidebarDividerCanInsertAboveByWorkspaceId = sidebarDividerCapabilitiesByWorkspaceId.above
+        let sidebarDividerCanInsertBelowByWorkspaceId = sidebarDividerCapabilitiesByWorkspaceId.below
         let canAddSidebarDivider = canInsertDividerBelowByTopLevelId.values.contains(true)
         let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: tabs)
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(

@@ -73,7 +73,7 @@ struct WorkspaceSidebarDividerTests {
         let firstDivider = WorkspaceSidebarDivider(afterWorkspaceId: first.id)
         let duplicate = WorkspaceSidebarDivider(afterWorkspaceId: first.id)
         let trailing = WorkspaceSidebarDivider(afterWorkspaceId: third.id)
-        model.sidebarDividers = [firstDivider, duplicate, trailing]
+        model.replaceSidebarDividers([firstDivider, duplicate, trailing])
 
         #expect(model.sidebarDividers == [firstDivider])
     }

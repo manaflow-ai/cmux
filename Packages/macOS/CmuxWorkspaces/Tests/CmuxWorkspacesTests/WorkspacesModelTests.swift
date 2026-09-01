@@ -31,6 +31,7 @@ private final class RecordingHost: WorkspacesHosting {
     /// hook fires while storage still holds the old value (@Published parity).
     private(set) var tabsSeenDuringWillSet: [[UUID]] = []
     private(set) var selectionSeenDuringWillSet: [UUID?] = []
+    private(set) var dividerAnchorsSeenDuringWillSet: [[UUID]] = []
     var model: WorkspacesModel<StubTab>?
 
     func workspaceTabsWillChange(to newValue: [StubTab]) {
@@ -42,6 +43,11 @@ private final class RecordingHost: WorkspacesHosting {
 
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
         events.append("groups.willSet(\(newValue.count))")
+    }
+
+    func workspaceSidebarDividersWillChange(to newValue: [WorkspaceSidebarDivider]) {
+        events.append("dividers.willSet(\(newValue.count))")
+        dividerAnchorsSeenDuringWillSet.append(newValue.map(\.afterWorkspaceId))
     }
 
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
@@ -124,6 +130,25 @@ struct WorkspacesModelTests {
 
         #expect(host.events.isEmpty)
         #expect(model.tabs.count == 1)
+    }
+
+    @Test
+    func dividerReplacementPublishesOnlyNormalizedValue() {
+        let model = WorkspacesModel<StubTab>()
+        let host = RecordingHost()
+        host.model = model
+        model.attach(host: host)
+
+        let first = StubTab()
+        let second = StubTab()
+        let trailing = WorkspaceSidebarDivider(afterWorkspaceId: second.id)
+        let valid = WorkspaceSidebarDivider(afterWorkspaceId: first.id)
+        let duplicate = WorkspaceSidebarDivider(afterWorkspaceId: first.id)
+        model.tabs = [first, second]
+        model.replaceSidebarDividers([valid, duplicate, trailing])
+
+        #expect(host.dividerAnchorsSeenDuringWillSet == [[first.id]])
+        #expect(model.sidebarDividers == [valid])
     }
 
     @Test

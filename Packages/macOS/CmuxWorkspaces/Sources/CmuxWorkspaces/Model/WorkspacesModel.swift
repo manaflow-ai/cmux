@@ -38,15 +38,11 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     }
 
     /// Persistent lightweight separators between top-level sidebar rows.
-    /// Leading, trailing, and duplicate placements are normalized by the
-    /// divider extension after every assignment.
-    public var sidebarDividers: [WorkspaceSidebarDivider] = [] {
+    /// Values are normalized before this property is assigned, so the host
+    /// never observes an invalid placement. Use
+    /// ``replaceSidebarDividers(_:)`` for complete-list replacement.
+    public private(set) var sidebarDividers: [WorkspaceSidebarDivider] = [] {
         willSet { host?.workspaceSidebarDividersWillChange(to: newValue) }
-        didSet {
-            if sidebarDividers != oldValue {
-                normalizeSidebarDividers()
-            }
-        }
     }
 
     /// O(1) display-title lookup for group anchors in title-churn observers.
@@ -71,6 +67,14 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// timing from the very first workspace insertion.
     public func attach(host: any WorkspacesHosting<Tab>) {
         self.host = host
+    }
+
+    /// Stores a divider list that has already been normalized by the model.
+    /// Keeping the assignment in this declaration lets the cross-file divider
+    /// extension retain the `private(set)` invariant while preserving the
+    /// synchronous host hook timing.
+    func assignNormalizedSidebarDividers(_ value: [WorkspaceSidebarDivider]) {
+        sidebarDividers = value
     }
 
     /// Keeps a divider attached to a surviving group when its lifecycle
@@ -98,7 +102,7 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
             remapped[index].afterWorkspaceId = newAnchor
         }
         if remapped != sidebarDividers {
-            sidebarDividers = remapped
+            replaceSidebarDividers(remapped)
         }
     }
 }

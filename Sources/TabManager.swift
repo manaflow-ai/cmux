@@ -239,7 +239,7 @@ class TabManager: ObservableObject {
     /// app-target callers on the same mutation path as tabs and groups.
     var sidebarDividers: [WorkspaceSidebarDivider] {
         get { workspaces.sidebarDividers }
-        set { workspaces.sidebarDividers = newValue }
+        set { workspaces.replaceSidebarDividers(newValue) }
     }
 
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
