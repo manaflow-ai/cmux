@@ -458,6 +458,9 @@ struct Attachment {
     /// Serializes operations for this attachment only. The relay state lock
     /// must never be held while a PTY control method runs.
     operation_gate: Arc<Mutex<()>>,
+    /// Serializes PTY control calls for one attachment. Retirement never
+    /// waits on this gate, so a blocked provider cannot block detach.
+    control_gate: Arc<Mutex<()>>,
     /// Serializes open success publication with attachment retirement. This
     /// is separate because start callbacks can emit output and re-enter the
     /// operation gate.
@@ -1563,6 +1566,7 @@ impl Inner {
                     closing,
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    control_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::clone(&publication_gate),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control,
@@ -1954,6 +1958,7 @@ impl Inner {
             Self::release_operation(&attachment);
             return false;
         }
+        let _control = attachment.control_gate.lock().expect("attachment control lock");
         operation(&attachment);
         Self::release_operation(&attachment);
         // The operation was admitted at the snapshot boundary and may finish
@@ -2558,9 +2563,9 @@ impl Inner {
                 {
                     return Err("cannot reattach existing shell under scoped roots".to_owned());
                 }
-                existing.control.resize(cols, rows);
                 existing.pending_viewers.fetch_add(1, Ordering::AcqRel);
                 pending_viewer.store(true, Ordering::Release);
+                existing.control.resize(cols, rows);
                 break existing;
             }
             let (notify, owner, waiter) = {
@@ -5018,6 +5023,7 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    control_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: slow,
@@ -5031,6 +5037,7 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    control_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(fast),
@@ -5087,6 +5094,7 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    control_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
@@ -5142,6 +5150,7 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
+                    control_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
@@ -5218,6 +5227,7 @@ mod tests {
             closing: Arc::new(AtomicBool::new(false)),
             active_operations: Arc::new(AtomicUsize::new(0)),
             operation_gate: Arc::new(Mutex::new(())),
+            control_gate: Arc::new(Mutex::new(())),
             publication_gate: Arc::new(Mutex::new(())),
             publication_state: Arc::new(AtomicU64::new(0)),
             control: Arc::new(pty),
