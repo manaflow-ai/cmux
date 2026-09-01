@@ -58,19 +58,14 @@ struct MobilePrimaryTabScaffold<
             // bottom rail is the only primary navigation chrome and cannot
             // overlap a navigation toolbar.
             iPadPrimaryContent
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottomLeading) {
                 MobileIPadPrimaryBar(
                     selection: selection,
                     notificationUnreadCount: notificationUnreadCount,
                     taskComposerAction: taskComposerAction,
                     sidebarWidth: iPadSidebarWidth,
                     sidebarVisible: iPadSidebarVisible,
-                    select: selectTab,
-                    beginSearch: {
-                        let scope = selection.searchScope ?? searchCoordinator.scope
-                        searchCoordinator.beginSearch(for: scope)
-                        selectTab(.search)
-                    }
+                    select: selectTab
                 )
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
@@ -135,19 +130,74 @@ struct MobilePrimaryTabScaffold<
     private var iPadPrimaryContent: some View {
         switch selection {
         case .workspaces:
-            workspaces
+            iPadSearchableContent(scope: .workspaces) {
+                workspaces
+            }
         case .notifications:
-            notifications
+            iPadSearchableContent(scope: .notifications) {
+                notifications
+            }
         case .search:
-            searchDestination
-                .searchable(
-                    text: activeSearchText,
-                    isPresented: searchPresentation,
-                    prompt: activeSearchPrompt
+            // The iPad rail never selects this transient destination. Keep it
+            // renderable for programmatic state, but scope it explicitly so it
+            // cannot inherit whichever root was selected before the transition.
+            iPadSearchableContent(scope: searchCoordinator.scope) {
+                searchDestination
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func iPadSearchableContent<Content: View>(
+        scope: MobilePrimarySearchScope,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .searchable(
+                text: nativeSearchText(for: scope),
+                isPresented: searchPresentation,
+                placement: .toolbar,
+                prompt: searchPrompt(for: scope)
+            )
+            .modifier(MobilePrimarySearchLifecycleModifier(
+                scope: scope,
+                update: updateSearchLifecycle
+            ))
+            .onSubmit(of: .search) {
+                searchCoordinator.commitSubmit()
+            }
+    }
+
+    private func nativeSearchText(for scope: MobilePrimarySearchScope) -> Binding<String> {
+        let activationGeneration = searchCoordinator.activationGeneration
+        return Binding(
+            get: { searchCoordinator.nativeSearchText(for: scope) },
+            set: { value in
+                searchCoordinator.updateNativeSearchText(
+                    value,
+                    for: scope,
+                    activationGeneration: activationGeneration
                 )
-                .onSubmit(of: .search) {
-                    selection = searchCoordinator.commitSubmit()
-                }
+            }
+        )
+    }
+
+    private func searchPrompt(for scope: MobilePrimarySearchScope) -> Text {
+        switch scope {
+        case .workspaces:
+            Text(
+                L10n.string(
+                    "mobile.workspaces.search.placeholder",
+                    defaultValue: "Search workspaces"
+                )
+            )
+        case .notifications:
+            Text(
+                L10n.string(
+                    "mobile.notificationFeed.search.placeholder",
+                    defaultValue: "Search notifications"
+                )
+            )
         }
     }
 
@@ -295,55 +345,29 @@ private struct MobileIPadPrimaryBar: View {
     let sidebarWidth: CGFloat
     let sidebarVisible: Bool
     let select: (MobilePrimaryTab) -> Void
-    let beginSearch: () -> Void
 
     var body: some View {
         GeometryReader { geometry in
-            let columnWidth = sidebarVisible
-                ? min(max(sidebarWidth, 0), geometry.size.width)
-                : 0
+            let controlsWidth = sidebarVisible
+                ? min(geometry.size.width, max(sidebarWidth, 280))
+                : min(geometry.size.width, 420)
 
-            HStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    primaryButton(.workspaces)
-                    primaryButton(.notifications)
-                    if sidebarVisible, selection == .workspaces, let taskComposerAction {
-                        taskComposerButton(taskComposerAction)
-                    }
+            HStack(spacing: 8) {
+                primaryButton(.workspaces)
+                primaryButton(.notifications)
+                if selection == .workspaces, let taskComposerAction {
+                    taskComposerButton(taskComposerAction)
                 }
-                .padding(.leading, 20)
-                .padding(.trailing, sidebarVisible ? 12 : 20)
-                .frame(
-                    width: sidebarVisible
-                        ? min(geometry.size.width, max(columnWidth, 280))
-                        : nil,
-                    alignment: .leading
-                )
-
-                if sidebarVisible {
-                    Divider()
-                        .frame(height: 32)
-                }
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 8) {
-                    searchButton
-                    if !sidebarVisible, selection == .workspaces, let taskComposerAction {
-                        taskComposerButton(taskComposerAction)
-                    }
-                }
-                .padding(.leading, sidebarVisible ? 12 : 0)
-                .padding(.trailing, 20)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .frame(width: controlsWidth, height: 72, alignment: .leading)
+            .background(.bar)
         }
-        // `safeAreaInset` uses the child's ideal height. A bare
-        // `GeometryReader` has no useful ideal height and can expand to the
-        // entire screen, starving the destination and centering the rail.
-        // Keep the rail a compact, explicit bottom band.
+        // This is an overlay rather than a root safe-area inset. The terminal
+        // surface owns its own bottom dock and must keep that coordinate system
+        // independent of the sidebar's primary navigation controls.
         .frame(height: 72)
-        .background(.bar)
+        .ignoresSafeArea(.container, edges: .bottom)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobilePrimaryTabBar")
     }
@@ -357,19 +381,6 @@ private struct MobileIPadPrimaryBar: View {
             systemImage: tab == .workspaces ? "rectangle.stack" : "bell",
             badge: tab == .notifications ? notificationUnreadCount : 0
         )
-    }
-
-    private var searchButton: some View {
-        Button(action: beginSearch) {
-            Label(
-                L10n.string("mobile.tabs.search", defaultValue: "Search"),
-                systemImage: "magnifyingglass"
-            )
-            .labelStyle(.titleAndIcon)
-            .frame(minWidth: 88)
-        }
-        .accessibilityIdentifier("MobilePrimaryTabSearch")
-        .buttonStyle(.bordered)
     }
 
     private func taskComposerButton(_ action: @escaping () -> Void) -> some View {
