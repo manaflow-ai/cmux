@@ -4,9 +4,9 @@ import Foundation
 ///
 /// Codex emits `PermissionRequest` before its own approval reviewer runs, so
 /// the request is not proof that the user will ever need to act. This
-/// coordinator holds correlated requests briefly, cancels requests that
-/// resolve during that window, and keeps at most one delivered notification
-/// per pane while any correlated requests remain outstanding.
+/// coordinator holds correlated requests through the settle window, cancels
+/// requests that resolve before delivery, and keeps at most one delivered
+/// notification per pane while any correlated requests remain outstanding.
 @MainActor
 final class AgentApprovalNotificationCoordinator {
     typealias Action = @MainActor @Sendable () -> Void
@@ -73,11 +73,12 @@ final class AgentApprovalNotificationCoordinator {
     /// A malformed or stale hook can name an arbitrary surface. Keep that
     /// untrusted fan-out bounded even when no live owner exists to cancel it.
     nonisolated static let maxTrackedPanes = 256
-    /// Delivered episodes have their own expiry timer; this fallback also
-    /// retires unresolved panes when the scheduler is unavailable.
+    /// Delivered episodes remain visible until an authoritative resolution or
+    /// dismissal. This fallback only retires unresolved panes when the
+    /// scheduler is unavailable.
     private static let unresolvedPaneLifetime: TimeInterval = 10 * 60
     private static let maxTombstonesPerKind = 1_024
-    nonisolated static let defaultEpisodeLifetime: TimeInterval = 10 * 60
+    nonisolated static let defaultEpisodeLifetime: TimeInterval = .infinity
     nonisolated static let approvalCorrelationPrefix = "agent-approval:"
     private var panes: [UUID: PaneState] = [:]
     private var exactResolutionTombstones: [ResolutionKey: TimeInterval] = [:]
@@ -383,7 +384,7 @@ final class AgentApprovalNotificationCoordinator {
         let episodeID = UUID()
         state.episodeID = episodeID
         let expiryCancellation: Cancellation?
-        if episodeLifetime.isFinite {
+        if episodeLifetime.isFinite, episodeLifetime > 0 {
             expiryCancellation = schedule(episodeLifetime) { [weak self] in
                 guard let self else { return }
                 self.dispatchScheduledAction { [weak self] in
@@ -435,7 +436,8 @@ final class AgentApprovalNotificationCoordinator {
     private func prunePanes(at timestamp: TimeInterval) {
         if timestamp.isFinite {
             let staleIDs = panes.compactMap { surfaceID, state -> UUID? in
-                guard state.lastTouchedAt.isFinite,
+                guard state.deliveredCorrelationKey == nil,
+                      state.lastTouchedAt.isFinite,
                       timestamp - state.lastTouchedAt >= Self.unresolvedPaneLifetime else {
                     return nil
                 }
@@ -470,15 +472,41 @@ final class AgentApprovalNotificationCoordinator {
         guard var state = panes[surfaceID],
               state.deliveredCorrelationKey == correlationKey,
               state.episodeID == episodeID else { return }
+        let timestamp = now()
         state.cancelEpisodeExpiry = nil
         state.episodeID = nil
         state.cancelScheduled?()
-        panes.removeValue(forKey: surfaceID)
-        clear(Clear(
+        state.cancelScheduled = nil
+        guard !state.candidates.isEmpty else {
+            panes.removeValue(forKey: surfaceID)
+            clear(Clear(
+                workspaceID: state.workspaceID,
+                surfaceID: surfaceID,
+                correlationKey: correlationKey
+            ))
+            return
+        }
+
+        // A finite episode lifetime is a recovery/re-notification deadline,
+        // not permission to hide an approval that still awaits the user. Retire
+        // the old persisted row, reset the episode, and deliver the outstanding
+        // candidate again with a fresh correlation key.
+        let previousClear = Clear(
             workspaceID: state.workspaceID,
             surfaceID: surfaceID,
             correlationKey: correlationKey
-        ))
+        )
+        state.deliveredCorrelationKey = nil
+        state.lastTouchedAt = timestamp
+        nextSequence &+= 1
+        state.lastTouchedSequence = nextSequence
+        panes[surfaceID] = state
+        clear(previousClear)
+        scheduleNextFlush(
+            surfaceID: surfaceID,
+            timestamp: timestamp,
+            replacingExistingSchedule: true
+        )
     }
 
     nonisolated static func isApprovalCorrelationKey(_ value: String?) -> Bool {

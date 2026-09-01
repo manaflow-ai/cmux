@@ -499,6 +499,26 @@ import Testing
         #expect(fixture.clears.isEmpty)
     }
 
+    @Test func finiteEpisodeExpiryRenotifiesUnresolvedApproval() throws {
+        let fixture = Fixture(episodeLifetime: 1)
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "still waiting",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.advance(by: 0.1)
+        let firstDelivery = try #require(fixture.deliveries.first)
+
+        fixture.scheduler.advance(by: 1)
+
+        #expect(fixture.deliveries.count == 2)
+        #expect(fixture.clears.count == 1)
+        #expect(fixture.clears.first?.correlationKey == firstDelivery.correlationKey)
+    }
+
     @Test func laterRequestsDoNotPostponeAnOlderBlockingApproval() {
         let fixture = Fixture()
 
@@ -554,16 +574,21 @@ import Testing
         let scheduler = ManualScheduler()
         let scheduledActionDispatcher = ManualActionDispatcher()
         let defersScheduledActions: Bool
+        let episodeLifetime: TimeInterval
         var deliveries: [AgentApprovalNotificationCoordinator.Delivery] = []
         var clears: [AgentApprovalNotificationCoordinator.Clear] = []
 
-        init(defersScheduledActions: Bool = false) {
+        init(
+            defersScheduledActions: Bool = false,
+            episodeLifetime: TimeInterval = .infinity
+        ) {
             self.defersScheduledActions = defersScheduledActions
+            self.episodeLifetime = episodeLifetime
         }
 
         lazy var coordinator = AgentApprovalNotificationCoordinator(
             settleDelay: 0.1,
-            episodeLifetime: .infinity,
+            episodeLifetime: episodeLifetime,
             now: { [scheduler] in scheduler.now },
             schedule: scheduler.schedule(delay:action:),
             dispatchScheduledAction: { [weak self] action in
