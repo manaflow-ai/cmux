@@ -486,4 +486,134 @@ struct AutomationRuleTests {
         )
         #expect(credentialFreeDelegate.requestForRedirect(insecure) == nil)
     }
+
+    @Test("engine fires a real run action and records completion")
+    @MainActor
+    func engineFiresRealRunActionAndRecordsCompletion() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-engine-run-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let markerURL = directory.appendingPathComponent("marker.txt")
+        let markerPath = markerURL.path.replacingOccurrences(of: "'", with: "'\\''")
+        let store = AutomationConfigStore(
+            fileURL: directory.appendingPathComponent("automations.json")
+        )
+        try store.save(AutomationConfiguration(rules: [
+            AutomationRule(
+                id: "run-marker",
+                when: AutomationWhen(event: "workspace.created"),
+                actions: [AutomationAction(
+                    action: "run",
+                    parameters: [
+                        "command": .string(
+                            "printf '%s' \"$CMUX_AUTOMATION_EVENT_NAME\" > '\(markerPath)'"
+                        )
+                    ]
+                )]
+            )
+        ]))
+
+        let bus = CmuxEventBus(retainedEventLimit: 32)
+        let engine = AutomationEngine(configStore: store, eventBus: bus)
+        defer { engine.stop() }
+        engine.start()
+
+        var loaded = false
+        for _ in 0..<250 {
+            if engine.rule(withID: "run-marker") != nil {
+                loaded = true
+                break
+            }
+            try await ContinuousClock().sleep(for: .milliseconds(20))
+        }
+        #expect(loaded)
+
+        bus.publish(
+            name: "workspace.created",
+            category: "workspace",
+            source: "automation-test"
+        )
+
+        var markerContents: String?
+        for _ in 0..<250 {
+            markerContents = try? String(contentsOf: markerURL, encoding: .utf8)
+            if markerContents != nil { break }
+            try await ContinuousClock().sleep(for: .milliseconds(20))
+        }
+        #expect(markerContents == "workspace.created")
+        #expect(
+            engine.logsPayload(limit: 32).contains {
+                ($0["rule_id"] as? String) == "run-marker" &&
+                    ($0["status"] as? String) == "completed"
+            }
+        )
+    }
+
+    @Test("engine stops a direct action cycle")
+    @MainActor
+    func engineStopsDirectActionCycle() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-engine-cycle-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let workspaceID = UUID()
+        let store = AutomationConfigStore(
+            fileURL: directory.appendingPathComponent("automations.json")
+        )
+        try store.save(AutomationConfiguration(rules: [
+            AutomationRule(
+                id: "cycle",
+                when: AutomationWhen(event: "cycle.event"),
+                actions: [AutomationAction(action: "notify")]
+            )
+        ]))
+
+        let bus = CmuxEventBus(retainedEventLimit: 32)
+        var notificationCount = 0
+        let engine = AutomationEngine(
+            configStore: store,
+            eventBus: bus,
+            notificationHandler: { _, _, _, _, _ in
+                notificationCount += 1
+                bus.publish(
+                    name: "cycle.event",
+                    category: "cycle",
+                    source: "automation-test",
+                    workspaceId: workspaceID.uuidString
+                )
+            }
+        )
+        defer { engine.stop() }
+        engine.start()
+
+        var loaded = false
+        for _ in 0..<250 {
+            if engine.rule(withID: "cycle") != nil {
+                loaded = true
+                break
+            }
+            try await ContinuousClock().sleep(for: .milliseconds(20))
+        }
+        #expect(loaded)
+
+        bus.publish(
+            name: "cycle.event",
+            category: "cycle",
+            source: "automation-test",
+            workspaceId: workspaceID.uuidString
+        )
+
+        var cycleSkipped = false
+        for _ in 0..<250 {
+            cycleSkipped = engine.logsPayload(limit: 32).contains {
+                ($0["rule_id"] as? String) == "cycle" &&
+                    ($0["status"] as? String) == "skipped_loop"
+            }
+            if cycleSkipped { break }
+            try await ContinuousClock().sleep(for: .milliseconds(20))
+        }
+        #expect(notificationCount == 1)
+        #expect(cycleSkipped)
+    }
 }
