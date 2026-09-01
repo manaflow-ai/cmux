@@ -889,6 +889,30 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
 }
 
+/// Convert a local terminal's OSC 7 working directory. Local PTYs may emit a
+/// hostless file URL or an ordinary absolute path, both of which are valid
+/// local reports. Hosted PTYs must use [`terminal_pwd_to_local_path`] instead.
+pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    let plain = Path::new(value);
+    if terminal_pwd_path_is_safe(plain) {
+        return Some(plain.to_owned());
+    }
+
+    let mut url = url::Url::parse(value).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+    if let Some(host) = url.host_str()
+        && !terminal_pwd_host_is_local(host)
+    {
+        return None;
+    }
+    if url.host_str().is_some() {
+        url.set_host(Some("localhost")).ok()?;
+    }
+    url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
 /// Convert a trusted spawn working directory into a local path. Spawn CWDs
 /// may be ordinary absolute paths, while terminal-reported OSC 7 values must
 /// go through the stricter host check above.
