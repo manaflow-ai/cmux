@@ -27617,6 +27617,44 @@ mod tests {
         );
         app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
             .unwrap();
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn failed_semantic_repeat_resets_the_click_sequence() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-semantic-repeat-reset-test", b"alpha\n");
+        let first_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(first_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..first_click })
+            .unwrap();
+
+        let blank_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            row: content.y + 1,
+            ..first_click
+        };
+        app.handle_mouse(blank_click).unwrap();
+        assert_eq!(app.selection_mode, SelectionMode::Word);
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..blank_click })
+            .unwrap();
+        assert!(app.selection.is_none(), "an unsupported semantic cell must not retain selection");
+
+        app.handle_mouse(blank_click).unwrap();
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed semantic repeat must reset the next click to cell mode"
+        );
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..blank_click })
+            .unwrap();
+
         mux.close_surface(surface.id).unwrap();
     }
 
