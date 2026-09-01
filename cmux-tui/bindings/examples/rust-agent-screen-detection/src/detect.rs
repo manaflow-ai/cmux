@@ -178,10 +178,12 @@ impl PendingIdle {
 /// plugin, so the plugin models the same boundary locally.
 #[derive(Debug, Clone, Copy, Default)]
 enum OscMetadataState {
-    /// No agent has been identified on this terminal yet. The first agent may
-    /// have emitted its title or progress before process inspection caught up.
+    /// No agent has been identified on this terminal yet.
     #[default]
-    FirstAcquisition,
+    NeverIdentified,
+    /// The first recognized agent may have emitted its title or progress
+    /// before process inspection caught up, so retained evidence stays usable.
+    FirstAgent,
     /// A replacement or confirmed exit occurred. A revision is optional for
     /// older hosts; when absent, the compatibility path remains open because
     /// the plugin has no evidence on which to compare generations.
@@ -458,8 +460,10 @@ impl ScreenDetectTracker {
                 // confirmed exit where the host could not clear its state.
                 let first_acquisition = entry.foreground_agent.is_none()
                     && entry.emitted.is_none()
-                    && matches!(entry.osc_metadata_state, OscMetadataState::FirstAcquisition);
-                if !first_acquisition {
+                    && matches!(entry.osc_metadata_state, OscMetadataState::NeverIdentified);
+                if first_acquisition {
+                    entry.osc_metadata_state = OscMetadataState::FirstAgent;
+                } else {
                     entry.osc_metadata_state.fence(stream_revision);
                 }
             }
