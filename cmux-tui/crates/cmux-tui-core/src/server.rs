@@ -13203,6 +13203,42 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_symlinked_lock_path() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestSocketDir::create("start-lock-symlink");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let target = dir.path().join("target");
+        std::fs::write(&target, b"not the lock").unwrap();
+        symlink(&target, &lock).unwrap();
+
+        let error = match SocketStartLock::acquire(&socket, Instant::now()) {
+            Ok(_) => panic!("symlinked start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_migrates_existing_lock_to_owner_only_mode() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = TestSocketDir::create("start-lock-mode");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        std::fs::write(&lock, b"").unwrap();
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
+        let metadata = std::fs::metadata(&lock).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    }
+
     #[test]
     fn session_name_validation_rejects_path_escape_input() {
         for session in ["", ".", "..", "../escape", "nested/session", "nested\\session"] {
