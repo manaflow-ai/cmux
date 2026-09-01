@@ -2577,6 +2577,7 @@ impl Inner {
                 if context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
                     || server_roots.is_some_and(|r| !r.is_empty())
                 {
+                    existing.pending_viewers.fetch_sub(1, Ordering::AcqRel);
                     return Err("cannot reattach existing shell under scoped roots".to_owned());
                 }
                 pending_viewer.store(true, Ordering::Release);
