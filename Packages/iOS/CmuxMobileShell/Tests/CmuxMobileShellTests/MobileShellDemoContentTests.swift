@@ -211,6 +211,87 @@ import Testing
         )
     }
 
+    /// Live-repro regression (PR #11289 dogfood round 2): with the real Mac
+    /// wedged/unreachable, every failed stored-Mac dial funnels into
+    /// `clearRemoteConnectionContext()`, which drops every non-foreground
+    /// `workspacesByMac` entry — including the demonstration Mac's. Real
+    /// secondaries are re-established by the next aggregation pass; the demo
+    /// Mac has no subscription, so each ~85s reconnect cycle erased all demo
+    /// workspaces/terminals ("Demo Mac · Not connected · 0 workspaces", five
+    /// terminalClosed events per cycle). Demo state must be invariant to
+    /// connection teardown of any real Mac.
+    @Test func connectionTeardownChurnKeepsDemoSeedsIntact() async {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        #expect(store.workspaces.count == 3)
+        let seededFeedCount = store.notificationFeedItems.count
+
+        // The single choke point every failed dial, manual-pairing failure,
+        // and recovery teardown funnels through.
+        store.clearRemoteConnectionContext()
+
+        let demoRows = store.workspaces.filter {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        }
+        #expect(demoRows.count == 3)
+        #expect(demoRows.allSatisfy { $0.macConnectionStatus == .connected })
+        #expect(
+            store.macConnectionStatuses[MobileDemoContentCatalog.macDeviceID]
+                == .connected
+        )
+        #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(store.notificationFeedItems.count == seededFeedCount)
+    }
+
+    /// The exact user-visible failure from the live repro: tapping a demo
+    /// workspace row while the teardown storm runs landed back on an empty
+    /// list because the wipe raced the open (`rowWorkspaceID` resolved nil
+    /// after `switchToMac` returned). After teardown, opening a demo row
+    /// must keep its selection and present the canned terminal.
+    @Test func openingADemoWorkspaceAfterTeardownChurnPresentsTheTerminal() async throws {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        store.clearRemoteConnectionContext()
+
+        let row = try #require(store.workspaces.first {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
+        await store.openWorkspace(row.id)
+        #expect(store.selectedWorkspaceID == row.id)
+
+        let surfaceID = try #require(row.terminals.first?.id.rawValue)
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        let replay = await iterator.next()
+        #expect(!(replay?.data.isEmpty ?? true))
+    }
+
+    /// The stored-Mac reconnect loop iterates every saved row as a dial
+    /// candidate. The demonstration row must never be one: it has nothing to
+    /// dial, and running it through the reconnect machinery (registry route
+    /// refresh, failure cleanup) is exactly the class of lifecycle
+    /// participation that degraded it live. The attempt must leave every
+    /// demo seed and its connected status untouched.
+    @Test func storedMacReconnectAttemptNeverDegradesTheDemoComputer() async {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        #expect(store.workspaces.count == 3)
+
+        let connected = await store.reconnectActiveMacIfAvailable(
+            stackUserID: "demo-tests-user"
+        )
+
+        #expect(!connected)
+        let demoRows = store.workspaces.filter {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        }
+        #expect(demoRows.count == 3)
+        #expect(
+            store.macConnectionStatuses[MobileDemoContentCatalog.macDeviceID]
+                == .connected
+        )
+        #expect(store.workspaceListConnectionStatus == .connected)
+    }
+
     @Test func unflaggedAccountSeesNothing() async {
         let (store, _) = makeStore(demonstrationContentEnabled: false)
 
