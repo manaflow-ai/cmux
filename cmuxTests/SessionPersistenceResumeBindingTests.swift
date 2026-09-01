@@ -131,6 +131,7 @@ import Testing
         #expect(snapshot.restoreWorkingDirectorySelection == nil)
     }
 
+    @MainActor
     @Test func detachedIdKeyedRetargetRefreshesCwdSelection() throws {
         let oldDirectory = "/remote/old-project"
         let liveDirectory = "/remote/live-project"
