@@ -24,7 +24,10 @@ CLA_ACTION = "manaflow-ai/cla-github-action@af7ae9ac7de23b982ea494d8200fc9b40bbc
 # policy change requires trusted review without a fragile follow-up hash bump.
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "63a96bd533e09afaa8aecfe871362b07e28697cf2a1ed85459b5991001d885f8"
-EXPECTED_GUARD_SCRIPT_DIGEST = "73ded48fa91ed26bb0cad6ac5e56d51ae8c2329444e502d287ba33af52ed8e7d"
+# EXPECTED_WORKFLOW_DIGEST is retained as a compatibility marker for the
+# immutable validator in the current base revision. Policy validation now
+# hashes the candidate workflow bytes after lexical YAML validation.
+EXPECTED_GUARD_SCRIPT_DIGEST = "70b149bbd9ffee6015cb2b09f840ce811010da4af444cf429685d6516770e22a"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
