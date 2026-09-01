@@ -123,6 +123,28 @@ Routine Agent Hibernation is opt-in. cmux kills idle background agent processes 
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `terminal.videoBackground`
+
+Opt-in dynamic video background: a muted, non-interactive video plays behind terminal content in every window, dimmed so text stays readable. The video layer never takes clicks or keystrokes, and playback pauses automatically while the window is occluded or minimized.
+
+```json
+{
+  "terminal": {
+    "videoBackground": {
+      "enabled": true,
+      "source": "https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "dimOpacity": 0.8
+    }
+  }
+}
+```
+
+- `enabled`: turn the video background on. Default: `false`.
+- `source`: a YouTube video or playlist URL (playlists loop and advance automatically via the YouTube iframe embed), a raw YouTube video/playlist ID, or a local `.mp4`/`.m4v`/`.mov` file path played with AVFoundation. If a YouTube embed refuses to play (embedding disabled), the layer disappears and the terminal is unaffected; edit the source to retry.
+- `dimOpacity`: opacity of the terminal background fill drawn over the video, `0`-`1`. `0` shows the video undimmed; `1` hides it entirely. When Ghostty `background-opacity` is lower than the dim, the more transparent value wins. Default: `0.8`.
+
+Configure it from **Settings > Terminal > Video Background**.
+
 ## `sidebar.showAgentActivity`
 
 Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders (`cmux workspace loading on`).

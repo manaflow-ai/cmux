@@ -101,6 +101,41 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    func parseTerminalVideoBackground(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawVideoBackground = section["videoBackground"] else { return }
+        guard let videoBackground = rawVideoBackground as? [String: Any] else {
+            logInvalid("terminal.videoBackground", sourcePath: sourcePath)
+            return
+        }
+        if let value = jsonBool(videoBackground["enabled"]) {
+            snapshot.managedUserDefaults[VideoBackgroundSettings.enabledKey] = .bool(value)
+        } else if videoBackground.keys.contains("enabled") {
+            logInvalid("terminal.videoBackground.enabled", sourcePath: sourcePath)
+        }
+        if let value = jsonString(videoBackground["source"]) {
+            snapshot.managedUserDefaults[VideoBackgroundSettings.sourceKey] = .string(
+                value.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } else if videoBackground.keys.contains("source") {
+            logInvalid("terminal.videoBackground.source", sourcePath: sourcePath)
+        }
+        if let value = jsonDouble(videoBackground["dimOpacity"]) {
+            if value.isFinite {
+                snapshot.managedUserDefaults[VideoBackgroundSettings.dimOpacityKey] = .double(
+                    VideoBackgroundSettings().normalizedDimOpacity(value)
+                )
+            } else {
+                logInvalid("terminal.videoBackground.dimOpacity", sourcePath: sourcePath)
+            }
+        } else if videoBackground.keys.contains("dimOpacity") {
+            logInvalid("terminal.videoBackground.dimOpacity", sourcePath: sourcePath)
+        }
+    }
+
     func parseMobileSection(
         _ section: [String: Any],
         sourcePath: String,

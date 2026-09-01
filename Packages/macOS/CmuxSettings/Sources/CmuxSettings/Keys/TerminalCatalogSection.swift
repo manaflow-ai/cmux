@@ -194,5 +194,26 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
     )
 
+    /// Whether the muted dynamic video background plays behind terminal content.
+    public let videoBackgroundEnabled = DefaultsKey<Bool>(
+        id: "terminal.videoBackground.enabled",
+        defaultValue: VideoBackgroundSettings.defaultEnabled,
+        userDefaultsKey: VideoBackgroundSettings.enabledKey
+    )
+
+    /// YouTube video/playlist URL (or local video file path) for the video background.
+    public let videoBackgroundSource = DefaultsKey<String>(
+        id: "terminal.videoBackground.source",
+        defaultValue: VideoBackgroundSettings.defaultSource,
+        userDefaultsKey: VideoBackgroundSettings.sourceKey
+    )
+
+    /// Opacity of the terminal background fill drawn over the video (`1` hides it).
+    public let videoBackgroundDimOpacity = DefaultsKey<Double>(
+        id: "terminal.videoBackground.dimOpacity",
+        defaultValue: VideoBackgroundSettings.defaultDimOpacity,
+        userDefaultsKey: VideoBackgroundSettings.dimOpacityKey
+    )
+
     public init() {}
 }

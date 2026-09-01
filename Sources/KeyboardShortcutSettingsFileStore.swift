@@ -644,6 +644,8 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.rendererRealization", sourcePath: sourcePath)
         }
 
+        parseTerminalVideoBackground(section, sourcePath: sourcePath, snapshot: &snapshot)
+
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {

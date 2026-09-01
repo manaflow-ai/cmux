@@ -111,6 +111,11 @@ extension CmuxSettingsFileStore {
                         "idleSeconds": Int(RendererRealizationSettings.defaultIdleSeconds),
                         "maxWarmRenderers": RendererRealizationSettings.defaultMaxWarmRenderers,
                     ],
+                    "videoBackground": [
+                        "enabled": VideoBackgroundSettings.defaultEnabled,
+                        "source": VideoBackgroundSettings.defaultSource,
+                        "dimOpacity": VideoBackgroundSettings.defaultDimOpacity,
+                    ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],
