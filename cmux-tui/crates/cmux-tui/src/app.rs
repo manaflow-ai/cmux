@@ -27405,6 +27405,18 @@ mod tests {
 
         app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
             .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert!(
+            app.selection.is_none(),
+            "a click after a failed semantic lookup must not inherit its selection"
+        );
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed semantic lookup must invalidate the repeat count before the next click"
+        );
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
         mux.close_surface(surface.id).unwrap();
     }
 
