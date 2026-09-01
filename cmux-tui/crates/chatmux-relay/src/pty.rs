@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -440,6 +440,8 @@ struct Attachment {
     /// is separate because start callbacks can emit output and re-enter the
     /// operation gate.
     publication_gate: Arc<Mutex<()>>,
+    startup_state: Arc<AtomicU8>,
+    retire_pending: Arc<AtomicBool>,
     /// Releases this attachment (detach a viewer, close a control stream,
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
@@ -1561,6 +1563,8 @@ impl Inner {
                     closing,
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::clone(&publication_gate),
+                    startup_state: Arc::new(AtomicU8::new(0)),
+                    retire_pending: Arc::new(AtomicBool::new(false)),
                     control,
                     actor_id: actor.to_owned(),
                     owner: TransportOwner::from_context(context),
@@ -1601,6 +1605,10 @@ impl Inner {
             }
             return;
         }
+        if let Some(attachment) = self.attachments.lock().expect("attach lock").get(&pty_id) {
+            attachment.startup_state.store(1, Ordering::Release);
+        }
+        drop(_publication);
 
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
@@ -1618,7 +1626,12 @@ impl Inner {
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
         start();
-        drop(_publication);
+        if let Some(attachment) = self.attachments.lock().expect("attach lock").get(&pty_id) {
+            attachment.startup_state.store(2, Ordering::Release);
+            if attachment.retire_pending.swap(false, Ordering::AcqRel) {
+                attachment.control.kill();
+            }
+        }
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
@@ -2060,6 +2073,10 @@ impl Inner {
     }
 
     fn retire_attachment(&self, attachment: Attachment) {
+        if attachment.startup_state.load(Ordering::Acquire) != 2 {
+            attachment.retire_pending.store(true, Ordering::Release);
+            return;
+        }
         // Revocation must not wait for an admitted PTY write. The operation
         // was linearized before removal from the attachment map; killing the
         // control concurrently closes that admitted operation when the
@@ -4572,6 +4589,8 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    startup_state: Arc::new(AtomicU8::new(2)),
+                    retire_pending: Arc::new(AtomicBool::new(false)),
                     control: slow,
                     actor_id: "user_owner".to_owned(),
                     owner: owner_a,
@@ -4583,6 +4602,8 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    startup_state: Arc::new(AtomicU8::new(2)),
+                    retire_pending: Arc::new(AtomicBool::new(false)),
                     control: Arc::new(fast),
                     actor_id: "user_owner".to_owned(),
                     owner: owner_b,
@@ -4637,6 +4658,8 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    startup_state: Arc::new(AtomicU8::new(2)),
+                    retire_pending: Arc::new(AtomicBool::new(false)),
                     control: Arc::new(BlockingControl {
                         entered: Arc::clone(&entered),
                         release: Arc::clone(&release),
@@ -4690,6 +4713,8 @@ mod tests {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    startup_state: Arc::new(AtomicU8::new(2)),
+                    retire_pending: Arc::new(AtomicBool::new(false)),
                     control: Arc::new(BlockingControl {
                         entered: Arc::clone(&entered),
                         release: Arc::clone(&release),
@@ -4764,6 +4789,8 @@ mod tests {
             closing: Arc::new(AtomicBool::new(false)),
             operation_gate: Arc::new(Mutex::new(())),
             publication_gate: Arc::new(Mutex::new(())),
+            startup_state: Arc::new(AtomicU8::new(2)),
+            retire_pending: Arc::new(AtomicBool::new(false)),
             control: Arc::new(pty),
             actor_id: "user_owner".to_owned(),
             owner: TransportOwner {
