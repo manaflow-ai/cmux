@@ -478,7 +478,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let group = DispatchGroup()
         let resultsLock = NSLock()
-        var results: [ProcessResult] = []
+        var results: [ProcessRunResult] = []
         for socket in sockets {
             var environment = ProcessInfo.processInfo.environment
             environment["CMUX_SOCKET_PATH"] = socket.path

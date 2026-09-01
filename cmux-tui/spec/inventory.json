@@ -108,6 +108,7 @@
     "terminal.input.write",
     "terminal.list",
     "terminal.move",
+    "terminal.output_read",
     "terminal.process.get",
     "terminal.project",
     "terminal.renderer_grant.create",

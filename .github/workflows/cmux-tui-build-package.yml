@@ -779,7 +779,17 @@ jobs:
     needs:
       - plan-build
       - package
-    if: ${{ inputs.package_npm || inputs.package_pypi }}
+    # always() + explicit needs results: without it, the implicit success()
+    # is poisoned transitively by a skipped build-windows (include_windows
+    # false), this job skips, and attest-npm-packages skips with it — leaving
+    # a release tag with no fresh attestations for its own commit.
+    if: >-
+      ${{
+        always() &&
+        (inputs.package_npm || inputs.package_pypi) &&
+        needs.plan-build.result == 'success' &&
+        needs.package.result == 'success'
+      }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
@@ -846,8 +856,12 @@ jobs:
     needs:
       - package
       - verify-linux-packages
+    # always() for the same reason as verify-linux-packages: the explicit
+    # needs.result checks below are the real gate, and the implicit success()
+    # must not skip attestations because an optional Windows build skipped.
     if: >-
       ${{
+        always() &&
         inputs.attest_packages &&
         inputs.package_npm &&
         needs.package.result == 'success' &&

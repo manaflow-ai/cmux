@@ -83,6 +83,20 @@ extension MacComputerSnapshot {
             )
             snapshot.connectionMethod = method
             snapshot.routeKind = method.routeKind
+            // Keep-awake is trusted only over a live connection: a stale
+            // "caffeinated" cup on an unreachable Mac would be a lie.
+            if exactConnectionStatus == .connected {
+                snapshot.supportsCaffeineControl = store.supportsCaffeineControl(
+                    macDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag
+                )
+                snapshot.caffeineEnabled = snapshot.supportsCaffeineControl
+                    ? store.caffeineStatus(
+                        macDeviceID: mac.macDeviceID,
+                        instanceTag: mac.instanceTag
+                    )?.enabled
+                    : nil
+            }
             return snapshot
         }
         markOlderDuplicates(&snapshots)

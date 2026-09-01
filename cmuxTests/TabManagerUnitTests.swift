@@ -1567,7 +1567,12 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         }
 
         let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        terminalPanel.surface.installRuntimeSurfaceForTesting(fakeSurface)
+        // This app-host target links the real GhosttyKit; the synthetic pointer
+        // is only for teardown ownership and must not cross the native ABI.
+        terminalPanel.surface.installRuntimeSurfaceForTesting(
+            fakeSurface,
+            configureNativeCallbacks: false
+        )
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
