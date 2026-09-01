@@ -1172,7 +1172,7 @@ def run_environment_regression_matrix!
 end
 
 def run_runner_regression_matrix!
-  expected_runner = "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+  expected_runner = "ubuntu-24.04"
   cla_jobs = %w[
     CLACommentGate
     CLAAssistant
@@ -1186,9 +1186,11 @@ def run_runner_regression_matrix!
   end
 
   {
-    "bare GitHub runner" => "ubuntu-24.04",
+    "configured repository variable" => "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
     "alternate repository variable" => "${{ vars.OTHER_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
-    "event-controlled runner" => "${{ github.event.repository.default_branch }}"
+    "event-controlled runner" => "${{ github.event.repository.default_branch }}",
+    "self-hosted runner" => "self-hosted",
+    "floating GitHub runner" => "ubuntu-latest"
   }.each do |name, runner|
     expect_policy_error(name) { assert_cla_runner(runner, "CLACommentGate.runs-on") }
   end
