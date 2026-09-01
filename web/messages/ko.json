@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM 작업을 사용할 수 없음",
+      "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
+      "message": {
+        "snapshot": "이 Cloud VM은 저장된 VM 상태를 지원하지 않습니다.",
+        "restore": "이 Cloud VM 종류는 저장된 VM 상태 복원을 지원하지 않습니다.",
+        "fork": "이 Cloud VM은 새 VM으로 복사하는 기능을 지원하지 않습니다.",
+        "default": "이 Cloud VM은 요청한 작업을 지원하지 않습니다."
+      },
+      "action": {
+        "snapshot": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
+        "restore": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
+        "fork": "다시 시도하지 마세요. `cmux vm new`로 새 VM을 만드세요.",
+        "default": "다시 시도하지 마세요. `cmux vm ls`로 머신을 확인하거나 문제가 계속되면 지원팀에 문의하세요."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "계정을 찾았다면 이메일에서 다음 단계를 확인해 주세요"
   },

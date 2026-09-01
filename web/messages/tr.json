@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM işlemi kullanılamıyor",
+      "reason": "Bu makine türü bu işlemi sağlamıyor.",
+      "message": {
+        "snapshot": "Bu Cloud VM, kaydedilmiş VM durumunu desteklemiyor.",
+        "restore": "Bu Cloud VM türü, kaydedilmiş VM durumunu geri yüklemeyi desteklemiyor.",
+        "fork": "Bu Cloud VM, yeni bir VM'ye kopyalamayı desteklemiyor.",
+        "default": "Bu Cloud VM, istenen işlemi desteklemiyor."
+      },
+      "action": {
+        "snapshot": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
+        "restore": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
+        "fork": "Tekrar denemeyin. `cmux vm new` ile yeni bir VM oluşturun.",
+        "default": "Tekrar denemeyin. `cmux vm ls` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Bir hesap bulduysak, sonraki adımlar için e-postanı kontrol et"
   },
