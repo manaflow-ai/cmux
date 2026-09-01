@@ -1679,9 +1679,11 @@ impl Inner {
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
         if !self.tunnel_authority_generation_current(context) {
+            self.retire_stale_transport_attachment(pty_id, context);
             return;
         }
         let Some(auth) = self.auth_for_transport(context) else {
+            self.retire_stale_transport_attachment(pty_id, context);
             return;
         };
         let Some(attachment) = self.attachment(pty_id) else {
@@ -1739,9 +1741,11 @@ impl Inner {
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
         if !self.tunnel_authority_generation_current(context) {
+            self.retire_stale_transport_attachment(pty_id, context);
             return;
         }
         let Some(auth) = self.auth_for_transport(context) else {
+            self.retire_stale_transport_attachment(pty_id, context);
             return;
         };
         let Some(attachment) = self.attachment(pty_id) else {
@@ -2058,6 +2062,13 @@ impl Inner {
     fn attachment_snapshot_is_current(&self, pty_id: &str, attachment: &Attachment) -> bool {
         !attachment.closing.load(Ordering::Acquire)
             && self.attachment_is_current(pty_id, attachment)
+    }
+
+    fn retire_stale_transport_attachment(&self, pty_id: &str, context: &FrameContext) {
+        let Some(attachment) = self.attachment(pty_id) else { return };
+        if attachment.owner == TransportOwner::from_context(context) {
+            self.retire_if_current(pty_id, &attachment);
+        }
     }
 
     fn try_claim_publication(attachment: &Attachment) -> bool {
