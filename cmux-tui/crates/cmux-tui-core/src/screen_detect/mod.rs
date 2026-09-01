@@ -186,6 +186,11 @@ impl ScreenDetectTracker {
     pub(crate) fn invalidate_foreground_identity(&mut self, terminal_id: &str) {
         if let Some(entry) = self.terminals.get_mut(terminal_id) {
             entry.foreground_identity_known = false;
+            // A failed lookup must not leave the previous process identity
+            // available to a later screen evaluation. Keep the durable roster
+            // unchanged until a fresh lookup proves the next lifecycle.
+            entry.foreground_agent = None;
+            entry.emitted = None;
         }
     }
 

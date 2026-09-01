@@ -10114,6 +10114,14 @@ impl Mux {
         // fence lock. Release this report's sequence guard before re-entry.
         drop(sequence_guard);
         if !commit.replayed {
+            let mut records = self.agent_records.lock().unwrap();
+            if agent.state == AgentState::Done {
+                records.remove(&agent.terminal_id);
+            } else if !socket_report_ignored {
+                records.insert(agent.terminal_id.clone(), agent.clone());
+            }
+        }
+        if !commit.replayed {
             self.publish_resource_event();
             if !socket_report_ignored {
                 self.emit(MuxEvent::AgentChanged {
