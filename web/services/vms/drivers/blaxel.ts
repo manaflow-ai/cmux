@@ -186,13 +186,14 @@ function withPackageInstallLock(body: string): string {
 // the layout daemon uses its kernel mount-event poll to leave a failed bindfs
 // view before any terminal can write to a disposable rootfs directory.
 const CMUX_CLOUD_PREREQUISITE_INSTALL =
-  `if ! (command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1); then ` +
+  `if ! (command -v runuser >/dev/null 2>&1 && command -v mountpoint >/dev/null 2>&1 && command -v findmnt >/dev/null 2>&1 && command -v flock >/dev/null 2>&1 && (command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1)); then ` +
   `if command -v apk >/dev/null 2>&1; then ` +
   `apk add --no-cache runuser 2>/dev/null || true; ` +
   `apk add --no-cache util-linux 2>/dev/null || true; ` +
+  `if ! (command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1); then apk add --no-cache curl 2>/dev/null || true; fi; ` +
   `elif command -v apt-get >/dev/null 2>&1; then ` +
   `export DEBIAN_FRONTEND=noninteractive; ` +
-  `apt-get update -qq && apt-get install -y -qq --no-install-recommends util-linux 2>/dev/null || true; ` +
+  `apt-get update -qq && apt-get install -y -qq --no-install-recommends util-linux curl 2>/dev/null || true; ` +
   `fi; fi; ` +
   // Re-check after installation. The caller's usability predicate decides the
   // safe root fallback when an old image cannot provide these tools.

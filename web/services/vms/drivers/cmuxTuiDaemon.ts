@@ -184,9 +184,9 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource, layout?: CmuxTuiHom
     const tmp = '"$CMUX_TUI_TMP"';
     const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
     const fetch =
-      `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
       `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
-      `else wget -q -O ${tmp} ${shellQuote(source.url)}; fi`;
+      `elif command -v wget >/dev/null 2>&1; then wget -q -O ${tmp} ${shellQuote(source.url)}; ` +
+      `else false; fi`;
     return [
       selector,
       `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`,
@@ -287,7 +287,6 @@ function cmuxTuiUserDaemonInvocation(
     `elif mountpoint -q ${home} 2>/dev/null; then ${signalViewLost}; fi`,
   ].join(" ");
   return [
-    `cd ${home} || exit 1`,
     `${viewLost}=0`,
     `${parentPid}=$$`,
     `${daemonPid}=`,
@@ -381,7 +380,7 @@ export function cmuxTuiDaemonCommand(
     // A cmux session is promised passwordless sudo; without the binary it would be
     // trapped unprivileged, so fall back to a (breadcrumbed) root session until
     // the driver's sudo heal lands and the next daemon start re-evaluates.
-    `elif ${usable}; then ` +
+    `elif ${usable} && cd ${home} 2>/dev/null; then ` +
     `${cmuxTuiUserDaemonInvocation(layout, bin, args)}; ` +
     `else ` +
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s user-unusable\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; printf 'root\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +

@@ -521,6 +521,10 @@ describe("cloud work user setup", () => {
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("flock 9 || exit 1");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(") 9>/etc/cmux/package-install.lock");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
+    // Curl or wget is prepared under this same gate. The daemon installer does
+    // not start an unlocked apk transaction on a stock Alpine image.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apk add --no-cache curl");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends util-linux curl");
   });
 
   test("sudo heal covers stock and stamped images before the daemon starts", () => {
