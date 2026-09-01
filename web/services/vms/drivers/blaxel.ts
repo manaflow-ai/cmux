@@ -808,6 +808,14 @@ export class BlaxelProvider implements VMProvider {
       // user it drops to exists even on a sandbox whose create predates the layout
       // (best-effort: the daemon command itself falls back to root without the user).
       await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS).catch(() => undefined);
+      // Same heal as create/resurrect bootstrap: a still-alive sandbox from a stamped
+      // pre-r12 image has the user and sudoers policy but no sudo binary, and without
+      // this its cmux sessions would have no escalation path after a daemon restart.
+      await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+        name: CMUX_SUDO_INSTALL_PROCESS_NAME,
+        command: CMUX_SUDO_INSTALL_COMMAND,
+        waitForCompletion: false,
+      }).catch(() => undefined);
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
       // needs the process started; a pin change or a fresh volume re-runs the install.
       const installed = await this.sandboxExec(
