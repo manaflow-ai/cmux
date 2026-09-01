@@ -32,7 +32,7 @@ bash -n "$rerun_script"
 # The privileged job checks out only the immutable workflow revision and
 # launches the checked-in guard. Keep the launcher below the Actions step-size
 # limit, and reject any future attempt to execute the pull-request head.
-grep -Fq 'uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2' "$WORKFLOW"
+grep -Fq 'uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' "$WORKFLOW"
 grep -Fq "repository: \${{ github.repository }}" "$WORKFLOW"
 grep -Fq "ref: \${{ github.workflow_sha }}" "$WORKFLOW"
 grep -Fq 'sparse-checkout: .github/scripts/rerun-failed-cla.sh' "$WORKFLOW"
@@ -66,7 +66,9 @@ export COMMENT_AUTHOR_LOGIN=contributor
 export COMMENT_AUTHOR_TYPE=User
 export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
-export CLA_GENERATION=v2.2-action-bc206ed9b52ad0b0cbe85244ce522e5e9b65c10e
+WORKFLOW_SHA="$(git rev-parse HEAD)"
+export WORKFLOW_SHA
+export CLA_GENERATION=v2.2-action-482864f7296623ba4e8ddb7d6bc1836635306eb1
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
 export SIGNATURE_RECORDED=false
@@ -153,6 +155,15 @@ gh() {
   case "$endpoint" in
     repos/manaflow-ai/cmux/issues/123)
       jq -nc --arg state "$live_state" '{state:$state,pull_request:{url:"https://api.github.com/repos/manaflow-ai/cmux/pulls/123"}}'
+      ;;
+    repos/manaflow-ai/cmux/issues/comments/900)
+      jq -nc \
+        --arg body "${COMMENT_BODY}" \
+        --argjson author_id "${COMMENT_AUTHOR_ID}" \
+        --arg author_login "${COMMENT_AUTHOR_LOGIN}" \
+        --arg author_type "${COMMENT_AUTHOR_TYPE}" \
+        --arg created_at "${COMMENT_CREATED_AT}" \
+        '{issue_url:"https://api.github.com/repos/manaflow-ai/cmux/issues/123",body:$body,user:{id:$author_id,login:$author_login,type:$author_type},created_at:$created_at,updated_at:$created_at}'
       ;;
     repos/manaflow-ai/cmux/pulls/123)
       jq -nc --arg state "$live_state" --arg base "$live_base" --arg head_repo "$live_head_repo" --argjson head_repo_id "$live_head_repo_id" \
@@ -300,24 +311,31 @@ gh() {
       elif [[ "${FAKE_MODE}" == compatibility-failed ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
-            {id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]},
-            {id:502,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
+            {id:502,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+          ]}'
+      elif [[ "${FAKE_MODE}" == writer-failed ]]; then
+        jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
+          '{jobs:[
+            {id:505,run_id:$run_id,name:"CLA ledger writer",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]},
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
+            {id:506,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
           ]}'
       elif [[ "${FAKE_MODE}" == unexpected-failure ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
-            {id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]},
-            {id:503,run_id:$run_id,name:"Unexpected privileged job",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
+            {id:503,run_id:$run_id,name:"Unexpected privileged job",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
           ]}'
       elif [[ "${FAKE_MODE}" == cancelled-job ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
-            {id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"success"}]},
-            {id:504,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"cancelled",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
+            {id:$job_id,run_id:$run_id,name:"CLA Assistant v3",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[{name:$marker,status:"completed",conclusion:"failure"}]},
+            {id:504,run_id:$run_id,name:"CLA Assistant",workflow_name:"CLA Assistant v3",status:"completed",conclusion:"cancelled",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}
           ]}'
       else
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$jobs_sha" --argjson omit "$omit_job_head_repository" \
-          '{jobs:[({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))]}'
+          '{jobs:[({id:$job_id,run_id:$run_id,name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,steps:[{name:$marker,status:"completed",conclusion:"failure"}]} + (if $omit then {} else {head_repository:null} end))]}'
       fi
       ;;
     repos/manaflow-ai/cmux/actions/jobs/500|repos/manaflow-ai/cmux/actions/jobs/501)
@@ -332,7 +350,7 @@ gh() {
         job_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       fi
       jq -nc --argjson job_id "$job_id" --argjson run_id "$run_id" --arg marker "$marker" --arg run_sha "$job_sha" --argjson omit "$omit_job_head_repository" \
-        '({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))'
+        '({id:$job_id,run_id:$run_id,name:"CLA Assistant v3",status:"completed",conclusion:"failure",head_sha:$run_sha,steps:[{name:$marker,status:"completed",conclusion:"failure"}]} + (if $omit then {} else {head_repository:null} end))'
       ;;
     *)
       echo "unexpected API endpoint: $endpoint" >&2
@@ -455,7 +473,9 @@ run_case job-missing-head-repository 0 "Requested rerun for CLA job 500 in workf
 run_case wrapped-ledger 0 "Requested rerun for CLA job 500 in workflow run 400" 1
 run_case oversized-ledger 1 "exceeds the 1 MB limit" 0
 run_case malformed-ledger 1 "not valid base64" 0
-run_case compatibility-failed 0 "Requested rerun for failed CLA jobs (v2 and compatibility) in workflow run 400" 1 \
+run_case compatibility-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
+  "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
+run_case writer-failed 0 "Requested rerun for failed CLA v3 jobs (writer, assistant, and compatibility) in workflow run 400" 1 \
   "repos/manaflow-ai/cmux/actions/runs/400/rerun-failed-jobs"
 run_case unexpected-failure 1 "unexpected failed job" 0
 run_case cancelled-job 1 "cancelled or non-failure job" 0
