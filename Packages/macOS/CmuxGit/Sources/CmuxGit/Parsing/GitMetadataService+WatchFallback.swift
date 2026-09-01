@@ -3,7 +3,7 @@ import Foundation
 
 extension GitMetadataService {
     /// Keeps a conservative root watcher when an index format cannot be parsed.
-    private nonisolated func applyingForcedWorkTreeRoots(
+    nonisolated func applyingForcedWorkTreeRoots(
         _ descriptor: GitWorkspaceMetadataWatchDescriptor,
         repositories: Set<String>
     ) -> GitWorkspaceMetadataWatchDescriptor {
@@ -29,9 +29,10 @@ extension GitMetadataService {
                 ? safetyConfiguration.unfilteredWorkTreeEventThrottle
                 : descriptor.eventCoalescingInterval,
             eventFilterIdentity: rootIsForced ? nil : descriptor.eventFilterIdentity,
-            degradation: anyForcedRoot
-                ? .unreadableIndex
-                : descriptor.degradation
+            // Keep a specific degradation, such as the rate-limited fallback
+            // for an oversized index, when an independent safety valve adds a
+            // forced root.
+            degradation: descriptor.degradation ?? (anyForcedRoot ? .unreadableIndex : nil)
         )
     }
 

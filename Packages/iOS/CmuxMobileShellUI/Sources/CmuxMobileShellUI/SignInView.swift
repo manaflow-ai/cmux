@@ -12,7 +12,7 @@ import AppKit
 #endif
 
 struct SignInView: View {
-    private enum EmailEntryMode {
+    private enum EmailEntryMode: Equatable {
         case methods
         case emailVerification
         case code
@@ -28,6 +28,9 @@ struct SignInView: View {
     @State private var error: String?
     @State private var signingInProviders: Set<OAuthSignInProvider> = []
     @State private var isRequestingEmailVerification = false
+    @State private var isRequestingBillingRecovery = false
+    @State private var billingRecoveryMessage: String?
+    @State private var shouldShowBillingRecovery = false
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
     private let errorPresentation = SignInErrorPresentation()
@@ -203,18 +206,19 @@ struct SignInView: View {
                 .mobileGlassProminentButton()
                 .accessibilityIdentifier("signin.emailVerificationContinue")
 
-                Button {
-                    Task {
+                SignInBillingRecoveryActions(
+                    isVisible: shouldShowBillingRecovery,
+                    isAuthInProgress: isAuthInProgress,
+                    isRequestingEmailVerification: isRequestingEmailVerification,
+                    isRequestingBillingRecovery: $isRequestingBillingRecovery,
+                    billingRecoveryMessage: $billingRecoveryMessage,
+                    requestEmailVerification: {
                         await requestEmailVerification()
+                    },
+                    requestBillingRecovery: {
+                        await requestBillingRecovery()
                     }
-                } label: {
-                    Text(L10n.string("mobile.signIn.verificationResend", defaultValue: "Resend verification email"))
-                        .mobileButtonLoading(isRequestingEmailVerification, tint: .secondary)
-                }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .disabled(isAuthInProgress)
-                .accessibilityIdentifier("signin.emailVerificationResend")
+                )
 
                 Button {
                     returnToSignInMethods()
@@ -322,7 +326,10 @@ struct SignInView: View {
     // AuthError and re-enables the card for retry. Do not reintroduce a manual
     // cancel button here; it was occluded during the system sheet anyway.
     private var isInteractiveAuthInProgress: Bool {
-        authManager.isLoading || isRequestingEmailVerification || !signingInProviders.isEmpty
+        authManager.isLoading ||
+            isRequestingEmailVerification ||
+            isRequestingBillingRecovery ||
+            !signingInProviders.isEmpty
     }
 
     private var isAuthInProgress: Bool {
@@ -374,8 +381,16 @@ struct SignInView: View {
                 failure: DiagnosticFailureKind.classify(error)
             )
             if emailCodeFailurePolicy.action(for: error) == .requestEmailVerification {
+                shouldShowBillingRecovery = true
                 if requestVerificationOnUnverifiedEmail {
                     await requestEmailVerification()
+                    // Keep the recovery controls reachable even when the
+                    // verification-email provider is temporarily unavailable.
+                    if emailEntryMode != .emailVerification {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            emailEntryMode = .emailVerification
+                        }
+                    }
                 } else {
                     withAnimation(.snappy(duration: 0.18)) {
                         emailEntryMode = .emailVerification
@@ -398,6 +413,7 @@ struct SignInView: View {
     private func requestEmailVerification() async {
         guard !isRequestingEmailVerification else { return }
         error = nil
+        billingRecoveryMessage = nil
         isEmailFocused = false
         isRequestingEmailVerification = true
         defer { isRequestingEmailVerification = false }
@@ -418,9 +434,36 @@ struct SignInView: View {
         }
     }
 
+    private func requestBillingRecovery() async {
+        guard !isRequestingBillingRecovery else { return }
+        error = nil
+        billingRecoveryMessage = nil
+        isEmailFocused = false
+        isRequestingBillingRecovery = true
+        defer { isRequestingBillingRecovery = false }
+        analytics.capture("ios_billing_recovery_attempted", [:])
+        do {
+            try await authManager.requestBillingRecovery(for: normalizedEmail)
+            billingRecoveryMessage = L10n.string(
+                "mobile.signIn.billingRecoverySent",
+                defaultValue: "Request accepted. If you do not receive an email, try again later."
+            )
+        } catch {
+            if case AuthError.cancelled = error {
+                return
+            }
+            self.error = detailedErrorMessage(error)
+            analytics.capture("ios_billing_recovery_failed", [
+                "failure_reason": .string(signInFailureReason(error)),
+            ])
+        }
+    }
+
     private func returnToSignInMethods() {
         withAnimation(.snappy(duration: 0.18)) {
             shouldAutofocusEmail = false
+            shouldShowBillingRecovery = false
+            billingRecoveryMessage = nil
             emailEntryMode = .methods
             error = nil
         }

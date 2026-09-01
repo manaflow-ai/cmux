@@ -20260,6 +20260,37 @@ mod tests {
     }
 
     #[test]
+    fn dimensionless_terminal_client_reports_disabled_sizing_participation() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&json!({"event": "test"})).unwrap();
+        let stream_id = stream.id;
+        mux.control_clients.attach_surface(client, surface.id, stream).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, stream_id, None).unwrap();
+
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientSizing {
+                surface: surface.id,
+                client: Some(client),
+                enabled: false,
+                exclusive: false,
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let listed = handle_command(&mux, client, Command::ListClients, &writer).unwrap();
+        assert_eq!(listed[0]["attached"], json!([surface.id]));
+        assert_eq!(listed[0]["sizes"][0]["cols"], Value::Null);
+        assert_eq!(listed[0]["sizes"][0]["rows"], Value::Null);
+        assert_eq!(listed[0]["sizes"][0]["size_participating"], false);
+    }
+
+    #[test]
     fn client_sizing_command_applies_exclusive_and_all_modes_atomically() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
@@ -21802,6 +21833,140 @@ mod tests {
             let error = handle_command(&mux, client, command, &writer).unwrap_err();
             assert_eq!(error.to_string(), "workspace revision conflict: expected 1, current 2");
         }
+    }
+
+    /// Regression test for the packaged-browser alt+n wedge (cmux-browser
+    /// issue #417): a receipted resource `workspace.create` advanced the
+    /// reported `workspace_revision` without advancing the legacy workspace
+    /// ledger, so every later legacy CAS mutation failed with
+    /// "workspace revision conflict: expected 1, current 0" forever.
+    #[test]
+    fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+        // The packaged browser bootstraps its first workspace through the
+        // receipted resource API (workspace.create, initial_content=empty).
+        let selectors = crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            ..crate::ResourceSelectors::default()
+        };
+        let before = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let before_revision = before["workspace_revision"].as_u64().unwrap();
+        let created = mux
+            .resource_create_empty_workspace_selected(
+                selectors,
+                Some("bootstrap".into()),
+                "bootstrap-receipt-00000001",
+                None,
+                &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+            )
+            .unwrap();
+        assert!(!created.replayed);
+
+        // The browser then snapshots the registry and sends its alt+n create
+        // with the reported revision, exactly like SyncWorkspaceRegistry.
+        let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let revision = listed["workspace_revision"].as_u64().unwrap();
+        // A real registry change must advance the reported revision: clients
+        // gate delta application and snapshot refreshes on it.
+        assert_eq!(revision, before_revision + 1);
+        let response = handle_command(
+            &mux,
+            client,
+            Command::CreateWorkspace {
+                name: Some("alt-n".into()),
+                key: Some("018f6e21-7b70-7e70-8000-0000000000aa".into()),
+                mutation: MutationRequest {
+                    origin: Some("chrome-gui".into()),
+                    mutation_id: Some("alt-n-create".into()),
+                    expected_generation: None,
+                    expected_revision: Some(revision),
+                },
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(response["replayed"], false);
+        let after = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        assert_eq!(after["workspace_revision"].as_u64().unwrap(), revision + 1);
+    }
+
+    /// Same ledger invariant for the resource rename and move paths: the
+    /// revision the daemon reports must stay usable as a legacy CAS expected
+    /// value after every workspace-projection mutation.
+    #[test]
+    fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
+        let mux = test_mux();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.create_empty_workspace(
+            Some("first".into()),
+            Some("018f6e21-7b70-7e70-8000-0000000000b1".into()),
+            None,
+        )
+        .unwrap();
+        mux.create_empty_workspace(
+            Some("second".into()),
+            Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+            None,
+        )
+        .unwrap();
+        let first_id = mux.with_state(|state| state.workspaces[0].public_id.clone());
+
+        mux.resource_rename_workspace(
+            &first_id,
+            "renamed".into(),
+            None,
+            None,
+            &WorkspaceMutation::new("resource-rename", "resource-api").unwrap(),
+        )
+        .unwrap();
+        let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let revision = listed["workspace_revision"].as_u64().unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::RenameWorkspace {
+                workspace: None,
+                key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+                name: "legacy-rename".into(),
+                mutation: MutationRequest {
+                    expected_revision: Some(revision),
+                    ..Default::default()
+                },
+            },
+            &writer,
+        )
+        .expect("legacy CAS rename must accept the reported revision");
+
+        mux.resource_move_workspace(
+            &first_id,
+            1,
+            None,
+            None,
+            &WorkspaceMutation::new("resource-move", "resource-api").unwrap(),
+        )
+        .unwrap();
+        let listed = handle_command(&mux, client, Command::ListWorkspaces, &writer).unwrap();
+        let revision = listed["workspace_revision"].as_u64().unwrap();
+        handle_command(
+            &mux,
+            client,
+            Command::MoveWorkspace {
+                workspace: None,
+                key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+                index: 0,
+                mutation: MutationRequest {
+                    expected_revision: Some(revision),
+                    ..Default::default()
+                },
+            },
+            &writer,
+        )
+        .expect("legacy CAS move must accept the reported revision");
     }
 
     #[test]

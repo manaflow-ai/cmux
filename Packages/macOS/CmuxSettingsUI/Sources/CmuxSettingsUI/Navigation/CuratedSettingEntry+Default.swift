@@ -357,6 +357,27 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 
+            // Computer Use
+            .init(
+                section: .computerUse,
+                id: "enabled",
+                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
+                paths: ["computerUse.enabled"],
+                synonyms: String(localized: "settings.search.alias.setting.computerUse.enabled", defaultValue: "computerUse.enabled enable disable computer use cua mcp agent sessions")
+            ),
+            .init(
+                section: .computerUse,
+                id: "permissions",
+                title: String(localized: "settings.computerUse.permissions", defaultValue: "Permissions"),
+                synonyms: String(localized: "settings.search.alias.setting.computerUse.permissions", defaultValue: "accessibility screen recording capture permissions privacy system settings grant")
+            ),
+            .init(
+                section: .computerUse,
+                id: "show-in-menu-bar",
+                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show Computer Use in Menu Bar"),
+                paths: ["computerUse.showInMenuBar"],
+                synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
+            ),
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
             .init(section: .browser, id: "default-engine", title: String(localized: "settings.browser.engine", defaultValue: "Default Browser Engine"), synonyms: "browser.defaultEngine auto match default browser webkit chromium chrome rendering engine out of process", anchorPath: "browser.defaultEngine"),

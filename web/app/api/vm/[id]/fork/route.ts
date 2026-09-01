@@ -3,20 +3,15 @@ import {
   jsonResponse,
   notFoundVm,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
   vmCreateLikeErrorResponse,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
+import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
 import {
   isVmNotFoundError,
 } from "../../../../../services/vms/errors";
-import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../../services/vms/entitlements";
 import { forkVm, runVmWorkflow } from "../../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
@@ -25,6 +20,10 @@ import {
   parseOptionalObjectBody,
   stringField,
 } from "../../../../../services/vms/routeInput";
+
+// Fork cold-provisions a machine (and may snapshot the source first); same
+// budget and rationale as POST /api/vm (see app/api/vm/route.ts).
+export const maxDuration = 600;
 
 export async function POST(
   request: Request,
@@ -38,7 +37,10 @@ export async function POST(
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "fork", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "fork", response, span });
+      });
       const parsedBody = await parseOptionalObjectBody(request, {
         operation: "fork",
         action: "Send `{}` or `{ \"name\": \"before-agent\" }`.",
@@ -58,19 +60,9 @@ export async function POST(
         if (!refreshedUser) return unauthorized();
         user = refreshedUser;
       }
-      let entitlements;
-      try {
-        entitlements = resolveVmEntitlements(user, process.env, {
-          requestedBillingTeamId,
-          requireTeam: true,
-        });
-      } catch (err) {
-        if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
-        throw err;
-      }
-      if (isVmProGateBlocked(entitlements)) {
-        return vmRequiresProResponse();
-      }
+      const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
+      if (!account.ok) return account.response;
+      const entitlements = account.entitlements;
       const idempotencyKey = idempotencyKeyFromRequest(request);
       const name = stringField(body, "name");
       setSpanAttributes(span, {
@@ -105,7 +97,7 @@ export async function POST(
         const response = vmCreateLikeErrorResponse(err, {
           operation: "fork",
           planId: entitlements.planId,
-          retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
+          retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before forking another.",
         });
         if (response) return response;
         throw err;
