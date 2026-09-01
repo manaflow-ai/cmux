@@ -824,6 +824,24 @@ impl PtyManager {
     /// Network frames never get to register or replace an existing snapshot
     /// implicitly. Callers must publish this snapshot before dispatching the
     /// first frame for an identified transport.
+    pub fn register_transport_auth(&self, context: &FrameContext) {
+        if context.transport_id.is_none()
+            || context.cancellation.is_cancelled()
+            || Trust::parse(&context.trust).is_none()
+        {
+            return;
+        }
+        let owner = TransportOwner::from_context(context);
+        let snapshot = AuthSnapshot::from_context(context);
+        let _update = self.inner.transport_auth_updates.lock().expect("transport auth update lock");
+        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        if !context.cancellation.is_cancelled()
+            && self.inner.tunnel_authority_generation_current(context)
+        {
+            self.inner.transport_auth.lock().expect("transport auth lock").insert(owner, snapshot);
+        }
+    }
+
     pub fn update_transport_auth(&self, context: &FrameContext) {
         debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
         if context.transport_id.is_none()
@@ -846,10 +864,20 @@ impl PtyManager {
                 return;
             }
             let transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
+            if !transport_auth.contains_key(&owner)
+                && owner.kind == TransportKind::Relay
+                && snapshot.revision > 0
+            {
+                // Revision-bearing relay contexts must be explicitly
+                // registered. A missing entry after disconnect is a fence,
+                // not permission to re-register a stale connection.
+                return;
+            }
             if let Some(current) = transport_auth.get(&owner)
                 && owner.kind == TransportKind::Relay
                 && (snapshot.revision < current.revision
-                    || (snapshot.revision == current.revision
+                    || (snapshot.revision > 0
+                        && snapshot.revision == current.revision
                         && !auth_snapshot_matches(current, &snapshot)))
             {
                 return;

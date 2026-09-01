@@ -1038,7 +1038,7 @@ async fn relay_session(
                                 &transport_id,
                                 &connection_cancellation,
                             );
-                            runtime.pty.update_transport_auth(&context);
+                            runtime.pty.register_transport_auth(&context);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
                         let mut interval = tokio::time::interval(cadence);
