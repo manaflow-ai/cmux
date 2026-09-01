@@ -55,7 +55,9 @@ extension CmxAttachTransportKind {
     var mobileConnectionMethodName: String {
         switch self {
         case .iroh:
-            L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
+            // Stale persisted iroh rows still decode and display; the phone
+            // can no longer dial them, so present them as a legacy entry.
+            L10n.string("mobile.connections.method.legacy", defaultValue: "Legacy")
         case .tailscale:
             L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
         case .websocket:

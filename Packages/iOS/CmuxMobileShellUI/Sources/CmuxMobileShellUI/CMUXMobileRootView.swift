@@ -288,7 +288,7 @@ struct CMUXMobileRootView: View {
             // Auth launch restore can publish `isAuthenticated` and finish
             // `isRestoringSession` in one main-actor turn. SwiftUI is allowed
             // to coalesce those observations, which would skip the one-shot
-            // attach callback for a tagged Iroh launch. Awaiting the
+            // attach callback for a tagged dev-attach launch. Awaiting the
             // coordinator's bootstrap gives startup a durable completion
             // barrier; the coordinator still serializes this with the normal
             // lifecycle callbacks, so it cannot start a duplicate dial.
@@ -336,8 +336,9 @@ struct CMUXMobileRootView: View {
                 store.resumeForegroundRefresh()
                 // The user may have toggled Tailscale while we were backgrounded.
                 tailscaleStatusMonitor?.refresh()
-                // Auth resume belongs to the process-owned Iroh composition,
-                // which distinguishes real background returns from system UI.
+                // Auth resume belongs to the process-owned connection
+                // composition, which distinguishes real background returns
+                // from system UI.
             case .background:
                 store.suspendForegroundRefresh()
             case .inactive:
@@ -1104,7 +1105,7 @@ struct CMUXMobileRootView: View {
 
     /// Add Computer (including its manual host:port form) is always available:
     /// entering the address where a same-account Mac is reachable IS discovery
-    /// for LAN, WireGuard, and other networks Iroh may not find fast enough.
+    /// for LAN, WireGuard, and other networks automatic discovery misses.
     /// Only the Tailscale pairing-code scanner keeps a method gate.
     private var addComputerAction: (() -> Void)? {
         showAddDevice

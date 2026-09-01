@@ -185,9 +185,12 @@ struct MobileSettingsView: View {
                 defaultValue: "Tailscale"
             )
         case .iroh:
+            // Unreachable for a live connection (iroh is not dialable), but
+            // the switch stays exhaustive over the wire enum; label any such
+            // row as legacy rather than naming a transport that is gone.
             L10n.string(
-                "mobile.settings.activeTransport.iroh",
-                defaultValue: "Iroh"
+                "mobile.settings.activeTransport.legacy",
+                defaultValue: "Legacy"
             )
         case .websocket:
             L10n.string(
@@ -834,7 +837,7 @@ struct MobileSettingsView: View {
     }
 }
 
-/// App-wide log sharing. Lives at the settings top level, not the Iroh
+/// App-wide log sharing. Lives at the settings top level, not a per-feature
 /// screen: the app log covers every feature (simulator, browser, composer,
 /// lifecycle), and the network log covers all connection diagnostics, not
 /// one transport.
