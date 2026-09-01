@@ -811,6 +811,58 @@ final class NotificationDockBadgeTests: XCTestCase {
         super.tearDown()
     }
 
+    func testSessionRestoreRecoveryInventoryIsInAppOnlyAndPreservesUnrelatedNotification() throws {
+        let store = TerminalNotificationStore.shared
+        let tabID = UUID()
+        let panelID = UUID()
+        let unrelated = TerminalNotification(
+            id: UUID(),
+            tabId: tabID,
+            surfaceId: panelID,
+            title: "Unrelated",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        var deliveredCount = 0
+        var suppressedFeedbackCount = 0
+        store.replaceNotificationsForTesting([unrelated])
+        store.configureNotificationDeliveryHandlerForTesting { _, _, _ in
+            deliveredCount += 1
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _, _ in
+            suppressedFeedbackCount += 1
+        }
+
+        store.addSessionRestoreRecoveryInventoryItem(
+            SessionRestoreRecoveryInventoryItem(
+                tabID: tabID,
+                panelID: panelID,
+                savedWorkingDirectory: "/missing/project",
+                snapshot: SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "checkpoint-1"
+                )
+            )
+        )
+
+        XCTAssertEqual(deliveredCount, 0)
+        XCTAssertEqual(suppressedFeedbackCount, 0)
+        XCTAssertTrue(store.notifications.contains(where: { $0.id == unrelated.id }))
+        let inventory = try XCTUnwrap(store.notifications.first(where: {
+            $0.correlationKey == "session-restore-recovery"
+        }))
+        XCTAssertEqual(inventory.tabId, tabID)
+        XCTAssertEqual(inventory.surfaceId, panelID)
+        XCTAssertEqual(inventory.panelId, panelID)
+        XCTAssertTrue(inventory.subtitle.contains("checkpoint-1"))
+        XCTAssertTrue(inventory.subtitle.contains("Direct"))
+        XCTAssertTrue(inventory.body.contains("/missing/project"))
+        XCTAssertFalse(inventory.isRead)
+        XCTAssertTrue(inventory.paneFlash)
+    }
+
     func testNotificationClickActionRoundTripsAndIsStored() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("AppDelegate.shared must be set for this test")

@@ -3,6 +3,20 @@ import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    /// Returns every panel that remained visible because automatic restore was unsafe.
+    func sessionRestoreRecoveryInventoryItems() -> [SessionRestoreRecoveryInventoryItem] {
+        recoveryNeededWorkingDirectoriesByPanelId.map { panelID, savedWorkingDirectory in
+            SessionRestoreRecoveryInventoryItem(
+                tabID: id,
+                panelID: panelID,
+                savedWorkingDirectory: savedWorkingDirectory,
+                snapshot: restoredAgentLifecycle.snapshotsByPanelId[panelID]
+            )
+        }.sorted { lhs, rhs in
+            lhs.panelID.uuidString < rhs.panelID.uuidString
+        }
+    }
+
     enum LegacyHermesSessionResolution {
         case valid
         case legacyRestore(SessionRestorableAgentSnapshot)

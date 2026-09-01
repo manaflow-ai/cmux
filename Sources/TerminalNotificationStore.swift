@@ -1230,6 +1230,79 @@ final class TerminalNotificationStore: ObservableObject {
         inFlightPolicyRequests.attach(task: task, to: policyRequestId)
     }
 
+    /// Records a clickable recovery item without invoking external notification side effects.
+    func addSessionRestoreRecoveryInventoryItem(
+        _ item: SessionRestoreRecoveryInventoryItem
+    ) {
+        let title = String(
+            localized: "sessionRestore.recoveryInventory.title",
+            defaultValue: "Session recovery needed"
+        )
+        let identity: String
+        if let agentName = item.agentName,
+           let route = item.route,
+           let checkpointID = item.checkpointID {
+            let routeName = switch route {
+            case .direct:
+                String(localized: "sessionRestore.recoveryInventory.route.direct", defaultValue: "Direct")
+            case .pooled:
+                String(localized: "sessionRestore.recoveryInventory.route.pooled", defaultValue: "Pooled")
+            case .pinned:
+                String(localized: "sessionRestore.recoveryInventory.route.pinned", defaultValue: "Pinned")
+            }
+            identity = String(
+                format: String(
+                    localized: "sessionRestore.recoveryInventory.identity",
+                    defaultValue: "%1$@ · %2$@ · checkpoint %3$@"
+                ),
+                agentName,
+                routeName,
+                checkpointID
+            )
+        } else {
+            identity = String(
+                localized: "sessionRestore.recoveryInventory.identityUnavailable",
+                defaultValue: "Saved agent identity unavailable"
+            )
+        }
+        let savedDirectory = String(
+            format: String(
+                localized: "sessionRestore.recoveryNeeded.savedDirectory",
+                defaultValue: "Saved directory: %@"
+            ),
+            item.savedWorkingDirectory
+        )
+        let instruction = String(
+            localized: "sessionRestore.recoveryInventory.openInstruction",
+            defaultValue: "Open this panel to review the explicit recovery command. No agent was started."
+        )
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: item.tabID,
+            surfaceId: item.panelID,
+            panelId: item.panelID,
+            correlationKey: "session-restore-recovery",
+            title: title,
+            subtitle: identity,
+            body: "\(savedDirectory)\n\(instruction)",
+            createdAt: Date(),
+            isRead: false,
+            paneFlash: true
+        )
+        var effects = TerminalNotificationPolicyEffects()
+        effects.reorderWorkspace = false
+        effects.desktop = false
+        effects.sound = false
+        effects.command = false
+        recordNotification(
+            notification,
+            shouldSuppressExternalDelivery: true,
+            effects: effects,
+            now: notification.createdAt,
+            cooldownReservation: nil
+        )
+    }
+
     private func completePolicyRequest(_ policyRequestId: UUID, request: TerminalNotificationPolicyRequest, envelope: TerminalNotificationPolicyEnvelope, cooldownReservation: NotificationCooldownReservation?, scrollPosition: TerminalNotificationScrollPosition?, clickAction: TerminalNotificationClickAction?) {
         inFlightPolicyRequests.complete(policyRequestId) { [weak self] in
             self?.applyNotification(request: request, envelope: envelope, now: Date(), cooldownReservation: cooldownReservation, scrollPosition: scrollPosition, clickAction: clickAction, policyRequestId: nil)

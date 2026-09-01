@@ -3924,6 +3924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore = false
         if wasApplyingSessionRestore {
             SurfaceResumeRunPromptBatch.shared.endRestorePass()
+            publishSessionRestoreRecoveryInventory()
         }
         if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
@@ -3937,6 +3938,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
+        }
+    }
+
+    /// Publishes one in-app, panel-targeted entry for every unsafe automatic restore.
+    private func publishSessionRestoreRecoveryInventory() {
+        var itemsByPanelID: [UUID: SessionRestoreRecoveryInventoryItem] = [:]
+        for context in mainWindowContexts.values {
+            let tabManager = context.tabManager
+            for workspace in tabManager.tabs {
+                for item in workspace.sessionRestoreRecoveryInventoryItems() {
+                    itemsByPanelID[item.panelID] = item
+                }
+            }
+            guard let fallbackTabID = tabManager.selectedTabId ?? tabManager.tabs.first?.id else {
+                continue
+            }
+            let liveTabIDs = Set(tabManager.tabs.map(\.id))
+            for dockStore in tabManager.liveWindowDockStores {
+                let notificationTabID = liveTabIDs.contains(dockStore.workspaceId)
+                    ? dockStore.workspaceId
+                    : fallbackTabID
+                for item in dockStore.sessionRestoreRecoveryInventoryItems(
+                    notificationTabID: notificationTabID
+                ) {
+                    itemsByPanelID[item.panelID] = item
+                }
+            }
+        }
+        for item in itemsByPanelID.values.sorted(by: {
+            $0.panelID.uuidString < $1.panelID.uuidString
+        }) {
+            TerminalNotificationStore.shared.addSessionRestoreRecoveryInventoryItem(item)
         }
     }
 

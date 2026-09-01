@@ -5,6 +5,23 @@ import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
+    /// Returns Dock panels that remained visible because automatic restore was unsafe.
+    func sessionRestoreRecoveryInventoryItems(
+        notificationTabID: UUID
+    ) -> [SessionRestoreRecoveryInventoryItem] {
+        restoredAgentLifecycle.recoveryNeededWorkingDirectoriesByPanelId.map {
+            panelID, savedWorkingDirectory in
+            SessionRestoreRecoveryInventoryItem(
+                tabID: notificationTabID,
+                panelID: panelID,
+                savedWorkingDirectory: savedWorkingDirectory,
+                snapshot: restoredAgentLifecycle.snapshotsByPanelId[panelID]
+            )
+        }.sorted { lhs, rhs in
+            lhs.panelID.uuidString < rhs.panelID.uuidString
+        }
+    }
+
     /// Restores Dock topology and panel state from a persisted split snapshot.
     ///
     /// Browser panels can remain lightweight until their host reports visibility;
