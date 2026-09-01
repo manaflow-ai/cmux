@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxSettings
 import CmuxSidebar
 import Foundation
 
@@ -130,6 +131,7 @@ extension Workspace {
 
     private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
         var surfaces: [CustomSidebarSurfaceSnapshot] = []
+        let portVisibilityPolicy = currentSidebarPortVisibilityPolicy()
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
@@ -144,7 +146,9 @@ extension Workspace {
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: portVisibilityPolicy.visiblePorts(
+                            from: surfaceListeningPorts[panelId] ?? []
+                        )
                     )
                 )
             }

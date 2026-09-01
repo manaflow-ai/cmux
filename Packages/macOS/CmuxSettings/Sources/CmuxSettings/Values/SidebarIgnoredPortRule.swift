@@ -59,6 +59,10 @@ public enum SidebarIgnoredPortRule: Sendable, Equatable {
 extension SidebarIgnoredPortRule: SettingCodable {
     /// Decodes a persisted exact port or inclusive range.
     public static func decodeFromUserDefaults(_ raw: Any?) -> Self? {
+        if let number = raw as? NSNumber,
+           CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return nil
+        }
         if let port = Int.decodeFromUserDefaults(raw) {
             return validatedPort(port)
         }
