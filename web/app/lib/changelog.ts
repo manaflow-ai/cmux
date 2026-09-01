@@ -12,10 +12,9 @@ export interface ChangelogVersion {
 
 export const changelogPath = "/docs/changelog";
 
-// Keep the newest releases ready at deploy time. Older releases use the
-// Cache Components fallback and are rendered and cached on their first visit.
-// This keeps historical URLs available without making every locale/version
-// combination part of every deployment.
+// Keep the newest releases ready at deploy time. Cache Components resolves
+// omitted versions at request time, so historical URLs stay available without
+// making every locale/version combination part of every deployment.
 export const changelogStaticVersionCount = 12;
 
 export interface ChangelogVersionEntry {
