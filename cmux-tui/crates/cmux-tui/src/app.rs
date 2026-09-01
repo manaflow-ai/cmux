@@ -7090,7 +7090,9 @@ pub struct App {
     agent_focus_stamps: HashMap<SurfaceId, u64>,
     /// Client-local runtime sort override per agents view id (the `s`
     /// cycle key). Presentation state like the seen stamps: never
-    /// persisted, never shared between attached clients.
+    /// persisted, never shared between attached clients. It is cleared when
+    /// the active profile or its view specification is replaced, so a reused
+    /// id cannot inherit a stale mode.
     agent_sort_overrides: HashMap<String, crate::config::AgentSortMode>,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
@@ -10658,6 +10660,7 @@ impl App {
         previous: SidebarProjectionSpec,
     ) {
         if previous != SidebarProjectionSpec::from_config(&self.config) {
+            self.agent_sort_overrides.clear();
             self.invalidate_projection_rows_cache();
             self.cancel_sidebar_layout_drag();
         }
@@ -27519,10 +27522,8 @@ mod tests {
             sort: crate::config::AgentSortMode::Priority,
             filter: crate::config::AgentRowFilter::default(),
         };
-        let second_view = SidebarViewSpec {
-            sort: crate::config::AgentSortMode::Recency,
-            ..first_view.clone()
-        };
+        let second_view =
+            SidebarViewSpec { sort: crate::config::AgentSortMode::Recency, ..first_view.clone() };
         let first_profile = SidebarProfileSpec {
             id: "first".into(),
             name: "First".into(),
@@ -27539,13 +27540,16 @@ mod tests {
         app.config.sidebar.profiles = vec![first_profile, second_profile];
         app.config.sidebar.active_profile = "first".into();
         app.config.sidebar.views = vec![first_view];
-        app.config.sidebar.layout = crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
-        app.agent_sort_overrides
-            .insert("shared-view".into(), crate::config::AgentSortMode::State);
+        app.config.sidebar.layout =
+            crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
+        app.agent_sort_overrides.insert("shared-view".into(), crate::config::AgentSortMode::State);
 
         app.activate_sidebar_profile(1);
 
-        assert_eq!(app.effective_agent_sort(&second_view), crate::config::AgentSortMode::Recency);
+        assert_eq!(
+            app.effective_agent_sort(&second_view),
+            crate::config::AgentSortMode::Recency
+        );
     }
 
     #[test]
@@ -43753,6 +43757,104 @@ mod tests {
         assert_eq!(working - blocked, 2, "each agent entry spans two lines");
 
         mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn filtered_nested_agents_view_discloses_the_filter_in_its_header() {
+        let (mux, surface) = test_mux("agents-view-filter-header-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::Recency,
+            filter: crate::config::AgentRowFilter {
+                agents: Vec::new(),
+                states: vec!["working".into()],
+                seen: None,
+            },
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(
+            rendered.lines().any(|line| line.contains("agents") && line.contains("filtered")),
+            "an active nested-view filter must be visible in the header"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agents_view_sort_key_updates_the_live_header_and_keeps_config_starting_mode() {
+        let (mux, surface) = test_mux("agents-view-sort-cycle-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 32,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::Priority,
+            filter: crate::config::AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 12));
+        app.focus = FocusTarget::ProjectionRail(0);
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).lines().any(|line| {
+            line.contains("agents") && line.contains("priority")
+        }));
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.config.sidebar.views[0].sort,
+            crate::config::AgentSortMode::Priority,
+            "the runtime cycle must not rewrite the shared config"
+        );
+        assert_eq!(
+            app.effective_agent_sort(&app.config.sidebar.views[0]),
+            crate::config::AgentSortMode::Recency
+        );
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).lines().any(|line| {
+            line.contains("agents") && line.contains("recency")
+        }));
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]

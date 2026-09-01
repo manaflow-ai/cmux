@@ -675,8 +675,11 @@ mod tests {
         assert!(!agent_row_passes_filter(&filter, None, "blocked", false));
 
         // The seen criterion is its own AND leg.
-        let unseen_only =
-            crate::config::AgentRowFilter { agents: Vec::new(), states: Vec::new(), seen: Some(false) };
+        let unseen_only = crate::config::AgentRowFilter {
+            agents: Vec::new(),
+            states: Vec::new(),
+            seen: Some(false),
+        };
         assert!(agent_row_passes_filter(&unseen_only, Some("claude"), "idle", false));
         assert!(!agent_row_passes_filter(&unseen_only, Some("claude"), "idle", true));
 
@@ -696,7 +699,7 @@ mod tests {
                 source: "hook".into(),
                 session: None,
                 agent: Some("claude".into()),
-                updated_at_ms: 100,
+                updated_at_ms: 50,
             },
             AgentInfo {
                 surface: 4,
@@ -704,7 +707,7 @@ mod tests {
                 source: "detected".into(),
                 session: None,
                 agent: Some("codex".into()),
-                updated_at_ms: 50,
+                updated_at_ms: 100,
             },
         ];
 
@@ -732,7 +735,7 @@ mod tests {
         assert_eq!(rows_priority.len(), 2);
         assert_eq!(rows_recency.len(), 2);
         assert_eq!(rows_priority[0].agent_label.as_deref(), Some("claude"));
-        assert_eq!(rows_recency[0].agent_label.as_deref(), Some("claude"));
+        assert_eq!(rows_recency[0].agent_label.as_deref(), Some("codex"));
         assert_eq!(
             rows_priority[0].agent_state.as_deref(),
             Some("idle"),
@@ -955,7 +958,8 @@ mod tests {
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         // The selected workspace must not scope the sweep.
-        let rows = rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
+        let rows =
+            rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
 
         assert_eq!(rows.len(), 3, "agents from every workspace appear");
         let order: Vec<u64> = rows
@@ -1088,7 +1092,8 @@ mod tests {
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         let seen: SeenIdleSurfaces = [22].into_iter().collect();
-        let rows = rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
+        let rows =
+            rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
 
         let order: Vec<u64> = rows
             .iter()
@@ -1101,7 +1106,8 @@ mod tests {
 
         // Marking the remaining idle agent seen drops it below working.
         let seen: SeenIdleSurfaces = [11, 22].into_iter().collect();
-        let reranked = super::rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
+        let reranked =
+            super::rows(&all_spec, all_spec.sort, &tree, &agents, &seen, 0, &HashSet::new());
         let order: Vec<u64> = reranked
             .iter()
             .map(|row| match row.target {
@@ -1143,7 +1149,15 @@ mod tests {
                 updated_at_ms: 900,
             },
         ];
-        let initial = rows(&all_spec, all_spec.sort, &tree, &initial_agents, &HashSet::new(), 0, &HashSet::new());
+        let initial = rows(
+            &all_spec,
+            all_spec.sort,
+            &tree,
+            &initial_agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
         let selected_target = initial[1].target;
         let mut state = ProjectionRailState {
             selected: 1,
@@ -1155,8 +1169,15 @@ mod tests {
             AgentInfo { updated_at_ms: 1_000, ..initial_agents[0].clone() },
             initial_agents[1].clone(),
         ];
-        let reordered =
-            rows(&all_spec, all_spec.sort, &tree, &updated_agents, &HashSet::new(), 0, &HashSet::new());
+        let reordered = rows(
+            &all_spec,
+            all_spec.sort,
+            &tree,
+            &updated_agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
         assert_ne!(reordered[1].target, selected_target);
         state.reconcile_selection(&reordered);
         assert_eq!(state.selected_target, Some(selected_target));
@@ -1198,7 +1219,8 @@ mod tests {
         all_spec.scope = SidebarViewScope::All;
 
         let started = Instant::now();
-        let projected = rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 0, &HashSet::new());
+        let projected =
+            rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 0, &HashSet::new());
         eprintln!(
             "all-scope agent projection: {} rows in {:?}",
             projected.len(),

@@ -339,7 +339,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     // ACTIVE sort mode right (the cycle key steps it), with a marker when a
     // config filter hides rows. It consumes the top line of the rail.
     let messages = &localization::catalog().sidebar;
-    if spec.levels == [SidebarResourceKind::Agents] && area.height > 1 {
+    if spec.includes(SidebarResourceKind::Agents) && area.height > 1 {
         let mode = match app.effective_agent_sort(&spec) {
             crate::config::AgentSortMode::Priority => messages.sort_priority,
             crate::config::AgentSortMode::Recency => messages.sort_recency,

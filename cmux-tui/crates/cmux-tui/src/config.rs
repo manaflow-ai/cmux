@@ -567,11 +567,14 @@ struct RawSidebarView {
     row_lines: Option<u8>,
     /// Sort mode for agents views: `"priority"` (default), `"recency"`,
     /// `"name"`, `"agent"`, or `"state"`. The runtime cycle key starts here.
-    sort: Option<String>,
+    /// Keep the raw value permissive so a wrong JSON type degrades this one
+    /// setting instead of discarding the complete sidebar section.
+    sort: Option<Value>,
     /// Row filter for agents views: `{"agent": [ids], "state": [states],
     /// "seen": bool}`. Criteria combine with AND; an active filter is
-    /// disclosed in the view header.
-    filter: Option<RawAgentRowFilter>,
+    /// disclosed in the view header. The object is validated after the view
+    /// itself has been decoded for the same partial-recovery guarantee.
+    filter: Option<Value>,
     /// Turns this entry into a split group instead of a leaf view:
     /// `"vertical"` stacks `panes` top to bottom, `"horizontal"` places them
     /// side by side. Split groups nest.
@@ -580,27 +583,6 @@ struct RawSidebarView {
     panes: Option<Vec<RawSidebarView>>,
     /// Relative share of the parent split (default 1).
     weight: Option<u16>,
-}
-
-/// Raw agents-view filter. Grammar derived from herdr
-/// (https://github.com/herdrdev/herdr), Apache-2.0, commit 7b675f42af35
-/// (src/app/agent_view.rs `validate_agent_view`), modified by manaflow:
-/// herdr's nested all/any/not node tree is flattened to the three criteria
-/// cmux agents rows actually carry, combined with AND.
-#[derive(Debug, Deserialize)]
-struct RawAgentRowFilter {
-    /// Adapter ids to keep ("claude", "codex", ...).
-    agent: Option<Vec<String>>,
-    /// Lifecycle states to keep ("idle", "working", "blocked", "done",
-    /// "unknown").
-    state: Option<Vec<String>>,
-    /// Keep only idle agents the user has (true) or has not (false) looked
-    /// at. Seen is per-client presentation state.
-    seen: Option<bool>,
-    /// Unknown criteria warn and are ignored (the tolerate-and-warn policy):
-    /// a typo weakens one filter, never the view.
-    #[serde(flatten)]
-    unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// One pinned action: an action name, or an object that also renames its
@@ -2006,23 +1988,7 @@ fn resolve_sidebar_leaf_view(
     let is_agents_view = levels.contains(&SidebarResourceKind::Agents);
     // Unknown sort/filter values warn and fall back (the round-5 policy):
     // a typo may degrade one view's ordering, never drop the view.
-    let sort = match view.sort.as_deref().map(str::trim) {
-        None | Some("") => AgentSortMode::default(),
-        Some(value) if !is_agents_view => {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring sort {value:?} in {owner} view {id:?}; sort applies to agents views"
-            );
-            AgentSortMode::default()
-        }
-        Some(value) => match parse_agent_sort_mode(value) {
-            Ok(mode) => mode,
-            Err(warning) => {
-                crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
-                AgentSortMode::default()
-            }
-        },
-    };
+    let sort = resolve_agent_sort_mode(view.sort.as_ref(), is_agents_view, owner, id);
     let filter = resolve_agent_row_filter(view.filter.as_ref(), is_agents_view, owner, id);
     state.views.push(SidebarViewSpec {
         id: id.to_string(),
@@ -2049,7 +2015,7 @@ const MAX_AGENT_FILTER_VALUES: usize = 32;
 /// everything valid: a bad value must degrade one criterion, never drop the
 /// view or hide the filter silently.
 fn resolve_agent_row_filter(
-    raw: Option<&RawAgentRowFilter>,
+    raw: Option<&Value>,
     is_agents_view: bool,
     owner: &str,
     id: &str,
@@ -2062,25 +2028,44 @@ fn resolve_agent_row_filter(
         );
         return AgentRowFilter::default();
     }
-    for key in raw.unknown.keys() {
-        crate::client_log::stderr_log!(
-            "config",
-            "cmux-tui: ignoring unknown filter field {key:?} in {owner} view {id:?}"
-        );
-    }
-    let mut filter = AgentRowFilter { agents: Vec::new(), states: Vec::new(), seen: raw.seen };
-    for (name, values, output) in [
-        ("agent", raw.agent.as_deref(), &mut filter.agents),
-        ("state", raw.state.as_deref(), &mut filter.states),
+    let Some(object) = raw.as_object() else {
+        if !raw.is_null() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents filter {raw:?} in {owner} view {id:?}; expected an object"
+            );
+        }
+        return AgentRowFilter::default();
+    };
+    let mut filter = AgentRowFilter::default();
+    for (name, output) in [
+        ("agent", &mut filter.agents),
+        ("state", &mut filter.states),
     ] {
-        let Some(values) = values else { continue };
+        let Some(value) = object.get(name) else { continue };
+        let Some(values) = value.as_array() else {
+            if !value.is_null() {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter {name} {value:?} in {owner} view {id:?}; expected an array"
+                );
+            }
+            continue;
+        };
         if values.len() > MAX_AGENT_FILTER_VALUES {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: filter {name} in {owner} view {id:?} keeps the first {MAX_AGENT_FILTER_VALUES} values"
             );
         }
-        for value in values.iter().take(MAX_AGENT_FILTER_VALUES) {
+        for raw_value in values.iter().take(MAX_AGENT_FILTER_VALUES) {
+            let Some(value) = raw_value.as_str() else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter {name} value {raw_value:?} in {owner} view {id:?}"
+                );
+                continue;
+            };
             let value = value.trim();
             let valid = match name {
                 "state" => AGENT_FILTER_STATES.contains(&value),
@@ -2098,7 +2083,63 @@ fn resolve_agent_row_filter(
             }
         }
     }
+    match object.get("seen") {
+        None => {}
+        Some(value) if value.is_null() => {}
+        Some(value) => {
+            if let Some(seen) = value.as_bool() {
+                filter.seen = Some(seen);
+            } else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring filter seen value {value:?} in {owner} view {id:?}; expected a boolean"
+                );
+            }
+        }
+    }
+    for key in object.keys().filter(|key| !matches!(key.as_str(), "agent" | "state" | "seen")) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring unknown filter field {key:?} in {owner} view {id:?}"
+        );
+    }
     filter
+}
+
+fn resolve_agent_sort_mode(
+    raw: Option<&Value>,
+    is_agents_view: bool,
+    owner: &str,
+    id: &str,
+) -> AgentSortMode {
+    let Some(raw) = raw else { return AgentSortMode::default() };
+    let Some(value) = raw.as_str() else {
+        if !raw.is_null() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents sort {raw:?} in {owner} view {id:?}; expected a string"
+            );
+        }
+        return AgentSortMode::default();
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return AgentSortMode::default();
+    }
+    if !is_agents_view {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring sort {value:?} in {owner} view {id:?}; sort applies to agents views"
+        );
+        return AgentSortMode::default();
+    }
+    match parse_agent_sort_mode(value) {
+        Ok(mode) => mode,
+        Err(warning) => {
+            crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+            AgentSortMode::default()
+        }
+    }
 }
 
 /// Agent rows default to herdr-style two-line entries (state dot + title
@@ -8787,7 +8828,8 @@ mod tests {
     #[test]
     fn agents_view_sort_and_filter_parse_and_degrade() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("mux-config-sortfilter-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-sortfilter-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("mux.json");
         std::fs::write(
@@ -9830,6 +9872,8 @@ mod tests {
             collapse_priority: None,
             scope: None,
             row_lines: None,
+            sort: None,
+            filter: None,
             split: None,
             panes: None,
             weight: None,
@@ -9861,6 +9905,8 @@ mod tests {
             collapse_priority: None,
             scope: None,
             row_lines: None,
+            sort: None,
+            filter: None,
             split: None,
             panes: None,
             weight: None,
