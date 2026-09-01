@@ -362,7 +362,7 @@ export function vmActiveLimitExceededResponse(input: {
     error: "vm_active_limit_exceeded",
     status: 402,
     message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
-    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more VMs with usage-based billing, ` +
+    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
       "or free a slot with `cmux vm rm <id>`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
     details: { limit: input.limit, upgradeRequired: true },

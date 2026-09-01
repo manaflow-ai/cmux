@@ -51,6 +51,32 @@ extension SocketTransport {
         at socketPath: String,
         timeout: TimeInterval
     ) -> String? {
+        probeCommandWithPeerProcessID(
+            command,
+            at: socketPath,
+            timeout: timeout
+        )?.response
+    }
+
+    /// Sends one command and returns both its first response line and the
+    /// kernel-reported server process identifier.
+    ///
+    /// Callers use the peer identity when a response carries an in-memory
+    /// secret that must go only to one exact server process generation.
+    ///
+    /// - Parameters:
+    ///   - command: The command text; a trailing newline is appended.
+    ///   - socketPath: The Unix-domain socket path to connect to.
+    ///   - timeout: Send/receive timeout applied to the probe connection.
+    ///   - validatingPeer: Validation performed on the kernel-reported peer PID
+    ///     after connecting and before any command bytes are written.
+    /// - Returns: The response and peer PID, or nil on connection or I/O failure.
+    public func probeCommandWithPeerProcessID(
+        _ command: String,
+        at socketPath: String,
+        timeout: TimeInterval,
+        validatingPeer: @Sendable (pid_t?) -> Bool = { _ in true }
+    ) -> (response: String, peerProcessID: pid_t?)? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
@@ -86,11 +112,13 @@ extension SocketTransport {
             }
         }
         guard connectResult == 0 else { return nil }
+        let serverProcessID = peerProcessID(of: fd)
+        guard validatingPeer(serverProcessID) else { return nil }
 
         guard writeAll(Data((command + "\n").utf8), to: fd) else { return nil }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
-        var response = ""
+        var responseData = Data()
 
         while true {
             let count = read(fd, &buffer, buffer.count)
@@ -107,15 +135,29 @@ extension SocketTransport {
             if count == 0 {
                 break
             }
-            if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                response.append(chunk)
-                if let newlineIndex = response.firstIndex(of: "\n") {
-                    return String(response[..<newlineIndex])
+            responseData.append(contentsOf: buffer[0..<count])
+            if let newlineIndex = responseData.firstIndex(of: 0x0A) {
+                guard
+                    let response = String(
+                        data: responseData[..<newlineIndex],
+                        encoding: .utf8
+                    )
+                else {
+                    return nil
                 }
+                return (
+                    response: response,
+                    peerProcessID: serverProcessID
+                )
             }
         }
 
+        guard let response = String(data: responseData, encoding: .utf8)
+        else {
+            return nil
+        }
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+        return (response: trimmed, peerProcessID: serverProcessID)
     }
 }

@@ -33,6 +33,7 @@ extension Notification.Name {
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
+    static let workstreamEventReceived = Notification.Name("cmux.workstreamEventReceived")
 }
 
 private struct SocketLineProcessingResult: Sendable {
@@ -233,12 +234,9 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
-    private nonisolated static let socketListenerFailureCaptureLock = NSLock()
-    private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
@@ -514,7 +512,15 @@ class TerminalController {
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(
                 target: serverEventTarget,
-                markerStore: socketPathMarkerStore
+                markerStore: socketPathMarkerStore,
+                failureCaptureGate: SocketListenerFailureCaptureGate(
+                    // Deleted /tmp dev sockets are routine on dev machines
+                    // (cleanup scripts) and the path monitor self-heals, so
+                    // debug builds keep path.missing as breadcrumbs only.
+                    capturesPathMissingFailures: !SocketControlSettings.isDebugLikeBundleIdentifier(
+                        socketMarkerBundleIdentifier
+                    )
+                )
             )
         )
         self.socketServer = socketServer
@@ -618,7 +624,7 @@ class TerminalController {
         switch request.command {
         case .toggle, .show, .focus:
             return true
-        case .setMode(_, let focus):
+        case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             return focus
         case .hide, .getState:
             return false
@@ -913,29 +919,12 @@ class TerminalController {
         transport.isProcessDescendant(pid, of: myPid)
     }
 
-    private nonisolated static func shouldCaptureSocketListenerFailure(
-        message: String,
-        stage: String,
-        path: String,
-        errnoCode: Int32?
-    ) -> Bool {
-        let key = "\(message)|\(stage)|\(path)|\(errnoCode.map(String.init) ?? "none")"
-        let now = Date()
-        socketListenerFailureCaptureLock.lock()
-        defer { socketListenerFailureCaptureLock.unlock() }
-        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
-           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
-            return false
-        }
-        socketListenerFailureLastCapturedAt[key] = now
-        return true
-    }
-
     /// Builds the package server's host-callback seam. `target` is filled in
     /// at the end of `init`; no listener event can fire before `start`.
     private nonisolated static func makeSocketServerEvents(
         target: ServerEventTarget,
-        markerStore: SocketPathMarkerStore
+        markerStore: SocketPathMarkerStore,
+        failureCaptureGate: SocketListenerFailureCaptureGate
     ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, data in
@@ -943,7 +932,7 @@ class TerminalController {
             },
             failure: { message, stage, errnoCode, data in
                 sentryBreadcrumb(message, category: "socket", data: data)
-                guard shouldCaptureSocketListenerFailure(
+                guard failureCaptureGate.shouldCapture(
                     message: message,
                     stage: stage,
                     path: data["path"] as? String ?? "",
@@ -955,6 +944,7 @@ class TerminalController {
             },
             listenerDidStart: { path, _ in
                 // @MainActor closure, invoked synchronously inside start().
+                failureCaptureGate.listenerDidStart()
                 target.controller?.socketListenerDidStart(path: path)
             },
             recordLastSocketPath: { path in
@@ -5707,84 +5697,6 @@ class TerminalController {
         let message: String
     }
 
-    func readTerminalTextRawSnapshot(
-        terminalPanel: TerminalPanel,
-        includeScrollback: Bool
-    ) -> TerminalTextRawSnapshot? {
-        guard terminalPanel.surface.surface != nil else { return nil }
-        if includeScrollback {
-            return TerminalTextRawSnapshot(
-                viewport: nil,
-                screen: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN),
-                history: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SURFACE),
-                active: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
-            )
-        }
-        return TerminalTextRawSnapshot(
-            viewport: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_VIEWPORT),
-            screen: nil,
-            history: nil,
-            active: nil
-        )
-    }
-
-    private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
-        guard let surface = terminalPanel.surface.surface else { return nil }
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return nil
-        }
-        defer {
-            ghostty_surface_free_text(surface, &text)
-        }
-
-        guard let ptr = text.text, text.text_len > 0 else {
-            return ""
-        }
-        let rawData = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: rawData, as: UTF8.self)
-    }
-
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-            return "ERROR: Terminal surface not found"
-        }
-        guard let snapshot = readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
-        ) else {
-            return "ERROR: Terminal surface not found"
-        }
-        switch Self.terminalTextPayload(
-            from: snapshot,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return "OK \(payload.base64)"
-        case .failure(let error):
-            return "ERROR: \(error.message)"
-        }
-    }
-
     nonisolated static func terminalTextPayload(
         from snapshot: TerminalTextRawSnapshot,
         includeScrollback: Bool,
@@ -5914,7 +5826,7 @@ class TerminalController {
             let hasSurfaceIDParam = params["surface_id"] != nil
             let workspaceID: UUID
             let surfaceId: UUID
-            let terminalPanel: TerminalPanel
+            let terminalSurface: TerminalSurface
             // Per-window docks (the former single global dock): the window id
             // resolves from the dock itself in the dock branch, from the
             // routed TabManager otherwise — mirroring the coordinator
@@ -5933,16 +5845,23 @@ class TerminalController {
                 guard let dockSurfaceId = target.surfaceID else {
                     return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                 }
-                guard let dockPanel = target.terminalPanel else {
+                guard target.terminalPanel != nil else {
                     return .finished(.err(
                         code: "invalid_params",
                         message: "Surface is not a terminal",
                         data: ["surface_id": dockSurfaceId.uuidString]
                     ))
                 }
+                guard let terminalTarget = dock.controlSocketTerminalTarget(for: dockSurfaceId) else {
+                    return .finished(.err(
+                        code: "surface_unavailable",
+                        message: Self.terminalSurfaceUnavailableMessage,
+                        data: ["surface_id": dockSurfaceId.uuidString]
+                    ))
+                }
                 workspaceID = dock.workspaceId
                 surfaceId = dockSurfaceId
-                terminalPanel = dockPanel
+                terminalSurface = terminalTarget.surface
                 resolvedWindowID = self.dockResultWindowId(for: dock, tabManager: tabManager)
             } else {
                 guard let ws = self.resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
@@ -5952,27 +5871,41 @@ class TerminalController {
                     guard let id = explicitSurfaceID else {
                         return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
                     }
-                    guard let target = ws.controlTerminalTarget(for: id) else {
+                    guard ws.controlTerminalTarget(for: id) != nil else {
                         return .finished(.err(
                             code: "invalid_params",
                             message: "Surface is not a terminal",
                             data: ["surface_id": id.uuidString]
                         ))
                     }
+                    guard let target = ws.controlSocketTerminalTarget(for: id) else {
+                        return .finished(.err(
+                            code: "surface_unavailable",
+                            message: Self.terminalSurfaceUnavailableMessage,
+                            data: ["surface_id": id.uuidString]
+                        ))
+                    }
                     surfaceId = target.surfaceID
-                    terminalPanel = target.panel
+                    terminalSurface = target.surface
                 } else {
                     guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                         return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
                     }
+                    guard let target = ws.controlSocketTerminalTarget(for: focused) else {
+                        return .finished(.err(
+                            code: "surface_unavailable",
+                            message: Self.terminalSurfaceUnavailableMessage,
+                            data: ["surface_id": focused.surfaceID.uuidString]
+                        ))
+                    }
                     surfaceId = focused.surfaceID
-                    terminalPanel = focused.panel
+                    terminalSurface = target.surface
                 }
                 workspaceID = ws.id
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
             }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(
-                terminalPanel: terminalPanel,
+                terminalSurface: terminalSurface,
                 includeScrollback: includeScrollback
             ) else {
                 return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
@@ -6035,14 +5968,18 @@ class TerminalController {
     }
 
     private func readTerminalTextFromVTExportForSnapshot(
-        terminalPanel: TerminalPanel,
+        terminalPanel: TerminalPanel? = nil,
+        terminalTarget: ControlTerminalSocketTarget? = nil,
         bindingAction: String = "write_screen_file:copy,vt",
         lineLimit: Int?,
         normalizeLineEndings: Bool = true
     ) -> String? {
+        guard terminalPanel != nil || terminalTarget != nil else { return nil }
         var actionSucceeded = false
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
-            let ok = terminalPanel.performInternalBindingAction(bindingAction)
+            let ok = terminalTarget?.performInternalBindingAction(bindingAction)
+                ?? terminalPanel?.performInternalBindingAction(bindingAction)
+                ?? false
             actionSucceeded = ok
             return ok
         }
@@ -6077,15 +6014,27 @@ class TerminalController {
     }
 
     private func readPlainTerminalTextForSnapshot(
-        terminalPanel: TerminalPanel,
+        terminalPanel: TerminalPanel? = nil,
+        terminalTarget: ControlTerminalSocketTarget? = nil,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        let response = readTerminalTextBase64(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        )
+        let response: String
+        if let terminalTarget {
+            response = readTerminalTextBase64(
+                terminalSurface: terminalTarget.surface,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            )
+        } else if let terminalPanel {
+            response = readTerminalTextBase64(
+                terminalPanel: terminalPanel,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            )
+        } else {
+            return nil
+        }
         guard response.hasPrefix("OK ") else { return nil }
         let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
         if base64.isEmpty {
@@ -6099,15 +6048,18 @@ class TerminalController {
     }
 
     func readTerminalTextForSnapshot(
-        terminalPanel: TerminalPanel,
+        terminalPanel: TerminalPanel? = nil,
+        terminalTarget: ControlTerminalSocketTarget? = nil,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil,
         allowVTExport: Bool = true
     ) -> String? {
+        guard terminalPanel != nil || terminalTarget != nil else { return nil }
         if includeScrollback,
            allowVTExport,
            let vtOutput = readTerminalTextFromVTExportForSnapshot(
                terminalPanel: terminalPanel,
+               terminalTarget: terminalTarget,
                lineLimit: lineLimit
            ) {
             return vtOutput
@@ -6115,6 +6067,7 @@ class TerminalController {
 
         return readPlainTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
+            terminalTarget: terminalTarget,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )
@@ -6293,6 +6246,7 @@ class TerminalController {
             )
         }
 
+        NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
         return v2IngestFeedEvent(event, waitTimeout: waitTimeout)
     }
 
@@ -11772,13 +11726,13 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
+                  let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
 
             result = readTerminalTextBase64(
-                terminalPanel: terminalPanel,
+                terminalSurface: target.surface,
                 includeScrollback: includeScrollback,
                 lineLimit: lineLimit
             )
@@ -11851,14 +11805,14 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalInputTarget(forPanelID: panelId)?.panel else {
+                  let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 return .finished("ERROR: Terminal surface not found")
             }
-            guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
+            guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
                 return .finished("ERROR: Terminal surface not found")
             }
             guard let snapshot = self.readTerminalTextRawSnapshot(
-                terminalPanel: terminalPanel,
+                terminalSurface: target.surface,
                 includeScrollback: options.includeScrollback
             ) else {
                 return .finished("ERROR: Terminal surface not found")
@@ -14223,16 +14177,16 @@ class TerminalController {
             .replacingOccurrences(of: "\\t", with: "\t")
     }
 
-    /// Maps a terminal panel's text-send result to the shared hop outcome and
-    /// runs the legacy on-success forceRefresh (main actor).
+    /// Maps a canonical socket target's text-send result to the shared hop
+    /// outcome and runs the legacy on-success forceRefresh (main actor).
     private static func v1TextSendOutcome(
-        _ terminalPanel: TerminalPanel,
+        _ target: ControlTerminalSocketTarget,
         text: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        switch terminalPanel.sendInputResult(text) {
+        switch target.sendInputResult(text) {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: refreshReason)
+            target.forceRefresh(reason: refreshReason)
             return .sent
         case .queued:
             return .sent
@@ -14245,16 +14199,16 @@ class TerminalController {
         }
     }
 
-    /// Maps a terminal panel's named-key send result to the shared hop
-    /// outcome and runs the legacy on-success forceRefresh (main actor).
+    /// Maps a canonical socket target's named-key send result to the shared
+    /// hop outcome and runs the legacy on-success forceRefresh (main actor).
     private static func v1KeySendOutcome(
-        _ terminalPanel: TerminalPanel,
+        _ target: ControlTerminalSocketTarget,
         keyName: String,
         refreshReason: String
     ) -> V1SendHopOutcome {
-        switch terminalPanel.sendNamedKeyResult(keyName) {
+        switch target.sendNamedKeyResult(keyName) {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: refreshReason)
+            target.forceRefresh(reason: refreshReason)
             return .sent
         case .queued:
             return .sent
@@ -14283,11 +14237,12 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
+                  let owned = tab.focusedTerminalInputTarget(),
+                  let target = tab.controlSocketTerminalTarget(for: owned) else {
                 return .noFocusedTerminal
             }
             return Self.v1TextSendOutcome(
-                terminalPanel,
+                target,
                 text: unescaped,
                 refreshReason: "terminalController.sendInput"
             )
@@ -14334,11 +14289,12 @@ class TerminalController {
             guard let tab = targetManager.tabs.first(where: { $0.id == workspaceId }) else {
                 return .workspaceNotFound
             }
-            guard let terminalPanel = self.sendableWorkspaceTerminalPanel(in: tab) else {
+            guard let terminalPanel = self.sendableWorkspaceTerminalPanel(in: tab),
+                  let target = tab.controlSocketTerminalTarget(for: terminalPanel.id) else {
                 return .noSelectedTerminalInWorkspace
             }
             return Self.v1TextSendOutcome(
-                terminalPanel,
+                target,
                 text: unescaped,
                 refreshReason: "terminalController.sendWorkspace"
             )
@@ -14420,11 +14376,14 @@ class TerminalController {
         let outcome: V1SendHopOutcome = v2MainSync {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let target, let unescaped else { return .parseError }
-            guard let terminalPanel = self.resolveTerminalPanel(from: target, tabManager: tabManager) else {
+            guard let socketTarget = self.controlSocketTerminalTarget(
+                fromLegacySurfaceArgument: target,
+                tabManager: tabManager
+            ) else {
                 return .surfaceNotFound
             }
             return Self.v1TextSendOutcome(
-                terminalPanel,
+                socketTarget,
                 text: unescaped,
                 refreshReason: "terminalController.sendSurface"
             )
@@ -14452,11 +14411,12 @@ class TerminalController {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
-                  let terminalPanel = tab.focusedTerminalInputTarget()?.panel else {
+                  let owned = tab.focusedTerminalInputTarget(),
+                  let target = tab.controlSocketTerminalTarget(for: owned) else {
                 return .noFocusedTerminal
             }
             return Self.v1KeySendOutcome(
-                terminalPanel,
+                target,
                 keyName: keyName,
                 refreshReason: "terminalController.sendKey"
             )
@@ -14488,11 +14448,14 @@ class TerminalController {
         let outcome: V1SendHopOutcome = v2MainSync {
             guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let target, let keyName else { return .parseError }
-            guard let terminalPanel = self.resolveTerminalPanel(from: target, tabManager: tabManager) else {
+            guard let socketTarget = self.controlSocketTerminalTarget(
+                fromLegacySurfaceArgument: target,
+                tabManager: tabManager
+            ) else {
                 return .surfaceNotFound
             }
             return Self.v1KeySendOutcome(
-                terminalPanel,
+                socketTarget,
                 keyName: keyName,
                 refreshReason: "terminalController.sendKeyToSurface"
             )
@@ -15337,7 +15300,7 @@ class TerminalController {
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
         }
     }
 
@@ -15370,14 +15333,17 @@ class TerminalController {
     }
     #endif
 
-    private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
+    private func terminalSocketTarget(surfaceID: UUID) -> ControlTerminalSocketTarget? {
         guard let tabManager = controlTabManager(surfaceID: surfaceID),
               let workspace = tabManager.tabs.first(where: {
                   $0.terminalInputTarget(forPanelID: surfaceID) != nil
               }) else {
             return nil
         }
-        return workspace.terminalInputTarget(forPanelID: surfaceID)?.panel
+        guard let owned = workspace.terminalInputTarget(forPanelID: surfaceID) else {
+            return nil
+        }
+        return workspace.controlSocketTerminalTarget(for: owned)
     }
 
     // Restored: still used by the v1 close-workspace path (its v2
@@ -15427,21 +15393,21 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             #if DEBUG
             cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
             #endif
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let surfaceId = resolved.surfaceID
+        let terminalTarget = resolved.target
         let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
         if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
             return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
         }
         let expectedViewport = applyMobileViewportReport(
             params: params,
-            terminalPanel: terminalPanel,
+            terminalTarget: terminalTarget,
             reason: "mobile.terminal.replay"
         )
         if hasViewportReportFields, expectedViewport == nil {
@@ -15474,7 +15440,7 @@ class TerminalController {
             scrollbackLines = TerminalController.mobileReplayScrollbackLineBudget
         }
         let renderGrid = mobileTerminalRenderGridFrame(
-            terminalPanel: terminalPanel,
+            terminalTarget: terminalTarget,
             surfaceID: surfaceId,
             seq: seq,
             scrollbackLines: scrollbackLines,
@@ -15521,7 +15487,7 @@ class TerminalController {
             payload["render_grid"] = renderGridObject
         } else {
             if let expectedViewport {
-                guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                guard let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(
                     reason: "mobileTerminalReplay.viewportFence"
                 ) else {
                     return .err(
@@ -15559,13 +15525,13 @@ class TerminalController {
                 }
             }
             let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalPanel: terminalPanel,
+                terminalTarget: terminalTarget,
                 bindingAction: "write_active_file:copy,vt",
                 lineLimit: nil,
                 normalizeLineEndings: false
             )?.data(using: .utf8) ?? Data()
             let data = state?.data ?? Data()
-            if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
+            if let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
                 let size = ghostty_surface_size(surface)
                 payload["columns"] = max(Int(size.columns), 1)
                 payload["rows"] = max(Int(size.rows), 1)
@@ -15594,18 +15560,18 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let surfaceId = resolved.surfaceID
+        let terminalTarget = resolved.target
 
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
                 reportedGrid = clearMobileViewportReport(
-                    surfaceID: terminalPanel.id,
+                    surfaceID: terminalTarget.surfaceID,
                     clientID: clientID, generation: v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }, requireGeneration: true,
                     reason: "mobile.terminal.viewport.clear"
                 )
@@ -15616,7 +15582,7 @@ class TerminalController {
         } else {
             reportedGrid = applyMobileViewportReport(
                 params: params,
-                terminalPanel: terminalPanel,
+                terminalTarget: terminalTarget,
                 sticky: true,
                 reason: "mobile.terminal.viewport"
             )
@@ -15631,7 +15597,7 @@ class TerminalController {
             payload["columns"] = reportedGrid.columns
             payload["rows"] = reportedGrid.rows
         } else if allowLiveSurfaceFallback,
-                  let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
+                  let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
             let size = ghostty_surface_size(surface)
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
@@ -15656,21 +15622,21 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let surfaceId = resolved.surfaceID
+        let terminalTarget = resolved.target
         let deltaLines = (params["delta_lines"] as? NSNumber)?.doubleValue ?? 0
         let col = (params["col"] as? NSNumber)?.intValue ?? 0
         let row = (params["row"] as? NSNumber)?.intValue ?? 0
         if deltaLines != 0 {
-            terminalPanel.surface.mobileScroll(deltaLines: deltaLines, col: max(0, col), row: max(0, row))
-            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
+            terminalTarget.surface.mobileScroll(deltaLines: deltaLines, col: max(0, col), row: max(0, row))
+            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalTarget.surfaceID)
         }
         return .ok(mobileTerminalScrollResponsePayload(
             workspaceID: resolved.workspace.id,
-            terminalPanel: terminalPanel,
+            terminalTarget: terminalTarget,
             surfaceID: surfaceId,
             params: params
         ))
@@ -15683,15 +15649,15 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let surfaceId = resolved.surfaceID
+        let terminalTarget = resolved.target
         let col = (params["col"] as? NSNumber)?.intValue ?? 0
         let row = (params["row"] as? NSNumber)?.intValue ?? 0
-        terminalPanel.surface.mobileClick(col: max(0, col), row: max(0, row))
-        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
+        terminalTarget.surface.mobileClick(col: max(0, col), row: max(0, row))
+        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalTarget.surfaceID)
         return .ok([
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
@@ -15708,11 +15674,12 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let surfaceId = resolved.surfaceID
+        let terminalTarget = resolved.target
+        let terminalPanel = terminalTarget.panel
         #if DEBUG
         HostLatencyTrace.stamp(
             "host.in.recv",
@@ -15720,15 +15687,15 @@ class TerminalController {
         )
         #endif
 
-        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalTarget: terminalTarget)
 
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalPanel.surface.sendInputResult(text)
+        let sendResult = terminalTarget.sendInputResult(text)
         switch sendResult {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
+            terminalTarget.forceRefresh(reason: "mobileHost.terminalInput")
         case .queued:
             break
         case .inputQueueFull:
@@ -15780,22 +15747,23 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let surfaceId = resolved.surfaceID
+        let terminalTarget = resolved.target
+        let terminalPanel = terminalTarget.panel
 
-        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalTarget: terminalTarget)
 
         guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
-        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        let sendResult = terminalTarget.sendInputResult(escapedPath)
         switch sendResult {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
+            terminalTarget.forceRefresh(reason: "mobileHost.terminalPasteImage")
         case .queued:
             break
         case .inputQueueFull:
@@ -15861,11 +15829,12 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
+        guard let resolved = mobileCanonicalTerminalTarget(params: params) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let surfaceId = resolved.surfaceID
+        let terminalTarget = resolved.target
+        let terminalPanel = terminalTarget.panel
 
         // Mirror the macOS TextBox composer's submit-key selection
         // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
@@ -15881,13 +15850,13 @@ class TerminalController {
             )
         }
 
-        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalTarget: terminalTarget)
 
         // Send through the TerminalPanel explicit-input wrappers (not the raw
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        guard terminalPanel.sendText(text) else {
+        guard terminalTarget.sendText(text) else {
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
@@ -15901,7 +15870,7 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
-            let keyResult = terminalPanel.sendNamedKeyResult(submitKeyName)
+            let keyResult = terminalTarget.sendNamedKeyResult(submitKeyName)
             if keyResult.accepted {
                 submitted = true
             } else {
@@ -15920,7 +15889,7 @@ class TerminalController {
             }
         }
 
-        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPaste")
+        terminalTarget.forceRefresh(reason: "mobileHost.terminalPaste")
 
         #if DEBUG
         cmuxDebugLog(
@@ -15944,10 +15913,11 @@ class TerminalController {
 
     private func applyMobileViewportReport(
         params: [String: Any],
-        terminalPanel: TerminalPanel,
+        terminalTarget: ControlTerminalSocketTarget,
         sticky: Bool = false,
         reason: String = "mobile.terminal.input"
     ) -> (columns: Int, rows: Int)? {
+        let terminalPanel = terminalTarget.panel
         guard let clientID = v2String(params, "client_id"),
               let rawColumns = v2Int(params, "viewport_columns"),
               let rawRows = v2Int(params, "viewport_rows") else {
@@ -16008,7 +15978,7 @@ class TerminalController {
               let minRows = reports.values.map(\.rows).min() else {
             return nil
         }
-        return terminalPanel.surface.applyMobileViewportLimit(
+        return terminalTarget.surface.applyMobileViewportLimit(
             columns: minColumns,
             rows: minRows,
             reason: reason
@@ -16033,14 +16003,14 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
             return nil
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            return terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            return terminalSocketTarget(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason
@@ -16105,14 +16075,14 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
             return
         }
 
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            _ = terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            _ = terminalSocketTarget(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason
@@ -16166,8 +16136,9 @@ class TerminalController {
         // the surface exists.
         if requireTerminal,
            let surfaceId,
-           let panel = workspace.terminalInputTarget(forPanelID: surfaceId)?.panel {
-            panel.surface.requestBackgroundSurfaceStartIfNeeded()
+           let owned = workspace.terminalInputTarget(forPanelID: surfaceId),
+           let target = workspace.controlSocketTerminalTarget(for: owned) {
+            target.surface.requestBackgroundSurfaceStartIfNeeded()
         }
 
         return (tabManager, workspace, surfaceId)
