@@ -53,6 +53,16 @@ struct AgentRestoreRouteClassifierTests {
         #expect(classifier.route(for: request(
             kind: "claude",
             arguments: ["claude"],
+            environment: ["ANTHROPIC_BASE_URL": "https://sr.cmux.com"]
+        )) == .pooled)
+        #expect(classifier.route(for: request(
+            kind: "claude",
+            arguments: ["claude"],
+            environment: ["ANTHROPIC_BASE_URL": "https://staging.sr.cmux.com"]
+        )) == .pooled)
+        #expect(classifier.route(for: request(
+            kind: "claude",
+            arguments: ["claude"],
             environment: [
                 "ANTHROPIC_BASE_URL": "http://subrouter.invalid",
                 "CLAUDE_CONFIG_DIR": "/captured/team-claude",
