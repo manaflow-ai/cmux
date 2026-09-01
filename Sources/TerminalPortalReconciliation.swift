@@ -190,7 +190,7 @@ extension GhosttyTerminalView {
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
 
-            if !coordinator.desiredVisibleInUI,
+            if !coordinator.desiredIsVisibleInUI,
                hasCurrentHostEntry,
                isCurrentPortalHost {
                 TerminalWindowPortalRegistry.updateEntryVisibility(
