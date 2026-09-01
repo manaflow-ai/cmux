@@ -2,13 +2,20 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestSplitTmuxCmd(t *testing.T) {
@@ -154,7 +161,10 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	store.Buffers["test"] = "captured text"
 	store.MainVerticalLayouts["ws1"] = mainVerticalState{
 		MainSurfaceId:       "surface-main",
@@ -164,7 +174,10 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	loaded := loadTmuxCompatStore()
+	loaded, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
 	if loaded.Buffers["test"] != "captured text" {
 		t.Errorf("buffer = %q, want %q", loaded.Buffers["test"], "captured text")
 	}
@@ -173,6 +186,192 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 	} else if mvs.LastColumnSurfaceId != "surface-col" {
 		t.Errorf("lastColumnSurfaceId = %q, want %q", mvs.LastColumnSurfaceId, "surface-col")
 	}
+}
+
+func TestTmuxCompatStoreLoadErrorsDoNotOverwriteState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if _, err := loadTmuxCompatStore(); err != nil {
+		t.Fatalf("missing store should load as empty: %v", err)
+	}
+	storePath := tmuxCompatStoreURL()
+	if err := os.MkdirAll(filepath.Dir(storePath), 0755); err != nil {
+		t.Fatalf("create store directory: %v", err)
+	}
+	malformed := []byte("{not-json")
+	if err := os.WriteFile(storePath, malformed, 0644); err != nil {
+		t.Fatalf("write malformed store: %v", err)
+	}
+	if _, err := loadTmuxCompatStore(); err == nil {
+		t.Fatal("malformed store should return an error")
+	}
+	called := false
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		called = true
+		store.Buffers["unexpected"] = "mutation"
+		return nil
+	}); err == nil {
+		t.Fatal("locked mutation should fail when loading malformed store")
+	}
+	if called {
+		t.Fatal("mutation callback ran after a store load failure")
+	}
+	persisted, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("read malformed store: %v", err)
+	}
+	if string(persisted) != string(malformed) {
+		t.Fatalf("malformed store was overwritten: %q", persisted)
+	}
+}
+
+func TestTmuxCompatStoreConcurrentMutations(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	const writers = 20
+	errors := make(chan error, writers)
+	var group sync.WaitGroup
+	group.Add(writers)
+	for i := 0; i < writers; i++ {
+		go func() {
+			defer group.Done()
+			errors <- withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+				store.Buffers["buf-"+fmt.Sprint(i)] = "payload-" + fmt.Sprint(i)
+				return nil
+			})
+		}()
+	}
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("concurrent mutation: %v", err)
+		}
+	}
+
+	store, loadErr := loadTmuxCompatStore()
+	if loadErr != nil {
+		t.Fatalf("load: %v", loadErr)
+	}
+	if len(store.Buffers) != writers {
+		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers)
+	}
+	for i := 0; i < writers; i++ {
+		name := "buf-" + fmt.Sprint(i)
+		if store.Buffers[name] != "payload-"+fmt.Sprint(i) {
+			t.Errorf("buffer %s = %q, want payload-%d", name, store.Buffers[name], i)
+		}
+	}
+}
+
+func TestTmuxCompatStoreConcurrentProcessMutations(t *testing.T) {
+	if os.Getenv("CMUX_TMUX_STORE_CHILD") == "1" {
+		index, err := strconv.Atoi(os.Getenv("CMUX_TMUX_STORE_INDEX"))
+		if err != nil {
+			t.Fatalf("child index: %v", err)
+		}
+		if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+			name := "process-buf-" + strconv.Itoa(index)
+			store.Buffers[name] = "process-payload-" + strconv.Itoa(index)
+			return nil
+		}); err != nil {
+			t.Fatalf("child mutation: %v", err)
+		}
+		return
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	const writers = 20
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		store.Buffers["seed"] = strings.Repeat("seed", 32_768)
+		return nil
+	}); err != nil {
+		t.Fatalf("seed store: %v", err)
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test executable: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	type childProcess struct {
+		command *exec.Cmd
+		stderr  *bytes.Buffer
+		reaped  bool
+	}
+	children := make([]*childProcess, 0, writers)
+	t.Cleanup(func() {
+		for _, child := range children {
+			if child.reaped {
+				continue
+			}
+			if child.command.Process != nil {
+				_ = child.command.Process.Kill()
+			}
+			if child.command.Process != nil {
+				_ = child.command.Wait()
+			}
+		}
+	})
+	for i := 0; i < writers; i++ {
+		command := exec.CommandContext(
+			ctx,
+			executable,
+			"-test.run", "^TestTmuxCompatStoreConcurrentProcessMutations$",
+		)
+		command.Env = childEnvironment(home, i)
+		stderr := &bytes.Buffer{}
+		command.Stderr = stderr
+		if err := command.Start(); err != nil {
+			t.Fatalf("start child %d: %v", i, err)
+		}
+		children = append(children, &childProcess{command: command, stderr: stderr})
+	}
+	for i, child := range children {
+		err := child.command.Wait()
+		child.reaped = true
+		if err != nil {
+			t.Fatalf("child %d: %v\n%s", i, err, child.stderr.String())
+		}
+	}
+
+	store, loadErr := loadTmuxCompatStore()
+	if loadErr != nil {
+		t.Fatalf("load: %v", loadErr)
+	}
+	if len(store.Buffers) != writers+1 {
+		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers+1)
+	}
+	for i := 0; i < writers; i++ {
+		name := "process-buf-" + strconv.Itoa(i)
+		want := "process-payload-" + strconv.Itoa(i)
+		if store.Buffers[name] != want {
+			t.Errorf("buffer %s = %q, want %q", name, store.Buffers[name], want)
+		}
+	}
+}
+
+func childEnvironment(home string, index int) []string {
+	environment := make([]string, 0, len(os.Environ())+3)
+	for _, value := range os.Environ() {
+		if strings.HasPrefix(value, "HOME=") ||
+			strings.HasPrefix(value, "CMUX_TMUX_STORE_CHILD=") ||
+			strings.HasPrefix(value, "CMUX_TMUX_STORE_INDEX=") {
+			continue
+		}
+		environment = append(environment, value)
+	}
+	environment = append(
+		environment,
+		"HOME="+home,
+		"CMUX_TMUX_STORE_CHILD=1",
+		"CMUX_TMUX_STORE_INDEX="+strconv.Itoa(index),
+	)
+	return environment
 }
 
 func TestTmuxVersion(t *testing.T) {
@@ -677,9 +876,14 @@ func TestTmuxShowBuffer(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	store.Buffers["default"] = "hello world"
-	saveTmuxCompatStore(store)
+	if err := saveTmuxCompatStore(store); err != nil {
+		t.Fatalf("save: %v", err)
+	}
 
 	output := captureStdout(t, func() {
 		tmuxShowBuffer(nil)

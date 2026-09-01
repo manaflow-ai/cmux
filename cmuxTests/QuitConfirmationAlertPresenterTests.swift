@@ -64,6 +64,56 @@ struct QuitConfirmationAlertPresenterTests {
         )
     }
 
+    @Test("Quit confirmation includes dirty windowless recoverable route owners")
+    func quitConfirmationIncludesDirtyWindowlessRecoverableRouteOwners() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let previousAppDelegate = AppDelegate.shared
+            let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let activeManager = TabManager(autoWelcomeIfNeeded: false)
+            let recoverableManager = TabManager()
+            let recoverableWorkspace = try #require(recoverableManager.selectedWorkspace)
+            let recoverablePanel = try #require(recoverableWorkspace.focusedTerminalPanel)
+            let windowId = UUID()
+
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = activeManager
+            TerminalController.shared.setActiveTabManager(activeManager)
+            recoverablePanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+            appDelegate.rememberRecoverableMainWindowRoute(
+                windowId: windowId,
+                tabManager: recoverableManager,
+                window: nil,
+                sidebarSnapshot: SessionSidebarSnapshot(
+                    isVisible: false,
+                    selection: .tabs,
+                    width: 280
+                )
+            )
+            defer {
+                recoverablePanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                if !recoverableManager.isFinalizedForWindowClose {
+                    recoverableManager.finalizeAllWorkspacesForWindowClose()
+                }
+                if !activeManager.isFinalizedForWindowClose {
+                    activeManager.finalizeAllWorkspacesForWindowClose()
+                }
+                TerminalController.shared.setActiveTabManager(previousActiveManager)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            #expect(appDelegate.recoverableMainWindowRoutes().isEmpty)
+            #expect(
+                appDelegate.mainWindowSessionPersistenceRoutes().contains {
+                    $0.windowId == windowId && $0.tabManager === recoverableManager
+                }
+            )
+            #expect(appDelegate.hasQuitConfirmationDirtyWorkspaces())
+        }
+    }
+
     @Test
     func presenterUsesSheetCompletionWithoutRunningNestedModalLoop() {
         let alert = QuitConfirmationAlertSpy()

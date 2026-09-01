@@ -471,11 +471,21 @@ public struct CMUXMobileRootScene: View {
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
         let restoreBoundary = PairedMacRestoreBoundary()
+        // Overlay the demonstration computer OUTSIDE the build-scope/team/
+        // backup stack, so the demo row is account-flag-gated, never persisted,
+        // and never synced, while every store consumer (Computers list,
+        // reconnect, registry route lookup) sees it through the same loadAll
+        // path a real pairing uses.
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(
             restoreBoundary: restoreBoundary,
             buildScope: buildScope,
             buildCompatibilityPolicy: buildCompatibilityPolicy
-        )
+        ).map { store -> any MobilePairedMacStoring in
+            DemoContentPairedMacStore(
+                inner: store,
+                isEnabled: { await identityProvider.demonstrationContentEnabled }
+            )
+        }
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
         let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
@@ -511,6 +521,9 @@ public struct CMUXMobileRootScene: View {
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
+            // Persistent, unlike the composite's in-memory default: opening a
+            // workspace must restore its last opened tab across app relaunches.
+            lastTabStore: MobileWorkspaceLastTabStore(defaults: .standard),
             taskTemplateStore: UserDefaultsMobileTaskTemplateStore(
                 defaults: .standard,
                 diagnosticLog: diagnosticLog

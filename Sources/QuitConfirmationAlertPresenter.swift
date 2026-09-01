@@ -137,6 +137,8 @@ extension AppDelegate {
         if managerHasDirtyWorkspace(tabManager) {
             return true
         }
-        return recoverableMainWindowRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
+        // Quit confirmation is a lifecycle/data-safety check, so it must include
+        // windowless recoverable owners that UI-routing snapshots intentionally hide.
+        return mainWindowSessionPersistenceRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
     }
 }

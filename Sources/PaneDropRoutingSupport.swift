@@ -4,11 +4,15 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
-    /// Ends the originating Bonsplit drag after a destination accepts it.
+    /// Revokes Bonsplit routing after a destination accepts the drop.
+    ///
+    /// The native source remains retained until AppKit delivers its terminal
+    /// `endedAt` callback; this call must not release that source early.
     func finishAcceptedBonsplitTabDrop(
         from pasteboard: NSPasteboard = NSPasteboard(name: .drag)
     ) {
         tabDragTransferRegistry.finish(from: pasteboard)
+        liveTabDragCapabilityResolver.invalidate()
     }
 }
 
@@ -16,6 +20,22 @@ struct PaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
     let paneId: PaneID
+    /// Whether the target pane is owned by a right-sidebar Dock rather than a
+    /// workspace's main Bonsplit tree. This travels with the pane snapshot so
+    /// portal hit-testing does not depend on a transient global lookup.
+    let isDockHosted: Bool
+
+    init(
+        workspaceId: UUID,
+        panelId: UUID,
+        paneId: PaneID,
+        isDockHosted: Bool = false
+    ) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        self.paneId = paneId
+        self.isDockHosted = isDockHosted
+    }
 }
 
 typealias TerminalPaneDropContext = PaneDropContext
