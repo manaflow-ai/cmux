@@ -27971,6 +27971,45 @@ mod tests {
     }
 
     #[test]
+    fn double_click_drag_to_a_wide_word_trailing_cell_selects_the_word() {
+        let (mut app, mux, surface, content) = selection_fixture(
+            "double-click-wide-word-drag-selection-test",
+            "alpha 界 omega".as_bytes(),
+        );
+
+        let first_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(first_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..first_click })
+            .unwrap();
+        app.handle_mouse(first_click).unwrap();
+
+        // The wide character starts at column 6 and occupies trailing spacer
+        // column 7. Dragging to that cell must use the grapheme lead.
+        let trailing = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(trailing).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..trailing })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (6, 0))),
+            "double-click drag to a wide grapheme's trailing cell must select its word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn double_click_drag_anchors_at_second_press() {
         let (mut app, mux, surface, content) =
             selection_fixture("double-click-second-press-anchor-test", b"a b c");
