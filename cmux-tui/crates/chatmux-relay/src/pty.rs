@@ -1240,7 +1240,12 @@ impl Inner {
                             let Some(dropped) = inner.ring.pop_front() else { break };
                             inner.ring_size -= dropped.len();
                         }
-                        inner.viewers.iter().map(|viewer| Arc::clone(&viewer.on_data)).collect()
+                        inner
+                            .viewers
+                            .iter()
+                            .filter(|viewer| !inner.paused_viewers.contains(&viewer.id))
+                            .map(|viewer| Arc::clone(&viewer.on_data))
+                            .collect()
                     };
                     for on_data in viewers_to_notify {
                         on_data(chunk.clone());
