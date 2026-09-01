@@ -60,6 +60,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -69,6 +70,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.render_grid", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -78,6 +80,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
+                    "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
                     "simulator.frame", "simulator.state", "simulator.closed",
                 ]
@@ -1537,6 +1540,57 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return macInstanceTagAuthority.sameStoredAuthority(
             workspace.macInstanceTag,
             ownerTag
+        )
+    }
+
+    /// Whether `row` is served by the foreground RPC connection — the same
+    /// device/build matching as ``selectedWorkspaceUsesForegroundConnection``,
+    /// but for an explicit last-known row, used when the row has already
+    /// vanished from ``workspaces`` and the selection-based lookup can no
+    /// longer see it.
+    private func workspaceRowIsForegroundServed(_ row: MobileWorkspacePreview) -> Bool {
+        guard let macID = row.macDeviceID, !macID.isEmpty,
+              macID != Self.foregroundAnonymousKey else {
+            return true
+        }
+        guard let ownerDeviceID = foregroundMacDeviceID ?? recoveryTargetMacDeviceID else {
+            return false
+        }
+        guard cmxCanonicalDeviceID(macID) == cmxCanonicalDeviceID(ownerDeviceID) else {
+            return false
+        }
+        let ownerTag = foregroundMacDeviceID != nil
+            ? activeMacInstanceTag
+            : recoveryTargetInstanceTag
+        return macInstanceTagAuthority.sameStoredAuthority(row.macInstanceTag, ownerTag)
+    }
+
+    /// Whether a workspace's absence from the freshly derived list is
+    /// authoritative (deleted, closed, or unpaired — selection may retarget
+    /// and the mounted detail may pop) rather than a transient hole from a
+    /// degraded connection (the selection holds so the user is never pushed
+    /// out of the detail for connection reasons). See
+    /// ``WorkspaceAbsenceAuthority``.
+    func workspaceAbsenceIsAuthoritative(
+        lastKnownRow row: MobileWorkspacePreview?
+    ) -> Bool {
+        let foregroundIsHealthy = macConnectionStatus == .connected
+            && !isRecoveringConnection
+            && !connectionRecoveryFailed
+        let ownerStatus: MobileMacConnectionStatus? = row.flatMap { row in
+            guard let macID = row.macDeviceID, !macID.isEmpty,
+                  macID != Self.foregroundAnonymousKey else {
+                return workspacesByMac[.anonymousForeground]?.status
+            }
+            return workspacesByMac[
+                MacPairingKey(macDeviceID: macID, instanceTag: row.macInstanceTag)
+            ]?.status
+        }
+        return WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+            hasLastKnownRow: row != nil,
+            rowIsForegroundServed: row.map(workspaceRowIsForegroundServed) ?? false,
+            foregroundIsHealthy: foregroundIsHealthy,
+            ownerStatus: ownerStatus
         )
     }
 
@@ -4278,7 +4332,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
                 clientNamespace: payload.macClientNamespace,
-                macAppVersion: payload.macAppVersion
+                macAppVersion: payload.macAppVersion,
+                compatibleMacTags: payload.macCompatibleMacTags
             )
         }
     }
@@ -4300,7 +4355,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         displayName: String?,
         instanceTag: String?,
         clientNamespace: String? = nil,
-        macAppVersion: String? = nil
+        macAppVersion: String? = nil,
+        compatibleMacTags: [String]? = nil
     ) async {
         guard remoteClient === client,
               let rawReportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -4392,6 +4448,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         adoptForegroundMacIdentity(
             reportedID,
             previousKey: foregroundKeyBeforeTagAdoption
+        )
+        // Adopt the anchor Mac's sibling-tag grant set only after this
+        // connection's identity was accepted, so an incompatible or
+        // mismatched Mac can never influence the allowlist.
+        await applyAdvertisedCompatibleMacTags(
+            compatibleMacTags,
+            reportedInstanceTag: resolvedTag
         )
     }
 
@@ -7490,7 +7553,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                 }
             }
-            self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
+            if let remapped {
+                self.selectedWorkspaceID = remapped.id
+            } else if workspaceAbsenceIsAuthoritative(lastKnownRow: previousSelection) {
+                self.selectedWorkspaceID = derived.first?.id
+            }
+            // Otherwise keep the selection: a degraded connection made the
+            // row vanish, and the mounted detail keeps rendering its
+            // last-known snapshot until the reconnect restores the row or a
+            // healthy list confirms the deletion (which retargets above).
         }
         if selectedWorkspaceID != nil { syncSelectedTerminalForWorkspace() }
         let derivedGroups = workspaceAggregation.derivedGroups(
@@ -8043,7 +8114,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 startedAt: diagnosticStartedAt,
                 failure: .superseded
             )
-            if selectedWorkspaceID == id {
+            // Clear the selection (popping the mounted detail) only when the
+            // absence is authoritative. A detail remount can re-enter here
+            // during a reconnect window whose list transiently lacks the row;
+            // popping then would eject the user for a connection reason, so
+            // hold the selection and let the reconnect restore the row or a
+            // healthy list confirm the deletion.
+            if selectedWorkspaceID == id,
+               workspaceAbsenceIsAuthoritative(lastKnownRow: workspace) {
                 setSelectedWorkspaceID(nil)
             }
             return
@@ -8891,7 +8969,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
-        guard let workspaceID = selectedWorkspace?.id,
+        // The explicit selection id, not `selectedWorkspace`: its first-row
+        // fallback would pair a foreign workspace id with the held terminal
+        // id when the selected row is transiently absent mid-reconnect.
+        guard let workspaceID = selectedWorkspaceID ?? workspaces.first?.id,
               let terminalID = selectedTerminalID else {
             #if DEBUG
             mobileShellLog.info("skip raw terminal input enqueue selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
@@ -11085,6 +11166,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func syncSelectedTerminalForWorkspace() {
+        // A selection held across a degraded-connection window has no live
+        // row, and ``selectedWorkspace`` would fall back to an arbitrary
+        // first row: re-deriving from that would clobber the held terminal
+        // selection (and swap its composer draft). Keep both selections for
+        // the row's return instead.
+        if selectedWorkspaceID != nil, explicitlySelectedWorkspace == nil {
+            return
+        }
         guard let selectedWorkspace else {
             selectedTerminalID = nil
             return
@@ -11392,7 +11481,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
-        guard let workspaceID = selectedWorkspace?.id,
+        // Explicit selection id first, mirroring `sendTerminalRawInput`: the
+        // `selectedWorkspace` first-row fallback would mispair ids when the
+        // selected row is transiently absent mid-reconnect.
+        guard let workspaceID = selectedWorkspaceID ?? workspaces.first?.id,
               let terminalID = selectedTerminalID else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
@@ -12120,7 +12212,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag,
                 clientNamespace: payload.macClientNamespace,
-                macAppVersion: payload.macAppVersion
+                macAppVersion: payload.macAppVersion,
+                compatibleMacTags: payload.macCompatibleMacTags
             )
             guard isCurrentRemoteConnection(
                 client: client,
@@ -12333,6 +12426,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         client: client,
                         generation: listenerConnectionGeneration
                     )
+                } else if event.topic == "mobile.compatible_tags.changed" {
+                    await self.handleCompatibleMacTagsChangedEvent(event)
                 } else if event.topic == "browser.frame" {
                     self.handleMobileBrowserFrameEvent(event)
                 } else if event.topic == "browser.state" {

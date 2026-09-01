@@ -20,8 +20,10 @@ import {
 import {
   VmBillingError,
   VmAccountDeletionIdentityRevocationError,
+  VmAttachTransportUnsupportedError,
   VmCreateFailedError,
   VmCreateInProgressError,
+  VmFreeAccessExpiredError,
   VmNotFoundError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
@@ -31,10 +33,11 @@ import {
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
-import { maxActiveVmsForPlan } from "./entitlements";
+import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
+  PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
@@ -85,6 +88,8 @@ type ExistingVmAccessInput = {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly provider?: ProviderId;
+  /** Caller's CURRENT billing plan; access verbs use it for the free window. */
+  readonly callerPlanId?: string | null;
 };
 
 export type VmProviderStatusReconcileResult = {
@@ -249,6 +254,12 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /**
+   * Machine-level env injected at provider create (e.g. the coderouter
+   * model-plane vars). May hold secrets: passed to the driver only, never
+   * persisted in the VM row or providerMetadata.
+   */
+  readonly envs?: Readonly<Record<string, string>>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -292,6 +303,7 @@ export function createVm(input: {
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
+        envs: input.envs,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -299,7 +311,11 @@ export function createVm(input: {
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
-            code: err.operation,
+            // providers.create fails only with VmProviderOperationError, and
+            // the caller is told it is retryable (vm_cloud_service_unavailable,
+            // retryAfterSeconds ~5), so store the code that lets a same-key
+            // retry reach the provider again immediately.
+            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
             message: errorMessage(err.cause),
           }),
           repo.recordUsageEvent({
@@ -1460,11 +1476,13 @@ export function execVm(input: {
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1518,11 +1536,13 @@ export function openVmPort(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly port: number;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1570,6 +1590,103 @@ export function openVmPort(input: {
       metadata: { port: input.port },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+/**
+ * Attach through the cmux-tui remote daemon — the only session transport on Blaxel
+ * machines (other providers still serve the legacy websocket/SSH attach). The ingress
+ * token lands in the same lease ledger as previews so sign-out revokes it; session
+ * auth is the daemon's device enrollment, which the client completes with
+ * approveVmCmuxRemoteEnrollment.
+ */
+export function openVmCmuxRemote(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly deviceFingerprint?: string;
+  readonly clientCapabilities?: readonly string[];
+  /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
+  readonly callerPlanId?: string | null;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    if (!providers.openCmuxRemote) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "openCmuxRemote",
+          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+        }),
+      );
+    }
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "attach",
+      providers.openCmuxRemote(vm.provider, input.providerVmId, {
+        deviceFingerprint: input.deviceFingerprint,
+        clientCapabilities: input.clientCapabilities,
+        providerMetadata: vm.providerMetadata,
+      }),
+    );
+    yield* repo.recordLease({
+      vmId: vm.id,
+      userId: input.userId,
+      kind: "preview",
+      tokenHash: hashToken(endpoint.token),
+      expiresAt: new Date(endpoint.expiresAtUnix * 1000),
+      transport: "cmux-remote",
+      metadata: { session: endpoint.session, invited: !!endpoint.invitation },
+    }).pipe(
+      Effect.catchAll((err) => {
+        const cleanup = providers.revokeEndpointLeases
+          ? providers.revokeEndpointLeases(vm.provider, input.providerVmId).pipe(Effect.catchAll(() => Effect.void))
+          : Effect.void;
+        return cleanup.pipe(Effect.andThen(Effect.fail(err)));
+      }),
+    );
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.attach",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
+  });
+}
+
+export function approveVmCmuxRemoteEnrollment(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly invitationId: string;
+  readonly callerPlanId?: string | null;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!providers.approveCmuxRemoteEnrollment) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "approveCmuxRemoteEnrollment",
+          cause: new Error("the cmux-tui remote daemon is not supported by this deployment"),
+        }),
+      );
+    }
+    return yield* providers.approveCmuxRemoteEnrollment(vm.provider, input.providerVmId, input.invitationId);
   });
 }
 
@@ -1632,6 +1749,8 @@ type OpenAttachEndpointInput = {
   readonly providerVmId: string;
   readonly options?: AttachOptions;
   readonly sessionTitle?: string | null;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 };
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
@@ -1649,6 +1768,8 @@ export function openVmSession(input: {
   readonly sessionId?: string;
   readonly attachmentId?: string;
   readonly title?: string | null;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
   const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
@@ -1657,6 +1778,7 @@ export function openVmSession(input: {
     billingTeamId: input.billingTeamId,
     teamIds: input.teamIds,
     providerVmId: input.providerVmId,
+    callerPlanId: input.callerPlanId,
     sessionTitle: input.title,
     options: {
       requireDaemon: true,
@@ -1671,10 +1793,12 @@ export function listVmSessions(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     return yield* repo.listVmSessions({ userId: input.userId, vmId: vm.id });
   });
 }
@@ -1683,7 +1807,20 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
+    // A provider that only runs the cmux-tui daemon (Blaxel) cannot serve the legacy
+    // websocket/SSH attach at all; say so before waking or mutating anything.
+    const supportedTransports = providers.attachTransports?.(vm.provider);
+    if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
+      return yield* Effect.fail(
+        new VmAttachTransportUnsupportedError({
+          provider: vm.provider,
+          vmId: input.providerVmId,
+          requested: "websocket",
+          supported: supportedTransports,
+        }),
+      );
+    }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
@@ -1746,11 +1883,13 @@ export function openSshEndpoint(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Caller's CURRENT billing plan; used for the free access window. */
+  readonly callerPlanId?: string | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input);
+    const vm = yield* requireAccessibleUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
@@ -1779,6 +1918,23 @@ export function openSshEndpoint(input: {
       metadata: { credentialKind: endpoint.credential.kind },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
+  });
+}
+
+/// Access-verb variant of requireUserVm: a free-plan machine older than the
+/// free access window is preserved but unreachable until the caller upgrades.
+/// List/status/rename/delete deliberately keep using requireUserVm so the
+/// machine stays visible and disposable while locked.
+function requireAccessibleUserVm(input: ExistingVmAccessInput) {
+  return Effect.gen(function* () {
+    const vm = yield* requireUserVm(input);
+    if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
+      return yield* Effect.fail(new VmFreeAccessExpiredError({
+        vmId: input.providerVmId,
+        windowDays: vmFreeAccessWindowDays(),
+      }));
+    }
+    return vm;
   });
 }
 

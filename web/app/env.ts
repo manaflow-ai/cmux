@@ -234,6 +234,10 @@ export const env = createEnv({
     // /api/enterprise/contact route falls back to the waitlist webhook, then
     // skips Slack if neither is set.
     SLACK_ENTERPRISE_WEBHOOK_URL: z.string().url().optional(),
+    // Slack Incoming Webhook for support requests. Optional: the
+    // /api/support/contact route falls back to the enterprise webhook, then
+    // the waitlist webhook, then skips Slack if none is set.
+    SLACK_SUPPORT_WEBHOOK_URL: z.string().url().optional(),
     // Temporary retirement credentials for DB-mapped tenants created before
     // hosted Stack onboarding. Remove after subrouter_tenants is empty.
     SUBROUTER_BASE_URL: z.string().url().optional(),
@@ -385,6 +389,7 @@ export const env = createEnv({
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
+    SLACK_SUPPORT_WEBHOOK_URL: trimEnv(process.env.SLACK_SUPPORT_WEBHOOK_URL),
     SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL),
     SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
     SUBROUTER_HOSTED_URL: trimEnv(process.env.SUBROUTER_HOSTED_URL),

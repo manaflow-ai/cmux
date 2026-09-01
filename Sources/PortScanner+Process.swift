@@ -18,6 +18,101 @@ extension PortScanner {
         lhs == .complete && rhs == .complete ? .complete : .incomplete
     }
 
+    /// Computes missing-port evidence from the identities that owned each
+    /// previously published port. A process-tree scan may be incomplete for an
+    /// unrelated child, but a listener PID that is still in the current
+    /// ownership graph and whose own lsof result is complete still provides
+    /// authoritative negative evidence. A live owner that fell out of an
+    /// incomplete ownership graph remains incomplete rather than being
+    /// mistaken for an exited listener.
+    func missingPortCompletenessByKey<Key: Hashable & Sendable>(
+        previousOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        observedOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        currentProcessIdentitiesByKey: [Key: Set<AgentPIDProcessIdentity>],
+        processScopeCompletenessByKey: [Key: PortScanCompleteness],
+        scannedKeys: Set<Key>,
+        lsofScan: PortLsofScanResult,
+        inspectedPIDs: Set<Int>
+    ) -> [Key: [Int: PortScanCompleteness]] {
+        var result: [Key: [Int: PortScanCompleteness]] = [:]
+        var ownerEvidenceByKey: [Key: [AgentPIDProcessIdentity: PortScanCompleteness]] = [:]
+        for key in scannedKeys {
+            guard let previousOwners = previousOwnersByKey[key] else { continue }
+            let observedOwners = observedOwnersByKey[key] ?? [:]
+            let currentProcessIdentities = currentProcessIdentitiesByKey[key] ?? []
+            let processScopeCompleteness = processScopeCompletenessByKey[key, default: .incomplete]
+            for (port, owners) in previousOwners where observedOwners[port] == nil {
+                guard !owners.isEmpty else { continue }
+                let isAuthoritative = owners.allSatisfy { owner in
+                    if let cached = ownerEvidenceByKey[key]?[owner] {
+                        return cached == .complete
+                    }
+                    let pid = Int(owner.pid)
+                    let evidence: PortScanCompleteness
+                    if let currentIdentity = processIdentityProvider(pid_t(pid)) {
+                        if currentIdentity != owner {
+                            // A PID that now represents another process no
+                            // longer owns this port, even if that replacement
+                            // is not part of this scan's ownership graph.
+                            evidence = .complete
+                        } else {
+                            // lsof can only prove a negative for a live PID
+                            // when that PID is still in the current ownership
+                            // scope. If the process graph dropped it, defer
+                            // to the graph's completeness instead of allowing
+                            // an incomplete fence to retire an active badge.
+                            if currentProcessIdentities.contains(owner) {
+                                evidence = inspectedPIDs.contains(pid)
+                                    && lsofScan.completeness(for: [pid]) == .complete
+                                    ? .complete
+                                    : .incomplete
+                            } else {
+                                evidence = processScopeCompleteness == .complete
+                                    ? .complete
+                                    : .incomplete
+                            }
+                        }
+                    } else {
+                        evidence = processPresenceProvider(pid_t(pid)) == .absent
+                            ? .complete
+                            : .incomplete
+                    }
+                    ownerEvidenceByKey[key, default: [:]][owner] = evidence
+                    return evidence == .complete
+                }
+                result[key, default: [:]][port] = isAuthoritative
+                    ? .complete
+                    : .incomplete
+            }
+        }
+        return result
+    }
+
+    /// Merges trusted listener identities from a scan and discards identities
+    /// for ports that the reconciler no longer publishes.
+    static func updatePortOwners<Key: Hashable & Sendable>(
+        _ ownersByKey: inout [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        observedOwnersByKey: [Key: [Int: Set<AgentPIDProcessIdentity>]],
+        scannedKeys: Set<Key>,
+        trackedKeys: Set<Key>,
+        publishedSnapshot: [Key: [Int]]
+    ) {
+        ownersByKey = ownersByKey.filter { trackedKeys.contains($0.key) }
+        for key in scannedKeys.intersection(trackedKeys) {
+            var owners = ownersByKey[key] ?? [:]
+            for (port, identities) in observedOwnersByKey[key] ?? [:] where !identities.isEmpty {
+                owners[port] = identities
+            }
+            let publishedPorts = Set(publishedSnapshot[key] ?? [])
+            owners = owners.filter { publishedPorts.contains($0.key) }
+            if owners.isEmpty {
+                ownersByKey.removeValue(forKey: key)
+            } else {
+                ownersByKey[key] = owners
+            }
+        }
+    }
+
     /// Computes panel completeness from the process snapshot and only the PIDs owned by each TTY.
     static func panelCompletenessByKey(
         panelTTYs: [PanelKey: String],
@@ -135,12 +230,14 @@ extension PortScanner {
         return (validRootsByWorkspace, completenessByWorkspace)
     }
 
+    /// Captures stable identities and workspace completeness for the agent process graph.
     func captureAgentPIDIdentities(
         ownershipByPID: [Int: Set<UUID>],
         workspaceIds: Set<UUID>
     ) -> (
         ownershipByPID: [Int: Set<UUID>],
         identitiesByPID: [Int: AgentPIDProcessIdentity],
+        incompletePIDs: Set<Int>,
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
         let capture = capturePIDIdentities(Set(ownershipByPID.keys))
@@ -157,7 +254,12 @@ extension PortScanner {
             }
             retainedOwnership[pid] = workspaceOwnership
         }
-        return (retainedOwnership, capture.identitiesByPID, completenessByWorkspace)
+        return (
+            retainedOwnership,
+            capture.identitiesByPID,
+            capture.incompletePIDs,
+            completenessByWorkspace
+        )
     }
 
     func revalidateAgentPIDIdentities(

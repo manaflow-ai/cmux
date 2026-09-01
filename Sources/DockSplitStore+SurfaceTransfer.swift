@@ -142,6 +142,8 @@ extension DockSplitStore {
                 )
         }
         let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
+        let deferredAgentResumeRestore = deferredAgentResumeRestoresByPanelId[panelId]
+            ?? preservedTransfer?.deferredAgentResumeRestore
         let notificationStore = resolvedNotificationStore()
         let wasManuallyUnread = scope == .global
             ? notificationStore?.hasManualUnread(
@@ -373,6 +375,7 @@ extension DockSplitStore {
             restoredPanelTitleBoundary: transferredRestoredPanelTitleBoundary,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            deferredAgentResumeRestore: deferredAgentResumeRestore,
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,

@@ -29,6 +29,17 @@ import {
   shellQuote,
   type ReusableRpcLease,
 } from "./wsLease";
+import {
+  FreestyleBetaPlatform,
+  freestylePlatformIsBeta,
+  isFreestyleBetaVmId,
+} from "./freestyleBeta";
+import type {
+  AttachTransport,
+  CmuxRemoteApprovalResult,
+  CmuxRemoteAttachOptions,
+  CmuxRemoteEndpoint,
+} from "./types";
 
 // Freestyle VMs reach the outside world only via their SSH gateway, which terminates on
 // `vm-ssh.freestyle.sh:22`. `ssh <vmId>+<user>@vm-ssh.freestyle.sh` authenticates against
@@ -82,10 +93,36 @@ function mapStatus(state: string | null | undefined): VMStatus {
   }
 }
 
+// The freestyle ProviderId spans TWO Freestyle platforms. Existing production
+// machines live on the legacy platform (api.freestyle.sh, SDK freestyle@0.1.51,
+// cmuxd-remote on 7777) and keep the code below unchanged. New creates from a
+// beta image dispatch to FreestyleBetaPlatform (./freestyleBeta.ts): the beta
+// devbox snapshot, cmux-tui on 1337, transport cmux-remote. Per-machine
+// dispatch keys on the id shape — beta ids are `vm-<32 hex>`, legacy ids bare
+// 20-char base36 — with the persisted providerMetadata.freestylePlatform
+// marker (written by every beta create) as the authoritative override where
+// metadata flows (attach paths).
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
+  private readonly beta = new FreestyleBetaPlatform();
+
+  /**
+   * The union across both platforms: legacy machines serve websocket/SSH via
+   * openAttach, beta machines only cmux-remote. A cmux-remote-only list here
+   * would make the workflow gate refuse openAttach for the legacy fleet, so
+   * per-machine refusal happens inside openAttach/openCmuxRemote instead.
+   */
+  readonly attachTransports: readonly AttachTransport[] = ["cmux-remote", "websocket", "ssh"];
+
+  /** Beta marker where metadata flows, id shape everywhere else. */
+  private isBetaMachine(vmId: string, metadata?: Record<string, unknown>): boolean {
+    return freestylePlatformIsBeta(metadata) || isFreestyleBetaVmId(vmId);
+  }
 
   async create(options: CreateOptions): Promise<VMHandle> {
+    if (this.beta.createTargetsBeta(options)) {
+      return this.beta.create(options);
+    }
     const image = options.image.trim();
     if (!image) {
       throw new ProviderError("freestyle", "create requires a resolved image");
@@ -147,6 +184,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async destroy(vmId: string): Promise<void> {
+    if (isFreestyleBetaVmId(vmId)) return this.beta.destroy(vmId);
     return withVmSpan(
       "cmux.vm.provider.destroy",
       {
@@ -168,6 +206,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async getStatus(vmId: string): Promise<VMStatus> {
+    if (isFreestyleBetaVmId(vmId)) return this.beta.getStatus(vmId);
     return withVmSpan(
       "cmux.vm.provider.get_status",
       {
@@ -190,6 +229,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async pause(vmId: string): Promise<void> {
+    if (isFreestyleBetaVmId(vmId)) return this.beta.pause(vmId);
     return withVmSpan(
       "cmux.vm.provider.pause",
       {
@@ -211,6 +251,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async resume(vmId: string): Promise<VMHandle> {
+    if (isFreestyleBetaVmId(vmId)) return this.beta.resume(vmId);
     return withVmSpan(
       "cmux.vm.provider.resume",
       {
@@ -246,6 +287,7 @@ export class FreestyleProvider implements VMProvider {
     command: string,
     opts?: { timeoutMs?: number },
   ): Promise<ExecResult> {
+    if (isFreestyleBetaVmId(vmId)) return this.beta.exec(vmId, command, opts);
     const timeoutMs = normalizeExecTimeout(opts?.timeoutMs);
     return withVmSpan(
       "cmux.vm.provider.exec",
@@ -277,6 +319,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async snapshot(vmId: string, name?: string): Promise<SnapshotRef> {
+    if (isFreestyleBetaVmId(vmId)) return this.beta.snapshot(vmId, name);
     return withVmSpan(
       "cmux.vm.provider.snapshot",
       {
@@ -306,6 +349,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async restore(snapshotId: string): Promise<VMHandle> {
+    if (this.beta.restoreTargetsBeta(snapshotId)) return this.beta.restore(snapshotId);
     return withVmSpan(
       "cmux.vm.provider.restore",
       {
@@ -349,6 +393,13 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async fork(vmId: string): Promise<VMHandle> {
+    if (isFreestyleBetaVmId(vmId)) {
+      // The beta API has no fork; snapshot + restore is the equivalent flow.
+      throw new ProviderError(
+        "freestyle",
+        `fork(${vmId}) is not supported on the Freestyle beta platform; snapshot the machine and restore from the snapshot instead`,
+      );
+    }
     return withVmSpan(
       "cmux.vm.provider.fork",
       {
@@ -390,6 +441,12 @@ export class FreestyleProvider implements VMProvider {
    * still fall back to Freestyle SSH, but the mac client must treat that as shell-only.
    */
   async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
+    if (this.isBetaMachine(vmId, options?.providerMetadata)) {
+      throw new ProviderError(
+        "freestyle",
+        `openAttach(${vmId}) is not supported on the Freestyle beta platform: these machines attach through the cmux-tui remote daemon (transport cmux-remote).`,
+      );
+    }
     try {
       const endpoint = await this.openWebSocketPty(vmId, options);
       if (options?.requireDaemon && !endpoint.daemon) {
@@ -554,7 +611,35 @@ export class FreestyleProvider implements VMProvider {
    * client will dial. Freestyle's gateway terminates at `vm-ssh.freestyle.sh:22`, username is
    * `<vmId>+<linuxUser>`, password is the access token we just minted.
    */
+  async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
+    if (!this.isBetaMachine(vmId, options?.providerMetadata)) {
+      throw new ProviderError(
+        "freestyle",
+        `openCmuxRemote(${vmId}) is not supported on legacy-platform freestyle machines (no cmux-tui daemon); attach over the legacy websocket transport, or recreate the machine on a beta devbox image.`,
+      );
+    }
+    return this.beta.openCmuxRemote(vmId, options);
+  }
+
+  async approveCmuxRemoteEnrollment(vmId: string, invitationId: string): Promise<CmuxRemoteApprovalResult> {
+    if (!this.isBetaMachine(vmId)) {
+      throw new ProviderError(
+        "freestyle",
+        `approveCmuxRemoteEnrollment(${vmId}) is not supported on legacy-platform freestyle machines (no cmux-tui daemon).`,
+      );
+    }
+    return this.beta.approveCmuxRemoteEnrollment(vmId, invitationId);
+  }
+
   async openSSH(vmId: string): Promise<SSHEndpoint> {
+    if (isFreestyleBetaVmId(vmId)) {
+      // The beta API has no SSH gateway (its CLI's `vm ssh` is the API pty in
+      // disguise); sessions go through the cmux-tui daemon.
+      throw new ProviderError(
+        "freestyle",
+        `openSSH(${vmId}) is not supported on the Freestyle beta platform; attach through the cmux-tui remote daemon (transport cmux-remote).`,
+      );
+    }
     return withVmSpan(
       "cmux.vm.provider.open_ssh",
       {
