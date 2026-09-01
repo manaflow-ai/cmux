@@ -27889,11 +27889,8 @@ mod tests {
             modifiers: KeyModifiers::SHIFT,
         };
         app.handle_mouse(shift_click).unwrap();
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            ..shift_click
-        })
-        .unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..shift_click })
+            .unwrap();
         let plain_click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             modifiers: KeyModifiers::NONE,
