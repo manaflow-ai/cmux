@@ -5352,6 +5352,20 @@ struct SelectionClickSequence {
     tracked_anchor: Option<TrackedScreenPoint>,
 }
 
+/// The most recent semantic drag result. Pointer reports often repeat the
+/// same terminal cell while the mouse moves between cell boundaries. Keep
+/// one bounded result and tie it to the terminal content generation so live
+/// output or scrolling always forces a fresh Ghostty lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SemanticSelectionCache {
+    surface: SurfaceId,
+    mode: SelectionMode,
+    anchor: SelectionPoint,
+    current: SelectionPoint,
+    content_generation: u64,
+    range: Option<SelectionRange>,
+}
+
 const SELECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(500);
 const SELECTION_REPEAT_DISTANCE_SQUARED: u32 = 1;
 
@@ -6994,6 +7008,7 @@ pub struct App {
     selection_mode: SelectionMode,
     selection_mode_surface: Option<SurfaceId>,
     selection_click_sequence: Option<SelectionClickSequence>,
+    semantic_selection_cache: Option<SemanticSelectionCache>,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
     /// The last status message written to the client log, so a message that
@@ -9225,6 +9240,7 @@ fn run_with_machine_updates_inner(
         selection_mode: SelectionMode::Cell,
         selection_mode_surface: None,
         selection_click_sequence: None,
+        semantic_selection_cache: None,
         status_selection: None,
         rendered_status_message: None,
         logged_status_message: None,
@@ -16748,11 +16764,13 @@ impl App {
 
     fn reset_selection_click_sequence(&mut self) {
         self.selection_click_sequence = None;
+        self.semantic_selection_cache = None;
     }
 
     fn reset_selection_mode(&mut self) {
         self.selection_mode = SelectionMode::Cell;
         self.selection_mode_surface = None;
+        self.semantic_selection_cache = None;
     }
 
     /// Clear a press that has no semantic range while retaining the surface
@@ -16811,6 +16829,14 @@ impl App {
             .and_then(|handle| handle.with_terminal(|terminal| terminal.active_screen()))
     }
 
+    fn terminal_content_generation(&self, surface: SurfaceId) -> Option<u64> {
+        let handle = self.session.surface(surface)?;
+        match handle.try_pointer_snapshot()? {
+            PointerSnapshotProbe::Ready(snapshot) => Some(snapshot.content_generation),
+            PointerSnapshotProbe::Contended => None,
+        }
+    }
+
     fn selection_repeat_allowed(
         previous: &SelectionClickSequence,
         surface: SurfaceId,
@@ -16844,6 +16870,7 @@ impl App {
         position: (u16, u16),
         modifiers: KeyModifiers,
     ) -> SelectionMode {
+        self.semantic_selection_cache = None;
         let now = Instant::now();
         let previous = self.selection_click_sequence.take();
         let screen = self.terminal_active_screen(surface);
@@ -16940,6 +16967,20 @@ impl App {
         let Some(anchor_point) = Self::selection_point(anchor) else { return };
         let Some(current_point) = Self::selection_point(current) else { return };
         let Some(handle) = self.session.surface(surface) else { return };
+        let content_generation = self.terminal_content_generation(surface);
+        if let Some(generation) = content_generation
+            && let Some(cache) = self.semantic_selection_cache
+            && cache.surface == surface
+            && cache.mode == mode
+            && cache.anchor == anchor_point
+            && cache.current == current_point
+            && cache.content_generation == generation
+        {
+            if let Some(range) = cache.range {
+                self.replace_selection(Some(Self::selection_from_range(surface, range)));
+            }
+            return;
+        }
         let range = handle
             .with_terminal(|terminal| match mode {
                 SelectionMode::Word => {
@@ -16977,6 +17018,18 @@ impl App {
                 SelectionMode::Cell => None,
             })
             .flatten();
+        if let Some(generation) = content_generation {
+            self.semantic_selection_cache = Some(SemanticSelectionCache {
+                surface,
+                mode,
+                anchor: anchor_point,
+                current: current_point,
+                content_generation: generation,
+                range,
+            });
+        } else {
+            self.semantic_selection_cache = None;
+        }
         if let Some(range) = range {
             self.replace_selection(Some(Self::selection_from_range(surface, range)));
         }
@@ -44910,6 +44963,7 @@ mod tests {
             selection_mode: SelectionMode::Cell,
             selection_mode_surface: None,
             selection_click_sequence: None,
+            semantic_selection_cache: None,
             status_selection: None,
             rendered_status_message: None,
             logged_status_message: None,
