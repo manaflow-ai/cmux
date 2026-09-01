@@ -462,4 +462,28 @@ extension CMUXCLI {
         return try body()
     }
 
+    /// Performs one complete tmux compatibility store read-modify-write while
+    /// holding the cross-process lock.
+    func withLockedTmuxCompatStore<T>(
+        _ body: (inout TmuxCompatStore) throws -> T
+    ) throws -> T {
+        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
+            var store = loadTmuxCompatStore()
+            let result = try body(&store)
+            try saveTmuxCompatStore(store)
+            return result
+        }
+    }
+
+    func withLockedTmuxCompatStoreIfChanged(
+        _ body: (inout TmuxCompatStore) throws -> Bool
+    ) throws {
+        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
+            var store = loadTmuxCompatStore()
+            if try body(&store) {
+                try saveTmuxCompatStore(store)
+            }
+        }
+    }
+
 }

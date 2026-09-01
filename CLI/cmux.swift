@@ -26496,7 +26496,7 @@ struct CMUXCLI {
         }
     }
 
-    private struct MainVerticalState: Codable {
+    struct MainVerticalState: Codable {
         /// The surface ID of the "main" (leader) pane on the left side.
         var mainSurfaceId: String
         /// The surface ID of the bottom-most pane in the right column.
@@ -26504,7 +26504,7 @@ struct CMUXCLI {
         var lastColumnSurfaceId: String?
     }
 
-    private struct TmuxCompatStore: Codable {
+    struct TmuxCompatStore: Codable {
         var buffers: [String: String] = [:]
         var hooks: [String: String] = [:]
         /// Tracks main-vertical layout state per workspace, keyed by workspace ID.
@@ -26528,7 +26528,7 @@ struct CMUXCLI {
         init() {}
     }
 
-    private func tmuxCompatStoreURL() -> URL {
+    func tmuxCompatStoreURL() -> URL {
         let homePath = ProcessInfo.processInfo.environment["HOME"]
             ?? NSString(string: "~").expandingTildeInPath
         return URL(fileURLWithPath: homePath)
@@ -26536,7 +26536,7 @@ struct CMUXCLI {
             .appendingPathComponent("tmux-compat-store.json")
     }
 
-    private func loadTmuxCompatStore() -> TmuxCompatStore {
+    func loadTmuxCompatStore() -> TmuxCompatStore {
         let url = tmuxCompatStoreURL()
         guard let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode(TmuxCompatStore.self, from: data) else {
@@ -26545,36 +26545,12 @@ struct CMUXCLI {
         return decoded
     }
 
-    private func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
+    func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
         let url = tmuxCompatStoreURL()
         let parent = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
         let data = try JSONEncoder().encode(store)
         try data.write(to: url, options: .atomic)
-    }
-
-    /// Performs one complete store read-modify-write while holding the
-    /// cross-process lock. Callers must use this for every mutating path.
-    private func withLockedTmuxCompatStore<T>(
-        _ body: (inout TmuxCompatStore) throws -> T
-    ) throws -> T {
-        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = loadTmuxCompatStore()
-            let result = try body(&store)
-            try saveTmuxCompatStore(store)
-            return result
-        }
-    }
-
-    private func withLockedTmuxCompatStoreIfChanged(
-        _ body: (inout TmuxCompatStore) throws -> Bool
-    ) throws {
-        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = loadTmuxCompatStore()
-            if try body(&store) {
-                try saveTmuxCompatStore(store)
-            }
-        }
     }
 
     private func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
