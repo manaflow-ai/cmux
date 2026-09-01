@@ -10,6 +10,66 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct WorkspaceCreateWorkingDirectoryTests {
+    @MainActor
+    private final class CloudRoutingProvider: SurfaceProvider {
+        let machine: SurfaceMachineID
+        let info: SurfaceMachineInfo
+        private(set) var createTerminalCallCount = 0
+
+        init(machine: SurfaceMachineID) {
+            self.machine = machine
+            info = SurfaceMachineInfo(
+                id: machine,
+                name: machine.rawValue,
+                status: "running",
+                image: nil,
+                hasDesktop: false,
+                memoryMb: nil,
+                diskMb: nil,
+                linkState: .connected,
+                linkError: nil,
+                cpuPercent: nil,
+                memoryUsedMb: nil,
+                diskUsedMb: nil
+            )
+        }
+
+        func refresh() async {}
+
+        func materialize(
+            _ resource: SurfaceResource,
+            at destination: SurfaceDestination,
+            focus _: Bool
+        ) async throws -> SurfaceProjection {
+            SurfaceProjection(
+                resource: resource.id,
+                workspaceID: destination.workspaceID,
+                panelID: UUID()
+            )
+        }
+
+        func createTerminal(
+            command _: [String]?,
+            cwd _: String?,
+            name _: String?,
+            remoteWorkspaceID _: String?
+        ) async throws -> SurfaceResource {
+            createTerminalCallCount += 1
+            return SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "created"),
+                title: "created",
+                detail: nil,
+                lifecycle: .running,
+                agent: nil,
+                remoteWorkspace: nil,
+                port: nil,
+                url: nil
+            )
+        }
+
+        func projectionDidEnd(_: SurfaceProjection) {}
+    }
+
     @Test func expandsHomeDirectory() {
         #expect(TerminalController.v2ExpandedWorkingDirectory("~") == NSHomeDirectory())
     }
@@ -237,6 +297,61 @@ import Testing
         #expect(panel.surface.debugInitialInputForTesting() == initialInput)
         #expect(panel.surface.debugInitialCommand() == nil)
         #expect(panel.surface.debugWaitAfterCommand() == false)
+    }
+
+    @Test func explicitInitialInputKeepsCloudProjectedSplitLocal() throws {
+        let catalog = SurfaceCatalog.shared
+        let machine = SurfaceMachineID.cloud("test-cloud-\(UUID().uuidString)")
+        let provider = CloudRoutingProvider(machine: machine)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        guard catalog.projection(forPanel: sourcePanelID) == nil else {
+            Issue.record("test workspace unexpectedly already has a surface projection")
+            return
+        }
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "source"),
+            title: "cloud shell",
+            detail: "/tmp",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: SurfaceRemoteWorkspace(
+                id: "workspace",
+                name: "main",
+                index: 0,
+                focused: true
+            ),
+            port: nil,
+            url: nil
+        )
+        catalog.replaceResources([resource], on: machine)
+        catalog.record(
+            SurfaceProjection(
+                resource: resource.id,
+                workspaceID: workspace.id,
+                panelID: sourcePanelID
+            )
+        )
+
+        let input = "printf 'cloud split stays local\\n'\r"
+        let outcome = workspace.newTerminalSplitOutcome(
+            from: sourcePanelID,
+            orientation: .horizontal,
+            focus: false,
+            initialInput: input
+        )
+        switch outcome {
+        case .created(let panel):
+            #expect(panel.surface.debugInitialInputForTesting() == input)
+            #expect(provider.createTerminalCallCount == 0)
+        case .routedToRemote:
+            Issue.record("a split with explicit initial input must stay local")
+        case .failed:
+            Issue.record("a split with explicit initial input should create a local terminal")
+        }
     }
 
     @Test func workspaceInitialCommandWrapsZshExactly() {
