@@ -13,11 +13,10 @@
 
 Derived material and vendored material:
 
-- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 17
+- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 20
   manifests are unchanged from the manifest snapshot's
-  `src/detect/manifests/`; Claude, Codex, and GitHub Copilot include the
-  upstream fixes present in that snapshot. `grok.toml` carries a documented
-  cmux precedence correction. Never refresh them from herdr's update endpoint.
+  `src/detect/manifests/`; `grok.toml` carries a documented cmux precedence
+  correction. Never refresh them from herdr's update endpoint.
   Re-vendor the files from the exact snapshot commit and reapply the Grok patch
   when changing the pin.
 - `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
