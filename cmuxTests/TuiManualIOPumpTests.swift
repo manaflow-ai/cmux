@@ -207,6 +207,16 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
+    func resizeSchedulerRetriesRejectedOrExpiredDelivery() {
+        var scheduler = TuiManualIOResizeScheduler()
+        scheduler.seed(delivered: TuiManualIOGrid(cols: 80, rows: 24))
+        let requested = TuiManualIOGrid(cols: 90, rows: 24)
+        #expect(scheduler.sample(requested) == requested)
+        #expect(scheduler.acknowledged(success: false) == requested)
+        #expect(scheduler.acknowledged(success: true) == nil)
+    }
+
+    @Test
     func resizeSchedulerResetRequiresReseedBeforeDedup() {
         var scheduler = TuiManualIOResizeScheduler()
         scheduler.seed(delivered: TuiManualIOGrid(cols: 80, rows: 24))
@@ -273,6 +283,11 @@ struct TuiManualIOPumpTests {
             TuiManualIOStderrStream.isResizeDiagLine(
                 Data(#"{"diag":{"resize":{"cols":80,"rows":24,"accepted":true}}}"#.utf8)
             )
+        )
+        #expect(
+            TuiManualIOStderrStream.resizeDiagSucceeded(
+                Data(#"{"diag":{"resize":{"cols":80,"rows":24,"error":"stale"}}}"#.utf8)
+            ) == false
         )
         // Human-readable diagnostics can contain both words without being an
         // acknowledgement. They must not release the resize backpressure.

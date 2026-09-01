@@ -260,17 +260,26 @@ struct TuiManualIOResizeScheduler: Equatable {
 
     /// The relay acknowledged (or errored, or the ack timed out — all three
     /// free the channel). Returns the next grid to send, or nil.
-    mutating func acknowledged() -> TuiManualIOGrid? {
-        if let inFlight {
-            lastDelivered = inFlight
+    mutating func acknowledged(success: Bool = true) -> TuiManualIOGrid? {
+        guard let inFlight else { return nil }
+        if !success {
+            // A rejected or expired resize was not delivered. Retry it, or
+            // skip directly to the newest pending sample.
+            if let pending, pending != inFlight {
+                self.pending = nil
+                self.inFlight = pending
+                return pending
+            }
+            return inFlight
         }
-        inFlight = nil
+        lastDelivered = inFlight
+        self.inFlight = nil
         guard let next = pending, next != lastDelivered else {
-            pending = nil
+            self.pending = nil
             return nil
         }
-        pending = nil
-        inFlight = next
+        self.pending = nil
+        self.inFlight = next
         return next
     }
 }
@@ -582,11 +591,11 @@ final class TuiManualIOPump {
 
     /// The relay reported one resize round trip done (applied, deduplicated,
     /// or errored — all free the channel), or the liveness timeout fired.
-    private func handleResizeAcknowledged(generation ackedGeneration: Int) {
+    private func handleResizeAcknowledged(generation ackedGeneration: Int, success: Bool = true) {
         guard ackedGeneration == generation, !stopped else { return }
         resizeAckTimeoutTask?.cancel()
         resizeAckTimeoutTask = nil
-        if let next = resizeScheduler.acknowledged() {
+        if let next = resizeScheduler.acknowledged(success: success) {
             deliverResize(next)
         }
     }
@@ -603,7 +612,7 @@ final class TuiManualIOPump {
             }
             guard !Task.isCancelled else { return }
             self?.log("resize ack timeout generation=\(timeoutGeneration)")
-            self?.handleResizeAcknowledged(generation: timeoutGeneration)
+            self?.handleResizeAcknowledged(generation: timeoutGeneration, success: false)
         }
     }
 
@@ -660,9 +669,9 @@ final class TuiManualIOPump {
         stderrStream = TuiManualIOStderrStream(
             handle: stderrPipe.fileHandleForReading,
             box: stderrBox,
-            onResizeDiag: { [weak self] in
+            onResizeDiag: { [weak self] success in
                 Task { @MainActor [weak self] in
-                    self?.handleResizeAcknowledged(generation: spawnGeneration)
+                    self?.handleResizeAcknowledged(generation: spawnGeneration, success: success)
                 }
             },
             onEOF: { [weak self] in
@@ -866,7 +875,7 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
     init(
         handle: FileHandle,
         box: TuiManualIOStderrBox,
-        onResizeDiag: @escaping @Sendable () -> Void,
+        onResizeDiag: @escaping @Sendable (Bool) -> Void,
         onEOF: @escaping @Sendable () -> Void
     ) {
         self.handle = handle
@@ -885,7 +894,7 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
     /// Splits the byte stream into complete lines and fires the ack callback
     /// for each resize diag. Partial trailing lines wait for the next chunk;
     /// the final (exit) line needs no scan, EOF classification owns it.
-    private func scanLines(_ data: Data, onResizeDiag: @Sendable () -> Void) {
+    private func scanLines(_ data: Data, onResizeDiag: @Sendable (Bool) -> Void) {
         lock.lock()
         pendingLine.append(data)
         let split = Self.splitLines(pendingLine)
@@ -898,8 +907,8 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
         }
         lock.unlock()
         for line in lines {
-            if Self.isResizeDiagLine(line) {
-                onResizeDiag()
+            if let success = Self.resizeDiagSucceeded(line) {
+                onResizeDiag(success)
             }
         }
     }
@@ -930,10 +939,18 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
     /// Matching JSON fields avoids treating human-readable stderr text as an
     /// acknowledgement.
     static func isResizeDiagLine(_ line: Data) -> Bool {
+        resizeDiagSucceeded(line) != nil
+    }
+
+    /// Returns whether the structured resize diagnostic reports a successful
+    /// daemon operation. An explicit error keeps the scheduler in flight so
+    /// the requested size is retried instead of being marked delivered.
+    static func resizeDiagSucceeded(_ line: Data) -> Bool? {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let diag = object["diag"] as? [String: Any]
-        else { return false }
-        return diag["resize"] != nil
+              let diag = object["diag"] as? [String: Any],
+              let resize = diag["resize"] as? [String: Any]
+        else { return nil }
+        return resize["error"] == nil
     }
 }
 

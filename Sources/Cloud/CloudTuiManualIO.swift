@@ -31,7 +31,7 @@ struct CloudTuiManualIOAttach: Equatable, Sendable {
 /// `attach --pipe-io`; off (or when the bundled client predates the flag)
 /// it falls back to the exec attach pane running the full TUI renderer.
 enum CloudTuiManualIO {
-    nonisolated static var isEnabled: Bool {
+    static var isEnabled: Bool {
         let key = SettingCatalog().betaFeatures.cloudTerminalManualIO
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey))
             ?? key.defaultValue
