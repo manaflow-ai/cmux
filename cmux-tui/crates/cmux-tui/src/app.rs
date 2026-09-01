@@ -13229,8 +13229,14 @@ impl App {
             let search = menu.search.as_ref()?;
             let level = menu.levels.first()?;
             let title_width = level.rect.width.saturating_sub(4) as usize;
-            let prefix = format!(" {} · ", search.label);
-            let prefix_width = prefix.width().min(title_width);
+            // The literal spaces around the label keep the three segments
+            // separate, so their display widths add without constructing a
+            // temporary prefix string on every frame.
+            let prefix_width = " "
+                .width()
+                .saturating_add(search.label.width())
+                .saturating_add(" · ".width())
+                .min(title_width);
             Some(title_width.saturating_sub(prefix_width).saturating_sub(1))
         });
         if let Some(menu) = self.menu.as_mut()
