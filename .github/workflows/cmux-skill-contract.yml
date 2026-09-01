@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ubuntu-24.04
+    # The contract executes pull-request-controlled documentation/scripts; keep
+    # it on an ephemeral GitHub-hosted runner rather than a configurable runner.
+    runs-on: ubuntu-24.04 # github-hosted-required: skill PRs run untrusted code
     timeout-minutes: 5
     steps:
       - name: Checkout
