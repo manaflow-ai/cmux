@@ -28,6 +28,10 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// The Mac app bundle namespace used by the trust broker. `nil` from older
     /// Macs that predate namespace-aware authenticated host status.
     public let macClientNamespace: String?
+    /// The sibling Mac dev tags this Mac grants to its paired development
+    /// phones (`cmux mobile compatible-tags`). `nil` from Macs that predate
+    /// the field; the phone then keeps its persisted grant set.
+    public let macCompatibleMacTags: [String]?
     /// Process-unique epoch for the Mac's terminal-theme revision counter.
     /// A changed value tells iOS that low revisions belong to a new producer.
     public let terminalThemeRevisionEpoch: String?
@@ -53,6 +57,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         case macDeviceID = "mac_device_id"
         case macInstanceTag = "mac_instance_tag"
         case macClientNamespace = "mac_client_namespace"
+        case macCompatibleMacTags = "mac_compatible_mac_tags"
         case terminalThemeRevisionEpoch = "terminal_theme_revision_epoch"
         case macAppVersion = "mac_app_version"
         case macAppBuild = "mac_app_build"
@@ -69,6 +74,12 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
             .map(cmxCanonicalDeviceID)
         macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
         macClientNamespace = try container.decodeIfPresent(String.self, forKey: .macClientNamespace)
+        // A malformed grant list must not fail the whole status decode; the
+        // phone just keeps its persisted grant set, like an older Mac.
+        macCompatibleMacTags = (try? container.decodeIfPresent(
+            [String].self,
+            forKey: .macCompatibleMacTags
+        )) ?? nil
         terminalThemeRevisionEpoch = try container.decodeIfPresent(String.self, forKey: .terminalThemeRevisionEpoch)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
         macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)

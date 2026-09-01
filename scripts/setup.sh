@@ -41,6 +41,16 @@ rustup target add --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64
 rustup run "$DIFF_RUST_TOOLCHAIN" cargo --version
 rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
 
+# Every app build also runs scripts/build-cmux-cua.sh, which compiles the
+# bundled cmux-cua engine with Cargo (default toolchain). Verify a working
+# cargo is on PATH so the first tagged reload does not fail mid-build.
+echo "==> Checking for cargo (bundled cmux-cua)..."
+if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
+    echo "Error: a working Rust toolchain (cargo) is required to build the bundled cmux-cua."
+    echo "Install via rustup: https://rustup.rs (or \`brew install rustup && rustup-init\`)"
+    exit 1
+fi
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"
