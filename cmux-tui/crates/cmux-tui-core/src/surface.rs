@@ -2921,6 +2921,13 @@ impl Surface {
         let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let journal_capture_supported = attachment.supports_journal_detach_fence();
+        // Snapshot CWD values are terminal-reported metadata, including for
+        // legacy protocol versions. Reject ambiguous plain paths and emit a
+        // diagnostic instead of silently inheriting the daemon default.
+        let snapshot_cwd = snapshot.cwd.as_deref().and_then(platform::terminal_pwd_to_local_path);
+        if snapshot.cwd.is_some() && snapshot_cwd.is_none() {
+            eprintln!("cmux-tui: discarded untrusted terminal-host snapshot cwd");
+        }
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
@@ -2960,11 +2967,7 @@ impl Surface {
                 host_exit_record_path: Some(host_exit_record_path),
                 pid: snapshot.pid,
                 command: snapshot.command,
-                cwd: snapshot
-                    .cwd
-                    .as_deref()
-                    .and_then(platform::terminal_pwd_to_local_path)
-                    .map(|path| path.to_string_lossy().into_owned()),
+                cwd: snapshot_cwd.map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
                 exit_notified: AtomicBool::new(false),
