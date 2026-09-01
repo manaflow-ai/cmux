@@ -478,7 +478,6 @@ final class MachinesPanelModelTests: XCTestCase {
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_main" }?.dragGroup?.resources,
             [remoteA.id]
         )
-        XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -516,7 +515,8 @@ final class MachinesPanelModelTests: XCTestCase {
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/display/display:1",
-        ], "pool rows, then one drag resource per pointer (or implicit display) row")
+            "vivid-newt/browser/port:3000",
+        ], "pool rows, then one drag resource per pointer (or implicit display) row, then the port rows")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
