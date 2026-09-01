@@ -23,7 +23,10 @@ const globalForDb = globalThis as typeof globalThis & {
   __cmuxCloudDb?: CloudDbState;
 };
 
-export function createAwsRdsIamPool(config: CloudDbAwsRdsIamConfig): Pool {
+export function createAwsRdsIamPool(
+  config: CloudDbAwsRdsIamConfig,
+  overrides: Partial<ConstructorParameters<typeof Pool>[0] & object> = {},
+): Pool {
   const signer = new Signer({
     hostname: config.host,
     port: config.port,
@@ -46,6 +49,7 @@ export function createAwsRdsIamPool(config: CloudDbAwsRdsIamConfig): Pool {
       ...(config.sslCaPem ? { ca: config.sslCaPem } : {}),
     },
     max: config.poolMax,
+    ...overrides,
   });
 }
 
