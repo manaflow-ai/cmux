@@ -2041,6 +2041,66 @@ mod tests {
     }
 
     #[test]
+    fn reducer_state_equal_cursor_uses_a_durable_ordering_token() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-ordering-token").unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                1,
+                r#"{"entries":{"first":{}}}"#,
+            )
+            .unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                2,
+                r#"{"entries":{"retired":{}}}"#,
+            )
+            .unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                1,
+                r#"{"entries":{"stale":{}}}"#,
+            )
+            .unwrap();
+
+        let (_, cursor, snapshot) =
+            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        assert_eq!(cursor, 10);
+        assert!(snapshot.contains("retired"));
+        assert!(!snapshot.contains("stale"));
+    }
+
+    #[test]
+    fn reducer_state_clear_overrides_a_monotonic_cursor() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-clear").unwrap();
+        registry
+            .put_journal_reducer_state_ordered(
+                "agent_roster",
+                3,
+                10,
+                10,
+                r#"{"entries":{"stale":{}}}"#,
+            )
+            .unwrap();
+        registry
+            .clear_journal_reducer_state("agent_roster", 3, r#"{"entries":{}}"#)
+            .unwrap();
+
+        let (_, cursor, snapshot) =
+            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        assert_eq!(cursor, 0);
+        assert_eq!(snapshot, r#"{"entries":{}}"#);
+    }
+
+    #[test]
     fn persistent_reader_observes_commits_on_an_independent_connection() {
         let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
         let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
