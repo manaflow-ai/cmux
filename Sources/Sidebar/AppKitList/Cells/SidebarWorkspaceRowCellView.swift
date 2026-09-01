@@ -588,7 +588,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             emphasis: model.isActive ? 1.0 : 0.9,
             style: model.settings.shortcutHintStyle,
             textColor: model.settings.shortcutHintStyle == .bare
-                ? (model.isActive
+                ? (model.isActive || model.isMultiSelected
                     ? palette.selectedForeground(1.0)
                     : model.settings.shortcutHintColorHex.flatMap { NSColor(hex: $0) })
                 : nil,

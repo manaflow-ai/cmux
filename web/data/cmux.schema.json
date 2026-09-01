@@ -1127,11 +1127,13 @@
           "type": "string",
           "enum": ["pill", "bare"],
           "default": "pill",
+          "descriptionKey": "schemaDescriptions.sidebar.shortcutHintStyle",
           "description": "Visual treatment for modifier-hold shortcut hints in the workspace sidebar."
         },
         "shortcutHintColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
+          "descriptionKey": "schemaDescriptions.sidebar.shortcutHintColor",
           "description": "Optional color for bare shortcut-hint text on unselected sidebar rows; selected rows use a readable foreground."
         },
         "showCustomMetadata": {

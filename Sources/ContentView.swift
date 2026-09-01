@@ -15560,7 +15560,7 @@ struct TabItemView: View, Equatable {
 
     private var shortcutHintTextColor: Color? {
         guard settings.shortcutHintStyle == .bare else { return nil }
-        if isActive {
+        if isActive || isMultiSelected {
             return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
         }
         return settings.shortcutHintColorHex
