@@ -316,6 +316,62 @@ struct AutomationRuleTests {
         #expect(redactedURL.contains("keep=visible"))
     }
 
+    @Test("redaction preserves URL arrays and signed query credentials")
+    func redactionPreservesURLArraysAndSignedQueryCredentials() throws {
+        let signedURL = "https://hooks.example/one?X-Amz-Signature=signed-secret&keep=visible"
+        let authURL = "https://hooks.example/two?auth=auth-secret&keep=visible"
+        let rule = AutomationRule(
+            id: "url-arrays",
+            when: AutomationWhen(event: "secret"),
+            predicates: [
+                "urls": .array([.string(signedURL), .string(authURL)])
+            ],
+            actions: [AutomationAction(
+                action: "webhook",
+                parameters: [
+                    "urls": .array([.string(signedURL), .string(authURL)])
+                ]
+            )]
+        )
+        let redactor = AutomationPayloadRedactor()
+        let redactedRule = redactor.rule(rule)
+        let predicateURLs = try #require(redactedRule.predicates["urls"]?.arrayValue)
+        let actionURLs = try #require(redactedRule.actions[0].value(for: "urls")?.arrayValue)
+        for values in [predicateURLs, actionURLs] {
+            let strings = values.compactMap { $0.stringValue }
+            #expect(strings.count == 2)
+            #expect(strings.allSatisfy { !$0.contains("signed-secret") })
+            #expect(strings.allSatisfy { !$0.contains("auth-secret") })
+            #expect(strings.allSatisfy { $0.contains("keep=visible") })
+        }
+
+        let redactedEvent = redactor.event([
+            "payload": ["urls": [signedURL, authURL]]
+        ])
+        let eventPayload = try #require(redactedEvent["payload"] as? [String: Any])
+        let eventURLs = try #require(eventPayload["urls"] as? [String])
+        #expect(eventURLs.count == 2)
+        #expect(eventURLs.allSatisfy { !$0.contains("signed-secret") })
+        #expect(eventURLs.allSatisfy { !$0.contains("auth-secret") })
+        #expect(eventURLs.allSatisfy { $0.contains("keep=visible") })
+    }
+
+    @Test("bounded JSON reads accumulate short chunks")
+    func boundedJSONReadsAccumulateShortChunks() throws {
+        let expected = Data("{\"name\":\"event\"}".utf8)
+        let chunks = [
+            Data("{\"name\":\"".utf8),
+            Data("event\"}".utf8)
+        ]
+        var index = 0
+        let data = try AutomationConfigStore.readBoundedData(maximumBytes: 64) { _ in
+            guard index < chunks.count else { return Data() }
+            defer { index += 1 }
+            return chunks[index]
+        }
+        #expect(data == expected)
+    }
+
     @Test("configuration validation rejects empty selectors and oversized action objects")
     func configurationValidationBoundsSelectorsAndActions() throws {
         let directory = FileManager.default.temporaryDirectory
