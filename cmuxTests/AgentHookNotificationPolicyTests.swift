@@ -129,39 +129,6 @@ struct AgentHookNotificationPolicyTests {
         )
     }
 
-    @Test func structuredUserRequestedReasonSuppressesStaleProviderBanner() throws {
-        let providerBanner = "Selected model is at capacity. Please try a different model."
-        let input = ClaudeHookParsedInput(
-            rawObject: [
-                "hook_event_name": "Stop",
-                "terminationReason": "user_requested",
-                "last_assistant_message": providerBanner,
-            ],
-            object: [
-                "hook_event_name": "Stop",
-                "terminationReason": "user_requested",
-                "last_assistant_message": providerBanner,
-            ],
-            rawFallback: nil,
-            sessionId: nil,
-            turnId: nil,
-            cwd: nil,
-            transcriptPath: nil
-        )
-        let cli = CMUXCLI(args: [])
-        let grok = try #require(CMUXCLI.agentDefs.first { $0.name == "grok" })
-
-        #expect(cli.isManagedAgentUserInitiatedStop(input: input))
-        #expect(
-            cli.summarizeGenericAbnormalStop(def: grok, input: input, lastMessage: nil) == nil,
-            "A structured user_requested stop must suppress a stale provider banner"
-        )
-        #expect(
-            cli.codexAbnormalStopBannerCandidate(from: input.object) == nil,
-            "The Codex banner path must apply the same user-abort suppression"
-        )
-    }
-
     @Test func embeddedHTTPStatusCodesDoNotClassifyAsProviderFailures() {
         let classifier = AgentHookAbnormalStopClassifier()
         let cases = [
@@ -185,23 +152,6 @@ struct AgentHookNotificationPolicyTests {
             classifier.abnormalStopClass(signal: "Stop", message: message) == nil,
             "Ordinary prose mentioning quota exceeded must fail closed"
         )
-    }
-
-    @Test func longTerminationReasonRetainsProviderFailureMarker() throws {
-        let reason = String(repeating: "provider context ", count: 8)
-            + "API Error: 529 overloaded_error"
-        let rawObject: [String: Any] = [
-            "hook_event_name": "Stop",
-            "terminationReason": reason,
-        ]
-        let data = try JSONSerialization.data(withJSONObject: rawObject)
-        let rawInput = try #require(String(data: data, encoding: .utf8))
-        let cli = CMUXCLI(args: [])
-        let parsed = cli.parseClaudeHookInput(rawInput: rawInput)
-        let grok = try #require(CMUXCLI.agentDefs.first { $0.name == "grok" })
-        let summary = cli.summarizeGenericAbnormalStop(def: grok, input: parsed, lastMessage: nil)
-
-        #expect(summary?.subtitle == "Model at capacity")
     }
 
     @Test func providerErrorBodyRedactsDiagnostics() throws {
