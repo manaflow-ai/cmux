@@ -1875,7 +1875,13 @@ impl Inner {
     }
 
     fn transport_auth_is_current(&self, context: &FrameContext, auth: &AuthSnapshot) -> bool {
-        if context.cancellation.is_cancelled() || Self::matching_trust(auth, context).is_none() {
+        if context.cancellation.is_cancelled()
+            || Self::matching_trust(auth, context).is_none()
+            // `auth_for_transport` is keyed only by transport id and kind.
+            // Require the complete frame snapshot here so a stale context
+            // cannot reuse an older owner's identity or root scope.
+            || !auth_snapshot_matches(auth, &AuthSnapshot::from_context(context))
+        {
             return false;
         }
         let key = TransportOwner::from_context(context);
@@ -5008,6 +5014,32 @@ mod tests {
         });
         h.manager.handle_frame(&frame, &old).await;
         assert!(h.spawned().is_empty(), "a stale relay context must not start a PTY");
+    }
+
+    #[tokio::test]
+    async fn stale_transport_identity_cannot_open_after_owner_change() {
+        let h = harness(None, None);
+        let old =
+            h.context_with_transport("observe", Some("user_owner".to_owned()), Some("relay-a"));
+        h.manager.update_transport_auth(&old);
+
+        // The transport id and trust are unchanged, but the reconciled owner
+        // changed. The old cached authority must not authorize this frame.
+        let mut changed = old.clone();
+        changed.owner_user_id = Some("attacker".to_owned());
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "stale-owner",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "attacker",
+        });
+
+        h.manager.handle_frame(&frame, &changed).await;
+
+        assert!(h.spawned().is_empty(), "stale owner metadata must not authorize a PTY open");
     }
 
     #[tokio::test]
