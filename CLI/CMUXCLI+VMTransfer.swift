@@ -796,10 +796,20 @@ extension CMUXCLI {
 
     static let vmRunBindingTTLSeconds = 14 * 24 * 3600
 
+    /// The home the router keeps its state under. `$HOME` first: NSHomeDirectory()
+    /// resolves through Core Foundation (CFFIXED_USER_HOME, then the passwd entry)
+    /// and ignores a HOME override, so tests and other redirected runs would write
+    /// the user's real `~/.cmuxterm` instead of their own.
+    static func vmRunStateHomeDirectory() -> String {
+        if let home = ProcessInfo.processInfo.environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !home.isEmpty {
+            return home
+        }
+        return NSHomeDirectory()
+    }
+
     static func vmRunBindingsStoreURL() -> URL {
-        // NSHomeDirectory honors $HOME, so tests (and other redirected runs)
-        // get an isolated binding store instead of writing the user's.
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-run-bindings.json", isDirectory: false)
     }
@@ -839,7 +849,7 @@ extension CMUXCLI {
     }
 
     static func vmRunPoolStoreURL() -> URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-run-pool.json", isDirectory: false)
     }

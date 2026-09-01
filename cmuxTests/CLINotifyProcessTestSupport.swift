@@ -517,11 +517,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// configuration roots on that per-test home so the inherited app-host
     /// redirects cannot make sibling CLI tests share state.
     ///
-    /// Core Foundation prefers `CFFIXED_USER_HOME` over `HOME`, so whenever the
-    /// inherited environment carries that redirect (the hosted lanes forward it
-    /// into the console session even when the isolation flag is absent), the
-    /// child's `NSHomeDirectory()` would ignore the test's HOME and read the
-    /// runner's home instead. Align it with HOME in that case too.
+    /// `NSHomeDirectory()` resolves through Core Foundation — `CFFIXED_USER_HOME`,
+    /// then the passwd entry — and never through `HOME`, so a child that reads its
+    /// home that way ignores the test's HOME in every environment, not only under
+    /// the app-host lane's redirect. Whenever a test supplies HOME, pin
+    /// `CFFIXED_USER_HOME` to the same directory so both resolution paths agree.
     private func isolatedCLIChildEnvironment(
         _ environment: [String: String]
     ) -> [String: String] {
@@ -530,9 +530,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return environment
         }
         let isolationRequired = environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1"
-        guard isolationRequired || environment["CFFIXED_USER_HOME"] != nil else {
-            return environment
-        }
 
         var resolved = environment
         resolved["CFFIXED_USER_HOME"] = rawHome
