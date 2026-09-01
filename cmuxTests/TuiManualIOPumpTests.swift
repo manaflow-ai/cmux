@@ -268,6 +268,22 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
+    func stderrResizeAckRequiresTheStructuredDiagObject() {
+        #expect(
+            isTuiManualIOResizeDiagLine(
+                Data(#"{"diag":{"resize":{"cols":80,"rows":24,"accepted":true}}}"#.utf8)
+            )
+        )
+        // Human-readable diagnostics can contain both words without being an
+        // acknowledgement. They must not release the resize backpressure.
+        #expect(
+            !isTuiManualIOResizeDiagLine(
+                Data("resize diag failed: retrying".utf8)
+            )
+        )
+    }
+
+    @Test
     func stderrAccumulatorCanAppendAndReadTheTail() {
         let box = TuiManualIOStderrBox()
         box.append(Data("first\n".utf8))
