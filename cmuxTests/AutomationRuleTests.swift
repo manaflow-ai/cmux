@@ -320,16 +320,17 @@ struct AutomationRuleTests {
     func redactionPreservesURLArraysAndSignedQueryCredentials() throws {
         let signedURL = "https://hooks.example/one?X-Amz-Signature=signed-secret&keep=visible"
         let authURL = "https://hooks.example/two?auth=auth-secret&keep=visible"
+        let apiKeyURL = "https://hooks.example/three?key=api-secret&keep=visible"
         let rule = AutomationRule(
             id: "url-arrays",
             when: AutomationWhen(event: "secret"),
             predicates: [
-                "urls": .array([.string(signedURL), .string(authURL)])
+                "urls": .array([.string(signedURL), .string(authURL), .string(apiKeyURL)])
             ],
             actions: [AutomationAction(
                 action: "webhook",
                 parameters: [
-                    "urls": .array([.string(signedURL), .string(authURL)])
+                    "urls": .array([.string(signedURL), .string(authURL), .string(apiKeyURL)])
                 ]
             )]
         )
@@ -339,20 +340,22 @@ struct AutomationRuleTests {
         let actionURLs = try #require(redactedRule.actions[0].value(for: "urls")?.arrayValue)
         for values in [predicateURLs, actionURLs] {
             let strings = values.compactMap { $0.stringValue }
-            #expect(strings.count == 2)
+            #expect(strings.count == 3)
             #expect(strings.allSatisfy { !$0.contains("signed-secret") })
             #expect(strings.allSatisfy { !$0.contains("auth-secret") })
+            #expect(strings.allSatisfy { !$0.contains("api-secret") })
             #expect(strings.allSatisfy { $0.contains("keep=visible") })
         }
 
         let redactedEvent = redactor.event([
-            "payload": ["urls": [signedURL, authURL]]
+            "payload": ["urls": [signedURL, authURL, apiKeyURL]]
         ])
         let eventPayload = try #require(redactedEvent["payload"] as? [String: Any])
         let eventURLs = try #require(eventPayload["urls"] as? [String])
-        #expect(eventURLs.count == 2)
+        #expect(eventURLs.count == 3)
         #expect(eventURLs.allSatisfy { !$0.contains("signed-secret") })
         #expect(eventURLs.allSatisfy { !$0.contains("auth-secret") })
+        #expect(eventURLs.allSatisfy { !$0.contains("api-secret") })
         #expect(eventURLs.allSatisfy { $0.contains("keep=visible") })
     }
 
