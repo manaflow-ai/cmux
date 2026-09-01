@@ -469,6 +469,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -504,6 +505,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -557,6 +559,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -601,6 +604,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -646,6 +650,7 @@ final class TerminalControllerSocketSecurityTests {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
@@ -1037,7 +1042,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -1076,7 +1084,10 @@ final class TerminalControllerSocketSecurityTests {
         let sourceWorkspace = try #require(manager.selectedWorkspace)
         _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+        }
 
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1161,7 +1172,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+        }
         let socketPath = makeSocketPath("relay-generation")
         TerminalController.shared.start(
             tabManager: manager,
@@ -1215,7 +1229,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -1257,7 +1274,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -1310,7 +1330,10 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let moved = try makeMovedRemotePTYSurface(in: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
 
         TerminalController.shared.start(
             tabManager: manager,
