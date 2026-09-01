@@ -255,8 +255,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_writer=
+            # macOS /bin/sh accepts only an integer read timeout. One-second
+            # waits are bounded by the same overall cleanup deadline.
             while cmux_ssh_auth_cleanup_has_time; do
-              if IFS= read -r -t 0.05 cmux_ssh_auth_term_event_writer <&9; then
+              if IFS= read -r -t 1 cmux_ssh_auth_term_event_writer <&9; then
                 if [ "$cmux_ssh_auth_term_event_writer" = "$cmux_ssh_auth_tree_root_pid" ]; then
                   break
                 fi
