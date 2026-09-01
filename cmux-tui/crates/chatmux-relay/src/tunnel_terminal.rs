@@ -897,6 +897,10 @@ async fn serve_connection(
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
         writer.abort();
+        // `abort` only requests cancellation. Await the handle so the writer
+        // task has completed before this connection returns and its socket
+        // state is dropped.
+        let _ = writer.await;
     }
 }
 
