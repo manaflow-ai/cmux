@@ -78,15 +78,21 @@ struct AgentOrderCacheKey {
 impl AgentOrderCache {
     fn ordered_surfaces(&mut self, tree: &TreeView, agents: &[AgentInfo]) -> &[SurfaceId] {
         let revisions_match = self.key.as_ref().is_some_and(|key| {
-            key.tree_workspace_revision == tree.workspace_revision
-                && key.tree_pane_revision == tree.pane_revision
-                && key.agents.len() == agents.len()
-                && key.agents.iter().zip(agents).all(
-                    |(&(surface, attention, updated_at_ms), agent)| {
-                        (surface, attention, updated_at_ms)
-                            == (agent.surface, agent_attention(&agent.state), agent.updated_at_ms)
-                    },
-                )
+            if key.tree_workspace_revision != tree.workspace_revision
+                || key.tree_pane_revision != tree.pane_revision
+                || key.agents.len() != agents.len()
+            {
+                return false;
+            }
+            if !key.agents.iter().zip(agents).all(
+                |(&(surface, attention, updated_at_ms), agent)| {
+                    (surface, attention, updated_at_ms)
+                        == (agent.surface, agent_attention(&agent.state), agent.updated_at_ms)
+                },
+            ) {
+                return false;
+            }
+            tree_surface_sequence_matches(tree, &key.tree_surfaces)
         });
         if revisions_match {
             return &self.order;
@@ -132,6 +138,23 @@ impl AgentOrderCache {
         });
         &self.order
     }
+}
+
+fn tree_surface_sequence_matches(tree: &TreeView, expected: &[SurfaceId]) -> bool {
+    let mut expected = expected.iter();
+    for surface in tree
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .map(|tab| tab.surface)
+    {
+        if expected.next() != Some(&surface) {
+            return false;
+        }
+    }
+    expected.next().is_none()
 }
 
 impl Default for ProjectionRailState {
