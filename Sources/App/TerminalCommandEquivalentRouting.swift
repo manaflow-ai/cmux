@@ -12,8 +12,6 @@ struct TerminalCommandEquivalentRouter {
         case paste
         case cut
         case selectAll
-        case undo
-        case redo
     }
 
     /// Identifies the standard Edit-menu command represented by `event`.
@@ -30,16 +28,12 @@ struct TerminalCommandEquivalentRouter {
         switch (flags, key) {
         case ([.command], "c"):
             return .copy
-        case ([.command], "v"):
+        case ([.command], "v"), ([.command, .shift], "v"):
             return .paste
         case ([.command], "x"):
             return .cut
         case ([.command], "a"):
             return .selectAll
-        case ([.command], "z"):
-            return .undo
-        case ([.command, .shift], "z"):
-            return .redo
         default:
             return nil
         }

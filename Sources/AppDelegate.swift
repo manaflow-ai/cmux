@@ -19474,8 +19474,8 @@ private extension NSWindow {
         }
 
         // Standard Edit-menu equivalents must be offered to a focused terminal
-        // before AppKit dispatches Copy/Paste/Cut/Select All (and the matching
-        // Undo/Redo family) from the shared menu. Ghostty owns the conditional
+        // before AppKit dispatches Copy/Paste/Cut/Select All from the shared
+        // menu. Ghostty owns the conditional
         // copy/paste semantics: a selection is copied, while an unselected TUI
         // receives the command key through its normal input path. Keep this
         // after configured cmux shortcut handling so user remaps retain priority.

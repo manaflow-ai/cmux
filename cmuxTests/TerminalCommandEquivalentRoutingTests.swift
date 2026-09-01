@@ -39,10 +39,6 @@ struct TerminalCommandEquivalentRoutingTests {
             actions.append("selectAll")
         }
 
-        @objc func undoAction(_ sender: Any?) {
-            _ = sender
-            actions.append("undo")
-        }
     }
 
     private final class TerminalProbeView: GhosttyNSView {
@@ -79,6 +75,12 @@ struct TerminalCommandEquivalentRoutingTests {
             menuItems: [
                 ("Copy", "c", [.command], #selector(MenuActionProbe.copyAction(_:))),
                 ("Paste", "v", [.command], #selector(MenuActionProbe.pasteAction(_:))),
+                (
+                    "Paste and Match Style",
+                    "v",
+                    [.command, .shift],
+                    #selector(MenuActionProbe.pasteAction(_:))
+                ),
             ]
         )
         defer { tearDown(window: window, previousMenu: previousMenu) }
@@ -93,10 +95,17 @@ struct TerminalCommandEquivalentRoutingTests {
             keyCode: UInt16(kVK_ANSI_V),
             windowNumber: window.windowNumber
         ))
+        let shiftedPasteEvent = try #require(makeKeyDownEvent(
+            key: "v",
+            keyCode: UInt16(kVK_ANSI_V),
+            modifierFlags: [.command, .shift],
+            windowNumber: window.windowNumber
+        ))
 
         #expect(window.performKeyEquivalent(with: copyEvent))
         #expect(window.performKeyEquivalent(with: pasteEvent))
-        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c", "v"])
+        #expect(window.performKeyEquivalent(with: shiftedPasteEvent))
+        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c", "v", "v"])
         #expect(menuProbe.actions.isEmpty)
     }
 
@@ -157,7 +166,6 @@ struct TerminalCommandEquivalentRoutingTests {
             menuItems: [
                 ("Cut", "x", [.command], #selector(MenuActionProbe.cutAction(_:))),
                 ("Select All", "a", [.command], #selector(MenuActionProbe.selectAllAction(_:))),
-                ("Undo", "z", [.command], #selector(MenuActionProbe.undoAction(_:))),
             ]
         )
         defer { tearDown(window: window, previousMenu: previousMenu) }
@@ -165,14 +173,13 @@ struct TerminalCommandEquivalentRoutingTests {
         let events = try [
             makeKeyDownEvent(key: "x", keyCode: UInt16(kVK_ANSI_X), windowNumber: window.windowNumber),
             makeKeyDownEvent(key: "a", keyCode: UInt16(kVK_ANSI_A), windowNumber: window.windowNumber),
-            makeKeyDownEvent(key: "z", keyCode: UInt16(kVK_ANSI_Z), windowNumber: window.windowNumber),
         ].map { try #require($0) }
 
         for event in events {
             #expect(window.performKeyEquivalent(with: event))
         }
 
-        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["x", "a", "z"])
+        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["x", "a"])
         #expect(menuProbe.actions.isEmpty)
     }
 
@@ -251,12 +258,13 @@ struct TerminalCommandEquivalentRoutingTests {
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [.command],
         windowNumber: Int
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.command],
+            modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: windowNumber,
             context: nil,
