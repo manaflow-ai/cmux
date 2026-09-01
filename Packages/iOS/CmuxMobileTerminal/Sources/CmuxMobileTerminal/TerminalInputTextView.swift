@@ -363,26 +363,23 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // up. The host syncs the real state right after the toolbar installs.
         dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
+        dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
+
+        // iOS 26: Liquid Glass circle behind the toggle glyph so it stays
+        // legible over band rows. A SIBLING under the button, not a button
+        // subview: UIButton manages its own subview order and sandwiched
+        // the glyph beneath the glass. Non-interactive; the button — sized
+        // to the same circle, matching the row's control height — owns the
+        // whole tap area.
+        var dismissGlass: UIVisualEffectView?
         if #available(iOS 26.0, *) {
-            // Liquid Glass circle behind the toggle glyph so it stays
-            // legible over band rows. Non-interactive like the nub's: the
-            // button owns the tap; the glass is only a backdrop and must
-            // not add its own touch response (the .glass() button
-            // configuration would).
             let glass = UIVisualEffectView(effect: UIGlassEffect())
             glass.isUserInteractionEnabled = false
             glass.translatesAutoresizingMaskIntoConstraints = false
-            glass.layer.cornerRadius = 16
+            glass.layer.cornerRadius = Self.accessoryButtonHeight / 2
             glass.clipsToBounds = true
-            dismissButton.insertSubview(glass, at: 0)
-            NSLayoutConstraint.activate([
-                glass.centerXAnchor.constraint(equalTo: dismissButton.centerXAnchor),
-                glass.centerYAnchor.constraint(equalTo: dismissButton.centerYAnchor),
-                glass.widthAnchor.constraint(equalToConstant: 32),
-                glass.heightAnchor.constraint(equalToConstant: 32),
-            ])
+            dismissGlass = glass
         }
-        dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
         dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
@@ -430,6 +427,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         self.composerButton = composerButton
 
         container.addSubview(backgroundView)
+        if let dismissGlass {
+            container.addSubview(dismissGlass)
+        }
         container.addSubview(dismissButton)
         container.addSubview(nub)
         container.addSubview(composerButton)
@@ -481,7 +481,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // scroll view.)
             dismissLeadingConstraint,
             dismissButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-            dismissButton.widthAnchor.constraint(equalToConstant: 32),
+            // Sized to the glass circle (the row's shared control height)
+            // so the whole visible circle is tappable.
+            dismissButton.widthAnchor.constraint(equalToConstant: Self.accessoryButtonHeight),
+            dismissButton.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight),
 
             nub.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 6),
             nub.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
@@ -513,6 +516,15 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
         ])
+
+        if let dismissGlass {
+            NSLayoutConstraint.activate([
+                dismissGlass.centerXAnchor.constraint(equalTo: dismissButton.centerXAnchor),
+                dismissGlass.centerYAnchor.constraint(equalTo: dismissButton.centerYAnchor),
+                dismissGlass.widthAnchor.constraint(equalTo: dismissButton.widthAnchor),
+                dismissGlass.heightAnchor.constraint(equalTo: dismissButton.heightAnchor),
+            ])
+        }
 
         accessoryBackgroundLeadingConstraint = backgroundLeadingConstraint
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
