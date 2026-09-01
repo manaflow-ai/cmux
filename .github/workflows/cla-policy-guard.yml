@@ -7,7 +7,6 @@ on:
   pull_request_target:
     branches: [main]
     types: [opened,edited,reopened,synchronize]
-
 permissions: {}
 
 jobs:
@@ -37,7 +36,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$WORKFLOW_SHA" ]]
           [[ -f scripts/ci/validate-cla-policy.rb ]]
 
-      - name: Validate proposed CLA policy as data
+      - name: Run trusted CLA regression matrix and validate policy as data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
