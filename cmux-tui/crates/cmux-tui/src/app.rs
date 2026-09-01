@@ -43711,6 +43711,32 @@ mod tests {
     }
 
     #[test]
+    fn machine_action_worker_drop_waits_for_reaper_cleanup() {
+        let (events, _event_receiver) = crossbeam_channel::bounded(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release, releases) = std::sync::mpsc::channel();
+        let worker = MachineActionWorker::spawn(
+            Box::new(OrderedBlockingMachineController { started, release: releases, closed: None }),
+            events,
+        )
+        .unwrap();
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+
+        let (dropped, dropped_rx) = std::sync::mpsc::channel();
+        let drop_thread = std::thread::spawn(move || {
+            drop(worker);
+            dropped.send(()).unwrap();
+        });
+        assert!(dropped_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        release.send(()).unwrap();
+        dropped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        drop_thread.join().unwrap();
+    }
+
+    #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
