@@ -89,6 +89,23 @@ def total_timeout_seconds() -> float | None:
     return seconds
 
 
+def heartbeat_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS must be numeric",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if seconds <= 0:
+        return None
+    return seconds
+
+
 def expects_swift_testing() -> bool:
     raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING", "")
     if raw in ("", "0"):
@@ -195,9 +212,11 @@ def main() -> int:
     post_test_timeout = post_test_timeout_seconds()
     total_timeout = total_timeout_seconds()
     swift_testing_expected = expects_swift_testing()
+    heartbeat = heartbeat_seconds()
     started_at = time.monotonic()
     deadline = started_at + timeout if timeout else None
     total_deadline = started_at + total_timeout if total_timeout else None
+    heartbeat_deadline = started_at + heartbeat if heartbeat else None
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
     swift_testing_result: str | None = None
@@ -265,12 +284,26 @@ def main() -> int:
                 post_test_timed_out = True
                 break
             select_timeout = min(select_timeout if select_timeout is not None else remaining, remaining, 1)
+        if heartbeat_deadline is not None:
+            remaining = max(0, heartbeat_deadline - time.monotonic())
+            select_timeout = min(
+                select_timeout if select_timeout is not None else remaining,
+                remaining,
+            )
 
         try:
             readable, _, _ = select.select([fd], [], [], select_timeout)
         except OSError:
             break
         if not readable:
+            if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
+                elapsed = time.monotonic() - started_at
+                write_child_output(
+                    f"[xcodebuild still running after {elapsed:.0f}s]\n".encode(),
+                    log_file,
+                    stdout_fd,
+                )
+                heartbeat_deadline = time.monotonic() + heartbeat
             continue
         if fd not in readable:
             continue
@@ -283,6 +316,8 @@ def main() -> int:
             break
 
         write_child_output(chunk, log_file, stdout_fd)
+        if heartbeat:
+            heartbeat_deadline = time.monotonic() + heartbeat
         if timeout:
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
@@ -379,7 +414,22 @@ def main() -> int:
             return 0
         return TIMEOUT_EXIT_CODE
 
-    _, status = os.waitpid(pid, 0)
+    if heartbeat is None:
+        _, status = os.waitpid(pid, 0)
+    else:
+        while True:
+            finished, status = os.waitpid(pid, os.WNOHANG)
+            if finished:
+                break
+            if heartbeat_deadline is not None and time.monotonic() >= heartbeat_deadline:
+                elapsed = time.monotonic() - started_at
+                write_child_output(
+                    f"[xcodebuild still running after {elapsed:.0f}s]\n".encode(),
+                    log_file,
+                    stdout_fd,
+                )
+                heartbeat_deadline = time.monotonic() + heartbeat
+            time.sleep(0.1)
     if log_file is not None:
         log_file.close()
     exit_code = child_exit_code(status)

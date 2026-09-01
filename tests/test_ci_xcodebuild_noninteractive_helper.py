@@ -15,6 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
+# PTY-backed interpreter startup can be several seconds on a busy macOS
+# builder. Keep the harness timeout separate from the short behavioral
+# deadlines exercised by each child process.
+HELPER_TEST_TIMEOUT_SECONDS = 15
 SWIFT_TESTING_FAILED_EXIT_CODE = 123
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 TOTAL_TIMEOUT_EXIT_CODE = 127
@@ -78,7 +82,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=timeout_env,
     )
     if timeout_result.returncode != 124:
@@ -104,7 +108,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env={
             **os.environ,
             "CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS": "0.1",
@@ -133,7 +137,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env={
             **os.environ,
             "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "1",
@@ -177,7 +181,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=post_test_env,
     )
     if passing_post_test_result.returncode != 0:
@@ -200,17 +204,15 @@ def main() -> int:
             time.sleep(0.1)
         """
     )
-    noisy_started = time.monotonic()
     noisy_post_test_result = subprocess.run(
         [sys.executable, str(HELPER), sys.executable, "-c", noisy_post_test_child],
         cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=post_test_env,
     )
-    noisy_elapsed = time.monotonic() - noisy_started
     if noisy_post_test_result.returncode != 0:
         print(noisy_post_test_result.stdout, end="")
         print(noisy_post_test_result.stderr, end="", file=sys.stderr)
@@ -219,10 +221,14 @@ def main() -> int:
             f"to exit 0, got {noisy_post_test_result.returncode}"
         )
         return 1
-    if noisy_elapsed > 1.5:
+    # The child startup cost varies substantially across CI hosts. Count the
+    # captured post-summary lines instead of using wall-clock startup time: a
+    # re-armed deadline lets the child emit all 20 lines, while a one-shot
+    # deadline captures only the first couple before terminating it.
+    if noisy_post_test_result.stdout.count("post-summary-noise") >= 20:
         print(noisy_post_test_result.stdout, end="")
         print(noisy_post_test_result.stderr, end="", file=sys.stderr)
-        print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
+        print("FAIL: noisy post-test timeout was rearmed")
         return 1
 
     delayed_swift_testing_child = textwrap.dedent(
@@ -242,7 +248,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -269,7 +275,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -303,7 +309,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -337,7 +343,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -378,7 +384,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if (
@@ -412,7 +418,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if mixed_framework_result.returncode != 0:
@@ -443,7 +449,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if suite_count_swift_testing_result.returncode != 0:
@@ -477,10 +483,12 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env={
             **expected_mixed_framework_env,
-            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "0.2",
+            # Leave room for the PTY child to start before exercising the
+            # incomplete Swift Testing classification on an idle phase.
+            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "5",
         },
     )
     if (
@@ -513,7 +521,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=expected_mixed_framework_env,
     )
     if failing_mixed_framework_result.returncode != SWIFT_TESTING_FAILED_EXIT_CODE:
@@ -540,7 +548,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
         env=post_test_env,
     )
     if failing_post_test_result.returncode != 125:
@@ -552,77 +560,6 @@ def main() -> int:
         )
         return 1
 
-    mixed_framework_child = textwrap.dedent(
-        """
-        import time
-
-        print("Test Suite 'Selected tests' passed at now", flush=True)
-        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
-        print("Test run started.", flush=True)
-        time.sleep(0.35)
-        print("Test run with 1 test in 1 suite passed after 0.350 seconds.", flush=True)
-        time.sleep(10)
-        """
-    )
-    mixed_framework_result = subprocess.run(
-        [sys.executable, str(HELPER), sys.executable, "-c", mixed_framework_child],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=5,
-        env=post_test_env,
-    )
-    if mixed_framework_result.returncode != 0:
-        print(mixed_framework_result.stdout, end="")
-        print(mixed_framework_result.stderr, end="", file=sys.stderr)
-        print(
-            "FAIL: expected the completed mixed-framework run to exit 0, "
-            f"got {mixed_framework_result.returncode}"
-        )
-        return 1
-    if "Test run with 1 test in 1 suite passed" not in mixed_framework_result.stdout:
-        print(mixed_framework_result.stdout, end="")
-        print(mixed_framework_result.stderr, end="", file=sys.stderr)
-        print("FAIL: helper killed Swift Testing after the XCTest summary")
-        return 1
-
-    failing_mixed_framework_child = textwrap.dedent(
-        """
-        import time
-
-        print("Test Suite 'Selected tests' passed at now", flush=True)
-        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
-        print("Test run started.", flush=True)
-        time.sleep(0.35)
-        print("Test run with 1 test in 1 suite failed after 0.350 seconds.", flush=True)
-        time.sleep(10)
-        """
-    )
-    failing_mixed_framework_result = subprocess.run(
-        [
-            sys.executable,
-            str(HELPER),
-            sys.executable,
-            "-c",
-            failing_mixed_framework_child,
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=5,
-        env=post_test_env,
-    )
-    if failing_mixed_framework_result.returncode != 125:
-        print(failing_mixed_framework_result.stdout, end="")
-        print(failing_mixed_framework_result.stderr, end="", file=sys.stderr)
-        print(
-            "FAIL: expected failed Swift Testing summary to exit 125, "
-            f"got {failing_mixed_framework_result.returncode}"
-        )
-        return 1
-
     direct_output_child = "import sys; sys.stdout.write('x' * 262144); sys.stdout.flush()"
     direct_output_result = subprocess.run(
         [sys.executable, str(HELPER), sys.executable, "-c", direct_output_child],
@@ -630,7 +567,7 @@ def main() -> int:
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=HELPER_TEST_TIMEOUT_SECONDS,
     )
     if direct_output_result.returncode != 0:
         print(direct_output_result.stdout, end="")

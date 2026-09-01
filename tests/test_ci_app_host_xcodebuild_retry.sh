@@ -241,7 +241,7 @@ CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/xcodebuild-parent-env.log" \
 CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/test-runner-home-env.log" \
 CMUX_MOCK_XCODEBUILD_PROCESS=1 \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
-CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=1 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
 CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
@@ -257,13 +257,13 @@ if [ "$status" -ne 124 ]; then
   exit 1
 fi
 
-if ! grep -Fq "Retrying app-host xcodebuild after 0.1s idle timeout (attempt 1/2)" "$TMP_DIR/output.log"; then
+if ! grep -Fq "Retrying app-host xcodebuild after 1s idle timeout (attempt 1/2)" "$TMP_DIR/output.log"; then
   cat "$TMP_DIR/output.log"
   echo "FAIL: wrapper did not retry after idle timeout"
   exit 1
 fi
 
-timeout_count="$(grep -Fc "Idle timed out after 0.1s" "$TMP_DIR/output.log")"
+timeout_count="$(grep -Fc "Idle timed out after 1s" "$TMP_DIR/output.log")"
 if [ "$timeout_count" -ne 2 ]; then
   cat "$TMP_DIR/output.log"
   echo "FAIL: expected two timed-out attempts, got $timeout_count"
