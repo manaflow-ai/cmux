@@ -665,9 +665,11 @@ extension TerminalController {
             return located.workspace.id
         }
         if let surfaceID = v2UUID(params, "surface_id") {
+            // App-wide (any main window) first, like the existence check; the active
+            // manager covers a workspace the app has not registered in a window.
             let owner = v2MainSync { () -> UUID? in
-                guard let tabManager = self.tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
+                if let workspace = AppDelegate.shared?.workspace(containingSurfaceID: surfaceID) { return workspace.id }
+                return self.tabManager?.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
             }
             if let owner { return owner }
         }
@@ -684,9 +686,10 @@ extension TerminalController {
         }
         if resolved["pane_id"] == nil, let surfaceID = v2UUID(params, "surface_id") {
             let paneID = v2MainSync { () -> String? in
-                guard let tabManager = self.tabManager,
-                      let workspace = tabManager.tabs.first(where: { $0.panels[surfaceID] != nil }) else { return nil }
-                return SurfacePaneFactory.paneID(ofPanel: surfaceID, in: workspace.id)
+                let workspace = AppDelegate.shared?.workspace(containingSurfaceID: surfaceID)
+                    ?? self.tabManager?.tabs.first(where: { $0.panels[surfaceID] != nil })
+                guard let workspace else { return nil }
+                return workspace.paneId(forPanelId: surfaceID)?.id.uuidString
             }
             if let paneID {
                 resolved["pane_id"] = paneID

@@ -215,9 +215,15 @@ import Testing
         while gate.enteredCount() < 3 { await Task.yield() }
         coalescer.request()
         coalescer.cancel()
+        // A request that lands before the cancelled pass unwinds owns a fresh loop; the
+        // old pass unwinding must not clear it (that would let two passes overlap later).
+        coalescer.request()
+        while gate.enteredCount() < 4 { await Task.yield() }
+        #expect(coalescer.passes == 4)
+        #expect(coalescer.isRunning)
         gate.release()
         while coalescer.isRunning { await Task.yield() }
-        #expect(coalescer.passes == 3)
+        #expect(coalescer.passes == 4)
     }
 
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
