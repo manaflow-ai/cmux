@@ -3943,11 +3943,8 @@ fn agent_plugin_install_use_and_remove_work_against_local_git_repo() {
     assert!(installed["plugin"]["id"].as_str().unwrap().starts_with("agent_plugin_"));
     assert_eq!(installed["plugin"]["enabled"].as_bool(), Some(true));
 
-    let installed_dir = data_home
-        .join("cmux")
-        .join("mux-plugins")
-        .join("agent")
-        .join("agent-fixture");
+    let installed_dir =
+        data_home.join("cmux").join("mux-plugins").join("agent").join("agent-fixture");
     assert!(installed_dir.join("cmux-plugin.toml").is_file());
     assert!(installed_dir.join("bin/agent").is_file());
 
@@ -3976,17 +3973,16 @@ fn agent_plugin_install_use_and_remove_work_against_local_git_repo() {
     assert_eq!(written["agents"]["other"].as_bool(), Some(true));
     assert_eq!(written["agents"]["plugin"]["id"].as_str(), Some(plugin_id.as_str()));
     let canonical_dir = fs::canonicalize(&installed_dir).unwrap();
-    assert_eq!(
-        written["agents"]["plugin"]["cwd"].as_str(),
-        Some(canonical_dir.to_str().unwrap())
-    );
+    assert_eq!(written["agents"]["plugin"]["cwd"].as_str(), Some(canonical_dir.to_str().unwrap()));
     assert_eq!(
         written["agents"]["plugin"]["command"][0].as_str(),
         Some(canonical_dir.join("bin/agent").to_str().unwrap())
     );
-    assert!(written["agents"]["plugin"]["revision"].as_str().is_some_and(|value| {
-        value.starts_with("sha256-")
-    }));
+    assert!(
+        written["agents"]["plugin"]["revision"]
+            .as_str()
+            .is_some_and(|value| { value.starts_with("sha256-") })
+    );
 
     let list = plugin_cli(&data_home, &config_path, &["--json", "agent", "plugin", "list"]);
     assert_success(&list);
