@@ -51,7 +51,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let context = try makeGrokNoiseContext(name: "grok-stop-reason")
         defer { context.cleanup() }
 
-        let payload = #"{"hookEventName":"Stop","sessionId":"\#(context.sessionId)","cwd":"\#(context.root.path)","terminationReason":"rate limit"}"#
+        // Exercise the snake_case alias and nested payload shape used by some
+        // hook adapters. Both fields must survive compaction before the shared
+        // abnormal-stop classifier sees the structured reason.
+        let payload = #"{"hookEventName":"Stop","sessionId":"\#(context.sessionId)","cwd":"\#(context.root.path)","payload":{"termination_reason":"rate limit"}}"#
         try runGrokNoiseHook(context, "stop", payload: payload)
 
         let notifications = notifyCommands(in: context.state.snapshot())
