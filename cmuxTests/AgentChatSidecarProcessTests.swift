@@ -248,6 +248,72 @@ struct AgentChatSidecarProcessTests {
         #expect(gate.ownedServerSession() == original)
     }
 
+    @Test func failedPreviousOwnerTerminationRejectsReplacement() async throws {
+        let originalRoot = Process()
+        originalRoot.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        originalRoot.arguments = ["30"]
+        try originalRoot.run()
+        let originalPID = originalRoot.processIdentifier
+        let liveIdentity = try #require(
+            AgentPIDProcessIdentity.includingExitedProcess(pid: originalPID)
+        )
+        let staleIdentity = AgentPIDProcessIdentity(
+            pid: originalPID,
+            startSeconds: liveIdentity.startSeconds + 1,
+            startMicroseconds: liveIdentity.startMicroseconds
+        )
+        let originalHandle = AgentChatSidecarProcessHandle(
+            launchId: "original-owner",
+            rootIdentity: staleIdentity,
+            processGroupID: originalPID
+        )
+        let controller = AgentChatSidecarProcessController(shellPathProvider: { "/bin/sh" })
+        guard let replacementHandle = await controller.launch(
+            command: "sleep 30",
+            launchId: "replacement-owner",
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            environmentOverrides: [:]
+        ) else {
+            Issue.record("expected the replacement sidecar launch to succeed")
+            return
+        }
+        defer {
+            _ = replacementHandle.terminate()
+            if originalRoot.isRunning { originalRoot.terminate() }
+            originalRoot.waitUntilExit()
+        }
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        let originalSession = AgentChatOwnedServerSession(
+            port: 43123,
+            pid: Int(originalPID),
+            token: "original-token",
+            launchId: originalHandle.launchId
+        )
+        let replacementSession = AgentChatOwnedServerSession(
+            port: 43124,
+            pid: Int(replacementHandle.rootIdentity.pid),
+            token: "replacement-token",
+            launchId: replacementHandle.launchId
+        )
+        #expect(await gate.updateOwnedServer(session: originalSession, process: originalHandle))
+
+        #expect(!(await gate.updateOwnedServer(
+            session: replacementSession,
+            process: replacementHandle
+        )))
+        #expect(gate.ownedServerSession() == originalSession)
+        #expect(gate.ownedServerProcess() === originalHandle)
+        #expect(originalRoot.isRunning)
+        let lifecycleState = gate.lock.withLock { state in
+            (state.terminationInProgress, state.terminationFailed)
+        }
+        #expect(!lifecycleState.0)
+        #expect(lifecycleState.1)
+        errno = 0
+        #expect(kill(replacementHandle.rootIdentity.pid, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
     @Test func setupCleanupSignalsOnlyTheMatchingGeneration() {
         var signals: [(pid_t, Int32)] = []
         let didTerminate = AgentChatSidecarProcessTerminator(
