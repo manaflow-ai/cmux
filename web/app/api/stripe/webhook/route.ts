@@ -22,6 +22,7 @@ import {
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
 import {
+  BillingDunningDeliveryRetryableError,
   sendBillingDunningEmail as sendBillingDunningEmailDefault,
   type BillingDunningEmailInput,
 } from "../../../../services/billing/dunning";
@@ -281,9 +282,18 @@ async function processStripeEvent(
       if (event.type === "invoice.payment_failed") {
         const sendDunningEmail =
           dependencies.sendDunningEmail ?? sendBillingDunningEmailDefault;
-        await sendDunningEmail(
+        const dunningResult: unknown = await sendDunningEmail(
           billingDunningInput(event.data.object, result, requestOrigin),
         );
+        // The canonical sender throws for this state. Keep the webhook
+        // boundary defensive for injected senders and future implementations:
+        // an unconfirmed provider attempt must remain a Stripe-retryable
+        // failure, never a processed event.
+        if (dunningResult === "delivery_in_progress") {
+          throw new BillingDunningDeliveryRetryableError(
+            event.data.object.id,
+          );
+        }
       }
       return {
         processed: event.type,

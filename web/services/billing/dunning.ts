@@ -6,14 +6,19 @@ import { cloudDb } from "../../db/client";
 import { billingDunningDeliveries } from "../../db/schema";
 import { loadMessages } from "../../i18n/messages";
 import type { Locale } from "../../i18n/routing";
+import { captureBillingDunningDeliveryAbandoned } from "../analytics/stripeBilling";
+import { reportError } from "../observability/report";
 
 export const DEFAULT_DUNNING_FROM_EMAIL = "pro@cmux.com";
 export const DUNNING_REPLY_TO_EMAIL = "pro@cmux.com";
 
-const DELIVERY_ATTEMPT_LEASE_MS = 2 * 60 * 1000;
-// Resend retains idempotency keys for 24 hours. Keep an ambiguous delivery
-// fenced for one hour less than that window, so a late webhook cannot create a
-// duplicate message after a provider timeout.
+// Keep concurrent workers from sharing a provider call. Stripe retries that
+// arrive during this lease must remain retryable instead of acknowledging the
+// webhook, and a later retry can reclaim the row safely with Resend's key.
+const DELIVERY_ATTEMPT_LEASE_MS = 15 * 60 * 1000;
+// Resend retains idempotency keys for 24 hours. Stop ambiguous retries one
+// hour earlier so a late webhook cannot create a duplicate message after the
+// provider's idempotency window expires.
 const AMBIGUOUS_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 
 export type BillingDunningScope =
@@ -31,6 +36,15 @@ export type BillingDunningDeliveryResult =
   | "already_sent"
   | "delivery_in_progress"
   | "delivery_abandoned";
+
+export type BillingDunningAbandonedSignal = {
+  readonly invoiceId: string;
+  readonly scope: BillingDunningScope;
+};
+
+export type BillingDunningAbandonedReporter = (
+  input: BillingDunningAbandonedSignal,
+) => Promise<void>;
 
 export type BillingDunningDeliveryStore = {
   deliverOnce(
@@ -65,6 +79,7 @@ export type BillingDunningDependencies = {
   ) => Promise<{ readonly error: unknown | null }>;
   readonly fromEmail?: () => string;
   readonly deliveryStore?: BillingDunningDeliveryStore;
+  readonly reportAbandoned?: BillingDunningAbandonedReporter;
 };
 
 /** A provider response that proves Resend rejected the message. */
@@ -75,6 +90,22 @@ export class BillingDunningProviderRejectedError extends Error {
   }
 }
 
+/** A provider attempt is still ambiguous and Stripe must retry the webhook. */
+export class BillingDunningDeliveryRetryableError extends Error {
+  constructor(invoiceId: string) {
+    super(`cmux billing dunning delivery is still in progress: ${invoiceId}`);
+    this.name = "BillingDunningDeliveryRetryableError";
+  }
+}
+
+/** The provider idempotency window ended without a confirmed delivery. */
+export class BillingDunningDeliveryAbandonedError extends Error {
+  constructor(invoiceId: string) {
+    super(`cmux billing dunning delivery abandoned: ${invoiceId}`);
+    this.name = "BillingDunningDeliveryAbandonedError";
+  }
+}
+
 // Keep the complete Drizzle database type here. Picking only `transaction`
 // loses the schema generic on the transaction client and makes inserts infer
 // an empty value shape under TypeScript.
@@ -82,12 +113,13 @@ type DeliveryDb = ReturnType<typeof cloudDb>;
 
 const defaultDependencies: Required<
   Pick<BillingDunningDependencies, "sendEmail" | "fromEmail">
-> = {
+> & { readonly reportAbandoned: BillingDunningAbandonedReporter } = {
   sendEmail: async (payload, options) => {
     const resend = new Resend(env.RESEND_API_KEY);
     return resend.emails.send(payload, options);
   },
   fromEmail: () => env.CMUX_PRO_FROM_EMAIL ?? DEFAULT_DUNNING_FROM_EMAIL,
+  reportAbandoned: reportBillingDunningDeliveryAbandoned,
 };
 
 /**
@@ -98,7 +130,9 @@ const defaultDependencies: Required<
 export async function sendBillingDunningEmail(
   input: BillingDunningEmailInput,
   dependencies: BillingDunningDependencies = {},
-): Promise<BillingDunningDeliveryResult | "no_customer_email"> {
+): Promise<
+  Exclude<BillingDunningDeliveryResult, "delivery_in_progress"> | "no_customer_email"
+> {
   const email = normalizeEmail(input.email);
   if (!email) return "no_customer_email";
   if (!input.invoiceId.trim()) {
@@ -109,7 +143,7 @@ export async function sendBillingDunningEmail(
     dependencies.deliveryStore ?? makeBillingDunningDeliveryStore();
   const sendEmail = dependencies.sendEmail ?? defaultDependencies.sendEmail;
   const fromEmail = dependencies.fromEmail ?? defaultDependencies.fromEmail;
-  return deliveryStore.deliverOnce(
+  const result = await deliveryStore.deliverOnce(
     {
       invoiceId: input.invoiceId,
       email,
@@ -133,6 +167,44 @@ export async function sendBillingDunningEmail(
         );
       }
     },
+  );
+  if (result === "delivery_in_progress") {
+    throw new BillingDunningDeliveryRetryableError(input.invoiceId);
+  }
+  if (result === "delivery_abandoned") {
+    const reportAbandoned =
+      dependencies.reportAbandoned ?? defaultDependencies.reportAbandoned;
+    await reportAbandoned({ invoiceId: input.invoiceId, scope: input.scope });
+  }
+  return result;
+}
+
+/** Emit the terminal operator signal without exposing the recipient address. */
+export async function reportBillingDunningDeliveryAbandoned(
+  input: BillingDunningAbandonedSignal,
+  options: { readonly postHogFetch?: typeof fetch } = {},
+): Promise<void> {
+  const code = "billing_dunning_delivery_abandoned";
+  const error = new BillingDunningDeliveryAbandonedError(input.invoiceId);
+  reportError(
+    error,
+    {
+      subsystem: "billing_dunning",
+      code,
+      invoiceId: input.invoiceId,
+      billingScope: input.scope.scope,
+      operatorFault: true,
+    },
+    { fingerprint: ["cmux-billing-dunning", code] },
+  );
+  await captureBillingDunningDeliveryAbandoned(
+    {
+      invoiceId: input.invoiceId,
+      subject: input.scope.scope === "user"
+        ? { scope: "user", stackUserId: input.scope.stackUserId }
+        : { scope: "team", stackTeamId: input.scope.stackTeamId },
+    },
+    options.postHogFetch,
   );
 }
 
@@ -243,6 +315,12 @@ async function claimDelivery(
     if (existing && !sameDeliveryOwner(existing, input)) {
       throw new Error("Billing dunning invoice ownership changed before delivery");
     }
+    // A live lease always wins over the terminal deadline. This avoids
+    // reporting an abandonment while the original provider call can still
+    // finish and mark the row sent.
+    if (existing?.attemptLeaseExpiresAt && existing.attemptLeaseExpiresAt > claimedAt) {
+      return "delivery_in_progress";
+    }
     if (
       existing?.deliveryStartedAt &&
       claimedAt.getTime() - existing.deliveryStartedAt.getTime() >=
@@ -250,13 +328,10 @@ async function claimDelivery(
     ) {
       return "delivery_abandoned";
     }
-    // A lease only blocks concurrent delivery until it expires. If a worker
-    // crashed after claiming the row, the next webhook may retry after the
-    // short lease; the deliveryStartedAt timestamp still fences retries for
-    // the longer provider idempotency window above.
-    if (existing?.attemptLeaseExpiresAt && existing.attemptLeaseExpiresAt > claimedAt) {
-      return "delivery_in_progress";
-    }
+
+    // Once the short lease expires, a retry can reclaim the row while Resend's
+    // invoice-keyed idempotency key remains valid. The original start time is
+    // retained so the terminal provider window is still bounded.
 
     const attemptLeaseExpiresAt = new Date(
       claimedAt.getTime() + DELIVERY_ATTEMPT_LEASE_MS,

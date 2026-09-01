@@ -65,6 +65,33 @@ export async function captureBillingCheckoutStarted(
   }, postHogFetch);
 }
 
+/**
+ * Record a dunning delivery that reached the provider idempotency deadline
+ * without a confirmed send. The invoice-keyed insert id lets repeated Stripe
+ * retries remain visible without creating a new operator event each time.
+ */
+export async function captureBillingDunningDeliveryAbandoned(
+  input: {
+    readonly invoiceId: string;
+    readonly subject: StripeBillingAnalyticsSubject;
+  },
+  postHogFetch?: typeof fetch,
+): Promise<void> {
+  await captureBillingPayload({
+    name: "cmux_billing_dunning_delivery_abandoned",
+    insertId: `billing-dunning-abandoned:${input.invoiceId}`,
+    subject: input.subject,
+    properties: {
+      source: "stripe_webhook",
+      billing_scope: input.subject.scope,
+      stripe_invoice_id: input.invoiceId,
+      error_code: "billing_dunning_delivery_abandoned",
+      operator_fault: true,
+      schema_version: 1,
+    },
+  }, postHogFetch);
+}
+
 function mappedBillingEvent(
   event: Stripe.Event,
   subject: StripeBillingAnalyticsSubject,
