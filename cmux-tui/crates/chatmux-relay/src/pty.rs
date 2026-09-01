@@ -1914,6 +1914,16 @@ impl Inner {
         }
     }
 
+    fn close_if_generation(&self, pty_id: &str, generation: &Arc<AtomicBool>) {
+        let Some(attachment) = self
+            .attachment(pty_id)
+            .filter(|attachment| Arc::ptr_eq(&attachment.closing, generation))
+        else {
+            return;
+        };
+        self.retire_if_current(pty_id, &attachment);
+    }
+
     /// Frame-level transport fence. Unknown ids retain the protocol's silent
     /// no-op behavior; once an id is reserved or attached, a different
     /// transport may not act on it. A `None` caller owns everything (legacy).
@@ -3616,7 +3626,7 @@ impl Inner {
         let exit_generation = Arc::clone(&closing);
         let on_exit: ExitSink = Arc::new(move |code| {
             if stream_for_exit.overflowed() {
-                relay.close(&pty_id_for_exit);
+                relay.close_if_generation(&pty_id_for_exit, &exit_generation);
                 send_pty_error(
                     &context_for_exit,
                     &pty_id_for_exit,
