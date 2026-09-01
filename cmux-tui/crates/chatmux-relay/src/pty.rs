@@ -237,14 +237,13 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     use std::os::unix::io::FromRawFd;
 
-    // Linux O_PATH avoids requiring read permission. Darwin does not expose a
-    // supported O_EXEC or O_SEARCH flag, so use O_RDONLY there. This keeps the
-    // descriptor walk portable and fail-closed, at the cost of requiring read
-    // permission on macOS directories used as a PTY cwd.
+    // Linux O_PATH avoids requiring read permission. Darwin's O_EXEC combined
+    // with O_DIRECTORY requests search-only directory access, so execute-only
+    // cwd directories remain valid without relying on a pathname after checks.
     #[cfg(target_os = "linux")]
     const ACCESS_MODE: libc::c_int = libc::O_PATH;
     #[cfg(target_os = "macos")]
-    const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
+    const ACCESS_MODE: libc::c_int = libc::O_EXEC;
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
@@ -2109,6 +2108,8 @@ mod tests {
     use std::future::Future;
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
+    #[cfg(target_os = "macos")]
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
@@ -2987,6 +2988,17 @@ mod tests {
         let after = resolved.directory.metadata().unwrap();
         assert_eq!(before.dev(), after.dev());
         assert_eq!(before.ino(), after.ino());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn scoped_cwd_accepts_execute_only_directory() {
+        let root = TestDirectory::new("cwd-search-only");
+        let directory = root.path.join("search-only");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        open_pinned_directory(&directory).expect("O_EXEC|O_DIRECTORY must open search-only cwd");
     }
 
     #[cfg(unix)]
