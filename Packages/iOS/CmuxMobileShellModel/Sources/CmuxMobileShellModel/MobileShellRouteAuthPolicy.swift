@@ -122,8 +122,8 @@ public struct MobileShellRouteAuthPolicy {
 
     /// Whether a manual host should show the explicit non-loopback trust guidance.
     /// - Parameter host: The manually typed host.
-    /// - Returns: `true` for every valid host outside loopback, where a
-    ///   an exact explicit pairing capability is required before account
+    /// - Returns: `true` for every valid host outside loopback, where an
+    ///   exact explicit pairing capability is required before account
     ///   credentials may be sent.
     public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard let normalizedHost = normalizedManualNetworkHost(host) else {
