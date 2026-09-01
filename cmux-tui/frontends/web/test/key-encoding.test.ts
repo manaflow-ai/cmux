@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { encodeTerminalKey, type TerminalKeyEvent } from "../src/lib/keyEncoding";
+import { encodeTerminalKey, isMacEditingChord, type TerminalKeyEvent } from "../src/lib/keyEncoding";
 
 function key(value: string, overrides: Partial<TerminalKeyEvent> = {}): TerminalKeyEvent {
   return { key: value, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...overrides };
@@ -37,6 +37,26 @@ describe("render terminal key encoding", () => {
     ]);
   });
 
+  it("mirrors macOS Option word editing chords without swallowing normal Option text", () => {
+    expect([
+      key("Backspace", { altKey: true }),
+      key("Delete", { altKey: true }),
+      key("ArrowLeft", { altKey: true }),
+      key("ArrowRight", { altKey: true }),
+    ].map(encodeTerminalKey)).toEqual([
+      { kind: "text", text: "\u001b\u007f" },
+      { kind: "text", text: "\u001bd" },
+      { kind: "text", text: "\u001bb" },
+      { kind: "text", text: "\u001bf" },
+    ]);
+    expect(encodeTerminalKey(key("x", { altKey: true }))).toEqual({
+      kind: "text",
+      text: "\u001bx",
+    });
+    expect(isMacEditingChord(key("Backspace", { altKey: true }))).toBe(true);
+    expect(isMacEditingChord(key("x", { altKey: true }))).toBe(false);
+  });
+
   it("leaves browser shortcuts, modified selection, and IME composition alone", () => {
     for (const shortcut of ["c", "v", "w", "t", "q"]) {
       expect(encodeTerminalKey(key(shortcut, { metaKey: true }))).toBeNull();
@@ -44,6 +64,11 @@ describe("render terminal key encoding", () => {
     for (const modifier of ["shiftKey", "altKey", "ctrlKey"] as const) {
       expect(encodeTerminalKey(key("Backspace", { metaKey: true, [modifier]: true }))).toBeNull();
     }
+    for (const modifier of ["shiftKey", "metaKey", "ctrlKey"] as const) {
+      const event = key("Backspace", { altKey: true, [modifier]: true });
+      expect(isMacEditingChord(event)).toBe(false);
+    }
     expect(encodeTerminalKey(key("Process", { isComposing: true, metaKey: true }))).toBeNull();
+    expect(isMacEditingChord(key("Backspace", { altKey: true, isComposing: true }))).toBe(false);
   });
 });

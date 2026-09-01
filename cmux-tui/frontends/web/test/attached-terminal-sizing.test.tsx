@@ -145,7 +145,7 @@ describe("attached terminal sizing", () => {
     expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n);
   });
 
-  it("forwards Command editing chords through xterm and preserves browser shortcuts", async () => {
+  it("forwards Command and Option editing chords through xterm and preserves browser shortcuts", async () => {
     globalThis.ResizeObserver = class {
       observe() {}
       unobserve() {}
@@ -190,23 +190,27 @@ describe("attached terminal sizing", () => {
     terminal.options.disableStdin = false;
 
     const editingEvents = [
-      ["Backspace", "\u0015"],
-      ["Delete", "\u000b"],
-      ["ArrowLeft", "\u0001"],
-      ["ArrowRight", "\u0005"],
+      ["Backspace", "\u0015", "metaKey"],
+      ["Delete", "\u000b", "metaKey"],
+      ["ArrowLeft", "\u0001", "metaKey"],
+      ["ArrowRight", "\u0005", "metaKey"],
+      ["Backspace", "\u001b\u007f", "altKey"],
+      ["Delete", "\u001bd", "altKey"],
+      ["ArrowLeft", "\u001bb", "altKey"],
+      ["ArrowRight", "\u001bf", "altKey"],
     ] as const;
-    for (const [key, text] of editingEvents) {
+    for (const [key, text, modifier] of editingEvents) {
       const event = new KeyboardEvent("keydown", {
         bubbles: true,
         cancelable: true,
         key,
-        metaKey: true,
+        [modifier]: true,
       });
       expect(handler(event)).toBe(false);
       expect(event.defaultPrevented).toBe(true);
       await waitFor(() => expect(client.send).toHaveBeenCalledWith(7n, { text }));
       for (const type of ["keypress", "keyup"] as const) {
-        const followup = new KeyboardEvent(type, { key, metaKey: true });
+        const followup = new KeyboardEvent(type, { key, [modifier]: true });
         expect(handler(followup)).toBe(false);
       }
     }
@@ -220,13 +224,13 @@ describe("attached terminal sizing", () => {
     expect(handler(copy)).toBe(true);
     expect(client.send).toHaveBeenCalledTimes(editingEvents.length);
 
-    const optionDelete = new KeyboardEvent("keydown", {
+    const optionText = new KeyboardEvent("keydown", {
       bubbles: true,
       cancelable: true,
-      key: "Backspace",
+      key: "x",
       altKey: true,
     });
-    expect(handler(optionDelete)).toBe(true);
+    expect(handler(optionText)).toBe(true);
     expect(client.send).toHaveBeenCalledTimes(editingEvents.length);
     view.unmount();
   });
