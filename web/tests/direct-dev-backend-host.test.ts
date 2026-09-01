@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { NextRequest } from "next/server";
+import { directDevBackendHost } from "../app/lib/direct-dev-backend-origin";
 import { requestOrigin } from "../app/lib/request-origin";
 
 function request(origin: string): NextRequest {
@@ -31,5 +32,14 @@ describe("direct dev backend host forwarding", () => {
         CMUX_WWW_ORIGIN: "https://other.example:3916/",
       }),
     ).toBe("http://127.0.0.1:3916");
+  });
+
+  test("returns the hostname for Next.js dev-resource allowlisting", () => {
+    expect(
+      directDevBackendHost({
+        CMUX_DEV_BACKEND_TRANSPORT: "direct",
+        CMUX_WWW_ORIGIN: "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+      }),
+    ).toBe("cmux-dev-backend-1.tail137216.ts.net");
   });
 });

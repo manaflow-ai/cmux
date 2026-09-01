@@ -1,7 +1,5 @@
 import { NextRequest } from "next/server";
-
-const DIRECT_PORT_MIN = 3800;
-const DIRECT_PORT_MAX = 4799;
+import { directDevBackendOrigin } from "./direct-dev-backend-origin";
 
 /**
  * Return the origin that application code should use for absolute URLs.
@@ -15,35 +13,7 @@ export function requestOrigin(
   request: NextRequest,
   environment: Record<string, string | undefined> = process.env,
 ): string {
-  if (environment.CMUX_DEV_BACKEND_TRANSPORT !== "direct") {
-    return request.nextUrl.origin;
-  }
-
-  const configured = environment.CMUX_WWW_ORIGIN?.trim();
-  if (!configured) return request.nextUrl.origin;
-
-  try {
-    const url = new URL(configured);
-    const host = url.hostname.toLowerCase();
-    const port = url.port ? Number(url.port) : 443;
-    if (
-      url.protocol !== "https:" ||
-      !host.endsWith(".ts.net") ||
-      !Number.isInteger(port) ||
-      port < DIRECT_PORT_MIN ||
-      port > DIRECT_PORT_MAX ||
-      url.username ||
-      url.password ||
-      (url.pathname !== "" && url.pathname !== "/") ||
-      url.search ||
-      url.hash
-    ) {
-      return request.nextUrl.origin;
-    }
-    return url.origin;
-  } catch {
-    return request.nextUrl.origin;
-  }
+  return directDevBackendOrigin(environment)?.origin ?? request.nextUrl.origin;
 }
 
 /**
