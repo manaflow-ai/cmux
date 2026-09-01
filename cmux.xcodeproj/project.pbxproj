@@ -735,6 +735,7 @@
 		B90000D2A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */; };
 		CC0033E15A1B2C3D4E5F0001 /* CMUXCLI+Comments.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */; };
 		B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */; };
+		C11218000000000000000032 /* CMUXCLI+Credentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000031 /* CMUXCLI+Credentials.swift */; };
 		D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */; };
 		C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */; };
 		C0DE79210000000000000001 /* CMUXCLI+DiffViewerShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */; };
@@ -2383,12 +2384,16 @@
 		C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000017 /* SleepyStatusSample.swift */; };
 		A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AE10000000000000002 /* SocketACLReloadRegressionTests+Connections.swift */; };
 		A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */; };
+		C11218000000000000000022 /* SocketAuthenticationChallenge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000021 /* SocketAuthenticationChallenge.swift */; };
+		C11218000000000000000023 /* SocketAuthenticationChallenge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000021 /* SocketAuthenticationChallenge.swift */; };
 		5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */; };
 		5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
 		A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10052000000000000000001 /* SocketClient+StartupWait.swift */; };
 		A7984AD10000000000000001 /* SocketConfigurationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
 		F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
+		C11218000000000000000012 /* SocketCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000011 /* SocketCredentialResolver.swift */; };
+		C11218000000000000000013 /* SocketCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000011 /* SocketCredentialResolver.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		F87920000000000000000001 /* SocketReloadConfigurationWaiterAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000002 /* SocketReloadConfigurationWaiterAdmission.swift */; };
 		F87920000000000000000003 /* SocketReloadConfigurationWaiterLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000004 /* SocketReloadConfigurationWaiterLease.swift */; };
@@ -3892,6 +3897,7 @@
 		B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CommandSuggestions.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Comments.swift"; sourceTree = "<group>"; };
 		B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Config.swift"; sourceTree = "<group>"; };
+		C11218000000000000000031 /* CMUXCLI+Credentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Credentials.swift"; sourceTree = "<group>"; };
 		D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffSidecar.swift"; sourceTree = "<group>"; };
 		C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerBundledAssets.swift"; sourceTree = "<group>"; };
 		C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerShortcuts.swift"; sourceTree = "<group>"; };
@@ -5465,12 +5471,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C7B0FACE0000000000000017 /* SleepyStatusSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusSample.swift; sourceTree = "<group>"; };
 		A7984AE10000000000000002 /* SocketACLReloadRegressionTests+Connections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketACLReloadRegressionTests+Connections.swift"; sourceTree = "<group>"; };
 		A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketACLReloadRegressionTests.swift; sourceTree = "<group>"; };
+		C11218000000000000000021 /* SocketAuthenticationChallenge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketAuthenticationChallenge.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiter.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
 		A10052000000000000000001 /* SocketClient+StartupWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketClient+StartupWait.swift"; sourceTree = "<group>"; };
 		A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConfigurationLifecycleTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
+		C11218000000000000000011 /* SocketCredentialResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCredentialResolver.swift; sourceTree = "<group>"; };
 			C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		F87920000000000000000002 /* SocketReloadConfigurationWaiterAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketReloadConfigurationWaiterAdmission.swift; sourceTree = "<group>"; };
 		F87920000000000000000004 /* SocketReloadConfigurationWaiterLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketReloadConfigurationWaiterLease.swift; sourceTree = "<group>"; };
@@ -8632,6 +8640,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */,
 				C12985000000000000000001 /* CLISocketSentryTelemetry.swift */,
 				C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */,
+				C11218000000000000000011 /* SocketCredentialResolver.swift */,
+				C11218000000000000000021 /* SocketAuthenticationChallenge.swift */,
+				C11218000000000000000031 /* CMUXCLI+Credentials.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -11975,6 +11986,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B90000D2A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0001 /* CMUXCLI+Comments.swift in Sources */,
 				B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */,
+				C11218000000000000000032 /* CMUXCLI+Credentials.swift in Sources */,
 				D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */,
 				C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */,
 				C0DE79210000000000000001 /* CMUXCLI+DiffViewerShortcuts.swift in Sources */,
@@ -12069,7 +12081,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
+				C11218000000000000000022 /* SocketAuthenticationChallenge.swift in Sources */,
 				A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */,
+				C11218000000000000000012 /* SocketCredentialResolver.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 				B816E948EC5E42AF967648AC /* SSHPTYAttachReconnectInputFilter.swift in Sources */,
 				E60610200000000000000002 /* SSHPTYAttachReconnectInputFilterControl.swift in Sources */,
@@ -12328,7 +12342,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */,
 					FE89827F4FAB9F7524A38B41 /* CLISendQueuedOutputTests.swift in Sources */,
 				C11218000000000000000002 /* CLISocketCredentialResolverTests.swift in Sources */,
-					B900004CA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
+				B900004CA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				A8D837B3AA85F4353C493DE1 /* CLISSHPTYAttachProbeReplyRegressionTests.swift in Sources */,
 				D0F102000000000000000001 /* CLISSHPTYAttachReplayBoundaryTests.swift in Sources */,
 				C73660020000000000000001 /* CLISSHPTYAttachSessionLostRespawnTests.swift in Sources */,
@@ -12766,9 +12780,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */,
 				A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */,
 				A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */,
+				C11218000000000000000023 /* SocketAuthenticationChallenge.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
 				A7984AD10000000000000001 /* SocketConfigurationLifecycleTests.swift in Sources */,
 						F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
+				C11218000000000000000013 /* SocketCredentialResolver.swift in Sources */,
 					93300001A1B2C3D4E5F60718 /* SocketTerminalBindingRegressionTests.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
 				797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */,
