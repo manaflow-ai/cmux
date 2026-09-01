@@ -301,12 +301,27 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func waitForScreen(terminalID: String, pattern: String, timeoutMs: Int?) async throws -> [String: Any] {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let linkTimeout = Duration.milliseconds((timeoutMs ?? 30_000) + 5_000)
+        // Non-positive requests mean the daemon default, so the link headroom is computed
+        // from the same value the daemon will use; huge requests are clamped so the
+        // Duration math cannot overflow.
+        let effectiveMs = Self.clampedWaitTimeoutMs(timeoutMs)
+        let linkTimeout = Duration.milliseconds(effectiveMs + 5_000)
         let data = try await link.run(
-            arguments: CloudTuiCommandLine.screenWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, pattern: pattern, timeoutMs: timeoutMs),
+            arguments: CloudTuiCommandLine.screenWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, pattern: pattern, timeoutMs: effectiveMs),
             timeout: linkTimeout
         )
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    /// `screen wait` default when the caller gives no (or a non-positive) timeout.
+    static let defaultWaitTimeoutMs = 30_000
+    /// Upper bound for one `screen wait` (an hour): long enough for any build, short
+    /// enough that the link call and the socket call stay finite.
+    static let maxWaitTimeoutMs = 3_600_000
+
+    static func clampedWaitTimeoutMs(_ requested: Int?) -> Int {
+        guard let requested, requested > 0 else { return defaultWaitTimeoutMs }
+        return min(requested, maxWaitTimeoutMs)
     }
 
     /// `terminal <id> close`; a terminal whose process already exited is gone from

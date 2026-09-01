@@ -424,7 +424,9 @@ extension TerminalController {
               let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_write requires `id` and `terminal_id`.")
         }
-        let text = Self.surfaceString(params["text"])
+        // Raw, not `surfaceString`: leading/trailing whitespace and newlines are part of
+        // what the caller wants typed.
+        let text = (params["text"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let keys = Self.surfaceStringArray(params["keys"]).filter { !$0.isEmpty }
         guard (text?.isEmpty == false) || !keys.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_write needs `text` and/or `keys` (e.g. keys: [\"enter\"]).")
@@ -464,10 +466,13 @@ extension TerminalController {
               let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_wait requires `id` and `terminal_id`.")
         }
-        guard let pattern = Self.surfaceString(params["pattern"]), !pattern.isEmpty else {
+        // Raw: whitespace can be significant in a regex.
+        guard let pattern = params["pattern"] as? String, !pattern.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_wait requires a non-empty `pattern` (a regex matched against the screen text).")
         }
-        let timeoutMs = (params["timeout_ms"] as? Int) ?? Int(Self.surfaceString(params["timeout_ms"]) ?? "") ?? 30_000
+        let timeoutMs = CmuxTuiSurfaceProvider.clampedWaitTimeoutMs(
+            (params["timeout_ms"] as? Int) ?? Int(Self.surfaceString(params["timeout_ms"]) ?? "")
+        )
         let socketTimeout = TimeInterval(max(60, timeoutMs / 1000 + 15))
         return v2VmCall(id: id, timeoutSeconds: socketTimeout) {
             let provider = try await Self.cloudTuiProvider(machineID: vmId, catalog: await SurfaceCatalog.shared)
