@@ -931,7 +931,9 @@ impl WorkspaceRegistry {
         });
         self.connection.execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value
+             WHERE COALESCE(CAST(json_extract(meta.value, '$.cursor') AS INTEGER), 0)
+                   <= CAST(json_extract(excluded.value, '$.cursor') AS INTEGER)",
             params![format!("journal_reducer.{reducer_id}"), value.to_string()],
         )?;
         Ok(())
