@@ -101,6 +101,22 @@ final class CLIBrowserEvalOutputTests {
         #expect(output.contains("\n"))
     }
 
+    @Test("browser value formatter preserves distinct sanitized dictionary keys")
+    func browserValueFormatterPreservesDistinctSanitizedDictionaryKeys() {
+        let formatter = BrowserValueTextFormatter()
+        let value: [String: Any] = [
+            "a\u{202E}": "first",
+            "a\u{2066}": "second",
+        ]
+
+        let output = formatter.string(from: value)
+
+        #expect(output.contains("first"))
+        #expect(output.contains("second"))
+        #expect(!output.contains("\u{202E}"))
+        #expect(!output.contains("\u{2066}"))
+    }
+
     @Test("browser storage text output cannot emit terminal control characters")
     func browserStorageTextOutputSanitizesTerminalControlCharacters() throws {
         let responseObject: [String: Any] = [
