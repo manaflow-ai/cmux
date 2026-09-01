@@ -275,7 +275,6 @@ final class MobileTerminalRenderObserver {
         forceIncludeTheme: Bool
     ) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
-        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               surface.surface != nil else {
             clearRenderGridCache(surfaceID: surfaceID)
@@ -312,7 +311,6 @@ final class MobileTerminalRenderObserver {
                 surfaceID: surfaceID,
                 anchor: anchor,
                 stateSeq: stateSeq,
-                renderCapture: renderCapture,
                 includeTheme: includeTheme,
                 forceIncludeTheme: forceIncludeTheme || didReplaceRuntimeSurface,
                 sharedTheme: &sharedTheme
@@ -360,7 +358,6 @@ final class MobileTerminalRenderObserver {
         surfaceID: UUID,
         anchor: MobileTerminalRenderGridFrame.Anchor,
         stateSeq: UInt64,
-        renderCapture: (epoch: String, revision: UInt64),
         includeTheme: Bool,
         forceIncludeTheme: Bool,
         sharedTheme: inout (config: TerminalTheme?, theme: TerminalTheme, revision: UInt64)?
@@ -374,6 +371,10 @@ final class MobileTerminalRenderObserver {
         let fullScrollbackTarget = 0
         var scrollbackLines = 0
         var allowScrollbackRequest = true
+        let renderCapture = MobileTerminalByteTee.shared.currentRenderCaptureIdentity(
+            surfaceID: surfaceID,
+            anchor: anchor
+        )
         while true {
             guard let snapshot = surface.mobileRenderGridFrame(
                     stateSeq: stateSeq,
@@ -431,8 +432,40 @@ final class MobileTerminalRenderObserver {
             ) else { return nil }
             switch emission {
             case .emit(let frame, let state):
-                renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state
-                return frame
+                // Assign identities only after the content comparison has
+                // decided that a frame is actually emitted. A replay of an
+                // unchanged grid therefore keeps `renderRevision` stable,
+                // while `emissionRevision` still advances for delta chaining.
+                var identifiedFrame = frame
+                let identity = MobileTerminalByteTee.shared.recordRenderGridFrame(
+                    surfaceID: surfaceID,
+                    anchor: anchor,
+                    fullFrame: themedFrame
+                )
+                identifiedFrame.renderEpoch = identity.epoch
+                identifiedFrame.renderRevision = identity.revision
+                identifiedFrame.emissionRevision = identity.emissionRevision
+                // Preserve the full row-signature baseline supplied by the
+                // emission decision. The wire delta only contains changed
+                // rows, so deriving the baseline from `identifiedFrame` would
+                // erase unchanged rows and make every later delta repaint them.
+                renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] =
+                    MobileTerminalRenderGridEmissionState(
+                        renderEpoch: identity.epoch,
+                        renderRevision: identity.revision,
+                        emissionRevision: identity.emissionRevision,
+                        columns: state.columns,
+                        rows: state.rows,
+                        stateSeq: state.stateSeq,
+                        activeScreen: state.activeScreen,
+                        terminalTheme: state.terminalTheme,
+                        terminalConfigTheme: state.terminalConfigTheme,
+                        rowSignatures: state.rowSignatures,
+                        anchor: state.anchor,
+                        historyRows: state.historyRows,
+                        rowSpaceRevision: state.rowSpaceRevision
+                    )
+                return identifiedFrame
             case .needsScrollback(let rows):
                 // Re-export once with the requested history rows; the retry
                 // recomputes from the fresh capture and must emit with
@@ -466,7 +499,10 @@ final class MobileTerminalRenderObserver {
         renderGridStatesBySurfaceID[surfaceID, default: [:]][.screen] = frame.emissionState
     }
 
-    func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {
+    func decorateReplayFrame(
+        _ frame: MobileTerminalRenderGridFrame,
+        advanceThemeRevision: Bool = true
+    ) -> MobileTerminalRenderGridFrame {
         if !hasLoadedTerminalTheme { refreshTerminalTheme() }
         var themedFrame = frame
         themedFrame.terminalTheme = (frame.terminalTheme ?? cachedTerminalTheme)
@@ -476,7 +512,9 @@ final class MobileTerminalRenderObserver {
             cached: nil,
             fallbackBoldColor: cachedTerminalTheme.boldColor
         )
-        themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
+        if advanceThemeRevision {
+            themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
+        }
         return themedFrame
     }
 

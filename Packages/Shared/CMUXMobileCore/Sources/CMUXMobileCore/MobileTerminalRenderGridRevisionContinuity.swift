@@ -1,7 +1,7 @@
 /// Consumer-side chain identity of the last delivered render-grid frame.
 ///
-/// Every emitted delta names the ``MobileTerminalRenderGridFrame/renderRevision``
-/// of the frame it was diffed against (``MobileTerminalRenderGridFrame/deltaBaseRenderRevision``).
+/// Every emitted delta names the exact emission identity of the frame it was
+/// diffed against (``MobileTerminalRenderGridFrame/deltaBaseEmissionRevision``).
 /// A consumer records this identity for each delivered frame and admits a
 /// delta only when its base is exactly the delivered frame. Any dropped, shed,
 /// reordered, or otherwise missed frame breaks the chain and the consumer must
@@ -11,18 +11,28 @@
 public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
     /// Producer lifetime that owns the revision sequence.
     public let renderEpoch: String
-    /// Capture revision of the delivered frame.
+    /// Rendered-content revision of the delivered frame.
     public let renderRevision: UInt64
+    /// Exact emitted-frame identity of the delivered frame.
+    public let emissionRevision: UInt64
 
-    public init(renderEpoch: String, renderRevision: UInt64) {
+    public init(
+        renderEpoch: String,
+        renderRevision: UInt64,
+        emissionRevision: UInt64? = nil
+    ) {
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
+        self.emissionRevision = emissionRevision ?? renderRevision
     }
 
     /// The chain identity a consumer records after delivering `frame`.
     public init(delivered frame: MobileTerminalRenderGridFrame) {
         self.renderEpoch = frame.renderEpoch
         self.renderRevision = frame.renderRevision
+        self.emissionRevision = frame.emissionRevision > 0
+            ? frame.emissionRevision
+            : frame.renderRevision
     }
 
     /// Whether `frame` may patch on top of the delivered state.
@@ -39,7 +49,15 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         _ frame: MobileTerminalRenderGridFrame,
         delivered: Self?
     ) -> Bool {
-        guard !frame.full, let base = frame.deltaBaseRenderRevision else { return true }
+        guard !frame.full else { return true }
+        if let emissionBase = frame.deltaBaseEmissionRevision {
+            guard !frame.renderEpoch.isEmpty,
+                  frame.emissionRevision > emissionBase,
+                  let delivered else { return false }
+            return delivered.renderEpoch == frame.renderEpoch
+                && delivered.emissionRevision == emissionBase
+        }
+        guard let base = frame.deltaBaseRenderRevision else { return true }
         guard !frame.renderEpoch.isEmpty else { return true }
         guard frame.renderRevision > base else { return false }
         guard let delivered else { return false }

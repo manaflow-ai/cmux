@@ -191,7 +191,7 @@ import Testing
 
     @Test func viewportResponseComputesEffectiveGrid() throws {
         let data = Data(
-            #"{"columns":120,"rows":40,"render_epoch":"epoch-7","render_revision_floor":42}"#.utf8
+            #"{"columns":120,"rows":40,"render_epoch":"epoch-7","render_revision_floor":42,"render_emission_revision_floor":57}"#.utf8
         )
         let response = try MobileTerminalViewportResponse.decode(data)
         let grid = try #require(response.effectiveGrid)
@@ -199,6 +199,7 @@ import Testing
         #expect(grid.rows == 40)
         #expect(response.renderEpoch == "epoch-7")
         #expect(response.renderRevisionFloor == 42)
+        #expect(response.renderEmissionRevisionFloor == 57)
     }
 
     @Test func viewportResponseToleratesHostWithoutRenderFloor() throws {
@@ -207,6 +208,7 @@ import Testing
         )
         #expect(response.renderEpoch == nil)
         #expect(response.renderRevisionFloor == nil)
+        #expect(response.renderEmissionRevisionFloor == nil)
     }
 
     @Test func viewportResponseRejectsNonPositiveGrid() throws {

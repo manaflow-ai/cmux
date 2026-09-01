@@ -16,12 +16,17 @@ public struct MobileTerminalViewportResponse: Decodable, Sendable {
     public let renderEpoch: String?
     /// Every frame at or below this revision predates the acknowledged viewport.
     public let renderRevisionFloor: UInt64?
+    /// Every frame at or below this emission identity predates the
+    /// acknowledged viewport. This remains distinct from the content token
+    /// because an unchanged replay may legitimately keep `render_revision`.
+    public let renderEmissionRevisionFloor: UInt64?
 
     private enum CodingKeys: String, CodingKey {
         case columns
         case rows
         case renderEpoch = "render_epoch"
         case renderRevisionFloor = "render_revision_floor"
+        case renderEmissionRevisionFloor = "render_emission_revision_floor"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -32,6 +37,10 @@ public struct MobileTerminalViewportResponse: Decodable, Sendable {
         renderRevisionFloor = try container.decodeIfPresent(
             UInt64.self,
             forKey: .renderRevisionFloor
+        )
+        renderEmissionRevisionFloor = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .renderEmissionRevisionFloor
         )
     }
 

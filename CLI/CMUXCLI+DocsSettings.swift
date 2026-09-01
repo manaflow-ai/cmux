@@ -69,15 +69,18 @@ extension CMUXCLI {
         DocsReference(
             topic: "api",
             aliases: ["cli", "socket", "automation", "handles"],
-            summary: "CLI/socket API, handle model, windows, workspaces, panes, and surfaces.",
+            summary: "CLI/socket API, handle model, terminal viewports, windows, workspaces, panes, and surfaces.",
             webURL: "https://cmux.com/docs/api",
             rawResources: [
                 DocsResource(label: "CLI contract", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/cli-contract.md"),
+                DocsResource(label: "terminal viewport contract", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/terminal-viewport.md"),
                 DocsResource(label: "cmux skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux/SKILL.md"),
             ],
             commands: [
                 "cmux identify --json",
                 "cmux tree --all",
+                "cmux terminal viewport 40 20 --surface <id>",
+                "cmux rpc terminal.viewport.set '{\"surface_id\":\"<id>\",\"columns\":40,\"rows\":20}'",
             ]
         ),
         DocsReference(

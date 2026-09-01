@@ -6585,6 +6585,7 @@ struct CMUXCLI {
                 default:
                     throw CLIError(message: compatibleTagsUsage)
                 }
+
                 let response = try client.sendV2(
                     method: "mobile.compatible_tags.set",
                     params: ["tags": resolvedTags]
@@ -6614,6 +6615,15 @@ struct CMUXCLI {
             default:
                 throw CLIError(message: mobileUsage + "\n" + compatibleTagsUsage)
             }
+
+        case "terminal":
+            try runTerminalViewportCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -18363,6 +18373,8 @@ struct CMUXCLI {
 
             Print server capabilities as JSON.
             """
+        case "terminal":
+            return Self.terminalViewportUsage + "\n\n" + Self.terminalViewportHelp
         case "canvas":
             return """
             Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
@@ -40880,6 +40892,7 @@ export default CMUXSessionRestore;
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
+          terminal viewport <columns> <rows> [--surface <id>] | reset
           vm <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
@@ -40940,6 +40953,7 @@ export default CMUXSessionRestore;
           rename-window [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
           current-workspace [--window <id|ref|index>]
           read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
+          terminal viewport <columns> <rows> [--surface <id|ref|index>] | reset
           send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>

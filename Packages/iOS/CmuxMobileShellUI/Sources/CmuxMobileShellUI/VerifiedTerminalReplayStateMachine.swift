@@ -19,9 +19,12 @@ final class VerifiedTerminalReplayStateMachine {
     private var activeTransaction: Transaction?
     private var activeRenderEpoch: String?
     private var retiredRenderEpochs = Set<String>()
-    private var lastVerifiedRenderRevision: UInt64 = 0
+    /// Exact emission identity of the last verified frame. Content revisions
+    /// intentionally remain stable across unchanged replays, so freshness
+    /// gates use the separate emission identity.
+    private var lastVerifiedEmissionRevision: UInt64 = 0
     private var lastVerifiedStateSeq: UInt64 = 0
-    private var viewportRenderRevisionFloors: [String: UInt64] = [:]
+    private var viewportEmissionRevisionFloors: [String: UInt64] = [:]
     /// This phone's current base-font capacity, fed from every prepared or
     /// sent viewport report. Nil until the first report.
     private var expectedViewportDimensions: Dimensions?
@@ -78,15 +81,16 @@ final class VerifiedTerminalReplayStateMachine {
         guard phase != .invalidated else {
             return .keepFrozenAndRequestReplay
         }
+        let frameEmissionRevision = Self.emissionRevision(for: frame)
         guard !frame.renderEpoch.isEmpty,
-              frame.renderRevision > 0 else {
+              frame.renderRevision > 0 || frameEmissionRevision > 0 else {
             return rejectFrame()
         }
         guard phase != .recovering || frame.full else {
             return rejectFrame()
         }
-        if let floor = viewportRenderRevisionFloors[frame.renderEpoch],
-           frame.renderRevision <= floor {
+        if let floor = viewportEmissionRevisionFloors[frame.renderEpoch],
+           frameEmissionRevision <= floor {
             return rejectFrame()
         }
         let startsNewEpoch = activeRenderEpoch != frame.renderEpoch
@@ -126,7 +130,7 @@ final class VerifiedTerminalReplayStateMachine {
                 }
             }
             activeRenderEpoch = frame.renderEpoch
-            lastVerifiedRenderRevision = 0
+            lastVerifiedEmissionRevision = 0
             lastVerifiedStateSeq = 0
         }
 
@@ -135,6 +139,7 @@ final class VerifiedTerminalReplayStateMachine {
             id: nextTransactionID,
             renderEpoch: frame.renderEpoch,
             renderRevision: frame.renderRevision,
+            emissionRevision: frameEmissionRevision,
             stateSeq: frame.stateSeq,
             expected: expected
         )
@@ -231,7 +236,7 @@ final class VerifiedTerminalReplayStateMachine {
         }
         guard let observedFrame,
               observedFrame.renderEpoch == transaction.renderEpoch,
-              observedFrame.renderRevision == transaction.renderRevision,
+              Self.emissionRevision(for: observedFrame) == transaction.emissionRevision,
               let observed = MobileTerminalRenderGridVisualSnapshot(fullFrame: observedFrame),
               observed == transaction.expected else {
             activeTransaction = nil
@@ -240,7 +245,7 @@ final class VerifiedTerminalReplayStateMachine {
         }
 
         visibleSnapshot = transaction.expected
-        lastVerifiedRenderRevision = transaction.renderRevision
+        lastVerifiedEmissionRevision = transaction.emissionRevision
         lastVerifiedStateSeq = transaction.stateSeq
         activeTransaction = nil
         phase = .ready
@@ -274,6 +279,7 @@ final class VerifiedTerminalReplayStateMachine {
     func acknowledgeViewport(
         renderEpoch: String,
         renderRevisionFloor: UInt64,
+        renderEmissionRevisionFloor: UInt64? = nil,
         reportID: UInt64 = 0,
         negotiationGeneration: UInt64 = 0,
         reportedColumns: Int = 0,
@@ -282,9 +288,10 @@ final class VerifiedTerminalReplayStateMachine {
         grantedRows: Int = 0
     ) {
         guard !renderEpoch.isEmpty else { return }
-        viewportRenderRevisionFloors[renderEpoch] = max(
-            viewportRenderRevisionFloors[renderEpoch] ?? 0,
-            renderRevisionFloor
+        let effectiveFloor = renderEmissionRevisionFloor ?? renderRevisionFloor
+        viewportEmissionRevisionFloors[renderEpoch] = max(
+            viewportEmissionRevisionFloors[renderEpoch] ?? 0,
+            effectiveFloor
         )
         if let expected = expectedViewportDimensions,
            negotiationGeneration == self.negotiationGeneration,
@@ -301,7 +308,7 @@ final class VerifiedTerminalReplayStateMachine {
         }
         guard let activeTransaction,
               activeTransaction.renderEpoch == renderEpoch,
-              activeTransaction.renderRevision <= renderRevisionFloor else {
+              activeTransaction.emissionRevision <= effectiveFloor else {
             return
         }
         self.activeTransaction = nil
@@ -331,7 +338,7 @@ final class VerifiedTerminalReplayStateMachine {
         visibleSnapshot = nil
         activeRenderEpoch = nil
         retiredRenderEpochs.removeAll()
-        viewportRenderRevisionFloors.removeAll()
+        viewportEmissionRevisionFloors.removeAll()
         // Drop the whole negotiation, not just its counters: report IDs
         // restart at zero, so a delayed acknowledgement from the previous
         // session would otherwise compare as "newest" against retained
@@ -342,7 +349,7 @@ final class VerifiedTerminalReplayStateMachine {
         renegotiationHeldFrames = 0
         newestViewportReportID = 0
         negotiationGeneration &+= 1
-        lastVerifiedRenderRevision = 0
+        lastVerifiedEmissionRevision = 0
         lastVerifiedStateSeq = 0
     }
 
@@ -350,7 +357,13 @@ final class VerifiedTerminalReplayStateMachine {
         _ frame: MobileTerminalRenderGridFrame
     ) -> Bool {
         guard frame.renderEpoch == activeRenderEpoch else { return false }
-        let pendingRevision = activeTransaction?.renderRevision ?? 0
-        return frame.renderRevision > max(lastVerifiedRenderRevision, pendingRevision)
+        let pendingRevision = activeTransaction?.emissionRevision ?? 0
+        return Self.emissionRevision(for: frame) > max(lastVerifiedEmissionRevision, pendingRevision)
+    }
+
+    private static func emissionRevision(
+        for frame: MobileTerminalRenderGridFrame
+    ) -> UInt64 {
+        frame.emissionRevision > 0 ? frame.emissionRevision : frame.renderRevision
     }
 }

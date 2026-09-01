@@ -23,11 +23,16 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// epoch, so consumers can order the new stream without accepting delayed
     /// frames from the retired producer.
     public var renderEpoch: String
-    /// Monotonic producer capture revision for this surface.
+    /// Monotonic rendered-content revision for this surface and producer epoch.
     ///
-    /// Unlike ``stateSeq``, this advances for every captured grid, including
-    /// geometry-only captures that share the same terminal byte sequence.
+    /// This advances only when the rendered grid (including its size, cursor,
+    /// styles, or active screen) changes. Re-emitting an unchanged frame for
+    /// polling or replay keeps this value stable. Use ``emissionRevision`` for
+    /// exact frame-emission identity.
     public var renderRevision: UInt64
+    /// Monotonic identity of an emitted frame, including an unchanged replay.
+    /// This is transport sequencing metadata rather than a content token.
+    public var emissionRevision: UInt64
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -93,13 +98,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// has a different history count missed a frame; its grid and scrollback
     /// alignment can no longer be patched, so it must request a full replay.
     public var deltaBaseHistoryRows: UInt64?
-    /// ``renderRevision`` of the producer's previously emitted frame — the
-    /// exact frame this delta was diffed against. Unlike
-    /// ``deltaBaseHistoryRows`` this changes on EVERY emitted frame, so a
-    /// consumer detects a missed in-place repaint (history unchanged) that the
-    /// history chain cannot see, and must request a full replay instead of
-    /// patching a grid the producer no longer models.
+    /// ``renderRevision`` of the producer's previously emitted frame. This
+    /// legacy field remains for content-token compatibility; new consumers
+    /// should use ``deltaBaseEmissionRevision`` for exact delta continuity.
     public var deltaBaseRenderRevision: UInt64?
+    /// ``emissionRevision`` of the producer's previously emitted frame — the
+    /// exact frame this delta was diffed against. Unlike the content revision,
+    /// this changes for every emitted frame, including unchanged replays.
+    public var deltaBaseEmissionRevision: UInt64?
     /// Monotonic identity of the producer's absolute row space. It changes when
     /// retained rows can move to different offsets (scrollback eviction,
     /// reflow, erase), invalidating history-growth arithmetic for that step.
@@ -111,6 +117,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         stateSeq: UInt64,
         renderEpoch: String = "",
         renderRevision: UInt64 = 0,
+        emissionRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -133,7 +140,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         historyRows: UInt64? = nil,
         rowSpaceRevision: UInt64? = nil,
         deltaBaseHistoryRows: UInt64? = nil,
-        deltaBaseRenderRevision: UInt64? = nil
+        deltaBaseRenderRevision: UInt64? = nil,
+        deltaBaseEmissionRevision: UInt64? = nil
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -198,6 +206,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.stateSeq = stateSeq
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
+        self.emissionRevision = emissionRevision
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -227,6 +236,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.rowSpaceRevision = rowSpaceRevision
         self.deltaBaseHistoryRows = full ? nil : deltaBaseHistoryRows
         self.deltaBaseRenderRevision = full ? nil : deltaBaseRenderRevision
+        self.deltaBaseEmissionRevision = full ? nil : deltaBaseEmissionRevision
     }
 
     public init(from decoder: Decoder) throws {
@@ -236,6 +246,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
         let renderEpoch = try container.decodeIfPresent(String.self, forKey: .renderEpoch) ?? ""
         let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision) ?? 0
+        let emissionRevision = try container.decodeIfPresent(UInt64.self, forKey: .emissionRevision) ?? 0
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -259,12 +270,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let rowSpaceRevision = try container.decodeIfPresent(UInt64.self, forKey: .rowSpaceRevision)
         let deltaBaseHistoryRows = try container.decodeIfPresent(UInt64.self, forKey: .deltaBaseHistoryRows)
         let deltaBaseRenderRevision = try container.decodeIfPresent(UInt64.self, forKey: .deltaBaseRenderRevision)
+        let deltaBaseEmissionRevision = try container.decodeIfPresent(UInt64.self, forKey: .deltaBaseEmissionRevision)
         try self.init(
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
+            emissionRevision: emissionRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -287,7 +300,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             historyRows: historyRows,
             rowSpaceRevision: rowSpaceRevision,
             deltaBaseHistoryRows: deltaBaseHistoryRows,
-            deltaBaseRenderRevision: deltaBaseRenderRevision
+            deltaBaseRenderRevision: deltaBaseRenderRevision,
+            deltaBaseEmissionRevision: deltaBaseEmissionRevision
         )
     }
 
@@ -296,6 +310,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         stateSeq: UInt64,
         renderEpoch: String = "",
         renderRevision: UInt64 = 0,
+        emissionRevision: UInt64 = 0,
         columns: Int,
         rows: Int,
         text: String,
@@ -323,6 +338,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             stateSeq: stateSeq,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
+            emissionRevision: emissionRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -401,7 +417,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         scrolledRows: Int = 0,
         carryScrollbackSpans: Bool = false,
         deltaBaseHistoryRows: UInt64? = nil,
-        deltaBaseRenderRevision: UInt64? = nil
+        deltaBaseRenderRevision: UInt64? = nil,
+        deltaBaseEmissionRevision: UInt64? = nil
     ) throws -> MobileTerminalRenderGridFrame {
         // A screen-anchored burst delta keeps the frame's scrollback spans:
         // they are the history rows that scrolled through between producer
@@ -412,6 +429,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             stateSeq: stateSeq,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
+            emissionRevision: emissionRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -436,7 +454,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             historyRows: historyRows,
             rowSpaceRevision: rowSpaceRevision,
             deltaBaseHistoryRows: deltaBaseHistoryRows,
-            deltaBaseRenderRevision: deltaBaseRenderRevision
+            deltaBaseRenderRevision: deltaBaseRenderRevision,
+            deltaBaseEmissionRevision: deltaBaseEmissionRevision
         )
     }
 

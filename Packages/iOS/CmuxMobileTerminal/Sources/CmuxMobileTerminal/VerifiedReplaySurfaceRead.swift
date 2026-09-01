@@ -13,6 +13,7 @@ nonisolated struct VerifiedReplaySurfaceRead: @unchecked Sendable {
     let stateSeq: UInt64
     let renderEpoch: String
     let renderRevision: UInt64
+    let emissionRevision: UInt64 = 0
     let expectedCursorColor: String?
     let configuredCursorColor: String?
     /// Anchor of the frame being verified. Screen-anchored frames are read
@@ -55,6 +56,7 @@ extension VerifiedReplaySurfaceRead {
         guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
         frame.renderEpoch = renderEpoch
         frame.renderRevision = renderRevision
+        frame.emissionRevision = emissionRevision
         return frame
     }
 }

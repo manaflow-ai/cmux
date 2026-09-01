@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxFoundation
 import CmuxTerminal
 import Foundation
@@ -46,11 +47,12 @@ final class MobileTerminalByteTee {
         var seq: UInt64 = 0
         /// Tail-trimmed ring (~256 KB) for replay on cold attach.
         var replayBuffer: Data = Data()
-        /// Unique lifetime of this surface's render revision sequence.
+        /// Unique lifetime of this surface's render revision sequences.
         var renderEpoch = UUID().uuidString
-        /// Producer capture order, independent of byte sequence. Geometry-only
-        /// captures advance this even when `seq` is unchanged.
-        var renderRevision: UInt64 = 0
+        /// Content/emission counters are tracked independently for each anchor.
+        /// The anchor changes the visible row projection, so a viewport scroll
+        /// must not perturb a screen-anchored polling token (or vice versa).
+        var revisionTrackers: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridRevisionTracker] = [:]
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
@@ -119,21 +121,51 @@ final class MobileTerminalByteTee {
     ///
     /// The state is installed even before the first capture so a viewport RPC
     /// can return a floor in the same epoch that the subsequent replay uses.
-    func currentRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
+    func currentRenderCaptureIdentity(
+        surfaceID: UUID,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
+    ) -> (epoch: String, revision: UInt64, emissionRevision: UInt64) {
         let state = statesBySurfaceID[surfaceID] ?? SurfaceState()
         statesBySurfaceID[surfaceID] = state
-        return (epoch: state.renderEpoch, revision: state.renderRevision)
+        let tracker = state.revisionTrackers[anchor]
+            ?? MobileTerminalRenderGridRevisionTracker(renderEpoch: state.renderEpoch)
+        return (
+            epoch: tracker.currentIdentity.renderEpoch,
+            revision: tracker.currentIdentity.renderRevision,
+            emissionRevision: tracker.currentIdentity.emissionRevision
+        )
     }
 
-    /// Claims the next epoch-aware render-grid capture identity for one surface.
-    func nextRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
+    /// Records a complete rendered frame and returns its content/emission identity.
+    /// Replaying an unchanged frame leaves `revision` stable while still
+    /// advancing `emissionRevision` for exact delta-base continuity.
+    func recordRenderGridFrame(
+        surfaceID: UUID,
+        anchor: MobileTerminalRenderGridFrame.Anchor,
+        fullFrame: MobileTerminalRenderGridFrame
+    ) -> (epoch: String, revision: UInt64, emissionRevision: UInt64) {
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        state.renderRevision &+= 1
-        if state.renderRevision == 0 {
-            state.renderRevision = 1
-        }
+        var tracker = state.revisionTrackers[anchor]
+            ?? MobileTerminalRenderGridRevisionTracker(renderEpoch: state.renderEpoch)
+        let identity = tracker.record(fullFrame: fullFrame)
+        state.revisionTrackers[anchor] = tracker
         statesBySurfaceID[surfaceID] = state
-        return (epoch: state.renderEpoch, revision: state.renderRevision)
+        return (
+            epoch: identity.renderEpoch,
+            revision: identity.renderRevision,
+            emissionRevision: identity.emissionRevision
+        )
+    }
+
+    /// Compatibility capture accessor retained for callers that need a
+    /// producer epoch before exporting a frame. It no longer advances the
+    /// content revision merely because a capture was requested.
+    func nextRenderCaptureIdentity(
+        surfaceID: UUID,
+        anchor: MobileTerminalRenderGridFrame.Anchor = .viewport
+    ) -> (epoch: String, revision: UInt64) {
+        let identity = currentRenderCaptureIdentity(surfaceID: surfaceID, anchor: anchor)
+        return (epoch: identity.epoch, revision: identity.revision)
     }
 
     /// Opens a bounded raw-output subscription for one authenticated Iroh

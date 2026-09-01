@@ -11,8 +11,12 @@ extension TerminalController {
     nonisolated func processSocketLineAsync(
         _ command: String,
         passwordAuthorization: SocketPasswordAuthorization,
-        rateLimiter: ControlClientRateLimiter
-    ) async -> (response: String?, passwordAuthorization: SocketPasswordAuthorization) {
+        rateLimiter: ControlClientRateLimiter,
+        localViewportSession: LocalTerminalViewportSession? = nil
+    ) async -> (
+        response: String?,
+        passwordAuthorization: SocketPasswordAuthorization
+    ) {
         var nextPasswordAuthorization = passwordAuthorization
         if let response = authResponseIfNeeded(
             for: command,
@@ -32,7 +36,10 @@ extension TerminalController {
             )
         }
 
-        let response = await processCommandUsingSocketExecutionPolicyAsync(command)
+        let response = await processCommandUsingSocketExecutionPolicyAsync(
+            command,
+            localViewportSession: localViewportSession
+        )
         return (response, nextPasswordAuthorization)
     }
 
@@ -40,7 +47,8 @@ extension TerminalController {
     /// and JSON encoding remain on the connection task; only the minimal
     /// main-actor action is awaited.
     nonisolated func processCommandUsingSocketExecutionPolicyAsync(
-        _ command: String
+        _ command: String,
+        localViewportSession: LocalTerminalViewportSession? = nil
     ) async -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("{") {
@@ -64,9 +72,15 @@ extension TerminalController {
                 params: authorizedRequest.params
             ) {
                 if policy.runsOnSocketWorker {
-                    return await self.socketWorkerV2ResponseAsync(authorizedRequest)
+                    return await self.socketWorkerV2ResponseAsync(
+                        authorizedRequest,
+                        localViewportSession: localViewportSession
+                    )
                 }
-                return await self.processParsedV2CommandAsync(authorizedRequest)
+                return await self.processParsedV2CommandAsync(
+                    authorizedRequest,
+                    localViewportSession: localViewportSession
+                )
             }
         }
 
@@ -107,7 +121,8 @@ extension TerminalController {
     /// that result for subsequent polls. Legacy worker methods remain on their
     /// established worker path.
     private nonisolated func socketWorkerV2ResponseAsync(
-        _ request: ControlRequest
+        _ request: ControlRequest,
+        localViewportSession: LocalTerminalViewportSession?
     ) async -> String? {
         if request.method == "feed.jump" {
             guard let result = await controlCommandCoordinator
@@ -125,7 +140,14 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, result)
         }
 
-        if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
+        let hasLocalViewportOverride = if let localViewportSession,
+                                            request.method == "surface.read_text" {
+            await !localViewportSession.isEmpty
+        } else {
+            false
+        }
+        if !hasLocalViewportOverride,
+           ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
                 params: request.params,
@@ -136,7 +158,8 @@ extension TerminalController {
             return Self.v2Encoder.response(id: request.id, snapshotResult)
         }
 
-        if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
+        if !hasLocalViewportOverride,
+           ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let coordinatorResult = await v2MainAsync({
                self.controlCommandCoordinator.handleSocketWorkerV2(
                    request,
@@ -152,7 +175,7 @@ extension TerminalController {
         }
 
         if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
-            let response = await v2MainAsync {
+            let response = await v2MainAsync { () -> String? in
                 self.socketWorkerV2Response(handling: request)
             }
             Task { @MainActor [weak self] in
@@ -178,16 +201,26 @@ extension TerminalController {
             // the miss on the main actor only when no published snapshot exists;
             // steady-state polling takes the branch above and never enters
             // this fallback.
-            let response = await v2MainAsync {
-                self.socketWorkerV2Response(
-                    handling: ControlRequest(
-                        id: request.id,
-                        method: request.method,
-                        params: request.params
-                    )
+            let response: String?
+            if let localViewportSession,
+               request.method == "surface.read_text" {
+                response = await self.v2SurfaceReadTextForLocalConnection(
+                    request: request,
+                    session: localViewportSession
                 )
+            } else {
+                response = await v2MainAsync { () -> String? in
+                    self.socketWorkerV2Response(
+                        handling: ControlRequest(
+                            id: request.id,
+                            method: request.method,
+                            params: request.params
+                        )
+                    )
+                }
             }
-            if let response,
+            if !hasLocalViewportOverride,
+               let response,
                let result = Self.controlCallResult(fromEncodedResponse: response) {
                 socketReadSnapshotStore.publishResponse(
                     method: request.method,
@@ -268,8 +301,19 @@ extension TerminalController {
     }
 
     private nonisolated func processParsedV2CommandAsync(
-        _ request: ControlRequest
+        _ request: ControlRequest,
+        localViewportSession: LocalTerminalViewportSession?
     ) async -> String {
+        if let localViewportSession,
+           Self.localViewportCommandMethods.contains(request.method) {
+            let response = await v2MainAsync {
+                self.v2LocalViewportCommandResult(
+                    request: request,
+                    session: localViewportSession
+                )
+            }
+            return self.v2Result(id: request.id?.foundationObject, response)
+        }
         let bridgedParams = request.params.mapValues(\.foundationObject)
         let method = request.method
         let id = request.id?.foundationObject

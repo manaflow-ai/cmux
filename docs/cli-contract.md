@@ -88,6 +88,7 @@ Environment:
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
+| `terminal` | Terminal viewport namespace: `terminal viewport <columns> <rows>` or `terminal viewport reset`; overrides are local to the current socket connection. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
 | `current-window` | Print the selected window ID. |
@@ -417,6 +418,24 @@ close or detach it before changing the viewport. In that state the v2 method
 returns `invalid_state` with `reason: attached_browser_inspector`. Opening or
 redocking an attached inspector while emulation is active resets the viewport to
 native sizing before WebKit takes ownership of the split geometry.
+
+Terminal viewport methods:
+
+| Method / command | Contract |
+| --- | --- |
+| `terminal.viewport.set` / `cmux terminal viewport <columns> <rows>` | Set a cell viewport for this socket connection and surface. The exported render grid and text reads are projected to that size; the pane and PTY are not resized. `width`/`height` may be supplied as pixel dimensions. |
+| `terminal.viewport.reset` / `cmux terminal viewport reset` | Remove this connection's override and restore the native render projection. |
+
+Viewport overrides are connection-local and are cleared on disconnect. See
+[terminal-viewport.md](terminal-viewport.md) for the wire response and the
+`render_grid` content/emission revision contract.
+
+For `terminal.render_grid`, `render_revision` is stable across unchanged
+replays and transport-only metadata changes, and advances only for visible
+content or size changes. The separate
+`emission_revision` advances for every emitted frame; deltas identify their
+exact predecessor with `delta_base_emission_revision`. A polling client should
+compare `render_epoch` + `render_revision`, not the emission counter.
 
 Hook subcommands:
 
