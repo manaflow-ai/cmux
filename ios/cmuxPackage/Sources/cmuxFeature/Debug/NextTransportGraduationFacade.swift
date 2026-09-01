@@ -326,7 +326,7 @@ final class NextTransportGraduationFacade {
         clientStartupTasks.removeValue(forKey: macID)
         await staleClient?.disconnect()
         graduationLog.notice(
-            "next-transport unavailable (Self.nextTransportFailureThreshold, privacy: .public) times for mac=\(String(macID.prefix(8)), privacy: .public); routing -> unknown for legacy recovery")
+            "next-transport unavailable (\(Self.nextTransportFailureThreshold, privacy: .public)) times for mac=\(String(macID.prefix(8)), privacy: .public); routing -> unknown for legacy recovery")
     }
 
     /// True when this request's Mac is a next-transport Mac: traffic MUST

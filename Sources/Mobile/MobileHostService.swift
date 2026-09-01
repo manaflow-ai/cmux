@@ -1157,6 +1157,12 @@ final class MobileHostService {
     }
 
     func stop() {
+        let managedRemoteControlDisabled = !MobileRemoteControlPolicy.isEnabled
+#if DEBUG
+        if managedRemoteControlDisabled {
+            nextTransportRuntime.stopForManagedPolicy()
+        }
+#endif
         MobileHostIrohRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
@@ -1164,9 +1170,13 @@ final class MobileHostService {
         }
         MobileHostEventSubscriptionTracker.reset()
         // The DEBUG next-transport runtime owns its endpoint and presence
-        // slot independently; stopping the legacy listener must not erase a
-        // still-live parallel-host advertisement.
-        MobileHostPublicStatusCache.removeLegacyAndIroh()
+        // slot independently during an ordinary listener stop. A managed
+        // policy teardown stops that runtime above and must clear every route.
+        if managedRemoteControlDisabled {
+            MobileHostPublicStatusCache.removeAll()
+        } else {
+            MobileHostPublicStatusCache.removeLegacyAndIroh()
+        }
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
     }
@@ -1315,6 +1325,11 @@ final class MobileHostService {
         }
         remoteControlPolicyStopApplied = false
         let defaults = UserDefaults.standard
+#if DEBUG
+        // The managed-policy stop leaves the user's DEBUG opt-in untouched;
+        // re-arm that independent host when policy enforcement is lifted.
+        nextTransportRuntime.startIfEnabled()
+#endif
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
         MobileHostIrohRuntime.shared.setDesiredActive(true)

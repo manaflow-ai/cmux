@@ -12,12 +12,23 @@ import OSLog
 /// event writer — assembled over bridged raw streams. Features, quotas, and
 /// lifecycle ownership are the legacy code paths, unchanged.
 enum MobileHostNextTransportBridge {
+    private static func hex(_ bytes: Data) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var output = [UInt8]()
+        output.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            output.append(digits[Int(byte >> 4)])
+            output.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: output, as: UTF8.self)
+    }
+
     /// The admitted-peer tuple downstream authorization keys on, minted from
     /// the verified next-transport grant plus the QUIC-authenticated key.
     static func synthesizedPeer(
         grant: PairingGrant, deviceKey: Data
     ) -> CmxIrohAdmittedPeer? {
-        let hex = deviceKey.map { String(format: "%02x", $0) }.joined()
+        let hex = Self.hex(deviceKey)
         guard let endpointID = try? CmxIrohPeerIdentity(endpointID: hex) else { return nil }
         return CmxIrohAdmittedPeer(
             peer: CmxIrohGrantPeer(
@@ -56,7 +67,7 @@ enum MobileHostNextTransportBridge {
                 """
                 bridge: unusable device key; closing conn=\(connID, privacy: .public) \
                 device=\(devicePrefix, privacy: .public) \
-                key=\(deviceKey.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+                key=\(Self.hex(Data(deviceKey.prefix(4))), privacy: .public)
                 """)
             await connection.closeAll(reason: nil)
             return

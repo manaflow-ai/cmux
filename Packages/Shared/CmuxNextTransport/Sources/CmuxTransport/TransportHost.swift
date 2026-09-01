@@ -108,6 +108,20 @@ public actor TransportHost {
         }
         revokedGrantIDs.insert(id)
         await onGrantRevoked?(id)
+        // Revocation is authoritative for already-admitted sessions too:
+        // close every matching connection immediately instead of waiting for
+        // its next reconnect or expiry tick.
+        let matches = sessions.filter { _, session in session.grant.grantID == id }
+        for (key, session) in matches {
+            guard let current = sessions[key], current.connection === session.connection else {
+                continue
+            }
+            sessions.removeValue(forKey: key)
+            current.cancelServices()
+            await current.connection.closeAll(
+                reason: ConnectionTermination(code: DenialCode.revoked.rawValue))
+            counters.closesByCode[DenialCode.revoked.rawValue, default: 0] += 1
+        }
     }
 
     /// Fault injection (harness spec 1.2): deny every admission with a fixed

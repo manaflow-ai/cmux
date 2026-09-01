@@ -88239,6 +88239,57 @@
         }
       }
     },
+    "debug.menu.nextTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Transport (dev)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次世代トランスポート（開発）"
+          }
+        }
+      }
+    },
+    "debug.menu.nextTransport.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Parallel Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並列ホストを有効にする"
+          }
+        }
+      }
+    },
+    "debug.menu.nextTransport.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parallel Host Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並列ホストが有効"
+          }
+        }
+      }
+    },
     "debug.menu.notification.all": {
       "extractionState": "manual",
       "localizations": {

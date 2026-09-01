@@ -193,6 +193,19 @@ final class MobileHostNextTransportRuntime {
         return Int64(elapsed.components.seconds) * 1_000
             + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)
     }
+
+    /// Deterministic lowercase hex for identity diagnostics; avoids the
+    /// locale-sensitive Foundation formatter on concurrent transport paths.
+    private static func hex(_ bytes: Data) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var output = [UInt8]()
+        output.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            output.append(digits[Int(byte >> 4)])
+            output.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: output, as: UTF8.self)
+    }
     /// Scheduler for genuine connection deadlines and credential refresh
     /// delays. It is injected so tests can advance a virtual clock and so no
     /// runtime path relies on an unowned global sleeper.
@@ -223,6 +236,8 @@ final class MobileHostNextTransportRuntime {
     /// a stale phone must eventually re-pair rather than retain permanent
     /// access to the bridged application surface.
     private static let grantLifetimeSeconds: Int64 = 86_400
+    private static let grantExpiryCheckIntervalSeconds: Int64 = 60
+    private static let grantExpiryGraceSeconds: Int64 = 3_600
 
     /// Legacy UserDefaults keys (pre-Keychain). Private keys migrate out of
     /// these exactly once (read old → write Keychain → delete old); the
@@ -254,6 +269,7 @@ final class MobileHostNextTransportRuntime {
     private let grantRevocationStore = MobileHostNextTransportGrantRevocationStore()
     private var grantRevocationTask: Task<Void, Never>?
     private var issuedGrantIDs: Set<String> = []
+    private var grantExpiryTask: Task<Void, Never>?
     /// Single owner for enable/disable races: every start belongs to one
     /// generation, disable bumps it, and every post-await step re-checks it,
     /// so a stale start can never publish (or clobber a newer one).
@@ -315,6 +331,11 @@ final class MobileHostNextTransportRuntime {
             mobileHostNextTransportLog.notice("host runtime startIfEnabled: disabled; not starting")
             return
         }
+        guard MobileRemoteControlPolicy.isEnabled else {
+            mobileHostNextTransportLog.notice(
+                "host runtime startIfEnabled: managed remote-control disable; not starting")
+            return
+        }
         guard startTask == nil, endpoint == nil else {
             mobileHostNextTransportLog.notice(
                 """
@@ -331,6 +352,13 @@ final class MobileHostNextTransportRuntime {
             guard let self, self.generation == gen else { return }
             self.startTask = nil
         }
+    }
+
+    /// Stops the DEBUG host for an MDM remote-control disable without changing
+    /// the user's opt-in toggle. ``MobileHostService`` can restart it when the
+    /// managed policy is lifted.
+    func stopForManagedPolicy() {
+        beginStop(reason: "managed remote-control disable")
     }
 
     /// Tear down synchronously on the main actor (so a re-enable can start
@@ -351,6 +379,8 @@ final class MobileHostNextTransportRuntime {
         acceptTask = nil
         credentialTask?.cancel()
         credentialTask = nil
+        grantExpiryTask?.cancel()
+        grantExpiryTask = nil
         for task in serveTasks.values { task.cancel() }
         serveTasks.removeAll()
         let grantsToRevoke = issuedGrantIDs
@@ -384,6 +414,27 @@ final class MobileHostNextTransportRuntime {
             }
         }
         mobileHostNextTransportLog.notice("host stop done state=off")
+    }
+
+    /// Drives the host's grant lifecycle while the endpoint is live. Admission
+    /// checks alone cannot retire a connection that remains established past
+    /// its grant expiry, so this bounded tick calls the authoritative host
+    /// reconciler and reaps transport-closed sessions.
+    private func startGrantExpiryLoop(host: TransportHost, generation gen: UInt64) {
+        grantExpiryTask?.cancel()
+        let sleep = self.sleep
+        grantExpiryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.generation == gen, self.endpoint != nil else { return }
+                await host.enforceExpiries(now: Int64(Date().timeIntervalSince1970))
+                _ = await host.reapClosedSessions()
+                do {
+                    try await sleep(.seconds(Self.grantExpiryCheckIntervalSeconds))
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
     // MARK: - Ticket + grant surface (gated on `.published`)
@@ -514,7 +565,7 @@ final class MobileHostNextTransportRuntime {
             grant minted device=\(String(deviceID.prefix(8)), privacy: .public) \
             app=\(appIdentity, privacy: .public) \
             grantID=\(grant.grantID, privacy: .public) \
-            key=\(devicePublicKey.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+            key=\(Self.hex(Data(devicePublicKey.prefix(4))), privacy: .public)
             """)
         return .success(json)
     }
@@ -562,6 +613,8 @@ final class MobileHostNextTransportRuntime {
             let revocationStore = grantRevocationStore
             let host = TransportHost(
                 verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+                expiryGraceSeconds: Self.grantExpiryGraceSeconds,
+                expiryWarningSeconds: 600,
                 accountIDProvider: {
                     await MobileHostService.shared.currentAuthenticatedLocalUserID()
                 },
@@ -617,7 +670,8 @@ final class MobileHostNextTransportRuntime {
                 return
             }
             self.endpoint = endpoint
-            endpointID = endpoint.id().toBytes().map { String(format: "%02x", $0) }.joined()
+            startGrantExpiryLoop(host: host, generation: gen)
+            endpointID = Self.hex(endpoint.id().toBytes())
             relayURL = usable.first?.relayUrl
             mobileHostNextTransportLog.notice(
                 """
@@ -1080,7 +1134,7 @@ final class MobileHostNextTransportRuntime {
             mobileHostNextTransportLog.notice(
                 """
                 host signer LOADED (persisted; prior phone grants stay valid) \
-                signerKey=\(signer.publicKeyData.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+                signerKey=\(Self.hex(Data(signer.publicKeyData.prefix(4))), privacy: .public)
                 """)
             return signer
         }
@@ -1090,7 +1144,7 @@ final class MobileHostNextTransportRuntime {
             """
             host signer CREATED (fresh; any previously minted phone grants \
             are now invalid) \
-            signerKey=\(signer.publicKeyData.prefix(4).map { String(format: "%02x", $0) }.joined(), privacy: .public)
+            signerKey=\(Self.hex(Data(signer.publicKeyData.prefix(4))), privacy: .public)
             """)
         return signer
     }
