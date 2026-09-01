@@ -877,11 +877,6 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
-    let plain = Path::new(value);
-    if terminal_pwd_path_is_safe(plain) {
-        return Some(plain.to_owned());
-    }
-
     let mut url = url::Url::parse(value).ok()?;
     if url.scheme() != "file" {
         return None;
@@ -1162,10 +1157,7 @@ mod tests {
         ] {
             assert_eq!(terminal_pwd_to_local_path(path), None, "{path}");
         }
-        assert_eq!(
-            terminal_pwd_to_local_path(r"C:\Users\alice\src"),
-            Some(PathBuf::from(r"C:\Users\alice\src"))
-        );
+        assert_eq!(terminal_pwd_to_local_path(r"C:\Users\alice\src"), None);
         assert_eq!(
             terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
             Some(PathBuf::from(r"C:\Users\alice\src"))
