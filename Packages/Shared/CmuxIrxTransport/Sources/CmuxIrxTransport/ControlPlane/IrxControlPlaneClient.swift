@@ -361,6 +361,10 @@ public actor IrxControlPlaneClient {
                     ["rev": String(fact.rev), "count": String(credentials.count)]
                 )
                 await handlers.onRelayPasses(credentials)
+                // Relay credentials are a revisioned control-plane fact. The
+                // handler has completed, so acknowledge it now to stop the
+                // server retry ladder and advance convergence state.
+                await acknowledge(rev: fact.rev)
             case "hint_update":
                 let fact = try Self.decoder.decode(CTLHintUpdate.self, from: data)
                 journal.record(
@@ -373,6 +377,10 @@ public actor IrxControlPlaneClient {
                 )
                 await handlers.onHintUpdate(
                     fact.payload.endpointID, fact.payload.homeRelayURL)
+                // Hint updates are independently revisioned when delivered
+                // outside a directory snapshot; acknowledge after applying
+                // the handler so replay/retry state can advance.
+                await acknowledge(rev: fact.rev)
             case "directory":
                 // The tolerant overlay is the PRIMARY decode: every list-auth
                 // field is optional there, so directories from both old and
