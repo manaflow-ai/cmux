@@ -5350,11 +5350,20 @@ struct SelectionClickSequence {
     anchor: (u16, u64),
     dragged: bool,
     tracked_anchor: Option<TrackedScreenPoint>,
-    semantic_range: Option<SelectionRange>,
+    semantic_range: Option<GenerationTaggedSelectionRange>,
     /// A failed semantic press keeps `tracked_anchor` alive for a same-press
     /// cell drag, but it must not keep the repeat count alive for the next
     /// press.
     repeatable: bool,
+}
+
+/// A semantic range is valid only for the terminal content generation that
+/// produced it. Screen coordinates can move when output, reflow, or scrollback
+/// changes the terminal, so never union a range from an older generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GenerationTaggedSelectionRange {
+    content_generation: u64,
+    range: SelectionRange,
 }
 
 /// The most recent semantic drag result. Pointer reports often repeat the
@@ -17087,7 +17096,9 @@ impl App {
                 self.selection_click_sequence
                     .as_ref()
                     .and_then(|sequence| sequence.semantic_range)
+                    .filter(|initial| content_generation == Some(initial.content_generation))
                     .map(|initial| {
+                        let initial = initial.range;
                         let start = if (initial.start.row, initial.start.column)
                             <= (range.start.row, range.start.column)
                         {
@@ -22348,6 +22359,9 @@ impl App {
                         (x.saturating_sub(content.x), y.saturating_sub(content.y)),
                         modifiers,
                     );
+                    let content_generation = (mode != SelectionMode::Cell)
+                        .then(|| self.terminal_content_generation(area.surface))
+                        .flatten();
                     if mode == SelectionMode::Cell && modifiers == KeyModifiers::NONE {
                         // Ghostty's cell behavior returns no range on press.
                         // Keep only the tracked anchor until a drag moves it.
@@ -22360,16 +22374,22 @@ impl App {
                             if let Some(sequence) = self.selection_click_sequence.as_mut()
                                 && mode != SelectionMode::Cell
                             {
-                                sequence.semantic_range = Some(SelectionRange {
-                                    start: SelectionPoint {
-                                        column: selection.range().0.0,
-                                        row: selection.range().0.1 as u32,
-                                    },
-                                    end: SelectionPoint {
-                                        column: selection.range().1.0,
-                                        row: selection.range().1.1 as u32,
-                                    },
-                                });
+                                if let Some(content_generation) = content_generation {
+                                    sequence.semantic_range =
+                                        Some(GenerationTaggedSelectionRange {
+                                            content_generation,
+                                            range: SelectionRange {
+                                                start: SelectionPoint {
+                                                    column: selection.range().0.0,
+                                                    row: selection.range().0.1 as u32,
+                                                },
+                                                end: SelectionPoint {
+                                                    column: selection.range().1.0,
+                                                    row: selection.range().1.1 as u32,
+                                                },
+                                            },
+                                        });
+                                }
                             }
                             self.replace_selection(Some(selection));
                         } else {
