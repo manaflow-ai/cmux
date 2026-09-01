@@ -233,7 +233,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_byte=
-            IFS= read -r -t 2 -n 1 cmux_ssh_auth_term_event_byte <&9 || true
+            # Leave half of the overall two-second budget for the confirming
+            # snapshots and force pass when a handler does not publish.
+            IFS= read -r -t 1 -n 1 cmux_ssh_auth_term_event_byte <&9 || true
             exec 9>&-
           }
 
