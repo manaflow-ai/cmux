@@ -11,6 +11,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var catalog: SurfaceCatalog?
     private var providers: [String: CmuxTuiSurfaceProvider] = [:]
     private let links: CloudMachineLinkManager
+    private let manualIOService: CloudTuiManualIOService
     private var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
@@ -18,8 +19,12 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
 
-    init(links: CloudMachineLinkManager = CloudMachineLinkManager()) {
+    init(
+        links: CloudMachineLinkManager = CloudMachineLinkManager(),
+        manualIOService: CloudTuiManualIOService? = nil
+    ) {
         self.links = links
+        self.manualIOService = manualIOService ?? CloudTuiManualIOService()
     }
 
     /// Registers this Mac's cloud machines with the catalog and starts polling.
@@ -114,7 +119,12 @@ final class CmuxTuiSurfaceProviderRegistry {
             if let provider = providers[summary.id] {
                 provider.update(summary: summary)
             } else {
-                let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog)
+                let provider = CmuxTuiSurfaceProvider(
+                    summary: summary,
+                    links: links,
+                    catalog: catalog,
+                    manualIOService: manualIOService
+                )
                 providers[summary.id] = provider
                 catalog.register(provider)
             }
@@ -168,6 +178,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     private var summary: VMSummary
     private let links: CloudMachineLinkManager
+    private let manualIOService: CloudTuiManualIOService
     private unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
     private var refreshDebounce: Task<Void, Never>?
@@ -185,11 +196,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// no longer resolves in cmux-tui) can still be closed through its tab.
     private var tabByTerminal: [String: String] = [:]
 
-    init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
+    init(
+        summary: VMSummary,
+        links: CloudMachineLinkManager,
+        catalog: SurfaceCatalog,
+        manualIOService: CloudTuiManualIOService
+    ) {
         machineID = summary.id
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.manualIOService = manualIOService
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
     }
 
@@ -552,12 +569,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let clientURL = CloudTuiClientPaths.clientURL() else {
             throw CloudMachineLinkManager.ManagerError.clientMissing
         }
-        if CloudTuiManualIO.isEnabled,
-           await CloudTuiManualIO.clientSupportsPipeIO(clientURL: clientURL) {
+        if manualIOService.isEnabled,
+           await manualIOService.clientSupportsPipeIO(clientURL: clientURL) {
             let attach = CloudTuiManualIOAttach(
                 clientPath: clientURL.path,
                 socketPath: connected.socketPath,
-                terminalID: terminalID
+                terminalID: terminalID,
+                resolveSocketPath: { [links, machineID] in
+                    try await links.connected(machineID: machineID).socketPath
+                }
             )
             return try SurfacePaneFactory.makeCloudTuiTerminalPane(attach: attach, at: destination, focus: focus)
         }

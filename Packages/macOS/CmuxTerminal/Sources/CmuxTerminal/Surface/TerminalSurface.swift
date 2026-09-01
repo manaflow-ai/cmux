@@ -229,6 +229,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
+    /// Notifies a manual-I/O owner that this surface became the authoritative
+    /// input and geometry target. This is separate from resize reporting so a
+    /// focus reassertion can reclaim daemon-side sizing even when the grid did
+    /// not change.
+    @MainActor public var onManualGeometryOwnershipChanged: (@MainActor () -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?

@@ -18,11 +18,24 @@ extension TerminalSurface {
         desiredFocusState = focused
     }
 
+    /// Reports a focus transition performed directly by the hosted AppKit
+    /// view, which cannot call ``setFocus(_:force:)`` because it updates the
+    /// native Ghostty handle itself.
+    @MainActor
+    public func notifyManualGeometryOwnershipChanged() {
+        onManualGeometryOwnershipChanged?()
+    }
+
     /// Applies a focus state to the runtime surface (deduplicated).
     @MainActor
     public func setFocus(_ focused: Bool, force: Bool = false) {
         if !focused {
             surfaceView.cancelKeyboardCopyMode()
+        } else {
+            // Focus is the authoritative geometry-owner transition. Notify
+            // even when Ghostty focus is already true because AppKit can
+            // reassert the responder without changing `desiredFocusState`.
+            notifyManualGeometryOwnershipChanged()
         }
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.

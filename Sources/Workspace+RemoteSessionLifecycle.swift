@@ -195,9 +195,8 @@ extension Workspace {
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
         // Manual-IO cloud terminal panes share the reconnect overlay; their
         // Reconnect button skips the pump's remaining backoff.
-        if let pump = TuiManualIOPumpRegistry.shared.pump(forSurfaceID: surfaceId) {
-            pump.retryNow()
-            return true
+        if let pump = terminalPanel(for: surfaceId)?.cloudTuiManualIOPump {
+            return pump.retryNow()
         }
         guard isManagedCloudVMWorkspace,
               isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {

@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxTuiManualIO
 import Foundation
 import Testing
 
@@ -13,6 +14,8 @@ import Testing
 /// argv, the overlay presentation mapping, and the cross-thread input
 /// channel. All pure or pipe-local; no daemon and no app launch involved.
 struct TuiManualIOPumpTests {
+    private var policy: TuiManualIOPumpPolicy { TuiManualIOPumpPolicy() }
+
     // MARK: - Relay exit classification
 
     @Test
@@ -22,24 +25,24 @@ struct TuiManualIOPumpTests {
         warning: something unrelated
         {"exit":{"reason":"terminal-ended"}}
         """
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: stderrText) == .terminalEnded)
+        #expect(policy.relayExit(status: 0, stderrText: stderrText) == .terminalEnded)
         #expect(
-            TuiManualIOPumpPolicy.relayExit(
+            policy.relayExit(
                 status: 0,
                 stderrText: "{\"exit\":{\"reason\":\"parent-closed\"}}\n"
             ) == .parentClosed
         )
         #expect(
-            TuiManualIOPumpPolicy.relayExit(
+            policy.relayExit(
                 status: 2,
                 stderrText: "{\"exit\":{\"reason\":\"daemon-lost\"}}\n"
             ) == .daemonLost
         )
         // Exit 2 without the relay's reason line is a usage error (e.g. a
         // binary without --pipe-io), not an endlessly-retryable outage.
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 2, stderrText: nil) == .failure)
+        #expect(policy.relayExit(status: 2, stderrText: nil) == .failure)
         #expect(
-            TuiManualIOPumpPolicy.relayExit(status: 2, stderrText: "cmux: unknown argument")
+            policy.relayExit(status: 2, stderrText: "cmux: unknown argument")
                 == .failure
         )
     }
@@ -48,39 +51,39 @@ struct TuiManualIOPumpTests {
     func relayExitTreatsUnknownStatusAsFailureAndBareZeroAsEnded() {
         // Exit 0 with no reason line: the relay contract says 0 means "do
         // not respawn", so a missing line must not turn into a retry loop.
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: nil) == .terminalEnded)
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: "garbage") == .terminalEnded)
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 1, stderrText: "usage: ...") == .failure)
-        #expect(TuiManualIOPumpPolicy.relayExit(status: -1, stderrText: nil) == .failure)
+        #expect(policy.relayExit(status: 0, stderrText: nil) == .terminalEnded)
+        #expect(policy.relayExit(status: 0, stderrText: "garbage") == .terminalEnded)
+        #expect(policy.relayExit(status: 1, stderrText: "usage: ...") == .failure)
+        #expect(policy.relayExit(status: -1, stderrText: nil) == .failure)
     }
 
     @Test
     func nextActionRespawnsOnlyForRecoverableExits() {
-        #expect(TuiManualIOPumpPolicy.nextAction(after: .terminalEnded) == .end)
-        #expect(TuiManualIOPumpPolicy.nextAction(after: .daemonLost) == .retry)
-        #expect(TuiManualIOPumpPolicy.nextAction(after: .failure) == .retry)
+        #expect(policy.nextAction(after: .terminalEnded) == .end)
+        #expect(policy.nextAction(after: .daemonLost) == .retry)
+        #expect(policy.nextAction(after: .failure) == .retry)
         // The pump closed stdin itself (teardown/respawn): never a state
         // transition of its own.
-        #expect(TuiManualIOPumpPolicy.nextAction(after: .parentClosed) == .ignore)
+        #expect(policy.nextAction(after: .parentClosed) == .ignore)
     }
 
     // MARK: - Backoff
 
     @Test
     func retryDelayGrowsAndCaps() {
-        #expect(TuiManualIOPumpPolicy.retryDelay(attempt: 1) == .milliseconds(500))
-        #expect(TuiManualIOPumpPolicy.retryDelay(attempt: 2) == .seconds(1))
-        #expect(TuiManualIOPumpPolicy.retryDelay(attempt: 6) == .seconds(16))
-        #expect(TuiManualIOPumpPolicy.retryDelay(attempt: 7) == .seconds(30))
-        #expect(TuiManualIOPumpPolicy.retryDelay(attempt: 100) == .seconds(30))
-        #expect(TuiManualIOPumpPolicy.retryDelay(attempt: 0) == .milliseconds(500))
+        #expect(policy.retryDelay(attempt: 1) == .milliseconds(500))
+        #expect(policy.retryDelay(attempt: 2) == .seconds(1))
+        #expect(policy.retryDelay(attempt: 6) == .seconds(16))
+        #expect(policy.retryDelay(attempt: 7) == .seconds(30))
+        #expect(policy.retryDelay(attempt: 100) == .seconds(30))
+        #expect(policy.retryDelay(attempt: 0) == .milliseconds(500))
     }
 
     // MARK: - Relay stdin wire format
 
     @Test
     func inputLineIsBase64JSONWithTrailingNewline() throws {
-        let line = TuiManualIOPumpPolicy.inputLine(bytes: Data("hi".utf8))
+        let line = policy.inputLine(bytes: Data("hi".utf8))
         let text = String(decoding: line, as: UTF8.self)
         #expect(text.hasSuffix("\n"))
         let object = try JSONSerialization.jsonObject(
@@ -91,7 +94,7 @@ struct TuiManualIOPumpTests {
 
     @Test
     func resizeLineCarriesClampedGrid() throws {
-        let line = TuiManualIOPumpPolicy.resizeLine(cols: 120, rows: 0)
+        let line = policy.resizeLine(cols: 120, rows: 0)
         let text = String(decoding: line, as: UTF8.self)
         #expect(text.hasSuffix("\n"))
         let object = try JSONSerialization.jsonObject(
@@ -106,7 +109,7 @@ struct TuiManualIOPumpTests {
 
     @Test
     func relayArgumentsAreDirectArgvWithoutShellQuoting() {
-        let sessionArguments = TuiManualIOPumpPolicy.relayArguments(
+        let sessionArguments = policy.relayArguments(
             target: .session("cmux-tag"),
             terminalID: "term_abc",
             cols: 100,
@@ -119,7 +122,7 @@ struct TuiManualIOPumpTests {
         // The cloud pane's form: the machine link's local mux socket is a
         // global option and precedes the subcommand (CloudTuiCommandLine
         // convention).
-        let socketArguments = TuiManualIOPumpPolicy.relayArguments(
+        let socketArguments = policy.relayArguments(
             target: .socket("/tmp/link.sock"),
             terminalID: "term_abc",
             cols: 80,
@@ -133,21 +136,30 @@ struct TuiManualIOPumpTests {
 
     @Test
     func resyncResetIsFullResetPlusScrollbackErase() {
-        #expect(TuiManualIOPumpPolicy.resyncReset == Data("\u{1B}c\u{1B}[3J".utf8))
+        #expect(policy.resyncReset == Data("\u{1B}c\u{1B}[3J".utf8))
     }
 
     // MARK: - Overlay presentation
 
     @Test
     func overlayIsHiddenWhileConnectingOrLive() {
-        #expect(TuiManualIOPumpPolicy.overlayPresentation(state: .connecting) == nil)
-        #expect(TuiManualIOPumpPolicy.overlayPresentation(state: .live) == nil)
+        #expect(policy.overlayPresentation(state: .connecting) == nil)
+        #expect(policy.overlayPresentation(state: .live) == nil)
+    }
+
+    @Test
+    func relayOutputRemainsValidAfterTheFirstChunkButNotAfterTerminalEnd() {
+        #expect(policy.acceptsRelayOutput(state: .connecting))
+        #expect(policy.acceptsRelayOutput(state: .live))
+        #expect(policy.acceptsRelayOutput(state: .reconnecting(attempt: 2)))
+        #expect(!policy.acceptsRelayOutput(state: .ended))
+        #expect(!policy.acceptsRelayOutput(state: .failed))
     }
 
     @Test
     func reconnectingOverlayShowsProgressAndRetryButton() throws {
         let presentation = try #require(
-            TuiManualIOPumpPolicy.overlayPresentation(state: .reconnecting(attempt: 3))
+            policy.overlayPresentation(state: .reconnecting(attempt: 3))
         )
         #expect(presentation.showsProgress)
         #expect(presentation.showsReconnectButton)
@@ -157,7 +169,7 @@ struct TuiManualIOPumpTests {
     @Test
     func endedOverlayIsInformationalOnly() throws {
         let presentation = try #require(
-            TuiManualIOPumpPolicy.overlayPresentation(state: .ended)
+            policy.overlayPresentation(state: .ended)
         )
         #expect(!presentation.showsProgress)
         #expect(!presentation.showsReconnectButton)
@@ -166,7 +178,7 @@ struct TuiManualIOPumpTests {
     @Test
     func failedOverlayOffersManualRetryOnly() throws {
         let presentation = try #require(
-            TuiManualIOPumpPolicy.overlayPresentation(state: .failed)
+            policy.overlayPresentation(state: .failed)
         )
         #expect(!presentation.showsProgress)
         #expect(presentation.showsReconnectButton)
@@ -254,34 +266,23 @@ struct TuiManualIOPumpTests {
         channel.closeHandle()
 
         let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let claim = String(decoding: TuiManualIOPumpPolicy.claimGeometryLine, as: UTF8.self)
+        let claim = String(decoding: policy.claimGeometryLine, as: UTF8.self)
         #expect(text == "a\nb\n\(claim)c\nd\n")
     }
 
-    // MARK: - Registry
+    // MARK: - Focus ownership
 
-    @MainActor
     @Test
-    func registryReplacesAndRemovesPumps() {
-        let registry = TuiManualIOPumpRegistry()
-        let surfaceID = UUID()
-        let first = TuiManualIOPump(
-            binaryPath: "/nonexistent",
-            target: .socket("/tmp/link.sock"),
-            terminalID: "term_1",
-            environment: [:]
-        )
-        let second = TuiManualIOPump(
-            binaryPath: "/nonexistent",
-            target: .socket("/tmp/link.sock"),
-            terminalID: "term_2",
-            environment: [:]
-        )
-        registry.register(first, surfaceID: surfaceID)
-        #expect(registry.pump(forSurfaceID: surfaceID) === first)
-        registry.register(second, surfaceID: surfaceID)
-        #expect(registry.pump(forSurfaceID: surfaceID) === second)
-        registry.stopAndRemove(surfaceID: surfaceID)
-        #expect(registry.pump(forSurfaceID: surfaceID) == nil)
+    func geometryOwnershipChangeForcesClaimBeforeNextInput() throws {
+        let pipe = Pipe()
+        let channel = TuiManualIOInputChannel()
+        channel.setHandle(pipe.fileHandleForWriting, now: 100)
+        channel.markGeometryOwnershipChanged()
+        channel.sendUserInput(Data("x\n".utf8), claimInterval: 5, now: 101)
+        channel.closeHandle()
+
+        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let claim = String(decoding: policy.claimGeometryLine, as: UTF8.self)
+        #expect(text == "\(claim)x\n")
     }
 }
