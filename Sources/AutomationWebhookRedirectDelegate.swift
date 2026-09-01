@@ -14,12 +14,12 @@ final class AutomationWebhookRedirectDelegate: NSObject, URLSessionTaskDelegate,
 
     /// Returns a safe request for a redirect destination, or `nil` to reject it.
     nonisolated func requestForRedirect(_ request: URLRequest) -> URLRequest? {
-        guard !sensitiveHeaderNames.isEmpty else { return request }
         guard let destinationURL = request.url,
               destinationURL.scheme?.lowercased() == "https" else {
-            // Credential-bearing requests must never follow a cleartext redirect.
+            // Webhook event bodies must never follow a cleartext redirect.
             return nil
         }
+        guard !sensitiveHeaderNames.isEmpty else { return request }
         guard !sameOrigin(originalURL, destinationURL) else { return request }
 
         var sanitized = request

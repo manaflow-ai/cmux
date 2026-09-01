@@ -349,9 +349,11 @@ struct AutomationRuleTests {
         let policy = AutomationWebhookPolicy()
         let httpURL = try #require(URL(string: "http://example.test/hook"))
         let httpsURL = try #require(URL(string: "https://example.test/hook"))
+        let userInfoURL = try #require(URL(string: "https://user:password@example.test/hook"))
         #expect(!policy.isValid(url: httpURL, headers: ["Authorization": "Bearer secret"]))
         #expect(policy.isValid(url: httpURL, headers: ["X-Trace": "trace"]))
         #expect(policy.isValid(url: httpsURL, headers: ["Authorization": "Bearer secret"]))
+        #expect(!policy.isValid(url: userInfoURL, headers: [:]))
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-automation-webhook-policy-\(UUID().uuidString)", isDirectory: true)
@@ -384,5 +386,10 @@ struct AutomationRuleTests {
         #expect(sanitized.value(forHTTPHeaderField: "X-Trace") == "trace")
         let insecure = URLRequest(url: httpURL)
         #expect(delegate.requestForRedirect(insecure) == nil)
+        let credentialFreeDelegate = AutomationWebhookRedirectDelegate(
+            originalURL: httpsURL,
+            sensitiveHeaderNames: []
+        )
+        #expect(credentialFreeDelegate.requestForRedirect(insecure) == nil)
     }
 }
