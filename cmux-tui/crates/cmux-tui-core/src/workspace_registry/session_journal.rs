@@ -2034,7 +2034,8 @@ mod tests {
             .put_journal_reducer_state("agent_roster", 3, 9, r#"{"entries":{"old":{}}}"#)
             .unwrap();
 
-        let (_, cursor, snapshot) = registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        let (_, cursor, snapshot) =
+            registry.journal_reducer_state("agent_roster").unwrap().unwrap();
         assert_eq!(cursor, 10);
         assert!(snapshot.contains("new"));
     }
