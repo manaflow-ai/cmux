@@ -42,23 +42,91 @@ extension CMUXCLI {
             .appendingPathComponent("tmux-compat-store.json")
     }
 
-    func loadTmuxCompatStore() throws -> TmuxCompatStore {
-        let url = tmuxCompatStoreURL()
-        guard let data = try readTmuxCompatStoreData(at: url) else {
-            return TmuxCompatStore()
+    private final class TmuxCompatStoreDirectory {
+        let descriptor: Int32
+        let storeName: String
+        let lockName: String
+
+        init(storeURL: URL, createIfMissing: Bool) throws {
+            let parent = storeURL.deletingLastPathComponent()
+            if createIfMissing {
+                try FileManager.default.createDirectory(
+                    at: parent,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+            }
+            let fd = parent.path.withCString {
+                Darwin.open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+            }
+            guard fd >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            var metadata = stat()
+            guard Darwin.fstat(fd, &metadata) == 0 else {
+                let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                Darwin.close(fd)
+                throw error
+            }
+            guard (metadata.st_mode & S_IFMT) == S_IFDIR else {
+                Darwin.close(fd)
+                throw POSIXError(.ENOTDIR)
+            }
+            guard Darwin.fchmod(fd, mode_t(S_IRUSR | S_IWUSR | S_IXUSR)) == 0 else {
+                let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                Darwin.close(fd)
+                throw error
+            }
+            descriptor = fd
+            storeName = storeURL.lastPathComponent
+            lockName = storeURL.lastPathComponent + ".lock"
         }
-        return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
+
+        deinit {
+            Darwin.close(descriptor)
+        }
+
+        func open(_ name: String, flags: Int32, mode: mode_t = 0) throws -> Int32 {
+            let fd = name.withCString { Darwin.openat(descriptor, $0, flags, mode) }
+            guard fd >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return fd
+        }
+
+        func rename(_ source: String, to destination: String) throws {
+            let result = source.withCString { sourcePointer in
+                destination.withCString { destinationPointer in
+                    Darwin.renameat(descriptor, sourcePointer, descriptor, destinationPointer)
+                }
+            }
+            guard result == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+
+        func unlink(_ name: String) {
+            _ = name.withCString { Darwin.unlinkat(descriptor, $0, 0) }
+        }
     }
 
-    private func readTmuxCompatStoreData(at url: URL) throws -> Data? {
-        try validateTmuxCompatStoreDirectory(at: url.deletingLastPathComponent())
-        let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else {
-            if errno == ENOENT {
-                return nil
-            }
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    func loadTmuxCompatStore() throws -> TmuxCompatStore {
+        let directory: TmuxCompatStoreDirectory
+        do {
+            directory = try TmuxCompatStoreDirectory(storeURL: tmuxCompatStoreURL(), createIfMissing: false)
+        } catch let error as POSIXError where error.code == .ENOENT {
+            return TmuxCompatStore()
         }
+        do {
+            let data = try readTmuxCompatStoreData(in: directory)
+            return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
+        } catch let error as POSIXError where error.code == .ENOENT {
+            return TmuxCompatStore()
+        }
+    }
+
+    private func readTmuxCompatStoreData(in directory: TmuxCompatStoreDirectory) throws -> Data {
+        let descriptor = try directory.open(directory.storeName, flags: O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         defer { Darwin.close(descriptor) }
         var metadata = stat()
         guard Darwin.fstat(descriptor, &metadata) == 0 else {
@@ -89,61 +157,58 @@ extension CMUXCLI {
     }
 
     func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
-        let url = tmuxCompatStoreURL()
-        let parent = url.deletingLastPathComponent()
-        try ensureTmuxCompatStoreDirectory(at: parent)
-        let data = try JSONEncoder().encode(store)
-        let tempURL = parent.appendingPathComponent(".tmux-compat-store-\(UUID().uuidString).tmp")
-        let fileManager = FileManager.default
-        guard fileManager.createFile(
-            atPath: tempURL.path,
-            contents: data,
-            attributes: [.posixPermissions: 0o600]
-        ) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: tempURL.path])
+        try withLockedTmuxCompatStore { current in
+            current = store
         }
+    }
+
+    private func saveTmuxCompatStore(
+        _ store: TmuxCompatStore,
+        in directory: TmuxCompatStoreDirectory
+    ) throws {
+        let data = try JSONEncoder().encode(store)
+        let tempName = ".tmux-compat-store-\(UUID().uuidString).tmp"
+        let descriptor = try directory.open(
+            tempName,
+            flags: O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+            mode: mode_t(S_IRUSR | S_IWUSR)
+        )
+        var isOpen = true
         var didReplace = false
         defer {
+            if isOpen {
+                Darwin.close(descriptor)
+            }
             if !didReplace {
-                try? fileManager.removeItem(at: tempURL)
+                directory.unlink(tempName)
             }
         }
-        // Keep the replacement owner-only even when the process umask is lax.
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempURL.path)
-        let renameResult = tempURL.path.withCString { source in
-            url.path.withCString { destination in
-                Darwin.rename(source, destination)
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(descriptor, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                guard written > 0 else { throw POSIXError(.EIO) }
+                offset += written
             }
         }
-        guard renameResult == 0 else {
+        guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
+        guard Darwin.fsync(descriptor) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard Darwin.close(descriptor) == 0 else {
+            isOpen = false
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        isOpen = false
+        try directory.rename(tempName, to: directory.storeName)
         didReplace = true
-    }
-
-    private func ensureTmuxCompatStoreDirectory(at parent: URL) throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(
-            at: parent,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try validateTmuxCompatStoreDirectory(at: parent)
-        // Also tighten an existing directory created by an older CLI.
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
-    }
-
-    private func validateTmuxCompatStoreDirectory(at parent: URL) throws {
-        var metadata = stat()
-        guard Darwin.lstat(parent.path, &metadata) == 0 else {
-            if errno == ENOENT {
-                return
-            }
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        guard (metadata.st_mode & S_IFMT) == S_IFDIR else {
-            throw POSIXError(.ENOTDIR)
-        }
     }
 
     /// Serializes cross-process mutations of a tmux compatibility store.
@@ -152,31 +217,29 @@ extension CMUXCLI {
     /// protect the store. The lock file remains stable while the JSON file is
     /// atomically replaced by its writer.
     func withTmuxCompatStoreFileLock<T>(at storeURL: URL, _ body: () throws -> T) throws -> T {
-        let parent = storeURL.deletingLastPathComponent()
-        try ensureTmuxCompatStoreDirectory(at: parent)
+        try withLockedStoreDirectory(at: storeURL) { _ in try body() }
+    }
 
-        let lockURL = URL(fileURLWithPath: storeURL.path + ".lock")
-        let descriptor = open(
-            lockURL.path,
-            O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
-            mode_t(S_IRUSR | S_IWUSR)
+    private func withLockedStoreDirectory<T>(
+        at storeURL: URL,
+        _ body: (TmuxCompatStoreDirectory) throws -> T
+    ) throws -> T {
+        let directory = try TmuxCompatStoreDirectory(storeURL: storeURL, createIfMissing: true)
+        let lockDescriptor = try directory.open(
+            directory.lockName,
+            flags: O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
+            mode: mode_t(S_IRUSR | S_IWUSR)
         )
-        guard descriptor >= 0 else {
+        defer { Darwin.close(lockDescriptor) }
+        guard Darwin.fchmod(lockDescriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-        defer { Darwin.close(descriptor) }
-        guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+        while flock(lockDescriptor, LOCK_EX) != 0 {
+            if errno == EINTR { continue }
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-
-        while flock(descriptor, LOCK_EX) != 0 {
-            if errno == EINTR {
-                continue
-            }
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        return try body()
+        defer { _ = flock(lockDescriptor, LOCK_UN) }
+        return try body(directory)
     }
 
     /// Performs one complete tmux compatibility store read-modify-write while
@@ -184,21 +247,26 @@ extension CMUXCLI {
     func withLockedTmuxCompatStore<T>(
         _ body: (inout TmuxCompatStore) throws -> T
     ) throws -> T {
-        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = try loadTmuxCompatStore()
+        try withLockedStoreDirectory(at: tmuxCompatStoreURL()) { directory in
+            var store = try loadTmuxCompatStore(from: directory)
             let result = try body(&store)
-            try saveTmuxCompatStore(store)
+            try saveTmuxCompatStore(store, in: directory)
             return result
         }
+    }
+
+    private func loadTmuxCompatStore(from directory: TmuxCompatStoreDirectory) throws -> TmuxCompatStore {
+        let data = try readTmuxCompatStoreData(in: directory)
+        return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
     }
 
     func withLockedTmuxCompatStoreIfChanged(
         _ body: (inout TmuxCompatStore) throws -> Bool
     ) throws {
-        try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = try loadTmuxCompatStore()
+        try withLockedStoreDirectory(at: tmuxCompatStoreURL()) { directory in
+            var store = try loadTmuxCompatStore(from: directory)
             if try body(&store) {
-                try saveTmuxCompatStore(store)
+                try saveTmuxCompatStore(store, in: directory)
             }
         }
     }

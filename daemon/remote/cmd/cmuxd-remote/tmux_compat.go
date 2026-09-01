@@ -10,8 +10,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // runTmuxCompat handles `cmux __tmux-compat <args...>`, translating tmux
@@ -1215,33 +1216,53 @@ func tmuxCompatStoreURL() string {
 	return filepath.Join(home, ".cmuxterm", "tmux-compat-store.json")
 }
 
-func ensureTmuxCompatStoreDirectory() error {
-	directory := filepath.Dir(tmuxCompatStoreURL())
-	if err := os.MkdirAll(directory, 0700); err != nil {
-		return err
-	}
-	if err := validateTmuxCompatStoreDirectory(directory); err != nil {
-		return err
-	}
-	// Tighten directories created by older versions (or a permissive umask).
-	return os.Chmod(directory, 0700)
+type tmuxCompatStoreDirectory struct {
+	file      *os.File
+	storeName string
+	lockName  string
 }
 
-func validateTmuxCompatStoreDirectory(directory string) error {
-	info, err := os.Lstat(directory)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+func openTmuxCompatStoreDirectory(createIfMissing bool) (*tmuxCompatStoreDirectory, error) {
+	directory := filepath.Dir(tmuxCompatStoreURL())
+	if createIfMissing {
+		if err := os.MkdirAll(directory, 0700); err != nil {
+			return nil, err
 		}
-		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("tmux compatibility store directory is a symlink: %s", directory)
+	fd, err := unix.Open(
+		directory,
+		unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		0,
+	)
+	if err != nil {
+		return nil, err
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("tmux compatibility store path is not a directory: %s", directory)
+	directoryFile := os.NewFile(uintptr(fd), directory)
+	if err := unix.Fchmod(fd, 0700); err != nil {
+		_ = directoryFile.Close()
+		return nil, err
 	}
-	return nil
+	return &tmuxCompatStoreDirectory{
+		file:      directoryFile,
+		storeName: filepath.Base(tmuxCompatStoreURL()),
+		lockName:  filepath.Base(tmuxCompatStoreURL()) + ".lock",
+	}, nil
+}
+
+func (directory *tmuxCompatStoreDirectory) open(name string, flags int, mode uint32) (*os.File, error) {
+	fd, err := unix.Openat(int(directory.file.Fd()), name, flags, mode)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), name), nil
+}
+
+func (directory *tmuxCompatStoreDirectory) rename(source string, destination string) error {
+	return unix.Renameat(int(directory.file.Fd()), source, int(directory.file.Fd()), destination)
+}
+
+func (directory *tmuxCompatStoreDirectory) unlink(name string) {
+	_ = unix.Unlinkat(int(directory.file.Fd()), name, 0)
 }
 
 func emptyTmuxCompatStore() tmuxCompatStore {
@@ -1254,11 +1275,19 @@ func emptyTmuxCompatStore() tmuxCompatStore {
 }
 
 func loadTmuxCompatStore() (tmuxCompatStore, error) {
-	path := tmuxCompatStoreURL()
-	if err := validateTmuxCompatStoreDirectory(filepath.Dir(path)); err != nil {
+	directory, err := openTmuxCompatStoreDirectory(false)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return emptyTmuxCompatStore(), nil
+		}
 		return tmuxCompatStore{}, err
 	}
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	defer directory.file.Close()
+	return loadTmuxCompatStoreFromDirectory(directory)
+}
+
+func loadTmuxCompatStoreFromDirectory(directory *tmuxCompatStoreDirectory) (tmuxCompatStore, error) {
+	file, err := directory.open(directory.storeName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return emptyTmuxCompatStore(), nil
@@ -1275,7 +1304,7 @@ func loadTmuxCompatStore() (tmuxCompatStore, error) {
 	}
 	// Heal stores created by older versions even when this is a read-only
 	// command, so buffer contents are never left world-readable.
-	if err := file.Chmod(0600); err != nil {
+	if err := unix.Fchmod(int(file.Fd()), 0600); err != nil {
 		return tmuxCompatStore{}, err
 	}
 	data, err := io.ReadAll(file)
@@ -1321,21 +1350,29 @@ func withLockedTmuxCompatStore(mutate func(*tmuxCompatStore) error) error {
 }
 
 func withLockedTmuxCompatStoreIfChanged(mutate func(*tmuxCompatStore) (bool, error)) error {
-	path := tmuxCompatStoreURL()
-	if err := ensureTmuxCompatStoreDirectory(); err != nil {
+	directory, err := openTmuxCompatStoreDirectory(true)
+	if err != nil {
 		return err
 	}
-	lockFile, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	defer directory.file.Close()
+	lockFile, err := directory.open(
+		directory.lockName,
+		unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		0600,
+	)
 	if err != nil {
 		return err
 	}
 	defer lockFile.Close()
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+	if err := unix.Fchmod(int(lockFile.Fd()), 0600); err != nil {
 		return err
 	}
-	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX); err != nil {
+		return err
+	}
+	defer unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
 
-	store, err := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStoreFromDirectory(directory)
 	if err != nil {
 		return err
 	}
@@ -1346,30 +1383,30 @@ func withLockedTmuxCompatStoreIfChanged(mutate func(*tmuxCompatStore) (bool, err
 	if !changed {
 		return nil
 	}
-	return saveTmuxCompatStoreUnlocked(store)
+	return saveTmuxCompatStoreUnlocked(directory, store)
 }
 
-func saveTmuxCompatStoreUnlocked(store tmuxCompatStore) error {
-	path := tmuxCompatStoreURL()
-	if err := ensureTmuxCompatStoreDirectory(); err != nil {
-		return err
-	}
+func saveTmuxCompatStoreUnlocked(directory *tmuxCompatStoreDirectory, store tmuxCompatStore) error {
 	data, err := json.Marshal(store)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmux-compat-store-*.tmp")
+	tmpName := fmt.Sprintf(".tmux-compat-store-%d-%d.tmp", os.Getpid(), time.Now().UnixNano())
+	tmp, err := directory.open(
+		tmpName,
+		unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		0600,
+	)
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
 	removeTemp := true
 	defer func() {
 		if removeTemp {
-			_ = os.Remove(tmpPath)
+			directory.unlink(tmpName)
 		}
 	}()
-	if err := tmp.Chmod(0600); err != nil {
+	if err := unix.Fchmod(int(tmp.Fd()), 0600); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -1384,7 +1421,7 @@ func saveTmuxCompatStoreUnlocked(store tmuxCompatStore) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := directory.rename(tmpName, directory.storeName); err != nil {
 		return err
 	}
 	removeTemp = false
