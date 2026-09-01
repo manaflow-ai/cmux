@@ -294,13 +294,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
+        while processLiveness(leafPID) == .live, Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
-        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(processLiveness(leafPID) == .terminated)
+        #expect(processLiveness(leafPID) != .unknown)
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
@@ -435,13 +436,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .split(separator: "\n")
             .compactMap { Int32($0) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: isLiveProcess), Date.now < exitDeadline {
+        while processIDs.contains(where: { processLiveness($0) == .live }), Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
-        #expect(!processIDs.contains(where: isLiveProcess))
+        let processStates = processIDs.map(processLiveness)
+        #expect(!processStates.contains(.unknown))
+        #expect(!processStates.contains(.live))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -452,6 +455,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let replacementScript = root.appendingPathComponent("replacement.sh")
         let setIDLauncher = root.appendingPathComponent("setid-launcher.pl")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
+        let eventToken = UUID().uuidString.lowercased()
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -479,10 +483,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             trap 'trap "" TERM; /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & printf "%s\\n" "$!" > "$CMUX_TEST_REPLACEMENT_PID"; exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
-            """ 
+            """
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        CMUX_SSH_AUTH_EVENT_TOKEN=\(eventToken); export CMUX_SSH_AUTH_EVENT_TOKEN
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
@@ -491,7 +496,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1 "\(eventToken)"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         cmux_test_replacement_attempt=0
         while [ ! -s "$CMUX_TEST_REPLACEMENT_PID" ] && [ "$cmux_test_replacement_attempt" -lt 100 ]; do
@@ -525,12 +530,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ))
         defer { Darwin.kill(replacementPID, SIGKILL) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(replacementPID, 0) == 0, Date.now < exitDeadline {
+        while processLiveness(replacementPID) == .live, Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(replacementPID, 0) != 0)
+        #expect(processLiveness(replacementPID) == .terminated)
+        #expect(processLiveness(replacementPID) != .unknown)
     }
 
     @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
@@ -762,10 +768,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
     }
 
-    private func isLiveProcess(_ processID: Int32) -> Bool {
+    private enum ProcessLiveness: Equatable {
+        case live
+        case terminated
+        case unknown
+    }
+
+    private func processLiveness(_ processID: Int32) -> ProcessLiveness {
         // kill(pid, 0) also succeeds for zombies. The cleanup helper treats a
         // zombie as terminated, so inspect process state before reporting a
-        // survivor.
+        // survivor. An unexpected proc_pidinfo result is unknown, not proof of
+        // termination.
         var info = proc_bsdinfo()
         let expectedSize = MemoryLayout<proc_bsdinfo>.stride
         let size = proc_pidinfo(
@@ -775,7 +788,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             &info,
             Int32(expectedSize)
         )
-        guard Int(size) == expectedSize else { return false }
-        return info.pbi_status != UInt32(SZOMB)
+        if Int(size) == expectedSize {
+            return info.pbi_status == UInt32(SZOMB) ? .terminated : .live
+        }
+        if size == 0 && errno == ESRCH {
+            return .terminated
+        }
+        return .unknown
     }
 }
