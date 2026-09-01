@@ -537,7 +537,7 @@ extension VerticalTabsSidebar {
         groupId: UUID,
         modifiers: NSEvent.ModifierFlags,
         tabManager: TabManager,
-        selectedTabIds: Binding<[UUID]>,
+        selectedTabIds: Binding<Set<UUID>>,
         lastSidebarSelectionIndex: Binding<Int?>
     ) {
         let anchorId: UUID
