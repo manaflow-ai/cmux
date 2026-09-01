@@ -2738,6 +2738,7 @@
 		D1DE0BAC0000000000001201 /* VideoBackgroundHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000201 /* VideoBackgroundHostView.swift */; };
 		D1DE0BAC0000000000001301 /* VideoBackgroundLocalPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000301 /* VideoBackgroundLocalPlayerView.swift */; };
 		D1DE0BAC0000000000001401 /* VideoBackgroundPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000401 /* VideoBackgroundPlayerView.swift */; };
+		D1DE0BAC0000000000001E01 /* VideoBackgroundRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000E01 /* VideoBackgroundRuntime.swift */; };
 		D1DE0BAC0000000000001901 /* VideoBackgroundSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000901 /* VideoBackgroundSettingsFileStoreTests.swift */; };
 		D1DE0BAC0000000000001501 /* VideoBackgroundWebPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000501 /* VideoBackgroundWebPlayerView.swift */; };
 		D1DE0BAC0000000000001601 /* VideoBackgroundWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000601 /* VideoBackgroundWebView.swift */; };
@@ -5680,6 +5681,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D1DE0BAC0000000000000201 /* VideoBackgroundHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundHostView.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000301 /* VideoBackgroundLocalPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundLocalPlayerView.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000401 /* VideoBackgroundPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundPlayerView.swift; sourceTree = "<group>"; };
+		D1DE0BAC0000000000000E01 /* VideoBackgroundRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundRuntime.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000901 /* VideoBackgroundSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundSettingsFileStoreTests.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000501 /* VideoBackgroundWebPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundWebPlayerView.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000601 /* VideoBackgroundWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundWebView.swift; sourceTree = "<group>"; };
@@ -6294,6 +6296,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1DE0BAC0000000000000701 /* VideoBackgroundWebViewBridge.swift */,
 				D1DE0BAC0000000000000801 /* WindowVideoBackgroundController.swift */,
 				D1DE0BAC0000000000000C01 /* VideoBackgroundAudioArbiter.swift */,
+				D1DE0BAC0000000000000E01 /* VideoBackgroundRuntime.swift */,
 			);
 			path = VideoBackground;
 			sourceTree = "<group>";
@@ -11273,6 +11276,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1DE0BAC0000000000001201 /* VideoBackgroundHostView.swift in Sources */,
 				D1DE0BAC0000000000001301 /* VideoBackgroundLocalPlayerView.swift in Sources */,
 				D1DE0BAC0000000000001401 /* VideoBackgroundPlayerView.swift in Sources */,
+				D1DE0BAC0000000000001E01 /* VideoBackgroundRuntime.swift in Sources */,
 				D1DE0BAC0000000000001501 /* VideoBackgroundWebPlayerView.swift in Sources */,
 				D1DE0BAC0000000000001601 /* VideoBackgroundWebView.swift in Sources */,
 				D1DE0BAC0000000000001701 /* VideoBackgroundWebViewBridge.swift in Sources */,

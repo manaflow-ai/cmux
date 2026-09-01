@@ -215,6 +215,28 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: VideoBackgroundSettings.mutedKey
     )
 
+    /// Ordered video sources played one after another. An empty queue keeps
+    /// the legacy ``videoBackgroundSource`` value as the single-source fallback.
+    public let videoBackgroundQueue = DefaultsKey<[String]>(
+        id: "terminal.videoBackground.queue",
+        defaultValue: [],
+        userDefaultsKey: VideoBackgroundSettings.queueKey
+    )
+
+    /// Maximum YouTube stream quality used for each queued source.
+    public let videoBackgroundQuality = DefaultsKey<String>(
+        id: "terminal.videoBackground.quality",
+        defaultValue: VideoBackgroundSettings.defaultQuality,
+        userDefaultsKey: VideoBackgroundSettings.qualityKey
+    )
+
+    /// Volume used when video-background audio is enabled (`0...1`).
+    public let videoBackgroundVolume = DefaultsKey<Double>(
+        id: "terminal.videoBackground.volume",
+        defaultValue: VideoBackgroundSettings.defaultVolume,
+        userDefaultsKey: VideoBackgroundSettings.volumeKey
+    )
+
     /// Opacity of the terminal background fill drawn over the video (`1` hides it).
     public let videoBackgroundDimOpacity = DefaultsKey<Double>(
         id: "terminal.videoBackground.dimOpacity",

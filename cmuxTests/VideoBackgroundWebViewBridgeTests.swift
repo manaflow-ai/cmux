@@ -15,8 +15,10 @@ struct VideoBackgroundWebViewBridgeTests {
     func routesPageEventsToTheirCallbacks() {
         var failures: [String] = []
         var readyCount = 0
+        var endedCount = 0
         let bridge = VideoBackgroundWebViewBridge(onPlayerError: { failures.append($0) })
         bridge.onPlayerReady = { readyCount += 1 }
+        bridge.onPlayerEnded = { endedCount += 1 }
 
         bridge.handleScriptEvent(["event": "ready"])
         #expect(readyCount == 1)
@@ -24,6 +26,8 @@ struct VideoBackgroundWebViewBridgeTests {
 
         bridge.handleScriptEvent(["event": "skipped", "code": 101])
         #expect(readyCount == 1)
+        bridge.handleScriptEvent(["event": "ended"])
+        #expect(endedCount == 1)
         #expect(failures.isEmpty)
 
         bridge.handleScriptEvent(["event": "error", "code": 150])
@@ -53,6 +57,7 @@ struct VideoBackgroundWebViewBridgeTests {
             VideoBackgroundEmbedPage.pauseScript,
             VideoBackgroundEmbedPage.pauseScript,
             VideoBackgroundEmbedPage.mutedScript(true),
+            VideoBackgroundEmbedPage.volumeScript(1),
         ])
 
         view.setPaused(false)
@@ -61,6 +66,10 @@ struct VideoBackgroundWebViewBridgeTests {
         view.setMuted(false)
         #expect(scripts.last == VideoBackgroundEmbedPage.mutedScript(false))
         view.bridge.handleScriptEvent(["event": "ready"])
-        #expect(scripts.suffix(2) == [VideoBackgroundEmbedPage.resumeScript, VideoBackgroundEmbedPage.mutedScript(false)])
+        #expect(scripts.suffix(3) == [
+            VideoBackgroundEmbedPage.resumeScript,
+            VideoBackgroundEmbedPage.mutedScript(false),
+            VideoBackgroundEmbedPage.volumeScript(1),
+        ])
     }
 }

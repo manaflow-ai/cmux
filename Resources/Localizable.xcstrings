@@ -209538,13 +209538,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A video plays behind terminal content in every window — silent unless Play Audio is on. It never takes clicks or keystrokes, and it pauses automatically while the window is hidden, during sleep, and in Low Power Mode."
+            "value": "A shared video queue plays behind every terminal window. New windows join the same video and playhead; audio is opt-in."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "各ウィンドウのターミナルコンテンツの背後でビデオが再生されます（「音声を再生」がオフの間は無音）。クリックやキー入力を奪うことはなく、ウィンドウが隠れている間、スリープ中、低電力モード中は自動的に一時停止します。"
+            "value": "すべてのターミナルウィンドウの背後で共有ビデオキューを再生します。新しいウィンドウも同じビデオと再生位置に参加し、音声はオプトインです。"
           }
         }
       }
@@ -209589,13 +209589,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A YouTube video or playlist URL or ID, or a local .mp4/.m4v/.mov file path. Playlists loop and advance automatically. Press Return to apply."
+            "value": "A YouTube video or playlist URL or ID, or a local .mp4/.m4v/.mov path. Press Return to set the first queue entry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "YouTube の動画またはプレイリストの URL か ID、あるいはローカルの .mp4／.m4v／.mov ファイルパス。プレイリストはループしながら自動で次の動画へ進みます。Return キーで適用します。"
+            "value": "YouTube の動画／プレイリスト URL または ID、あるいはローカル .mp4／.m4v／.mov パス。Return キーでキューの先頭に設定します。"
           }
         }
       }
@@ -209700,6 +209700,286 @@
             "value": "%lld%%"
           }
         }
+      }
+    },
+    "settings.terminal.videoBackground.queue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video Queue" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオキュー" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Entries play in order and repeat. Every terminal window shares this queue and its current playhead." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エントリを順番に再生して繰り返します。すべてのターミナルウィンドウでキューと再生位置を共有します。" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No queued entries (the source above is used)." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キューにエントリがありません（上のソースを使用します）。" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add URL or file path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL またはファイルパスを追加" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "消去" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld. %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld. %@" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.moveUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上へ移動" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.moveDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下へ移動" } }
+      }
+    },
+    "settings.terminal.videoBackground.queue.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "削除" } }
+      }
+    },
+    "settings.terminal.videoBackground.quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "YouTube Quality" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "YouTube の画質" } }
+      }
+    },
+    "settings.terminal.videoBackground.quality.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Caps the decoded stream before it is scaled to fill the window. Local files use their native resolution." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウィンドウに合わせて拡大する前のストリーム画質を制限します。ローカルファイルは元の解像度を使用します。" } }
+      }
+    },
+    "settings.terminal.videoBackground.quality.720p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "720p" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "720p" } }
+      }
+    },
+    "settings.terminal.videoBackground.quality.1080p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1080p (recommended)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1080p（推奨）" } }
+      }
+    },
+    "settings.terminal.videoBackground.quality.1440p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1440p" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1440p" } }
+      }
+    },
+    "settings.terminal.videoBackground.quality.2160p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "2160p (4K)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "2160p（4K）" } }
+      }
+    },
+    "settings.terminal.videoBackground.volume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量" } }
+      }
+    },
+    "settings.terminal.videoBackground.volume.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume used when Play Audio is enabled. 0% is silent and 100% is full volume." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「音声を再生」が有効なときの音量です。0% は無音、100% は最大音量です。" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty transparency" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty の透明度" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video backgrounds need background-opacity below 100%. The setup button edits cmux’s Ghostty config, not your standalone Ghostty config." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景には 100% 未満の background-opacity が必要です。セットアップボタンはスタンドアロンの Ghostty ではなく cmux の Ghostty 設定を編集します。" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set to 80%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "80% に設定" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current opacity: %lld%%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在の透明度: %lld%%" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.statusNeedsSetup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current opacity: %lld%% — setup required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在の透明度: %lld%% — セットアップが必要です" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty status unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty の状態を取得できません" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.pathUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux’s Ghostty config" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux の Ghostty 設定" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow terminal transparency?" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルの透明化を許可しますか？" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video backgrounds are hidden by an opaque terminal. cmux will edit %@ and set background-opacity = 0.8, then reload open terminals." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不透明なターミナルではビデオ背景が隠れます。cmux は %@ を編集して background-opacity = 0.8 に設定し、開いているターミナルを再読み込みします。" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set opacity to 80%" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "透明度を 80% に設定" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.confirm.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャンセル" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.failure.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t update Ghostty config" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty 設定を更新できませんでした" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.failure.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux could not write background-opacity = 0.8. Check the file permissions and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux は background-opacity = 0.8 を書き込めませんでした。ファイルのアクセス権を確認して、もう一度お試しください。" } }
+      }
+    },
+    "settings.terminal.videoBackground.ghostty.failure.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK" } }
+      }
+    },
+    "cli.videoBackground.queue.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video background queue is empty." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景キューは空です。" } }
+      }
+    },
+    "cli.videoBackground.next.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Queue has fewer than two entries; nothing to advance." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キューのエントリが 2 つ未満のため、進めるものがありません。" } }
+      }
+    },
+    "cli.videoBackground.ghostty.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty background opacity is set to 80% for video backgrounds." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景用に Ghostty の背景透明度を 80% に設定しました。" } }
+      }
+    },
+    "cli.videoBackground.opacity.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video is hidden while terminal opacity is 100%. Run `cmux video-background setup-ghostty --yes` to fix it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルの不透明度が 100% のためビデオは表示されません。`cmux video-background setup-ghostty --yes` を実行して修正してください。" } }
+      }
+    },
+    "cli.videoBackground.updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Video background %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビデオ背景を %@ しました。" } }
+      }
+    },
+    "cli.videoBackground.reloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running cmux windows refreshed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中の cmux ウィンドウを更新しました。" } }
+      }
+    },
+    "cli.videoBackground.savedReloadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Saved; cmux is not running or could not be refreshed. Run `cmux reload-config` when it is available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存しましたが、cmux が起動していないか更新できませんでした。利用可能になったら `cmux reload-config` を実行してください。" } }
+      }
+    },
+    "cli.videoBackground.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\nConfigure the shared video background in every cmux window. Changes are written to ~/.config/cmux/cmux.json and applied live when cmux is running.\n\nCommands:\n  status                         Show enabled/source/queue/quality/audio and Ghostty opacity.\n  on|off [--yes]                 Enable or disable playback. --yes may set Ghostty opacity automatically.\n  set|source <source> [...]      Replace the queue.\n  add <source> [...]             Append entries to the queue.\n  remove <1-based-index>         Remove one queue entry.\n  list                           Print the effective queue.\n  next                           Rotate the queue so the next entry starts now.\n  clear                          Empty the queue and legacy source.\n  quality <720p|1080p|1440p|4k>  Set the YouTube stream cap (default 1080p).\n  opacity <0..1>                 Set terminal dim opacity (default 0.8).\n  audio <on|off>                 Opt into audio.\n  volume <0..1|0..100>          Set audio volume.\n  setup-ghostty [--yes]          Write background-opacity = 0.8 to cmux's Ghostty config.\n\nSettings > Terminal > Video Background offers the same controls and a confirmation before it edits cmux's Ghostty config." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty> [args]\n\nすべての cmux ウィンドウで共有するビデオ背景を設定します。変更は ~/.config/cmux/cmux.json に保存され、cmux 実行中はすぐに反映されます。\n\n各コマンドの詳細は `cmux video-background --help` を参照してください。" } }
       }
     },
     "settings.terminal.copyOnSelect": {

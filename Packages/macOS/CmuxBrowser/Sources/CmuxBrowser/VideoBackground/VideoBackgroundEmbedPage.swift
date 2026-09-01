@@ -13,11 +13,11 @@ public import Foundation
 /// errors through the ``VideoBackgroundEmbedPage/messageHandlerName`` script
 /// message handler.
 ///
-/// Performance guardrail: the player element is kept at
-/// ``playerWidth``×``playerHeight`` CSS pixels and scaled up with a GPU
-/// transform to cover the window. YouTube picks the stream resolution from the
-/// element's pixel size, so this caps decoding at roughly 1080p on Retina
-/// displays instead of fetching a 4K stream for a large window.
+/// Performance guardrail: the player element is kept at a quality-dependent
+/// logical size and scaled up with a GPU transform to cover the window.
+/// YouTube picks the stream resolution from the element's pixel size, so the
+/// default 1080p cap avoids fetching a 4K stream for a large window while
+/// allowing users to opt into a sharper stream.
 public struct VideoBackgroundEmbedPage: Sendable {
     /// The source rendered by this page. Only YouTube sources are supported;
     /// local files play through AVFoundation instead.
@@ -27,9 +27,28 @@ public struct VideoBackgroundEmbedPage: Sendable {
     /// ``mutedScript(_:)``.
     public let muted: Bool
 
+    /// Whether native queue advancement owns end-of-item events.
+    public let queueManaged: Bool
+
+    /// Maximum YouTube quality requested for this page.
+    public let quality: String
+
+    /// Volume applied when the page is unmuted (`0...1`).
+    public let volume: Double
+
     /// Logical player size before the cover-scale transform (16:9).
     public static let playerWidth = 960
     public static let playerHeight = 540
+
+    /// Returns the logical 16:9 player size for a quality label.
+    public static func dimensions(for quality: String) -> (width: Int, height: Int) {
+        switch quality.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "720", "720p": return (640, 360)
+        case "1440", "1440p", "2k": return (1280, 720)
+        case "2160", "2160p", "4k", "uhd": return (1920, 1080)
+        default: return (Self.playerWidth, Self.playerHeight)
+        }
+    }
 
     /// Document base URL giving the page a real origin YouTube will serve.
     ///
@@ -57,6 +76,26 @@ public struct VideoBackgroundEmbedPage: Sendable {
         "window.cmuxVideoBackgroundSetMuted(\(muted ? "true" : "false"));"
     }
 
+    /// JavaScript expression that sets YouTube volume (`0...100`).
+    public static func volumeScript(_ volume: Double) -> String {
+        let clamped = volume.isFinite ? min(max(volume, 0), 1) : 1
+        return String(
+            format: "window.cmuxVideoBackgroundSetVolume(%.1f);",
+            locale: Locale(identifier: "en_US_POSIX"),
+            clamped * 100
+        )
+    }
+
+    /// JavaScript expression that seeks the player to a shared playhead.
+    public static func positionScript(_ seconds: TimeInterval) -> String {
+        let clamped = seconds.isFinite ? max(0, seconds) : 0
+        return String(
+            format: "window.cmuxVideoBackgroundSetPosition(%.3f);",
+            locale: Locale(identifier: "en_US_POSIX"),
+            clamped
+        )
+    }
+
     /// Creates a page for a parsed YouTube source.
     ///
     /// - Parameters:
@@ -64,13 +103,27 @@ public struct VideoBackgroundEmbedPage: Sendable {
     ///     ``VideoBackgroundSource/youTubePlaylist(id:)`` value. A local-file
     ///     source produces an empty player that reports an error.
     ///   - muted: Whether playback starts silent. Defaults to `true`.
-    public init(source: VideoBackgroundSource, muted: Bool = true) {
+    ///   - queueManaged: Whether native queue advancement owns end events.
+    ///     Defaults to `false` for backwards-compatible single-source looping.
+    ///   - quality: Maximum YouTube quality. Defaults to `1080p`.
+    ///   - volume: Initial volume from `0...1`. Defaults to `1`.
+    public init(
+        source: VideoBackgroundSource,
+        muted: Bool = true,
+        queueManaged: Bool = false,
+        quality: String = "1080p",
+        volume: Double = 1
+    ) {
         self.source = source
         self.muted = muted
+        self.queueManaged = queueManaged
+        self.quality = quality
+        self.volume = volume.isFinite ? min(max(volume, 0), 1) : 1
     }
 
     /// The full HTML document for the player page.
     public var html: String {
+        let dimensions = Self.dimensions(for: quality)
         let playerConfiguration: String
         switch source {
         case let .youTubeVideo(id):
@@ -109,8 +162,8 @@ public struct VideoBackgroundEmbedPage: Sendable {
             position: absolute;
             top: 50%;
             left: 50%;
-            width: \(Self.playerWidth)px;
-            height: \(Self.playerHeight)px;
+            width: \(dimensions.width)px;
+            height: \(dimensions.height)px;
             transform: translate(-50%, -50%);
             transform-origin: center center;
             pointer-events: none;
@@ -125,8 +178,11 @@ public struct VideoBackgroundEmbedPage: Sendable {
           var player = null;
           var pendingPaused = false;
           var pendingMuted = \(muted ? "true" : "false");
-          var playerWidth = \(Self.playerWidth);
-          var playerHeight = \(Self.playerHeight);
+          var pendingVolume = \(self.volume * 100);
+          var pendingPosition = 0;
+          var playlistSkipAttempts = 0;
+          var playerWidth = \(dimensions.width);
+          var playerHeight = \(dimensions.height);
 
           function fitPlayer() {
             var element = document.getElementById('player');
@@ -163,6 +219,24 @@ public struct VideoBackgroundEmbedPage: Sendable {
             applyMuted(player);
           };
 
+          window.cmuxVideoBackgroundSetVolume = function (volume) {
+            var next = Number(volume);
+            if (!isFinite(next)) { next = 100; }
+            pendingVolume = Math.max(0, Math.min(100, next));
+            if (player && typeof player.setVolume === 'function') {
+              player.setVolume(pendingVolume);
+            }
+          };
+
+          window.cmuxVideoBackgroundSetPosition = function (seconds) {
+            var next = Number(seconds);
+            if (!isFinite(next) || next < 0) { next = 0; }
+            pendingPosition = next;
+            if (player && typeof player.seekTo === 'function' && next > 0) {
+              player.seekTo(next, true);
+            }
+          };
+
           var sharedPlayerVars = {
             autoplay: 1,
             controls: 0,
@@ -172,7 +246,7 @@ public struct VideoBackgroundEmbedPage: Sendable {
             rel: 0,
             playsinline: 1,
             mute: \(muted ? 1 : 0),
-            loop: 1
+            loop: \(queueManaged ? 0 : 1)
           };
 
           function onYouTubeIframeAPIReady() {
@@ -182,22 +256,52 @@ public struct VideoBackgroundEmbedPage: Sendable {
               \(playerConfiguration),
               events: {
                 onReady: function (event) {
+                  playlistSkipAttempts = 0;
                   fitPlayer();
                   applyMuted(event.target);
+                  if (typeof event.target.setVolume === 'function') {
+                    event.target.setVolume(pendingVolume);
+                  }
+                  if (pendingPosition > 0 && typeof event.target.seekTo === 'function') {
+                    event.target.seekTo(pendingPosition, true);
+                  }
                   if (!pendingPaused) { event.target.playVideo(); }
                   postToHost({ event: 'ready' });
                 },
                 onStateChange: function (event) {
-                  // `loop` handles wrap-around; this covers edge cases where
-                  // the player lands in ENDED anyway.
+                  if (event.data === YT.PlayerState.PLAYING) {
+                    // A successfully playing item resets the bounded error
+                    // skip budget for the next item.
+                    playlistSkipAttempts = 0;
+                  }
                   if (event.data === YT.PlayerState.ENDED && !pendingPaused) {
-                    event.target.playVideo();
+                    if (\(queueManaged ? "true" : "false")) {
+                      postToHost({ event: 'ended' });
+                    } else {
+                      // `loop` handles wrap-around; this covers edge cases
+                      // where the player lands in ENDED anyway.
+                      event.target.playVideo();
+                    }
                   }
                 },
                 onError: function (event) {
                   var isPlaylist = \(isPlaylistLiteral);
+                  var canTryAnotherItem = false;
                   if (isPlaylist && player && typeof player.nextVideo === 'function') {
+                    var playlist = typeof player.getPlaylist === 'function' ? player.getPlaylist() : null;
+                    var playlistIndex = typeof player.getPlaylistIndex === 'function' ? player.getPlaylistIndex() : -1;
+                    if (Array.isArray(playlist) && playlist.length > 0 && playlistIndex >= 0) {
+                      canTryAnotherItem = playlistIndex + 1 < playlist.length;
+                    } else {
+                      // Older IFrame API versions may not expose playlist
+                      // metadata; still guarantee that a broken one-item
+                      // playlist cannot recurse forever.
+                      canTryAnotherItem = playlistSkipAttempts < 16;
+                    }
+                  }
+                  if (canTryAnotherItem) {
                     // Skip playlist entries that refuse embedding.
+                    playlistSkipAttempts += 1;
                     player.nextVideo();
                     postToHost({ event: 'skipped', code: event.data });
                   } else {

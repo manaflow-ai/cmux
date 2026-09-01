@@ -1852,7 +1852,7 @@ final class CmuxSettingsFileStore {
         return number.doubleValue
     }
 
-    private func jsonStringArray(_ rawValue: Any?) -> [String]? {
+    func jsonStringArray(_ rawValue: Any?) -> [String]? {
         guard let values = rawValue as? [Any] else { return nil }
         var strings: [String] = []
         strings.reserveCapacity(values.count)

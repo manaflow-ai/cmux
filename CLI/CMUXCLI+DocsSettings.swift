@@ -37,6 +37,8 @@ extension CMUXCLI {
                 "cmux settings cmux-json",
                 "cmux config doctor",
                 "cmux reload-config",
+                "cmux video-background status",
+                "cmux video-background setup-ghostty --yes",
             ]
         ),
         DocsReference(

@@ -3,20 +3,131 @@ import CmuxBrowser
 import CmuxSettings
 import ObjectiveC
 import Observation
+import QuartzCore
 
 /// Authoritative, observable playback state of one window's video background.
 ///
 /// `isActive` is written only by ``WindowVideoBackgroundController`` and is
-/// `true` exactly while a player view is installed below the window's content
-/// view. The window-root backdrop dims against it — never against the raw
-/// settings — so a failed embed (or a window without a usable theme frame)
+/// `true` only after the installed player confirms that it can render. The
+/// window-root backdrop dims against it — never against the raw settings — so
+/// a loading or failed player (or a window without a usable theme frame)
 /// restores the regular terminal background instead of leaving a dimmed fill
 /// over nothing.
 @MainActor
 @Observable
 final class VideoBackgroundPresentation {
-    /// Whether a video player is currently installed in the window.
+    /// Whether the installed video player has confirmed render readiness.
     fileprivate(set) var isActive = false
+}
+
+/// Coordinates the queue and monotonic playhead shared by every main window.
+///
+/// Each window still owns a lightweight player view (WebKit cannot be mounted
+/// in two windows at once), but all controllers consume this one coordinator's
+/// source index, generation, and elapsed playhead. A newly created terminal
+/// therefore joins the currently playing item instead of restarting at zero;
+/// an end event from any window advances every other window exactly once.
+@MainActor
+final class VideoBackgroundPlaybackCoordinator {
+    /// Immutable state delivered to registered window controllers.
+    struct Snapshot: Equatable {
+        let sources: [VideoBackgroundSource]
+        let index: Int
+        let generation: UInt64
+        let position: TimeInterval
+        let quality: String
+
+        /// The source currently playing, if the queue is non-empty.
+        var currentSource: VideoBackgroundSource? {
+            guard sources.indices.contains(index) else { return nil }
+            return sources[index]
+        }
+    }
+
+    private var sources: [VideoBackgroundSource] = []
+    private var index = 0
+    private var generation: UInt64 = 0
+    private var quality = VideoBackgroundSettings.defaultQuality
+    private var startedAt = CACurrentMediaTime()
+    private var hasStarted = false
+    private var observers: [UUID: @MainActor (Snapshot) -> Void] = [:]
+
+    init() {}
+
+    /// Replaces the shared queue when settings change and returns its current
+    /// snapshot. Identical queues/quality leave the current item and playhead
+    /// untouched so a settings notification cannot restart every window.
+    func configure(sourceTexts: [String], quality: String) -> Snapshot {
+        let normalizedQuality = VideoBackgroundSettings().normalizedQuality(quality)
+        let parsedSources = sourceTexts.compactMap(VideoBackgroundSource.parse)
+        guard parsedSources != sources || normalizedQuality != self.quality else {
+            return snapshot()
+        }
+
+        sources = parsedSources
+        self.quality = normalizedQuality
+        index = 0
+        generation &+= 1
+        startedAt = CACurrentMediaTime()
+        hasStarted = false
+        let next = snapshot()
+        notify(next)
+        return next
+    }
+
+    /// Registers one controller callback and returns its token plus the latest
+    /// shared state. The callback is main-actor isolated and never crosses a
+    /// thread boundary.
+    func register(_ observer: @escaping @MainActor (Snapshot) -> Void) -> (token: UUID, snapshot: Snapshot) {
+        let token = UUID()
+        observers[token] = observer
+        return (token, snapshot())
+    }
+
+    /// Removes a controller callback after its window closes.
+    func unregister(_ token: UUID?) {
+        guard let token else { return }
+        observers.removeValue(forKey: token)
+    }
+
+    /// Advances the queue exactly once for the generation that emitted an end
+    /// event. Stale events from players being replaced are ignored.
+    func advance(after generation: UInt64) {
+        guard generation == self.generation, sources.count > 1 else { return }
+        index = (index + 1) % sources.count
+        self.generation &+= 1
+        startedAt = CACurrentMediaTime()
+        hasStarted = false
+        notify(snapshot())
+    }
+
+    /// Anchors the monotonic clock to the first player that actually becomes
+    /// ready for this generation. This avoids a late-created window joining a
+    /// playhead that started counting while WebKit was still loading.
+    func markStarted(for generation: UInt64) {
+        guard generation == self.generation, !hasStarted else { return }
+        startedAt = CACurrentMediaTime()
+        hasStarted = true
+    }
+
+    /// Returns a fresh playhead snapshot without changing queue identity.
+    func synchronizedSnapshot() -> Snapshot { snapshot() }
+
+    private func snapshot(now: CFTimeInterval = CACurrentMediaTime()) -> Snapshot {
+        Snapshot(
+            sources: sources,
+            index: index,
+            generation: generation,
+            position: hasStarted ? max(0, now - startedAt) : 0,
+            quality: quality
+        )
+    }
+
+    private func notify(_ value: Snapshot) {
+        for observer in Array(observers.values) {
+            observer(value)
+        }
+    }
 }
 
 /// Owns one main window's dynamic video background layer.
@@ -42,12 +153,19 @@ final class WindowVideoBackgroundController {
     private weak var window: NSWindow?
     private let defaults: UserDefaults
     private let audioArbiter: VideoBackgroundAudioArbiter
+    private let playbackCoordinator: VideoBackgroundPlaybackCoordinator
+    private var playbackObserverToken: UUID?
     private var isSystemSleeping = false
     private var hostView: VideoBackgroundHostView?
     private var playerView: (any VideoBackgroundPlayerView)?
     private var activeSource: VideoBackgroundSource?
     private var failedSourceText: String?
     private var observers: [any NSObjectProtocol] = []
+    private var playerGeneration: UInt64 = 0
+    private var playerQuality = VideoBackgroundSettings.defaultQuality
+    private var playerVolume = VideoBackgroundSettings.defaultVolume
+    private var lastPlayerPaused: Bool?
+    private var playerIsReady = false
 
     /// Installs (or refreshes) the controller for a main window.
     ///
@@ -58,27 +176,42 @@ final class WindowVideoBackgroundController {
     @discardableResult
     static func ensure(
         on window: NSWindow,
-        defaults: UserDefaults = .standard,
-        audioArbiter: VideoBackgroundAudioArbiter = .shared
+        audioArbiter: VideoBackgroundAudioArbiter,
+        playbackCoordinator: VideoBackgroundPlaybackCoordinator,
+        defaults: UserDefaults = .standard
     ) -> WindowVideoBackgroundController {
         let controller: WindowVideoBackgroundController
         if let existing = objc_getAssociatedObject(window, Self.associatedObjectKey)
             as? WindowVideoBackgroundController {
             controller = existing
         } else {
-            controller = WindowVideoBackgroundController(window: window, defaults: defaults, audioArbiter: audioArbiter)
+            controller = WindowVideoBackgroundController(
+                window: window,
+                defaults: defaults,
+                audioArbiter: audioArbiter,
+                playbackCoordinator: playbackCoordinator
+            )
             objc_setAssociatedObject(window, Self.associatedObjectKey, controller, .OBJC_ASSOCIATION_RETAIN)
         }
         controller.refresh()
         return controller
     }
 
-    private init(window: NSWindow, defaults: UserDefaults, audioArbiter: VideoBackgroundAudioArbiter) {
+    private init(
+        window: NSWindow,
+        defaults: UserDefaults,
+        audioArbiter: VideoBackgroundAudioArbiter,
+        playbackCoordinator: VideoBackgroundPlaybackCoordinator
+    ) {
         self.window = window
         self.defaults = defaults
         self.audioArbiter = audioArbiter
+        self.playbackCoordinator = playbackCoordinator
         startObserving(window: window)
         audioArbiter.register(self, window: window)
+        playbackObserverToken = playbackCoordinator.register { [weak self] snapshot in
+            self?.applyPlaybackSnapshot(snapshot)
+        }.token
     }
 
     /// Registers synchronously so no transition can slip through between
@@ -117,6 +250,10 @@ final class WindowVideoBackgroundController {
     private func windowDidBecomeKey() {
         guard let window else { return }
         audioArbiter.windowDidBecomeKey(window)
+        let snapshot = playbackCoordinator.synchronizedSnapshot()
+        if snapshot.position > 0 {
+            playerView?.setPlaybackPosition(snapshot.position)
+        }
         updatePlaybackState()
     }
 
@@ -128,15 +265,24 @@ final class WindowVideoBackgroundController {
     private var lastObservedEnabled: Bool?
     private var lastObservedSourceText: String?
     private var lastObservedMuted: Bool?
+    private var lastObservedQueue: [String]?
+    private var lastObservedQuality: String?
+    private var lastObservedVolume: Double?
 
     private func refreshIfSettingsChanged() {
         let policy = VideoBackgroundSettings()
         let enabled = policy.isEnabled(defaults: defaults)
         let sourceText = policy.sourceText(defaults: defaults)
         let muted = policy.isMuted(defaults: defaults)
+        let queue = policy.queue(defaults: defaults)
+        let quality = policy.quality(defaults: defaults)
+        let volume = policy.volume(defaults: defaults)
         guard enabled != lastObservedEnabled
             || sourceText != lastObservedSourceText
-            || muted != lastObservedMuted else { return }
+            || muted != lastObservedMuted
+            || queue != lastObservedQueue
+            || quality != lastObservedQuality
+            || volume != lastObservedVolume else { return }
         refresh()
     }
 
@@ -147,33 +293,40 @@ final class WindowVideoBackgroundController {
         let policy = VideoBackgroundSettings()
         let enabled = policy.isEnabled(defaults: defaults)
         let sourceText = policy.sourceText(defaults: defaults)
+        let queue = policy.queue(defaults: defaults)
         lastObservedEnabled = enabled
         lastObservedSourceText = sourceText
         lastObservedMuted = policy.isMuted(defaults: defaults)
+        lastObservedQueue = queue
+        lastObservedQuality = policy.quality(defaults: defaults)
+        lastObservedVolume = policy.volume(defaults: defaults)
 
-        if sourceText != failedSourceText {
+        let sourceTexts = policy.effectiveSourceTexts(defaults: defaults)
+        let sharedSnapshot = playbackCoordinator.configure(
+            sourceTexts: sourceTexts,
+            quality: lastObservedQuality ?? VideoBackgroundSettings.defaultQuality
+        )
+
+        let sourceSignature = sourceTexts.joined(separator: "\u{1F}" )
+        if sourceSignature != failedSourceText {
             failedSourceText = nil
         }
 
         guard enabled,
               failedSourceText == nil,
-              let source = VideoBackgroundSource.parse(sourceText) else {
+              sharedSnapshot.currentSource != nil else {
             #if DEBUG
-            cmuxDebugLog("videoBackground.refresh off enabled=\(enabled) latched=\(failedSourceText != nil) parsed=\(VideoBackgroundSource.parse(sourceText) != nil)")
+            cmuxDebugLog("videoBackground.refresh off enabled=\(enabled) latched=\(failedSourceText != nil) parsed=\(sharedSnapshot.currentSource != nil)")
             #endif
             removeLayer()
             return
         }
 
         installHostViewIfNeeded(in: window)
-        if source != activeSource || playerView == nil {
-            replacePlayerView(with: source)
-        }
-        updatePlaybackState()
+        applyPlaybackSnapshot(sharedSnapshot)
         applyAudioState()
-        presentation.isActive = playerView != nil
         #if DEBUG
-        cmuxDebugLog("videoBackground.refresh on source=\(source) host=\(hostView != nil) player=\(playerView != nil) muted=\(effectiveMuted)")
+        cmuxDebugLog("videoBackground.refresh on sourceKind=\(sourceKind(sharedSnapshot.currentSource)) host=\(hostView != nil) player=\(playerView != nil) muted=\(effectiveMuted) queue=\(sharedSnapshot.sources.count) quality=\(sharedSnapshot.quality)")
         #endif
     }
 
@@ -188,6 +341,45 @@ final class WindowVideoBackgroundController {
     /// arbiter whenever audio ownership moves between windows.
     func applyAudioState() {
         playerView?.setMuted(effectiveMuted)
+        playerView?.setVolume(playerVolume)
+    }
+
+    /// Applies the coordinator's authoritative source/playhead to this window.
+    /// A callback may arrive while `refresh()` is still installing the host, so
+    /// the host is asserted here as well as in the caller.
+    private func applyPlaybackSnapshot(
+        _ snapshot: VideoBackgroundPlaybackCoordinator.Snapshot
+    ) {
+        guard let window,
+              lastObservedEnabled != false,
+              let source = snapshot.currentSource else {
+            return
+        }
+        installHostViewIfNeeded(in: window)
+        let needsReplacement = playerView == nil
+            || activeSource != source
+            || playerGeneration != snapshot.generation
+            || playerQuality != snapshot.quality
+        if needsReplacement {
+            playerIsReady = false
+            presentation.isActive = false
+            replacePlayerView(
+                with: source,
+                position: snapshot.position,
+                loops: snapshot.sources.count <= 1,
+                generation: snapshot.generation,
+                quality: snapshot.quality,
+                volume: lastObservedVolume ?? VideoBackgroundSettings.defaultVolume
+            )
+        } else if snapshot.position > 0 {
+            // Re-assert the shared playhead when a window becomes visible or a
+            // peer advances. The player implementations deduplicate tiny moves.
+            playerView?.setPlaybackPosition(snapshot.position)
+        }
+        playerView?.setVolume(lastObservedVolume ?? VideoBackgroundSettings.defaultVolume)
+        updatePlaybackState()
+        applyAudioState()
+        presentation.isActive = playerIsReady
     }
 
     private func installHostViewIfNeeded(in window: NSWindow) {
@@ -219,21 +411,72 @@ final class WindowVideoBackgroundController {
         }
     }
 
-    private func replacePlayerView(with source: VideoBackgroundSource) {
+    private func sourceKind(_ source: VideoBackgroundSource?) -> String {
+        switch source {
+        case .youTubeVideo: return "youtube-video"
+        case .youTubePlaylist: return "youtube-playlist"
+        case .localFile: return "local-file"
+        case nil: return "none"
+        }
+    }
+
+    private func replacePlayerView(
+        with source: VideoBackgroundSource,
+        position: TimeInterval,
+        loops: Bool,
+        generation: UInt64,
+        quality: String,
+        volume: Double
+    ) {
         playerView?.removeFromSuperview()
         playerView = nil
+        playerIsReady = false
         activeSource = source
+        playerGeneration = generation
+        playerQuality = quality
+        playerVolume = volume
         guard let host = hostView else { return }
 
         let player: any VideoBackgroundPlayerView
         let muted = effectiveMuted
         switch source {
         case .youTubeVideo, .youTubePlaylist:
-            player = VideoBackgroundWebPlayerView(source: source, muted: muted) { [weak self] reason in
-                self?.handlePlayerFailure(reason: reason)
-            }
+            player = VideoBackgroundWebPlayerView(
+                source: source,
+                muted: muted,
+                queueManaged: !loops,
+                quality: quality,
+                volume: volume,
+                initialPosition: position,
+                onFailure: { [weak self] reason in
+                    self?.handlePlayerFailure(reason: reason, generation: generation)
+                },
+                onEnded: { [weak self] in
+                    guard let self else { return }
+                    self.playbackCoordinator.advance(after: generation)
+                },
+                onReady: { [weak self] in
+                    self?.playerDidBecomeReady(for: generation)
+                }
+            )
         case let .localFile(url):
-            player = VideoBackgroundLocalPlayerView(fileURL: url, muted: muted)
+            player = VideoBackgroundLocalPlayerView(
+                fileURL: url,
+                muted: muted,
+                volume: volume,
+                loops: loops,
+                initialPosition: position,
+                onEnded: { [weak self] in
+                    guard let self else { return }
+                    self.playbackCoordinator.advance(after: generation)
+                },
+                onReady: { [weak self] in
+                    self?.playerDidBecomeReady(for: generation)
+                },
+                onFailure: { [weak self] reason in
+                    self?.handlePlayerFailure(reason: reason, generation: generation)
+                }
+            )
         }
 
         player.translatesAutoresizingMaskIntoConstraints = false
@@ -247,15 +490,40 @@ final class WindowVideoBackgroundController {
         playerView = player
     }
 
+    /// Publishes active playback only after the underlying player confirms it
+    /// can render. This keeps the window backdrop normal while WebKit or
+    /// AVFoundation is still loading (or has failed).
+    private func playerDidBecomeReady(for generation: UInt64) {
+        guard generation == playerGeneration, playerView != nil else { return }
+        playerIsReady = true
+        presentation.isActive = true
+        playbackCoordinator.markStarted(for: generation)
+        updatePlaybackState()
+    }
+
     /// Fails gracefully: the layer disappears, ``presentation`` reports
     /// inactive so the backdrop stops dimming, and the terminal is untouched.
     /// The failed source is remembered so a broken embed doesn't reload in a
     /// loop; editing the source setting clears the latch and retries.
-    func handlePlayerFailure(reason: String) {
+    func handlePlayerFailure(reason: String, generation: UInt64? = nil) {
         #if DEBUG
         cmuxDebugLog("videoBackground.playerFailure reason=\(reason)")
         #endif
-        failedSourceText = lastObservedSourceText
+        if let generation,
+           playbackCoordinator.synchronizedSnapshot().sources.count > 1 {
+            // A broken entry should not silence an otherwise valid queue. The
+            // coordinator advances every window and generation-gates duplicate
+            // WebKit/AVFoundation failures from the same item.
+            playbackCoordinator.advance(after: generation)
+            return
+        }
+        let failedSources: [String]
+        if let queue = lastObservedQueue, !queue.isEmpty {
+            failedSources = queue
+        } else {
+            failedSources = [lastObservedSourceText ?? ""]
+        }
+        failedSourceText = failedSources.joined(separator: "\u{1F}")
         removeLayer()
     }
 
@@ -273,13 +541,23 @@ final class WindowVideoBackgroundController {
         #if DEBUG
         cmuxDebugLog("videoBackground.playback paused=\(!isVisible || isConservingPower) visible=\(isVisible) occluded=\(!window.occlusionState.contains(.visible)) key=\(window.isKeyWindow) mini=\(window.isMiniaturized) sleeping=\(isSystemSleeping) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)")
         #endif
-        playerView.setPaused(!isVisible || isConservingPower)
+        let shouldPause = !isVisible || isConservingPower
+        if lastPlayerPaused != shouldPause, !shouldPause {
+            let snapshot = playbackCoordinator.synchronizedSnapshot()
+            if snapshot.position > 0 {
+                playerView.setPlaybackPosition(snapshot.position)
+            }
+        }
+        lastPlayerPaused = shouldPause
+        playerView.setPaused(shouldPause)
     }
 
     private func removeLayer() {
         playerView?.setPaused(true)
+        lastPlayerPaused = true
         playerView?.removeFromSuperview()
         playerView = nil
+        playerIsReady = false
         activeSource = nil
         hostView?.removeFromSuperview()
         hostView = nil
@@ -291,6 +569,8 @@ final class WindowVideoBackgroundController {
             audioArbiter.windowWillClose(window, fallback: NSApp.keyWindow)
         }
         removeLayer()
+        playbackCoordinator.unregister(playbackObserverToken)
+        playbackObserverToken = nil
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
             NSWorkspace.shared.notificationCenter.removeObserver(observer)

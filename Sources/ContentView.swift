@@ -851,6 +851,7 @@ struct ContentView: View {
     let featureFlags: CmuxFeatureFlags
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
+    let videoBackgroundRuntime: VideoBackgroundRuntime
 
     @MainActor
     init(
@@ -858,7 +859,8 @@ struct ContentView: View {
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
-        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
+        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil,
+        videoBackgroundRuntime: VideoBackgroundRuntime? = nil
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId
@@ -866,6 +868,7 @@ struct ContentView: View {
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
             ?? TitlebarControlsLayoutModel()
+        self.videoBackgroundRuntime = videoBackgroundRuntime ?? VideoBackgroundRuntime()
     }
 
     @EnvironmentObject var tabManager: TabManager
@@ -3481,7 +3484,11 @@ struct ContentView: View {
             cmuxConfigStore: cmuxConfigStore
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
-        let videoPresentation = WindowVideoBackgroundController.ensure(on: window).presentation
+        let videoPresentation = WindowVideoBackgroundController.ensure(
+            on: window,
+            audioArbiter: videoBackgroundRuntime.audioArbiter,
+            playbackCoordinator: videoBackgroundRuntime.playbackCoordinator
+        ).presentation
         if videoBackgroundPresentation !== videoPresentation {
             videoBackgroundPresentation = videoPresentation
         }

@@ -11,13 +11,13 @@ import AppKit
 /// their effective mute state immediately.
 @MainActor
 final class VideoBackgroundAudioArbiter {
-    static let shared = VideoBackgroundAudioArbiter()
-
     private(set) weak var ownerWindow: NSWindow?
     private let controllers = NSHashTable<WindowVideoBackgroundController>.weakObjects()
 
-    /// Creates an independent arbiter (tests); production uses ``shared``.
+    /// Creates an independent arbiter for one application composition root.
     init() {}
+
+    deinit {}
 
     /// Registers a controller for ownership-change callbacks. The first window
     /// to register while no owner exists becomes the owner so a single window

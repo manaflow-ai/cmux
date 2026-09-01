@@ -62,12 +62,23 @@ struct VideoBackgroundAudioArbiterTests {
         let audible = try makeDefaults(muted: false)
         let first = makeWindow()
         let second = makeWindow()
+        let runtime = VideoBackgroundRuntime(audioArbiter: arbiter)
 
-        let firstController = WindowVideoBackgroundController.ensure(on: first, defaults: audible, audioArbiter: arbiter)
+        let firstController = WindowVideoBackgroundController.ensure(
+            on: first,
+            audioArbiter: runtime.audioArbiter,
+            playbackCoordinator: runtime.playbackCoordinator,
+            defaults: audible
+        )
         // The first registered window owns audio without waiting for a key event.
         #expect(firstController.effectiveMuted == false)
 
-        let secondController = WindowVideoBackgroundController.ensure(on: second, defaults: audible, audioArbiter: arbiter)
+        let secondController = WindowVideoBackgroundController.ensure(
+            on: second,
+            audioArbiter: runtime.audioArbiter,
+            playbackCoordinator: runtime.playbackCoordinator,
+            defaults: audible
+        )
         #expect(secondController.effectiveMuted == true)
 
         arbiter.windowDidBecomeKey(second)
@@ -77,7 +88,12 @@ struct VideoBackgroundAudioArbiterTests {
         // The setting always wins over ownership.
         let silent = try makeDefaults(muted: true)
         let third = makeWindow()
-        let thirdController = WindowVideoBackgroundController.ensure(on: third, defaults: silent, audioArbiter: arbiter)
+        let thirdController = WindowVideoBackgroundController.ensure(
+            on: third,
+            audioArbiter: runtime.audioArbiter,
+            playbackCoordinator: runtime.playbackCoordinator,
+            defaults: silent
+        )
         arbiter.windowDidBecomeKey(third)
         #expect(thirdController.effectiveMuted == true)
     }

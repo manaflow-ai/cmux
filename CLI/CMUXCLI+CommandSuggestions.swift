@@ -208,6 +208,7 @@ extension CMUXCLI {
         "unbind-key",
         "uninstall-hooks",
         "version",
+        "video-background",
         "vm",
         "vm-pty-attach",
         "vm-pty-connect",
