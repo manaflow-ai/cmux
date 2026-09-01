@@ -129,7 +129,7 @@ RUN jq -e '.DefaultSearchProviderSearchURL | test("duckduckgo")' /etc/opt/chrome
 # cua computer-use driver, pinned (dormant until an X display exists).
 ENV CUA_DRIVER_RS_HOME=/opt/cua-driver
 RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
-  && CUA_DRIVER_RS_VERSION=0.19.3 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
+  && CUA_DRIVER_RS_VERSION=0.23.2 CUA_DRIVER_BIN_DIR=/usr/local/bin CUA_DRIVER_NO_MODIFY_PATH=1 bash /tmp/cua-install.sh \
   && rm -f /tmp/cua-install.sh \
   && chmod -R a+rX /opt/cua-driver \
   && cua-driver --version
@@ -180,6 +180,30 @@ RUN bash -n /etc/cmux/bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
   && bash -ic 'head -2 /root/.bash_history'
+
+# Seed ble.sh tput caches for the TERMs cmux uses, exactly as the Blaxel
+# template does (its Dockerfile carries the full rationale): without them the
+# FIRST shell on a machine prints "ble/term.sh: updating tput cache ... done"
+# into the pane before its first prompt. Both cache homes are seeded: the
+# XDG seed copied by cmux-bashrc from /etc/cmux/blesh-cache-seed, and
+# <blesh>/cache.d for uid 0 plus the provider-created uid-1000 user (numeric
+# chown: E2B/Daytona/Freestyle each name that user differently).
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chmod a+rwxt /usr/local/share/blesh/cache.d \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted
