@@ -2000,7 +2000,7 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
-          "ignoredPorts": "Ports omitted from sidebar badges. Entries may be exact port numbers or inclusive \"start-end\" ranges; use an empty array to show every detected port.",
+          "ignoredPorts": "Ports omitted from sidebar badges. By default, ports 49152-65535 are omitted. Entries may be exact port numbers or inclusive \"start-end\" ranges; use [] to show every detected port.",
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },

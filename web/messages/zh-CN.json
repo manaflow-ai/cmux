@@ -1145,7 +1145,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "ignoredPorts": "从侧边栏徽章中省略的端口。条目可以是确切的端口号或包含端点的“start-end”范围；使用空数组可显示所有检测到的端口。",
+          "ignoredPorts": "从侧边栏徽章中省略的端口。默认省略端口 49152-65535。条目可以是确切的端口号或包含端点的“start-end”范围；使用 [] 可显示所有检测到的端口。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },

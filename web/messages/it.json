@@ -1145,7 +1145,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "ignoredPorts": "Porte omesse dai badge della barra laterale. Le voci possono essere numeri di porta esatti o intervalli inclusivi \"start-end\"; usa un array vuoto per mostrare tutte le porte rilevate.",
+          "ignoredPorts": "Porte omesse dai badge della barra laterale. Per impostazione predefinita, sono escluse le porte 49152-65535. Le voci possono essere numeri di porta esatti o intervalli inclusivi \"start-end\"; usa [] per mostrare tutte le porte rilevate.",
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
