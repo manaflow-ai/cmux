@@ -1168,11 +1168,12 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 // is derived state, so fail closed with an empty host rather
                 // than exposing a partial state at a nonzero cursor.
                 eprintln!("cmux-tui: agent roster snapshot cannot be replayed: {error}");
+                let empty_snapshot = AgentRoster::default().snapshot().to_string();
                 if let Err(reset_error) = registry.put_journal_reducer_state(
                     AGENT_ROSTER_REDUCER_ID,
                     AGENT_ROSTER_REDUCER_VERSION,
                     0,
-                    &host.roster.snapshot().to_string(),
+                    &empty_snapshot,
                 ) {
                     eprintln!(
                         "cmux-tui: clearing the unreplayable agent roster snapshot failed: {reset_error}"
@@ -23904,6 +23905,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(persisted.1, 0, "the unreplayable cursor must be cleared");
+        assert_eq!(persisted.2, r#"{"entries":{}}"#);
 
         drop(registry);
         std::fs::remove_dir_all(root).unwrap();
