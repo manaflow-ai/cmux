@@ -254,15 +254,17 @@ func TestTmuxCompatStoreConcurrentProcessMutations(t *testing.T) {
 	type childProcess struct {
 		command *exec.Cmd
 		stderr  *bytes.Buffer
+		reaped  bool
 	}
-	children := make([]childProcess, 0, writers)
+	children := make([]*childProcess, 0, writers)
 	t.Cleanup(func() {
 		for _, child := range children {
+			if child.reaped {
+				continue
+			}
 			if child.command.Process != nil {
 				_ = child.command.Process.Kill()
 			}
-		}
-		for _, child := range children {
 			if child.command.Process != nil {
 				_ = child.command.Wait()
 			}
@@ -280,10 +282,12 @@ func TestTmuxCompatStoreConcurrentProcessMutations(t *testing.T) {
 		if err := command.Start(); err != nil {
 			t.Fatalf("start child %d: %v", i, err)
 		}
-		children = append(children, childProcess{command: command, stderr: stderr})
+		children = append(children, &childProcess{command: command, stderr: stderr})
 	}
 	for i, child := range children {
-		if err := child.command.Wait(); err != nil {
+		err := child.command.Wait()
+		child.reaped = true
+		if err != nil {
 			t.Fatalf("child %d: %v\n%s", i, err, child.stderr.String())
 		}
 	}

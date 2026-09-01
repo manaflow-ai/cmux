@@ -26586,7 +26586,7 @@ struct CMUXCLI {
         // Resolve pane geometry outside the file lock. If layout state changes
         // between that RPC and the locked mutation, retry from a fresh snapshot
         // so a replacement selected for an old main pane is never persisted.
-        for _ in 0..<4 {
+        while true {
             let snapshot = loadTmuxCompatStore()
             let snapshotLayout = snapshot.mainVerticalLayouts[workspaceId]
             let replacementWasResolved: Bool
