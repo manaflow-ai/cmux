@@ -519,6 +519,45 @@ final class BrowserShortcutCaptureTests {
     }
 
     @Test
+    func numberedShortcutDoesNotCaptureWhileAnotherChordIsArmed() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        try withCaptureEnabled { harness in
+            let numberedShortcut = BrowserCaptureStoredShortcut(
+                key: "1",
+                command: false,
+                shift: false,
+                option: false,
+                control: true
+            )
+            let ctrl3 = try #require(makeKeyDownEvent(
+                key: "3",
+                modifiers: [.control],
+                keyCode: 20,
+                windowNumber: harness.window.windowNumber
+            ))
+            let previousPrefix = appDelegate.activeConfiguredShortcutChordPrefixForCurrentEvent
+            defer {
+                appDelegate.activeConfiguredShortcutChordPrefixForCurrentEvent = previousPrefix
+                appDelegate.shortcutEventFocusContextCache = nil
+            }
+
+            withTemporaryShortcut(action: .selectSurfaceByNumber, shortcut: numberedShortcut) {
+                appDelegate.activeConfiguredShortcutChordPrefixForCurrentEvent = BrowserCaptureStoredShortcut(
+                    key: "b",
+                    command: false,
+                    shift: false,
+                    option: false,
+                    control: true
+                ).firstStroke
+                #expect(
+                    !appDelegate.shouldCaptureBrowserKeyboardShortcuts(for: ctrl3),
+                    "A numbered family must not consume a suffix while another chord is armed"
+                )
+            }
+        }
+    }
+
+    @Test
     func standalonePopupBrowserScopedShortcutsYieldToWebKitWhenCaptureDisabled() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let opener = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
