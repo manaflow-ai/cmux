@@ -1909,6 +1909,7 @@
 		D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */; };
 		E30790000000000000000004 /* RemotePTYBridgeStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30790000000000000000003 /* RemotePTYBridgeStrings+App.swift */; };
 		B11049000000000000000001 /* RemotePTYReconnectLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11049000000000000000002 /* RemotePTYReconnectLifecycleTests.swift */; };
+		B11049000000000000000003 /* RemoteRelayTmuxCompatAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11049000000000000000004 /* RemoteRelayTmuxCompatAuthorizationTests.swift */; };
 		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		7989A0017989A0017989A001 /* RemoteResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */; };
@@ -5027,6 +5028,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackRuntimeBridge.swift; sourceTree = "<group>"; };
 		E30790000000000000000003 /* RemotePTYBridgeStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemotePTYBridgeStrings+App.swift"; sourceTree = "<group>"; };
 		B11049000000000000000002 /* RemotePTYReconnectLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePTYReconnectLifecycleTests.swift; sourceTree = "<group>"; };
+		B11049000000000000000004 /* RemoteRelayTmuxCompatAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayTmuxCompatAuthorizationTests.swift; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		7989A0027989A0027989A002 /* RemoteResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteResumeBindingTests.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000D1 /* RemoteRouteSpec.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemoteRouteSpec.swift; sourceTree = "<group>"; };
@@ -9236,6 +9238,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0A710120000000000000001 /* ComputerUseUXTests.swift */,
 				C95FA2E4CBC042628EE67957 /* RemoteClaudeTeamsRespawnRoutingTests.swift */,
 				B11049000000000000000002 /* RemotePTYReconnectLifecycleTests.swift */,
+				B11049000000000000000004 /* RemoteRelayTmuxCompatAuthorizationTests.swift */,
 				9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */,
 				C9D9924AC89D7C3408DBC56A /* WorkspaceRecoveryTests.swift */,
 				939AA681FBA244B994634EE0 /* WorkspaceRecoveryReviewRegressionTests.swift */,
@@ -12771,6 +12774,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				835000000000000000000006 /* RemoteInitialCommandBootstrapFailureTests.swift in Sources */,
 				835000000000000000000004 /* RemoteInitialCommandBootstrapTests.swift in Sources */,
 				B11049000000000000000001 /* RemotePTYReconnectLifecycleTests.swift in Sources */,
+				B11049000000000000000003 /* RemoteRelayTmuxCompatAuthorizationTests.swift in Sources */,
 				7989A0017989A0017989A001 /* RemoteResumeBindingTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
 				806100020000000000000001 /* RemoteSessionCleanupLifecycleTests.swift in Sources */,
