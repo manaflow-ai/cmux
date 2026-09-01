@@ -33,7 +33,12 @@ extension CMUXCLI {
             method: "pane.surfaces",
             params: ["workspace_id": workspaceId, "pane_id": paneId]
         )
-        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        guard let surfaces = payload["surfaces"] as? [[String: Any]] else {
+            throw CLIError(message: String(
+                localized: "cli.tmux-compat.error.invalidPaneSurfacesResponse",
+                defaultValue: "cmux tmux shim: pane.surfaces response must contain a surfaces array"
+            ))
+        }
         if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
            let id = selected["id"] as? String {
             return id

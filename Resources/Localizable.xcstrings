@@ -57485,6 +57485,7 @@
         }
       }
     },
+    "cli.tmux-compat.error.invalidPaneSurfacesResponse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux tmux shim: pane.surfaces response must contain a surfaces array"}},"ja":{"stringUnit":{"state":"translated","value":"cmux tmux シム: pane.surfaces の応答には surfaces 配列が必要です"}}}},
     "cli.tmux-compat.error.managedTerminalRequired": {
       "extractionState": "manual",
       "localizations": {

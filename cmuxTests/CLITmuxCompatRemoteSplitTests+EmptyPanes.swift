@@ -3,6 +3,12 @@ import Foundation
 import Testing
 
 extension CLITmuxCompatRemoteSplitTests {
+    private enum PaneSurfacesResponse {
+        case valid
+        case missing
+        case nonArray
+    }
+
     /// Regression for #9917: an intentionally empty global Dock pane is a valid
     /// persisted cmux pane, but it has no surface that the tmux shim can target.
     /// `list-panes` must omit that pane instead of asking `tmuxFormatContext` to
@@ -28,8 +34,29 @@ extension CLITmuxCompatRemoteSplitTests {
         )
     }
 
+    /// A successful pane.surfaces response with no `surfaces` field is a
+    /// protocol failure, not an empty pane.
+    @Test func listPanesRejectsMissingSelectedSurfaceArray() throws {
+        let result = try runListPanesWithEmptyDock(paneSurfacesResponse: .missing)
+
+        #expect(result.status != 0)
+        #expect(result.stdout.isEmpty, Comment(rawValue: result.stdout))
+        #expect(result.stderr.contains("pane.surfaces"), Comment(rawValue: result.stderr))
+    }
+
+    /// A successful pane.surfaces response with a non-array field must not be
+    /// silently treated as an empty pane.
+    @Test func listPanesRejectsNonArraySelectedSurfaceField() throws {
+        let result = try runListPanesWithEmptyDock(paneSurfacesResponse: .nonArray)
+
+        #expect(result.status != 0)
+        #expect(result.stdout.isEmpty, Comment(rawValue: result.stdout))
+        #expect(result.stderr.contains("pane.surfaces"), Comment(rawValue: result.stderr))
+    }
+
     private func runListPanesWithEmptyDock(
-        failSelectedSurfaceLookup: Bool = false
+        failSelectedSurfaceLookup: Bool = false,
+        paneSurfacesResponse: PaneSurfacesResponse = .valid
     ) throws -> ProcessRunResult {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITmuxCompatRemoteSplitBundleToken.self)
         let tmpDir = FileManager.default.temporaryDirectory
@@ -95,6 +122,14 @@ extension CLITmuxCompatRemoteSplitTests {
                         "code": "pane_surfaces_unavailable",
                         "message": "pane.surfaces protocol failure",
                     ])
+                }
+                switch paneSurfacesResponse {
+                case .missing:
+                    return Self.v2Response(id: id, ok: true, result: [:])
+                case .nonArray:
+                    return Self.v2Response(id: id, ok: true, result: ["surfaces": "not-an-array"])
+                case .valid:
+                    break
                 }
                 let params = payload["params"] as? [String: Any] ?? [:]
                 let paneID = params["pane_id"] as? String
