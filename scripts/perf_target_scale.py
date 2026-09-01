@@ -131,6 +131,19 @@ def _parse_int(value: Any) -> int | None:
         return None
 
 
+def _workspace_id_from_create_payload(payload: Mapping[str, Any]) -> str:
+    """Read the created workspace handle across the socket response variants."""
+
+    for key in ("created_workspace_id", "workspace_id"):
+        value = payload.get(key)
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return ""
+
+
 def _read_plist_version(app_path: pathlib.Path) -> str:
     plist_path = app_path / "Contents" / "Info.plist"
     try:
@@ -436,7 +449,7 @@ class TargetScaleRunner:
             },
             timeout=180,
         )
-        workspace_id = str(payload.get("workspace_id") or "")
+        workspace_id = _workspace_id_from_create_payload(payload)
         if not workspace_id:
             raise BenchmarkError(f"workspace.create did not return workspace_id: {payload!r}")
         for old in old_workspaces:
