@@ -26,16 +26,6 @@ public struct TransportSentryEventNoiseFilter: Sendable {
         if event.tags?["transport.failure"] == "offline" {
             return nil
         }
-        if let transportContext = event.context?["cmux.transport"],
-           let reachable = transportContext["reachable"] as? Bool,
-           !reachable,
-           let failureName = event.tags?["transport.failure"],
-           let failure = DiagnosticFailureKind.allCases.first(where: {
-               String(describing: $0) == failureName
-           }),
-           TransportIncidentPolicy.environmentalFailureKinds.contains(failure) {
-            return nil
-        }
         return event
     }
 

@@ -2,6 +2,14 @@ import CMUXMobileCore
 import CmuxIrohTransport
 
 extension MobileHostIrohRuntime {
+    /// Drops the reachability sample when the service lifecycle stops.
+    ///
+    /// The next monitor instance must provide a fresh authoritative first
+    /// sample before activation or relay recovery can begin.
+    func resetNetworkReachability() {
+        relayPolicyNetworkReachable = nil
+    }
+
     /// Applies a platform reachability transition to the host transport.
     ///
     /// Offline is a normal lifecycle state for a laptop, so broker refresh and
@@ -26,6 +34,9 @@ extension MobileHostIrohRuntime {
                     serverSignalPendingRevision ?? revision,
                     revision
                 )
+                serverSignalAccountID = serverSignalAccountID
+                    ?? activeAccountID
+                    ?? observedAccountID
             }
             serverSignalRefreshTask?.cancel()
             serverSignalRefreshTask = nil
@@ -56,8 +67,12 @@ extension MobileHostIrohRuntime {
             )
         }
         if let pendingRevision = serverSignalPendingRevision,
-           serverSignalRefreshTask == nil {
+           serverSignalRefreshTask == nil,
+           let currentAccountID = activeAccountID ?? observedAccountID,
+           serverSignalAccountID == currentAccountID,
+           runtime != nil {
             serverSignalPendingRevision = nil
+            serverSignalAccountID = nil
             reconcileConnectivityFromServerSignal(revision: pendingRevision)
         }
         retryIfNeeded()

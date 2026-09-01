@@ -1083,6 +1083,27 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         relayPolicyRefreshRevision = nil
     }
 
+    /// Re-arms a refresh whose lifecycle owner was retained while an active
+    /// same-account reconcile completed without replacing the endpoint.
+    func rearmRelayPolicyRefreshIfNeeded() {
+        guard relayPolicyRefreshTask == nil,
+              let service = relayPolicyRefreshService,
+              let accountID = relayPolicyRefreshAccountID,
+              let endpointID = relayPolicyRefreshEndpointID,
+              let trustRoot = relayPolicyRefreshTrustRoot,
+              let revision = relayPolicyRefreshRevision,
+              revision == lifecycleRevision,
+              activeAccountID == accountID else { return }
+        scheduleRelayPolicyRefresh(
+            service: service,
+            accountID: accountID,
+            endpointID: endpointID,
+            trustRoot: trustRoot,
+            revision: revision,
+            refreshImmediately: false
+        )
+    }
+
     /// Returns whether the endpoint captured by a policy application is still
     /// the runtime owned by this lifecycle generation. A captured nil asserts
     /// that no endpoint existed when the request began.
@@ -1115,6 +1136,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         serverSignalRefreshTaskID = nil
         serverSignalRefreshRevision = nil
         serverSignalPendingRevision = nil
+        serverSignalAccountID = nil
         relayPolicyService = nil
         relayPolicyAppliedEffective = nil
         relayPolicyAppliedFailure = nil

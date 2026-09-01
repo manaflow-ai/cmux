@@ -41,7 +41,7 @@ import Testing
         #expect(filter.filter(actionable) != nil)
     }
 
-    @Test func staleOfflineSnapshotDoesNotDropActionableProtocolFailures() {
+    @Test func staleOfflineSnapshotDoesNotOverrideIncidentPolicy() {
         let actionable = Event(level: .warning)
         actionable.logger = "cmux.transport"
         actionable.tags = [
@@ -54,17 +54,17 @@ import Testing
 
         #expect(filter.filter(actionable) != nil)
 
+        // Incident admission owns reachability suppression. A bare Sentry
+        // event carrying stale context is not a second policy input.
         let environmental = Event(level: .warning)
         environmental.logger = "cmux.transport"
         environmental.tags = [
             "transport.failure": "endpointUnavailable",
             "transport.incident": "failure",
         ]
-        environmental.context = [
-            "cmux.transport": ["reachable": false],
-        ]
+        environmental.context = ["cmux.transport": ["reachable": false]]
 
-        #expect(filter.filter(environmental) == nil)
+        #expect(filter.filter(environmental) != nil)
     }
 
     @Test func filtersListenerMessagesBeforeLoggerCheck() {

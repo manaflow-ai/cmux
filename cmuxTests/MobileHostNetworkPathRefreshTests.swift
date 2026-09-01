@@ -258,8 +258,8 @@ import Testing
         )
     }
 
-    @Test func activationAllowsUnknownInitialPathButBlocksKnownOffline() {
-        #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: nil))
+    @Test func activationRequiresAnAuthoritativeUsablePath() {
+        #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: nil))
         #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: false))
         #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: true))
     }
@@ -513,7 +513,7 @@ struct MobileHostIrohStartupRetryTests {
     }
 
     @Test
-    func reconcileCancelsAndReleasesTheLongLivedRelayRefreshOwner() {
+    func reconcileCancelsAndReleasesTheLongLivedRelayRefreshOwner() throws {
         let runtime = MobileHostIrohRuntime.shared
         let originalRevision = runtime.lifecycleRevision
         let originalTransitionTask = runtime.transitionTask
@@ -527,7 +527,19 @@ struct MobileHostIrohStartupRetryTests {
 
         runtime.relayPolicyRefreshTask = Task {}
         runtime.relayPolicyRefreshTaskID = UUID()
+        runtime.relayPolicyRefreshService = CmxIrohRelayPolicyService()
         runtime.relayPolicyRefreshAccountID = "stale-account"
+        runtime.relayPolicyRefreshEndpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let key = try CmxIrohRelayPolicyVerificationKey(
+            keyID: "test-key",
+            rawPublicKeyBase64: Data(repeating: 0, count: 32).base64EncodedString()
+        )
+        runtime.relayPolicyRefreshTrustRoot = try CmxIrohRelayPolicyTrustRoot(
+            keys: [key]
+        )
+        runtime.relayPolicyRefreshRevision = originalRevision
         let reconciliation = runtime.scheduleReconcile(eraseAccountState: false)
 
         #expect(runtime.relayPolicyRefreshTask == nil)
@@ -548,6 +560,54 @@ struct MobileHostIrohStartupRetryTests {
         runtime.relayPolicyRefreshEndpointID = originalRefreshEndpointID
         runtime.relayPolicyRefreshTrustRoot = originalRefreshTrustRoot
         runtime.relayPolicyRefreshRevision = originalRefreshRevision
+    }
+
+    @Test
+    func retainedRefreshContextCanRearmAfterLifecycleRevisionAdvances() throws {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let originalActiveAccountID = runtime.activeAccountID
+        let originalRefreshTask = runtime.relayPolicyRefreshTask
+        let originalRefreshTaskID = runtime.relayPolicyRefreshTaskID
+        let originalRefreshService = runtime.relayPolicyRefreshService
+        let originalRefreshAccountID = runtime.relayPolicyRefreshAccountID
+        let originalRefreshEndpointID = runtime.relayPolicyRefreshEndpointID
+        let originalRefreshTrustRoot = runtime.relayPolicyRefreshTrustRoot
+        let originalRefreshRevision = runtime.relayPolicyRefreshRevision
+
+        runtime.activeAccountID = "same-account"
+        runtime.relayPolicyRefreshTask = nil
+        runtime.relayPolicyRefreshTaskID = nil
+        runtime.relayPolicyRefreshService = CmxIrohRelayPolicyService()
+        runtime.relayPolicyRefreshAccountID = "same-account"
+        runtime.relayPolicyRefreshEndpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let key = try CmxIrohRelayPolicyVerificationKey(
+            keyID: "rearm-key",
+            rawPublicKeyBase64: Data(repeating: 1, count: 32).base64EncodedString()
+        )
+        runtime.relayPolicyRefreshTrustRoot = try CmxIrohRelayPolicyTrustRoot(
+            keys: [key]
+        )
+        runtime.relayPolicyRefreshRevision = originalRevision
+
+        runtime.lifecycleRevision &+= 1
+        runtime.relayPolicyRefreshRevision = runtime.lifecycleRevision
+        runtime.rearmRelayPolicyRefreshIfNeeded()
+
+        #expect(runtime.relayPolicyRefreshTask != nil)
+
+        runtime.relayPolicyRefreshTask?.cancel()
+        runtime.relayPolicyRefreshTask = originalRefreshTask
+        runtime.relayPolicyRefreshTaskID = originalRefreshTaskID
+        runtime.relayPolicyRefreshService = originalRefreshService
+        runtime.relayPolicyRefreshAccountID = originalRefreshAccountID
+        runtime.relayPolicyRefreshEndpointID = originalRefreshEndpointID
+        runtime.relayPolicyRefreshTrustRoot = originalRefreshTrustRoot
+        runtime.relayPolicyRefreshRevision = originalRefreshRevision
+        runtime.activeAccountID = originalActiveAccountID
+        runtime.lifecycleRevision = originalRevision
     }
 
     @Test

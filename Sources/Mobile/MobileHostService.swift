@@ -1141,6 +1141,7 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        MobileHostIrohRuntime.shared.resetNetworkReachability()
         stopNetworkPathMonitor()
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {

@@ -183,6 +183,10 @@ final class MobileHostIrohRuntime {
     var serverSignalRefreshTaskID: UUID?
     var serverSignalRefreshRevision: UInt64?
     var serverSignalPendingRevision: UInt64?
+    /// Account scope of the in-flight or queued server revision. Keeping it
+    /// with the revision prevents an offline wake from crossing an account
+    /// transition.
+    var serverSignalAccountID: String?
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
@@ -276,16 +280,52 @@ final class MobileHostIrohRuntime {
         eraseAccountState: Bool,
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
+        let targetAccountID = signOutIntentActive
+            ? nil
+            : (desiredActive ? observedAccountID : nil)
+        let replacesRuntime = eraseAccountState
+            || restartActiveRuntime
+            || activeAccountID != targetAccountID
+            || targetAccountID == nil
+        let serverSignalScope = serverSignalAccountID ?? activeAccountID
+        let preservesServerSignal = !replacesRuntime
+            && desiredActive
+            && !signOutIntentActive
+            && serverSignalScope == targetAccountID
         lifecycleRevision &+= 1
         invalidateRelayPolicyApplications()
-        cancelRelayPolicyRefresh()
+        if replacesRuntime {
+            cancelRelayPolicyRefresh()
+        } else {
+            // A same-account reconcile advances lifecycleRevision even though
+            // the endpoint stays active. Restart the task with that new
+            // revision so its captured owner token does not self-retire.
+            relayPolicyRefreshTask?.cancel()
+            relayPolicyRefreshTask = nil
+            relayPolicyRefreshTaskID = nil
+            if relayPolicyRefreshRevision != nil {
+                relayPolicyRefreshRevision = lifecycleRevision
+            }
+        }
         cancelRetryInspection()
         bindingPersistenceQueue.cancel()
         serverSignalRefreshTask?.cancel()
+        let inFlightServerSignalRevision = serverSignalRefreshRevision
         serverSignalRefreshTask = nil
         serverSignalRefreshTaskID = nil
         serverSignalRefreshRevision = nil
-        serverSignalPendingRevision = nil
+        if preservesServerSignal {
+            serverSignalAccountID = targetAccountID
+            if let refreshRevision = inFlightServerSignalRevision {
+                serverSignalPendingRevision = max(
+                    serverSignalPendingRevision ?? refreshRevision,
+                    refreshRevision
+                )
+            }
+        } else {
+            serverSignalPendingRevision = nil
+            serverSignalAccountID = nil
+        }
         let revision = lifecycleRevision
         let previous = transitionTask
         previous?.cancel()
@@ -302,10 +342,29 @@ final class MobileHostIrohRuntime {
             )
             if revision == self.lifecycleRevision {
                 self.transitionTask = nil
+                if !replacesRuntime {
+                    self.rearmRelayPolicyRefreshIfNeeded()
+                }
+                self.replayPendingServerSignalIfReachable()
             }
         }
         transitionTask = task
         return task
+    }
+
+    /// Replays a connectivity revision retained across a same-account
+    /// lifecycle reconcile once the path and runtime are both usable.
+    private func replayPendingServerSignalIfReachable() {
+        guard relayPolicyNetworkReachable == true,
+              desiredActive,
+              !signOutIntentActive,
+              let activeAccountID,
+              serverSignalAccountID == activeAccountID,
+              let pendingRevision = serverSignalPendingRevision,
+              runtime != nil else { return }
+        serverSignalPendingRevision = nil
+        serverSignalAccountID = nil
+        reconcileConnectivityFromServerSignal(revision: pendingRevision)
     }
 
     func reconcile(
@@ -379,10 +438,10 @@ final class MobileHostIrohRuntime {
     }
 
     /// Returns whether a host activation may begin with the current path state.
-    /// An unknown initial path may use cached policy for direct startup, while
-    /// an explicitly offline path waits for the reachability owner to wake it.
+    /// Activation waits for the path monitor's authoritative first sample so a
+    /// stopped-and-restarted service cannot reuse stale reachability.
     nonisolated static func shouldStartIrohActivation(networkReachable: Bool?) -> Bool {
-        networkReachable != false
+        networkReachable == true
     }
 
     /// Returns whether an externally delivered connectivity signal must be
@@ -409,6 +468,9 @@ final class MobileHostIrohRuntime {
                 serverSignalPendingRevision ?? revision,
                 revision
             )
+            serverSignalAccountID = serverSignalAccountID
+                ?? activeAccountID
+                ?? observedAccountID
             return
         }
         if serverSignalRefreshTask != nil {
@@ -416,13 +478,20 @@ final class MobileHostIrohRuntime {
                 serverSignalPendingRevision ?? revision,
                 revision
             )
+            serverSignalAccountID = serverSignalAccountID
+                ?? activeAccountID
+                ?? observedAccountID
             return
         }
         guard let signalRuntime = runtime else {
+            serverSignalAccountID = serverSignalAccountID
+                ?? activeAccountID
+                ?? observedAccountID
             retryIfNeeded()
             return
         }
         let taskID = UUID()
+        serverSignalAccountID = activeAccountID ?? observedAccountID
         serverSignalRefreshTaskID = taskID
         serverSignalRefreshRevision = revision
         serverSignalRefreshTask = Task { @MainActor [weak self] in
@@ -432,6 +501,9 @@ final class MobileHostIrohRuntime {
                     self.serverSignalRefreshTask = nil
                     self.serverSignalRefreshTaskID = nil
                     self.serverSignalRefreshRevision = nil
+                    if self.serverSignalPendingRevision == nil {
+                        self.serverSignalAccountID = nil
+                    }
                 }
             }
             guard let self,
