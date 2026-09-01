@@ -1025,6 +1025,7 @@ mod tests {
     #[tokio::test]
     async fn listener_cancellation_cancels_pending_open_without_attachment() {
         let (rig, entered) = hanging_rig().await;
+        let baseline_attachments = rig.manager.attachment_count();
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1034,7 +1035,7 @@ mod tests {
         entered.notified().await;
         rig.cancel.cancel();
         read_eof(&mut read).await;
-        assert!(rig.spawned.lock().unwrap().is_empty(), "cancelled open must not reserve a PTY");
+        assert_eq!(rig.manager.attachment_count(), baseline_attachments, "cancelled open must clean up its attachment");
     }
 
     #[tokio::test]
