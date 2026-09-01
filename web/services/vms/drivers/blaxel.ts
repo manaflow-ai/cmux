@@ -138,34 +138,41 @@ const CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH = "/etc/cmux/package-install.lock.
 const CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH = `${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH}/owner`;
 const CMUX_PACKAGE_INSTALL_BUSY_PATH = "/etc/cmux/package-install.lock.busy";
 const CMUX_PACKAGE_INSTALL_LOCK_STALE_MINUTES = 5;
+const CMUX_PACKAGE_INSTALL_LOCK_WAIT_SECONDS = 300;
 
 /**
  * Serializes every apt/apk mutation with one transition-safe protocol. The
  * directory gate is acquired before checking flock, so a caller that installs
  * util-linux cannot race a caller that already sees flock. Once flock exists,
  * the gate is released after the file lock is held and later callers block on
- * that same file. A dead owner pid permits recovery from a killed old-image
- * setup; a live owner fails closed instead of touching its lock. An ownerless
- * directory is reclaimed only after a grace period, which covers a process
- * killed between mkdir and writing its owner pid without interrupting a fresh
- * acquisition.
+ * that same file. Contenders wait for the owner to release the directory, with
+ * a bounded timeout, so a concurrent bootstrap does not silently select the
+ * root fallback. A dead owner pid permits recovery from a killed old-image
+ * setup; an ownerless directory is reclaimed only after a grace period, which
+ * covers a process killed between mkdir and writing its owner pid without
+ * interrupting a fresh acquisition.
  */
 function withPackageInstallLock(body: string): string {
   const packageDir = CMUX_PACKAGE_INSTALL_LOCK_PATH.replace(/\/[^/]+$/, "");
   return (
     `mkdir -p ${packageDir} 2>/dev/null; ` +
+    `cmux_package_lock_acquired=0; cmux_package_lock_wait=0; ` +
+    `while [ "$cmux_package_lock_wait" -lt ${CMUX_PACKAGE_INSTALL_LOCK_WAIT_SECONDS} ]; do ` +
     `if [ -d ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} ]; then ` +
     `cmux_package_lock_pid=""; ` +
     `if [ -r ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} ]; then ` +
     `cmux_package_lock_pid="$(cat ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true)"; fi; ` +
-    `if [ -n "$cmux_package_lock_pid" ]; then ` +
-    `if ! kill -0 "$cmux_package_lock_pid" 2>/dev/null; then ` +
+    `if [ -n "$cmux_package_lock_pid" ] && ! kill -0 "$cmux_package_lock_pid" 2>/dev/null; then ` +
     `rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; ` +
-    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; fi; ` +
-    `elif [ -n "$(find ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} -prune -mmin +${CMUX_PACKAGE_INSTALL_LOCK_STALE_MINUTES} -print 2>/dev/null)" ]; then ` +
+    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; ` +
+    `elif [ -z "$cmux_package_lock_pid" ] && [ -n "$(find ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} -prune -mmin +${CMUX_PACKAGE_INSTALL_LOCK_STALE_MINUTES} -print 2>/dev/null)" ]; then ` +
     `rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; ` +
     `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; fi; fi; ` +
-    `if mkdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null; then ` +
+    `if mkdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null; then cmux_package_lock_acquired=1; break; fi; ` +
+    `if [ ! -d ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} ]; then break; fi; ` +
+    `sleep 1; cmux_package_lock_wait=$((cmux_package_lock_wait + 1)); ` +
+    `done; ` +
+    `if [ "$cmux_package_lock_acquired" -eq 1 ]; then ` +
     // Create the owner file before writing the pid. If the shell is killed in
     // this tiny window, stale recovery can observe the empty file and reclaim
     // the directory after the grace period instead of wedging all future setup.
@@ -174,7 +181,7 @@ function withPackageInstallLock(body: string): string {
     `else ( ` +
     `trap 'rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; exit 143' TERM INT HUP; ` +
     `trap 'rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true' EXIT; ` +
-    `if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; ` +
+    `if command -v flock >/dev/null 2>&1; then flock -w ${CMUX_PACKAGE_INSTALL_LOCK_WAIT_SECONDS} 9 || exit 1; ` +
     `rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; ` +
     `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; fi; ` +
     `${body} ) 9>${CMUX_PACKAGE_INSTALL_LOCK_PATH}; fi; ` +

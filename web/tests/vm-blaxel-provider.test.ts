@@ -518,7 +518,8 @@ describe("cloud work user setup", () => {
     // The whole view setup (mount check, junk clean, mount) shares the package
     // gate and flock, so it cannot race sudo/provision installs or junk-clean a mounted home.
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("/etc/cmux/package-install.lock.d/owner");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("flock 9 || exit 1");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("flock -w 300 9 || exit 1");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("sleep 1; cmux_package_lock_wait=$((cmux_package_lock_wait + 1))");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(") 9>/etc/cmux/package-install.lock");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
     // Curl or wget is prepared under this same gate. The daemon installer does
