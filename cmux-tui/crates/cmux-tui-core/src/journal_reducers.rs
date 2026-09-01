@@ -215,6 +215,20 @@ impl AgentRoster {
         // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
         // only applies to entries screen detection itself established.
         // Socket reports lose to both stronger sources.
+        if source == AgentSource::Hook
+            && let Some(existing) = self.entries.get(terminal_id)
+            && existing.agent_source() == AgentSource::Hook
+            && match (existing.session.as_deref(), session.as_deref()) {
+                (Some(existing), Some(incoming)) => existing != incoming,
+                (Some(_), None) => true,
+                _ => false,
+            }
+        {
+            // The hook projector fences lifecycle events by session. Apply
+            // the same rule in the journal reducer so a delayed event from a
+            // previous process cannot remove or overwrite a live session.
+            return Vec::new();
+        }
         match source {
             AgentSource::Hook => {}
             AgentSource::Detected => {
