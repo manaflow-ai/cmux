@@ -33,7 +33,11 @@ public struct AuthConfig: Equatable, Sendable {
     ///     otherwise). Decided by the composition root, not read here.
     ///   - overrides: String overrides (e.g. parsed from a bundled
     ///     `LocalConfig.plist`). Recognized keys: `STACK_PROJECT_ID_DEV/PROD`,
-    ///     `STACK_PUBLISHABLE_CLIENT_KEY_DEV/PROD`, and `ApiBaseURL`.
+    ///     `STACK_PUBLISHABLE_CLIENT_KEY_DEV/PROD`, `ApiBaseURL`, and
+    ///     `WebOriginURL`. `WebOriginURL` moves the whole web origin: it
+    ///     retargets the magic-link callback and is the API base when no
+    ///     explicit `ApiBaseURL` is given, so a staging override cannot leave
+    ///     magic-link emails pointing at the per-environment default.
     public init(
         environment: CMUXAuthEnvironment,
         overrides: [String: String] = [:]
@@ -47,7 +51,7 @@ public struct AuthConfig: Equatable, Sendable {
             productionPublishableClientKey: "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
         )
 
-        let callbackURL: String
+        var callbackURL: String
         let defaultAPIBaseURL: String
         switch environment {
         case .development:
@@ -58,13 +62,20 @@ public struct AuthConfig: Equatable, Sendable {
             defaultAPIBaseURL = "https://cmux.com"
         }
 
-        let override = overrides["ApiBaseURL"]
-        let apiBaseURL: String
-        if let override, !override.isEmpty {
-            apiBaseURL = override.hasSuffix("/") ? String(override.dropLast()) : override
-        } else {
-            apiBaseURL = defaultAPIBaseURL
+        var apiBaseURL = defaultAPIBaseURL
+        if let webOrigin = Self.normalizedOrigin(overrides["WebOriginURL"]) {
+            callbackURL = "\(webOrigin)/auth/callback"
+            apiBaseURL = webOrigin
+        }
+        if let override = Self.normalizedOrigin(overrides["ApiBaseURL"]) {
+            apiBaseURL = override
         }
         self.init(stack: stack, magicLinkCallbackURL: callbackURL, apiBaseURL: apiBaseURL)
+    }
+
+    /// A non-empty override origin with any trailing slash removed, or `nil`.
+    private static func normalizedOrigin(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value.hasSuffix("/") ? String(value.dropLast()) : value
     }
 }
