@@ -137,6 +137,8 @@ final class TerminalNotificationStaleFocusDismissalTests: XCTestCase {
             isRead: false
         )
         let allNotifications = readNotifications + [unreadNotification]
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
 
         store.replaceNotificationsForTesting(allNotifications)
         for notification in allNotifications {
@@ -144,6 +146,12 @@ final class TerminalNotificationStaleFocusDismissalTests: XCTestCase {
         }
         defer {
             store.replaceNotificationsForTesting([])
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
         }
 
         var publicationCount = 0
