@@ -27269,6 +27269,57 @@ mod tests {
     }
 
     #[test]
+    fn a_single_cell_press_does_not_store_a_zero_length_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a single cell press must not retain a zero-length selection"
+        );
+
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn a_failed_word_lookup_downgrades_to_a_cell_gesture() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-word-lookup-selection-state-test", b"alpha");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 10,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+
+        assert!(app.selection.is_none(), "a missing word must not retain an older selection");
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed word lookup must not leave semantic drag mode active"
+        );
+
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn double_click_selects_a_complete_whitespace_run() {
         let (mut app, mux, surface, content) =
             selection_fixture("double-click-whitespace-selection-test", b"alpha   beta");
