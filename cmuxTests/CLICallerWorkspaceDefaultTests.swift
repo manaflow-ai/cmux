@@ -122,12 +122,12 @@ struct CLICallerWorkspaceDefaultTests {
     /// reject the invocation before opening a socket instead of silently discarding
     /// the selector and returning an indistinguishable identity response.
     @Test(arguments: [
-        ("--workspace", false),
-        ("--surface", false),
-        ("--workspace", true),
-        ("--surface", true),
+        ("--workspace", false, false), ("--surface", false, false),
+        ("--workspace", true, false), ("--surface", true, false),
+        ("--workspace", false, true), ("--surface", false, true),
+        ("--workspace", true, true), ("--surface", true, true),
     ])
-    func identifyNoCallerRejectsCallerSelector(selector: String, noCallerAfterTerminator: Bool) throws {
+    func identifyNoCallerRejectsCallerSelector(selector: String, noCallerAfterTerminator: Bool, selectorAfterTerminator: Bool) throws {
         let socketPath = Self.makeSocketPath("identify-conflict")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
@@ -154,10 +154,11 @@ struct CLICallerWorkspaceDefaultTests {
         )
         environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys9999999"
         let selectorValue = selector == "--workspace" ? Self.otherWorkspaceId : Self.callerSurfaceId
-        let noCallerArguments = noCallerAfterTerminator ? ["--", "--no-caller"] : ["--no-caller"]
+        let beforeTerminator = (selectorAfterTerminator ? [] : [selector, selectorValue]) + (noCallerAfterTerminator ? [] : ["--no-caller"])
+        let afterTerminator = (selectorAfterTerminator ? [selector, selectorValue] : []) + (noCallerAfterTerminator ? ["--no-caller"] : [])
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
-            arguments: ["identify", "--json", selector, selectorValue] + noCallerArguments,
+            arguments: ["identify", "--json"] + beforeTerminator + (afterTerminator.isEmpty ? [] : ["--"] + afterTerminator),
             environment: environment,
             timeout: 5
         )
