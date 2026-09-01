@@ -2715,7 +2715,7 @@ impl Mux {
             event_id: "roster-rebuild".into(),
             replayed: true,
         };
-        self.fold_agent_roster(&ingress, &commit);
+        self.fold_agent_roster(&ingress, &commit, true);
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -2763,6 +2763,7 @@ impl Mux {
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
     ) -> anyhow::Result<usize> {
         const ECHO_ORIGIN: &str = "agent-report-echo";
+        const SCREEN_ORIGIN: &str = "screen-detect";
         const ROSTER_FOLD_ORIGIN: &str = "agent-roster-fold";
         let mut applied = 0;
         for (producer_id, origin, key, sequence, ingress) in pending {
@@ -2770,7 +2771,7 @@ impl Mux {
             // public projection committed. Retry the append itself, not the
             // hook projector, because the echo uses the neutral
             // agent.state.changed kind.
-            if origin == ECHO_ORIGIN {
+            if origin == ECHO_ORIGIN || origin == SCREEN_ORIGIN {
                 match self.append_journal_ingress(&ingress, &origin, &key) {
                     Ok(_) => {
                         if self
@@ -2825,7 +2826,7 @@ impl Mux {
                                 event_id: key.clone(),
                                 replayed: true,
                             };
-                            self.fold_agent_roster(&ingress, &commit);
+                            self.fold_agent_roster(&ingress, &commit, false);
                             applied += 1;
                         } else {
                             self.report_internal_diagnostic("agent roster retry cleanup deferred");
@@ -5741,7 +5742,7 @@ impl Mux {
             );
         }
         if !commit.replayed {
-            self.fold_agent_roster(ingress, &commit);
+            self.fold_agent_roster(ingress, &commit, false);
         }
         Ok(commit)
     }
@@ -5902,6 +5903,7 @@ impl Mux {
         &self,
         ingress: &crate::JournalIngress,
         _commit: &crate::JournalAppendCommit,
+        repair_projections: bool,
     ) {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
@@ -5944,10 +5946,10 @@ impl Mux {
                             .and_then(|adapter| adapter.get("id"))
                             .and_then(Value::as_str)
                             == Some(SOCKET_REPORT_ADAPTER);
-                        if !echo && !deltas.is_empty() {
-                            let screen_detect =
-                                record.payload.get("native_event").and_then(Value::as_str)
-                                    == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
+                        let screen_detect =
+                            record.payload.get("native_event").and_then(Value::as_str)
+                                == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
+                        if !echo && (screen_detect || repair_projections) && !deltas.is_empty() {
                             deltas_to_apply.push((
                                 deltas,
                                 record.kind.clone(),
@@ -6204,7 +6206,33 @@ impl Mux {
             correlation_id: None,
         };
         let idempotency_key = format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
-        self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key).map(|_| ())
+        match self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                let staged = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .enqueue_agent_hook_pending(
+                        &ingress.producer_id,
+                        "screen-detect",
+                        &idempotency_key,
+                        0,
+                        &ingress,
+                        AGENT_HOOK_RETRY_ERROR,
+                        AgentHookRetryClass::Transient,
+                    )
+                    .is_ok();
+                if staged {
+                    eprintln!(
+                        "cmux-tui: screen-detected state queued after journal failure: {error}"
+                    );
+                    Ok(())
+                } else {
+                    Err(error)
+                }
+            }
+        }
     }
 
     pub(crate) fn journal_hook_states(
