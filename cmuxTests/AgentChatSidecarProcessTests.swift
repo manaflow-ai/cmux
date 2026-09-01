@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -181,6 +182,28 @@ struct AgentChatSidecarProcessTests {
         #expect(signals.first?.1 == SIGTERM)
     }
 
+    @Test func asyncTerminationUsesInjectedDeadlineBeforeEscalating() async {
+        let expected = self.expected
+        let signals = OSAllocatedUnfairLock(initialState: [Int32]())
+        let didTerminate = await AgentChatSidecarProcessTerminator(
+            identityProvider: { _ in expected },
+            processGroupProvider: { _ in 4127 },
+            processGroupExistsProvider: { _ in true },
+            signalSender: { _, signal in
+                signals.withLock { $0.append(signal) }
+                return 0
+            },
+            gracePeriodWaiter: { _ in true }
+        ).terminateAsync(
+            identities: [expected],
+            processGroupID: 4127,
+            waitForExit: { false }
+        )
+
+        #expect(didTerminate)
+        #expect(signals.withLock { $0 } == [SIGTERM, SIGKILL])
+    }
+
     @Test func setupCleanupSignalsOnlyTheMatchingGeneration() {
         var signals: [(pid_t, Int32)] = []
         let didTerminate = AgentChatSidecarProcessTerminator(
@@ -209,6 +232,112 @@ struct AgentChatSidecarProcessTests {
 
         #expect(!didTerminate)
         #expect(signals.isEmpty)
+    }
+
+    @Test func failedSpawnIdentityCaptureKillsAndReapsSuspendedChild() async {
+        let pidBox = OSAllocatedUnfairLock(initialState: pid_t(0))
+        defer {
+            let pid = pidBox.withLock { $0 }
+            guard pid > 0 else { return }
+            var status: Int32 = 0
+            errno = 0
+            guard waitpid(pid, &status, WNOHANG) == 0 else { return }
+            _ = kill(pid, SIGKILL)
+            _ = waitpid(pid, &status, 0)
+        }
+        let controller = AgentChatSidecarProcessController(
+            spawnedIdentityProvider: { pid in
+                pidBox.withLock { $0 = pid }
+                return nil
+            },
+            shellPathProvider: { "/bin/sh" }
+        )
+
+        let handle = await controller.launch(
+            command: "sleep 30",
+            launchId: "identity-capture-failure",
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            environmentOverrides: [:]
+        )
+
+        #expect(handle == nil)
+        let spawnedPID = pidBox.withLock { $0 }
+        #expect(spawnedPID > 0)
+        errno = 0
+        #expect(kill(spawnedPID, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
+    @Test func conflictingSpawnIdentityStillReapsOnlyTheDirectChild() async {
+        let pidBox = OSAllocatedUnfairLock(initialState: pid_t(0))
+        defer {
+            let pid = pidBox.withLock { $0 }
+            guard pid > 0 else { return }
+            var status: Int32 = 0
+            errno = 0
+            guard waitpid(pid, &status, WNOHANG) == 0 else { return }
+            _ = kill(pid, SIGKILL)
+            _ = waitpid(pid, &status, 0)
+        }
+        let controller = AgentChatSidecarProcessController(
+            spawnedIdentityProvider: { pid in
+                pidBox.withLock { $0 = pid }
+                // Deliberately provide a stale token. Setup cleanup must not
+                // use it for a group signal, but the direct-child proof still
+                // permits killing and reaping this exact spawned child.
+                return AgentPIDProcessIdentity(
+                    pid: pid,
+                    startSeconds: 0,
+                    startMicroseconds: 0
+                )
+            },
+            shellPathProvider: { "/bin/sh" }
+        )
+
+        let handle = await controller.launch(
+            command: "sleep 30",
+            launchId: "conflicting-identity",
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            environmentOverrides: [:]
+        )
+
+        #expect(handle == nil)
+        let spawnedPID = pidBox.withLock { $0 }
+        #expect(spawnedPID > 0)
+        errno = 0
+        #expect(kill(spawnedPID, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
+    @Test func asyncTerminationReapsRootAfterEscalatedGroupKill() async {
+        let pidBox = OSAllocatedUnfairLock(initialState: pid_t(0))
+        let controller = AgentChatSidecarProcessController(
+            shellPathProvider: { "/bin/sh" }
+        )
+        guard let handle = await controller.launch(
+            command: "trap '' TERM; sleep 30",
+            launchId: "escalated-termination",
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            environmentOverrides: [:]
+        ) else {
+            Issue.record("expected the suspended sidecar launch to succeed")
+            return
+        }
+        pidBox.withLock { $0 = handle.rootIdentity.pid }
+        defer {
+            let pid = pidBox.withLock { $0 }
+            guard pid > 0 else { return }
+            var status: Int32 = 0
+            errno = 0
+            guard waitpid(pid, &status, WNOHANG) == 0 else { return }
+            _ = kill(pid, SIGKILL)
+            _ = waitpid(pid, &status, 0)
+        }
+
+        #expect(await handle.terminateAsync())
+        errno = 0
+        #expect(kill(handle.rootIdentity.pid, 0) == -1)
+        #expect(errno == ESRCH)
     }
 
     @Test func discoveredStateCarriesTheLaunchIdentityUntilKernelValidation() throws {

@@ -1,26 +1,52 @@
 import os
 
-/// Serializes app-owned agent-chat launches and keeps the process handle next
-/// to the state-file session it vouches for.  The lock is intentionally only
-/// held while copying/clearing this small state; process signaling happens
-/// after the lock is released so a bounded wait cannot block action entry.
-nonisolated struct AgentChatActionInFlightGate {
-    /// The state is internal so the test target can reset fixtures through
-    /// `@testable import` without adding a production-only test hook.
+/// Owns one app-scoped agent-chat launch and serializes its lifecycle.
+///
+/// The lock protects only short state transitions; process signaling and exit
+/// waits happen after the lock is released. The reference type is unchecked
+/// sendable because every mutable field is protected by that lock and the
+/// injected termination closures are sendable.
+nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
+    /// Mutable launch state protected by ``lock``.
     struct State {
         var isRunning = false
         var terminationInProgress = false
         var ownedServerSession: AgentChatOwnedServerSession?
         var ownedServerProcess: AgentChatSidecarProcessHandle?
         var sidecarStateFileStore = AgentChatSidecarStateFileStore.live()
+        var terminationCompletion: AgentChatSidecarProcessExitCompletion?
     }
 
-    // Synchronous action entry and theme callbacks need one atomic transition;
-    // the test target accesses this lock directly through @testable import so
-    // production source does not grow a resetForTesting seam.
-    nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
+    typealias SessionTerminator = @Sendable (AgentChatOwnedServerSession) -> Bool
+    typealias AsyncSessionTerminator = @Sendable (AgentChatOwnedServerSession) async -> Bool
 
-    static func begin() -> Bool {
+    // Synchronous callbacks need one atomic compare-and-set. The test target
+    // accesses this lock through @testable import rather than a production
+    // reset hook; process signaling never runs while it is held.
+    nonisolated let lock: OSAllocatedUnfairLock<State>
+    private let sessionTerminator: SessionTerminator
+    private let asyncSessionTerminator: AsyncSessionTerminator
+
+    /// Creates an empty gate for one app composition root.
+    init(
+        sidecarStateFileStore: AgentChatSidecarStateFileStore? = AgentChatSidecarStateFileStore.live(),
+        sessionTerminator: @escaping SessionTerminator = { session in
+            AgentChatSidecarProcessTerminator().terminate(session: session)
+        },
+        asyncSessionTerminator: @escaping AsyncSessionTerminator = { session in
+            await AgentChatSidecarProcessTerminator().terminateAsync(session: session)
+        }
+    ) {
+        var state = State()
+        state.sidecarStateFileStore = sidecarStateFileStore
+        self.lock = OSAllocatedUnfairLock(initialState: state)
+        self.sessionTerminator = sessionTerminator
+        self.asyncSessionTerminator = asyncSessionTerminator
+    }
+
+    /// Claims the gate for a new action, returning false while another action
+    /// or an identity-safe termination transaction is in progress.
+    func begin() -> Bool {
         lock.withLock { state in
             guard !state.isRunning, !state.terminationInProgress else { return false }
             state.isRunning = true
@@ -28,29 +54,40 @@ nonisolated struct AgentChatActionInFlightGate {
         }
     }
 
-    static func end() {
+    /// Waits for a currently-running termination transaction to publish its result.
+    func waitForTermination() async {
+        while true {
+            let completion = lock.withLock { state in
+                state.terminationInProgress ? state.terminationCompletion : nil
+            }
+            guard let completion else { return }
+            _ = await completion.wait()
+        }
+    }
+
+    /// Releases the action claim after the launch workflow finishes.
+    func end() {
         lock.withLock { state in
             state.isRunning = false
         }
     }
 
-    static func ownedServerSession() -> AgentChatOwnedServerSession? {
+    /// Returns the currently-owned state-file session, if any.
+    func ownedServerSession() -> AgentChatOwnedServerSession? {
         lock.withLock { state in
             state.ownedServerSession
         }
     }
 
     /// Returns a launch handle that has not reached state-file discovery yet.
-    /// A failed timeout can leave this process-only snapshot in the gate while
-    /// its identity is retried; callers must not launch a replacement beside
-    /// it.
-    static func ownedServerProcess() -> AgentChatSidecarProcessHandle? {
+    func ownedServerProcess() -> AgentChatSidecarProcessHandle? {
         lock.withLock { state in
             state.ownedServerProcess
         }
     }
 
-    static func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
+    /// Records a discovered session while retaining its launch handle.
+    func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
         let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
             guard !state.terminationInProgress else { return nil }
             let previous = state.ownedServerProcess
@@ -63,7 +100,8 @@ nonisolated struct AgentChatActionInFlightGate {
         if previous?.launchId != session.launchId { previous?.terminate() }
     }
 
-    static func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) {
+    /// Records a newly-launched process before its state file is discovered.
+    func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) {
         let previous = lock.withLock { state -> AgentChatSidecarProcessHandle? in
             guard !state.terminationInProgress else { return nil }
             let previous = state.ownedServerProcess
@@ -77,10 +115,8 @@ nonisolated struct AgentChatActionInFlightGate {
         if previous !== process { previous?.terminate() }
     }
 
-    /// Atomically associates the verified state-file session with its launch
-    /// handle.  This closes the window where a timeout/replacement could see a
-    /// PID but not the process identity captured at spawn.
-    static func updateOwnedServer(
+    /// Atomically associates the verified session with its launch handle.
+    func updateOwnedServer(
         session: AgentChatOwnedServerSession,
         process: AgentChatSidecarProcessHandle
     ) {
@@ -94,9 +130,8 @@ nonisolated struct AgentChatActionInFlightGate {
         if previous !== process { previous?.terminate() }
     }
 
-    static func clearOwnedServerSession(matching candidate: AgentChatOwnedServerSession? = nil) {
-        // Keep the legacy API safe for callers that only know about the
-        // session: ownership is cleared only after identity-safe termination.
+    /// Retains the legacy clear API while requiring identity-safe termination.
+    func clearOwnedServerSession(matching candidate: AgentChatOwnedServerSession? = nil) {
         _ = terminateOwnedServer(matching: candidate)
     }
 
@@ -105,7 +140,8 @@ nonisolated struct AgentChatActionInFlightGate {
         let process: AgentChatSidecarProcessHandle?
     }
 
-    private static func claimOwnedServer(
+    /// Marks the current owner as terminating and returns an immutable snapshot.
+    private func claimOwnedServer(
         matching candidate: AgentChatOwnedServerSession?,
         matchingLaunchID launchID: String?
     ) -> OwnedServerSnapshot? {
@@ -126,9 +162,10 @@ nonisolated struct AgentChatActionInFlightGate {
                 return nil
             }
             // Keep both snapshots in the gate while process termination runs.
-            // New Agent Chat actions observe this bit and cannot launch beside
-            // a sidecar whose SIGTERM/SIGKILL transaction is still pending.
+            // A replacement action can await the completion signal instead of
+            // observing a transiently empty owner.
             state.terminationInProgress = true
+            state.terminationCompletion = AgentChatSidecarProcessExitCompletion()
             return OwnedServerSnapshot(
                 session: state.ownedServerSession,
                 process: state.ownedServerProcess
@@ -136,18 +173,20 @@ nonisolated struct AgentChatActionInFlightGate {
         }
     }
 
-    private static func finishOwnedServerTermination(
+    /// Publishes termination completion and clears only the matching snapshot.
+    private func finishOwnedServerTermination(
         _ snapshot: OwnedServerSnapshot,
         didTerminate: Bool
     ) {
-        lock.withLock { state in
-            guard state.terminationInProgress else { return }
+        let completion = lock.withLock { state -> AgentChatSidecarProcessExitCompletion? in
+            guard state.terminationInProgress else { return nil }
             state.terminationInProgress = false
+            let completion = state.terminationCompletion
+            state.terminationCompletion = nil
             guard didTerminate else {
                 // Fail closed: retaining the snapshot gives the next action a
-                // chance to retry identity-safe cleanup instead of launching
-                // beside an unknown process.
-                return
+                // chance to retry identity-safe cleanup.
+                return completion
             }
             if let process = snapshot.process,
                state.ownedServerProcess === process {
@@ -157,43 +196,40 @@ nonisolated struct AgentChatActionInFlightGate {
                state.ownedServerSession == session {
                 state.ownedServerSession = nil
             }
+            return completion
+        }
+        if let completion {
+            Task { await completion.finish(didTerminate) }
         }
     }
 
-    private static func terminateSnapshot(_ snapshot: OwnedServerSnapshot) -> Bool {
+    /// Runs synchronous cleanup for one claimed owner snapshot.
+    private func terminateSnapshot(_ snapshot: OwnedServerSnapshot) -> Bool {
         if let process = snapshot.process {
             return process.terminate()
         }
         if let session = snapshot.session {
-            // Legacy in-memory sessions do not have a launch handle. The
-            // fallback still requires the persisted kernel start token and
-            // process-group identity; it never signals a bare PID.
-            return AgentChatSidecarProcessTerminator().terminate(session: session)
+            // Legacy in-memory sessions still require persisted identity and a
+            // process-group check; the injected closure owns that fallback.
+            return sessionTerminator(session)
         }
         return false
     }
 
-    private static func terminateSnapshotAsync(
-        _ snapshot: OwnedServerSnapshot
-    ) async -> Bool {
+    /// Runs asynchronous cleanup for one claimed owner snapshot.
+    private func terminateSnapshotAsync(_ snapshot: OwnedServerSnapshot) async -> Bool {
         if let process = snapshot.process {
             return await process.terminateAsync()
         }
         if let session = snapshot.session {
-            // Legacy in-memory sessions have no process-exit source, so the
-            // async terminator supplies its bounded fallback grace period.
-            return await AgentChatSidecarProcessTerminator().terminateAsync(
-                session: session
-            )
+            return await asyncSessionTerminator(session)
         }
         return false
     }
 
-    /// Takes ownership out of the gate before signaling.  A candidate (when
-    /// supplied) prevents a late theme/recovery callback from terminating a
-    /// newer launch that replaced the one it observed.
+    /// Terminates the owned launch and clears it only after completion.
     @discardableResult
-    static func terminateOwnedServer(
+    func terminateOwnedServer(
         matching candidate: AgentChatOwnedServerSession? = nil,
         matchingLaunchID launchID: String? = nil
     ) -> Bool {
@@ -206,15 +242,14 @@ nonisolated struct AgentChatActionInFlightGate {
         return didTerminate
     }
 
-    /// Recovery runs from MainActor tasks, but process-exit waiting and signal
-    /// escalation stay off the UI actor. App quit uses the synchronous
-    /// overload below because there is no async turn left to await.
+    /// Asynchronously terminates the owned launch without blocking its caller's actor.
     #if compiler(>=6.2)
     @concurrent
     #else
     @Sendable
     #endif
-    static func terminateOwnedServerAsync(
+    @discardableResult
+    func terminateOwnedServerAsync(
         matching candidate: AgentChatOwnedServerSession? = nil,
         matchingLaunchID launchID: String? = nil
     ) async -> Bool {
@@ -227,14 +262,13 @@ nonisolated struct AgentChatActionInFlightGate {
         return didTerminate
     }
 
-    /// Used by app termination, where there is no async turn in which to wait
-    /// for cleanup.  Identity failure keeps the snapshot retained and sends
-    /// no signal, preserving the fail-closed invariant until the process exits.
-    static func terminateOwnedServer() {
+    /// Performs best-effort synchronous cleanup during application termination.
+    func terminateOwnedServer() {
         _ = terminateOwnedServer(matching: nil, matchingLaunchID: nil)
     }
 
-    static func sidecarStateFileStore() -> AgentChatSidecarStateFileStore? {
+    /// Returns the state-file store configured for this app-scoped owner.
+    func sidecarStateFileStore() -> AgentChatSidecarStateFileStore? {
         lock.withLock { state in
             state.sidecarStateFileStore
         }

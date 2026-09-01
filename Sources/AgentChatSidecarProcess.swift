@@ -24,6 +24,7 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
     private let exitSource: DispatchSourceProcess
     private let exitCompletion: AgentChatSidecarProcessExitCompletion
 
+    /// Creates a handle for the child-led process group identified at launch.
     init(
         launchId: String,
         rootIdentity: AgentPIDProcessIdentity,
@@ -58,8 +59,11 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
         // checks before it can signal the launch group.
         let didTerminate = terminate()
         exitSource.cancel()
-        if didTerminate {
-            reapRootIfExited()
+        if !didTerminate {
+            // A synchronous deinit cannot await the process-source event. A
+            // fresh direct-child proof lets this last-resort path kill and
+            // reap the exact child without trusting a recyclable PID.
+            Self.killAndScheduleDirectChildReap(rootIdentity.pid)
         }
     }
 
@@ -131,19 +135,17 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
             identities: identities,
             processGroupID: processGroupID
         )
+        // Reap an already-exited root even when identity validation rejected
+        // the signal. This does not claim group cleanup; it only releases the
+        // direct-child status that this handle still owns.
+        let rootReaped = reapRootIfExited()
         lock.withLock { state in
             state.terminationStarted = false
-            if didTerminate {
+            if didTerminate && rootReaped {
                 state.terminationCompleted = true
             }
         }
-        if didTerminate {
-            // The exit callback covers a root that transitions after the
-            // bounded signal operation; this immediate attempt covers one
-            // that exited before the callback was delivered.
-            reapRootIfExited()
-        }
-        return didTerminate
+        return didTerminate && rootReaped
     }
 
     /// Performs the recovery termination without blocking a cooperative
@@ -187,28 +189,126 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
                 await exitCompletion.wait()
             }
         )
+        let rootReaped: Bool
+        if didTerminate {
+            // SIGKILL being accepted only proves that the signal was queued;
+            // keep ownership until the process source reports exit and the
+            // direct child has actually been reaped.
+            rootReaped = await waitForRootExitAndReap()
+        } else {
+            // A failed signal may race a natural root exit. Reap that direct
+            // child when possible, but retain the lifecycle owner because the
+            // process group was not proven clean.
+            rootReaped = reapRootIfExited()
+        }
         lock.withLock { state in
             state.terminationStarted = false
-            if didTerminate {
+            if didTerminate && rootReaped {
                 state.terminationCompleted = true
             }
         }
-        if didTerminate {
-            reapRootIfExited()
-        }
-        return didTerminate
+        return didTerminate && rootReaped
     }
 
-    private func reapRootIfExited() {
+    /// Attempts one non-blocking reap of the owned root process.
+    /// Returning false means the child is still live; callers retain ownership
+    /// and may await the process-source completion before trying again.
+    @discardableResult
+    private func reapRootIfExited() -> Bool {
         var status: Int32 = 0
         while true {
             let result = waitpid(rootIdentity.pid, &status, WNOHANG)
-            if result == rootIdentity.pid || result == 0 { return }
+            if result == rootIdentity.pid || (result == -1 && errno == ECHILD) { return true }
+            if result == 0 { return false }
             if result == -1 && errno == EINTR { continue }
-            return
+            return false
         }
     }
 
+    /// Waits for the process-source event and then reaps the owned root.
+    private func waitForRootExitAndReap() async -> Bool {
+        if reapRootIfExited() { return true }
+        guard await exitCompletion.wait() else { return false }
+        return reapRootIfExited()
+    }
+
+    /// Kills and asynchronously reaps a still-owned direct child during deinit.
+    private static func killAndScheduleDirectChildReap(_ processIdentifier: pid_t) {
+        var status: Int32 = 0
+        let waitResult: pid_t
+        while true {
+            let result = waitpid(processIdentifier, &status, WNOHANG)
+            if result == -1 && errno == EINTR { continue }
+            waitResult = result
+            break
+        }
+        guard waitResult == 0 else { return }
+        let source = DispatchSource.makeProcessSource(
+            identifier: processIdentifier,
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler {
+            var status: Int32 = 0
+            while true {
+                let result = waitpid(processIdentifier, &status, WNOHANG)
+                if result == processIdentifier || (result == -1 && errno == ECHILD) {
+                    source.cancel()
+                    return
+                }
+                if result == -1 && errno == EINTR { continue }
+                return
+            }
+        }
+        source.resume()
+        let groupID = Darwin.getpgid(processIdentifier)
+        let target = groupID == processIdentifier ? -processIdentifier : processIdentifier
+        errno = 0
+        let signalResult = Darwin.kill(target, SIGKILL)
+        if signalResult != 0 {
+            let groupFailure = errno
+            if target < 0 {
+                guard groupFailure == ESRCH || groupFailure == EPERM else {
+                    source.cancel()
+                    return
+                }
+                // Preserve the direct-child proof if the group vanished or
+                // rejected the signal during the handoff; this avoids leaving a
+                // stopped child behind.
+                errno = 0
+                let directResult = Darwin.kill(processIdentifier, SIGKILL)
+                guard directResult == 0 || errno == ESRCH else {
+                    source.cancel()
+                    return
+                }
+            } else if groupFailure != ESRCH {
+                source.cancel()
+                return
+            }
+        }
+        while true {
+            let result = waitpid(processIdentifier, &status, WNOHANG)
+            if result == -1 && errno == EINTR { continue }
+            guard result == 0 else {
+                source.cancel()
+                return
+            }
+            break
+        }
+        // If the child crossed the exit boundary before registration, reap it
+        // here; otherwise the process source remains responsible for the wait.
+        while true {
+            let result = waitpid(processIdentifier, &status, WNOHANG)
+            if result == processIdentifier || (result == -1 && errno == ECHILD) {
+                source.cancel()
+                return
+            }
+            if result == -1 && errno == EINTR { continue }
+            break
+        }
+    }
+
+    /// Completes exit waiters when the dispatch process source fires.
     private func rootDidExit() {
         let shouldReap = lock.withLock { state -> Bool in
             state.rootExited = true

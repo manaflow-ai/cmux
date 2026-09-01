@@ -13,12 +13,15 @@ nonisolated struct AgentChatSidecarProcessTerminator {
     typealias ProcessGroupProvider = (pid_t) -> pid_t
     typealias ProcessGroupExistsProvider = (pid_t) -> Bool
     typealias SignalSender = (pid_t, Int32) -> Int32
+    typealias GracePeriodWaiter = @Sendable (Duration) async -> Bool
 
     private let identityProvider: IdentityProvider
     private let processGroupProvider: ProcessGroupProvider
     private let processGroupExistsProvider: ProcessGroupExistsProvider
     private let signalSender: SignalSender
+    private let gracePeriodWaiter: GracePeriodWaiter
 
+    /// Creates a terminator with injectable kernel-operation and deadline seams.
     init(
         identityProvider: @escaping IdentityProvider = { AgentPIDProcessIdentity(pid: $0) },
         processGroupProvider: @escaping ProcessGroupProvider = {
@@ -30,12 +33,21 @@ nonisolated struct AgentChatSidecarProcessTerminator {
             let result = Darwin.kill(-processGroupID, 0)
             return result == 0 || errno == EPERM
         },
-        signalSender: @escaping SignalSender = { Darwin.kill($0, $1) }
+        signalSender: @escaping SignalSender = { Darwin.kill($0, $1) },
+        gracePeriodWaiter: @escaping GracePeriodWaiter = { duration in
+            do {
+                try await ContinuousClock().sleep(for: duration)
+                return true
+            } catch {
+                return false
+            }
+        }
     ) {
         self.identityProvider = identityProvider
         self.processGroupProvider = processGroupProvider
         self.processGroupExistsProvider = processGroupExistsProvider
         self.signalSender = signalSender
+        self.gracePeriodWaiter = gracePeriodWaiter
     }
 
     /// Returns the only signal target that is safe for the supplied snapshot.
@@ -57,6 +69,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         return -processGroupID
     }
 
+    /// Terminates a validated process group synchronously for shutdown paths.
     func terminate(
         identities: [AgentPIDProcessIdentity],
         processGroupID: pid_t
@@ -131,6 +144,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
     #else
     @Sendable
     #endif
+    /// Terminates a validated process group while awaiting its exit signal.
     func terminateAsync(
         identities: [AgentPIDProcessIdentity],
         processGroupID: pid_t,
@@ -164,14 +178,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
             group.addTask {
                 await waitForExit()
             }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: .milliseconds(400))
-                    return false
-                } catch {
-                    return false
-                }
-            }
+            group.addTask { await gracePeriodWaiter(.milliseconds(400)) }
             _ = await group.next()
             group.cancelAll()
         }
@@ -201,6 +208,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
     }
 
     @discardableResult
+    /// Terminates a session only when it carries a complete identity snapshot.
     func terminate(session: AgentChatOwnedServerSession) -> Bool {
         guard let identity = session.processIdentity,
               let processGroupID = session.processGroupID,
@@ -220,6 +228,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
     #else
     @Sendable
     #endif
+    /// Asynchronously terminates a session using its captured process identity.
     func terminateAsync(
         session: AgentChatOwnedServerSession,
         waitForExit: @escaping @Sendable () async -> Bool = {
@@ -257,6 +266,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         return errno == ESRCH && AgentPIDProcessIdentity.hasExitedWithoutReaping(pid: identity.pid)
     }
 
+    /// Sends one signal after rechecking every captured identity and group.
     private func signalIfValidated(
         identities: [AgentPIDProcessIdentity],
         processGroupID: pid_t,
@@ -311,6 +321,7 @@ nonisolated struct AgentChatSidecarProcessTerminator {
         return false
     }
 
+    /// Classifies one captured process generation against current kernel state.
     private func validation(
         identity: AgentPIDProcessIdentity,
         processGroupID: pid_t,

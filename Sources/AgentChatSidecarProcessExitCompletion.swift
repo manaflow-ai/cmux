@@ -8,6 +8,7 @@ actor AgentChatSidecarProcessExitCompletion {
     private var result: Bool?
     private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
+    /// Waits for the process-source result, returning false when cancelled.
     func wait() async -> Bool {
         if let result { return result }
         if Task.isCancelled { return false }
@@ -20,6 +21,12 @@ actor AgentChatSidecarProcessExitCompletion {
                     continuation.resume(returning: false)
                 } else {
                     waiters[waiterID] = continuation
+                    // Cancellation can arrive between the check above and
+                    // registration. Re-check after insertion so that race
+                    // cannot leave a waiter suspended forever.
+                    if Task.isCancelled {
+                        waiters.removeValue(forKey: waiterID)?.resume(returning: false)
+                    }
                 }
             }
         } onCancel: {
@@ -29,6 +36,7 @@ actor AgentChatSidecarProcessExitCompletion {
         }
     }
 
+    /// Publishes the first terminal result and resumes all current waiters.
     func finish(_ result: Bool) {
         guard self.result == nil else { return }
         self.result = result
@@ -39,6 +47,7 @@ actor AgentChatSidecarProcessExitCompletion {
         }
     }
 
+    /// Cancels one waiter without changing the shared terminal result.
     private func cancel(waiterID: UUID) {
         waiters.removeValue(forKey: waiterID)?.resume(returning: false)
     }

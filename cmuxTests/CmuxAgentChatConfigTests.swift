@@ -9,13 +9,14 @@ import Testing
 @testable import cmux
 #endif
 
-private func resetAgentChatActionGateForTest() {
-    let process = AgentChatActionInFlightGate.lock.withLock { state -> AgentChatSidecarProcessHandle? in
+private func resetAgentChatActionGateForTest(_ gate: AgentChatActionInFlightGate) {
+    let process = gate.lock.withLock { state -> AgentChatSidecarProcessHandle? in
         let process = state.ownedServerProcess
         state.ownedServerSession = nil
         state.ownedServerProcess = nil
         state.isRunning = false
         state.terminationInProgress = false
+        state.terminationCompletion = nil
         return process
     }
     _ = process?.terminate()
@@ -325,28 +326,74 @@ struct CmuxAgentChatConfigTests {
     }
 
     @Test func newAgentChatInFlightGateRejectsDuplicatesUntilCleared() {
-        let firstBegin = AgentChatActionInFlightGate.begin()
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        let firstBegin = gate.begin()
         #expect(firstBegin)
         guard firstBegin else { return }
 
-        #expect(!AgentChatActionInFlightGate.begin())
-        AgentChatActionInFlightGate.end()
+        #expect(!gate.begin())
+        gate.end()
 
-        let secondBegin = AgentChatActionInFlightGate.begin()
+        let secondBegin = gate.begin()
         #expect(secondBegin)
         if secondBegin {
-            AgentChatActionInFlightGate.end()
+            gate.end()
         }
     }
 
     @Test func newAgentChatInFlightGateRejectsWhileTerminationIsInFlight() {
-        AgentChatActionInFlightGate.lock.withLock { state in
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        gate.lock.withLock { state in
             state.isRunning = false
             state.terminationInProgress = true
         }
-        defer { resetAgentChatActionGateForTest() }
+        defer { resetAgentChatActionGateForTest(gate) }
 
-        #expect(!AgentChatActionInFlightGate.begin())
+        #expect(!gate.begin())
+    }
+
+    @MainActor
+    @Test func themeFailureKeepsTerminationVisibleUntilReplacementMayBegin() async {
+        let terminationEntered = AsyncStream<Void>.makeStream()
+        let releaseTermination = AsyncStream<Void>.makeStream()
+        let gate = AgentChatActionInFlightGate(
+            sidecarStateFileStore: nil,
+            asyncSessionTerminator: { _ in
+                terminationEntered.continuation.yield()
+                for await _ in releaseTermination.stream {
+                    break
+                }
+                return true
+            }
+        )
+        let themeSync = AgentChatThemeSync(gate: gate)
+        let session = AgentChatOwnedServerSession(
+            port: 43123,
+            pid: 9876,
+            token: "theme-token",
+            launchId: "theme-launch"
+        )
+        gate.updateOwnedServerSession(session)
+
+        let terminationTask = Task { @MainActor in
+            await themeSync.handleThemePostFailure(
+                URLError(.cannotConnectToHost),
+                url: session.themeURL
+            )
+        }
+        var enteredIterator = terminationEntered.stream.makeAsyncIterator()
+        _ = await enteredIterator.next()
+
+        #expect(gate.ownedServerSession() == session)
+        #expect(!gate.begin())
+
+        releaseTermination.continuation.yield(())
+        releaseTermination.continuation.finish()
+        await terminationTask.value
+
+        #expect(gate.ownedServerSession() == nil)
+        #expect(gate.begin())
+        gate.end()
     }
 
     @Test func agentChatThemePayloadUsesResolvedGhosttyConfigFields() throws {
@@ -391,22 +438,26 @@ struct CmuxAgentChatConfigTests {
 
     @MainActor
     @Test func agentChatThemeURLUsesTokenedOwnedServerWhenAvailable() {
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { resetAgentChatActionGateForTest() }
+        gate.updateOwnedServerSession(session)
+        defer { resetAgentChatActionGateForTest(gate) }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(startCommand: "cmux-chat"),
             global: nil
         )
 
-        #expect(AgentChatThemeSync.themeURL(for: agentChat).absoluteString == "http://127.0.0.1:43123/theme-token/api/theme")
+        #expect(themeSync.themeURL(for: agentChat).absoluteString == "http://127.0.0.1:43123/theme-token/api/theme")
     }
 
     @MainActor
     @Test func explicitAgentChatThemeURLIgnoresOwnedServer() {
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { resetAgentChatActionGateForTest() }
+        gate.updateOwnedServerSession(session)
+        defer { resetAgentChatActionGateForTest(gate) }
         let agentChat = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(
                 url: "http://127.0.0.1:9000/chat",
@@ -415,37 +466,41 @@ struct CmuxAgentChatConfigTests {
             global: nil
         )
 
-        #expect(AgentChatThemeSync.themeURL(for: agentChat).absoluteString == "http://127.0.0.1:9000/api/theme")
+        #expect(themeSync.themeURL(for: agentChat).absoluteString == "http://127.0.0.1:9000/api/theme")
     }
 
     @MainActor
     @Test func agentChatThemeConnectionFailureKeepsSessionWhenIdentityIsUnavailable() async {
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { resetAgentChatActionGateForTest() }
+        gate.updateOwnedServerSession(session)
+        defer { resetAgentChatActionGateForTest(gate) }
 
-        await AgentChatThemeSync.handleThemePostFailure(
+        await themeSync.handleThemePostFailure(
             URLError(.cannotConnectToHost),
             url: session.themeURL
         )
 
         // The fixture has no kernel identity, so cleanup must fail closed
         // instead of forgetting a process that could still be running.
-        #expect(AgentChatActionInFlightGate.ownedServerSession() == session)
+        #expect(gate.ownedServerSession() == session)
     }
 
     @MainActor
     @Test func agentChatThemeNonConnectionFailureKeepsOwnedSession() async {
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        let themeSync = AgentChatThemeSync(gate: gate)
         let session = AgentChatOwnedServerSession(port: 43123, pid: 9876, token: "theme-token")
-        AgentChatActionInFlightGate.updateOwnedServerSession(session)
-        defer { resetAgentChatActionGateForTest() }
+        gate.updateOwnedServerSession(session)
+        defer { resetAgentChatActionGateForTest(gate) }
 
-        await AgentChatThemeSync.handleThemePostFailure(
+        await themeSync.handleThemePostFailure(
             URLError(.badURL),
             url: session.themeURL
         )
 
-        #expect(AgentChatActionInFlightGate.ownedServerSession() == session)
+        #expect(gate.ownedServerSession() == session)
     }
 
     @Test func agentChatThemePayloadEncodesNullNullableFields() throws {
@@ -486,12 +541,15 @@ struct CmuxAgentChatConfigTests {
 
     @MainActor
     @Test func agentChatThemeSyncGateFollowsFeatureFlag() throws {
+        let themeSync = AgentChatThemeSync(
+            gate: AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        )
         try withAgentChatUIFlag(false) {
-            #expect(!AgentChatThemeSync.isEnabled)
+            #expect(!themeSync.isEnabled)
         }
 
         try withAgentChatUIFlag(true) {
-            #expect(AgentChatThemeSync.isEnabled)
+            #expect(themeSync.isEnabled)
         }
     }
 

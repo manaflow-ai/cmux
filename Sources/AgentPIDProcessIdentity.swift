@@ -5,6 +5,7 @@ nonisolated struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     let startSeconds: Int64
     let startMicroseconds: Int64
 
+    /// Creates an identity from a known PID and kernel birth timestamp.
     init(pid: pid_t, startSeconds: Int64, startMicroseconds: Int64) {
         self.pid = pid
         self.startSeconds = startSeconds

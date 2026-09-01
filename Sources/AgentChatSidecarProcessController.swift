@@ -9,16 +9,41 @@ private nonisolated let agentChatSidecarProcessLogger = Logger(
 
 /// Launches an app-owned agent-chat command in a child-led process group.
 nonisolated struct AgentChatSidecarProcessController {
+    typealias SpawnedIdentityProvider = @Sendable (pid_t) -> AgentPIDProcessIdentity?
+    typealias ShellPathProvider = @Sendable () -> String?
+
+    private let spawnedIdentityProvider: SpawnedIdentityProvider
+    private let shellPathProvider: ShellPathProvider
+
+    /// Creates a controller with injectable process identity and shell lookups.
+    init(
+        spawnedIdentityProvider: @escaping SpawnedIdentityProvider = { pid in
+            AgentPIDProcessIdentity(pid: pid)
+        },
+        shellPathProvider: @escaping ShellPathProvider = {
+            ProcessInfo.processInfo.environment["SHELL"]
+        }
+    ) {
+        self.spawnedIdentityProvider = spawnedIdentityProvider
+        self.shellPathProvider = shellPathProvider
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    /// Launches a suspended, identity-validated sidecar and resumes its group.
     func launch(
         command: String,
         launchId: String,
         currentDirectoryURL: URL,
         environmentOverrides: [String: String]
-    ) -> AgentChatSidecarProcessHandle? {
+    ) async -> AgentChatSidecarProcessHandle? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
         let environment = ProcessInfo.processInfo.environment
-        guard let shellPath = environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let shellPath = shellPathProvider()?.trimmingCharacters(in: .whitespacesAndNewlines),
               !shellPath.isEmpty else {
             agentChatSidecarProcessLogger.error("SHELL is not set; cannot launch startCommand")
             return nil
@@ -82,20 +107,20 @@ nonisolated struct AgentChatSidecarProcessController {
         guard spawnStatus == 0, processIdentifier > 0 else {
             return nil
         }
-        guard let identity = Self.captureSpawnedIdentity(processIdentifier) else {
+        guard let identity = spawnedIdentityProvider(processIdentifier) else {
             // The child is still suspended and unreaped.  That direct-child
             // relationship is a stronger launch identity than a stored PID:
             // the kernel cannot reuse this number until this parent reaps it.
             // Revalidate that relationship and its child-led group before
             // signaling; never kill a bare PID discovered from state.
-            _ = Self.terminateSuspendedSpawnedChild(processIdentifier)
+            _ = await Self.terminateSuspendedSpawnedChild(processIdentifier)
             return nil
         }
         guard Darwin.getpgid(processIdentifier) == processIdentifier else {
             // The identity is valid but the child-led group invariant failed;
             // terminate that exact direct-child generation, never a bare PID
             // from a persisted state file.
-            _ = Self.terminateSuspendedSpawnedChild(
+            _ = await Self.terminateSuspendedSpawnedChild(
                 processIdentifier,
                 expectedIdentity: identity
             )
@@ -113,7 +138,7 @@ nonisolated struct AgentChatSidecarProcessController {
               Darwin.getpgid(processIdentifier) == processIdentifier,
               Darwin.kill(-processIdentifier, SIGCONT) == 0 else {
             _ = handle.terminate()
-            _ = Self.terminateSuspendedSpawnedChild(
+            _ = await Self.terminateSuspendedSpawnedChild(
                 processIdentifier,
                 expectedIdentity: identity
             )
@@ -122,15 +147,13 @@ nonisolated struct AgentChatSidecarProcessController {
         return handle
     }
 
-    /// Reaps a direct child without blocking the caller. The dispatch source
-    /// remains retained by its event handler until the kernel reports exit.
-    private static func reapWhenExited(_ processIdentifier: pid_t) {
-        var status: Int32 = 0
-        let result = waitpid(processIdentifier, &status, WNOHANG)
-        if result == processIdentifier || (result == -1 && errno == ECHILD) {
-            return
-        }
-        guard result == 0 else { return }
+    /// Installs a process-exit watcher that reaps the direct child without
+    /// blocking a cooperative executor thread. Register it before signaling a
+    /// suspended child so an already-queued exit cannot outrun observation.
+    private static func installExitWatcher(
+        _ processIdentifier: pid_t,
+        completion: AgentChatSidecarProcessExitCompletion
+    ) -> DispatchSourceProcess {
         let source = DispatchSource.makeProcessSource(
             identifier: processIdentifier,
             eventMask: .exit,
@@ -138,18 +161,19 @@ nonisolated struct AgentChatSidecarProcessController {
         )
         source.setEventHandler {
             var status: Int32 = 0
-            _ = waitpid(processIdentifier, &status, WNOHANG)
-            source.cancel()
+            while true {
+                let result = waitpid(processIdentifier, &status, WNOHANG)
+                if result == processIdentifier || (result == -1 && errno == ECHILD) {
+                    source.cancel()
+                    Task { await completion.finish(true) }
+                    return
+                }
+                if result == -1 && errno == EINTR { continue }
+                return
+            }
         }
         source.resume()
-    }
-
-    /// `posix_spawn` publishes the child before the process-table sysctl is
-    /// guaranteed to observe it on every macOS build. A missing token is a
-    /// launch failure; the caller uses direct-child ownership to terminate the
-    /// suspended child instead of guessing from a persisted PID.
-    private static func captureSpawnedIdentity(_ processIdentifier: pid_t) -> AgentPIDProcessIdentity? {
-        AgentPIDProcessIdentity(pid: processIdentifier)
+        return source
     }
 
     /// Terminates a child that has not yet been resumed. `waitpid` proves that
@@ -161,7 +185,7 @@ nonisolated struct AgentChatSidecarProcessController {
     private static func terminateSuspendedSpawnedChild(
         _ processIdentifier: pid_t,
         expectedIdentity: AgentPIDProcessIdentity? = nil
-    ) -> Bool {
+    ) async -> Bool {
         var status: Int32 = 0
         while true {
             let waitResult = waitpid(processIdentifier, &status, WNOHANG)
@@ -170,30 +194,74 @@ nonisolated struct AgentChatSidecarProcessController {
             }
             if waitResult == -1 && errno == EINTR { continue }
             guard waitResult == 0 else { return false }
-            if let expectedIdentity,
-               let currentIdentity = AgentPIDProcessIdentity.includingExitedProcess(
-                   pid: processIdentifier
-               ),
-               currentIdentity != expectedIdentity {
-                // A different birth token would mean the direct-child proof
-                // no longer describes this launch.  Fail closed in that
-                // impossible-before-reap case rather than signaling.
-                return false
+            let identityMatchesExpected: Bool
+            if let expectedIdentity {
+                identityMatchesExpected = AgentPIDProcessIdentity.includingExitedProcess(
+                    pid: processIdentifier
+                ) == expectedIdentity
+            } else {
+                identityMatchesExpected = true
             }
             // If the process table is momentarily unreadable, waitpid's
             // direct-child result still proves that this PID cannot have been
             // recycled until this parent reaps it. Continue with that stronger
-            // ownership proof instead of abandoning a suspended child.
-            let groupID = Darwin.getpgid(processIdentifier)
-            let target = groupID == processIdentifier ? -processIdentifier : processIdentifier
+            // ownership proof instead of abandoning a suspended child. A
+            // conflicting token disables the negative group target, but the
+            // direct-child proof still makes a positive-PID SIGKILL safe.
+            let completion = AgentChatSidecarProcessExitCompletion()
+            let source = Self.installExitWatcher(
+                processIdentifier,
+                completion: completion
+            )
+            let groupID = identityMatchesExpected ? Darwin.getpgid(processIdentifier) : -1
+            let target = identityMatchesExpected && groupID == processIdentifier
+                ? -processIdentifier
+                : processIdentifier
             errno = 0
             let signalResult = Darwin.kill(target, SIGKILL)
-            if signalResult != 0, errno != ESRCH { return false }
-            reapWhenExited(processIdentifier)
-            return true
+            if signalResult != 0 {
+                let groupFailure = errno
+                if target < 0 {
+                    guard groupFailure == ESRCH || groupFailure == EPERM else {
+                        source.cancel()
+                        return false
+                    }
+                    // A group can disappear or reject a group signal between
+                    // getpgid and kill while the direct child is still stopped.
+                    // Fall back to that child only after the waitpid ownership
+                    // proof above, never to a PID copied from persisted state.
+                    errno = 0
+                    let directResult = Darwin.kill(processIdentifier, SIGKILL)
+                    if directResult != 0, errno != ESRCH {
+                        source.cancel()
+                        return false
+                    }
+                } else if groupFailure != ESRCH {
+                    // The positive target is already proven to be this
+                    // direct child. ESRCH means it crossed the exit boundary;
+                    // let the watcher/reap path below finish that transition.
+                    source.cancel()
+                    return false
+                }
+            }
+            while true {
+                let result = waitpid(processIdentifier, &status, WNOHANG)
+                if result == processIdentifier || (result == -1 && errno == ECHILD) {
+                    source.cancel()
+                    await completion.finish(true)
+                    return true
+                }
+                if result == -1 && errno == EINTR { continue }
+                guard result == 0 else {
+                    source.cancel()
+                    return false
+                }
+                return await completion.wait()
+            }
         }
     }
 
+    /// Calls `body` with a null-terminated, temporarily allocated C string array.
     private static func withCStringArray<T>(
         _ strings: [String],
         _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> T
