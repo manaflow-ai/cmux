@@ -526,7 +526,10 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
             while let Some(message) = writer_rx.recv().await {
                 match message {
                     WriterMessage::Frame(frame) => {
-                        let written = write_half.write_all(&frame).await;
+                        let written = tokio::select! {
+                            result = write_half.write_all(&frame) => result,
+                            _ = connection.done.cancelled() => break,
+                        };
                         // Every dequeued frame added exactly its length at
                         // enqueue, so this never underflows.
                         let length = frame.len() as u64;
@@ -608,10 +611,17 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                                     connection.protocol_error("bad_request", "open timed out");
                                     break 'reader;
                                 }
-                                result = dispatch_tx.send(frame) => {
-                                    if result.is_err() {
-                                        connection.finish();
-                                        break 'reader;
+                                result = dispatch_tx.try_send(frame) => {
+                                    match result {
+                                        Ok(()) => {}
+                                        Err(mpsc::error::TrySendError::Full(_)) => {
+                                            connection.protocol_error("busy", "terminal request queue is full");
+                                            break 'reader;
+                                        }
+                                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                                            connection.finish();
+                                            break 'reader;
+                                        }
                                     }
                                 }
                             }
@@ -641,7 +651,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     flow.abort();
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
-    if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
+    if tokio::time::timeout(Duration::from_secs(1), &mut writer).await.is_err() {
         writer.abort();
         let _ = writer.await;
     }

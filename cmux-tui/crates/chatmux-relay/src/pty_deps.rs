@@ -551,6 +551,7 @@ impl PtyControl for MasterControl {
 enum PipeChildCommand {
     Kill,
     ExitReady,
+    ObserveFailed,
 }
 
 /// A degraded pipe-mode shell (no TTY) used when PTY allocation fails.
@@ -799,8 +800,12 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             // signals use the still-owned Child handle.
             let observer_tx = command_tx;
             std::thread::spawn(move || {
-                let _ = wait_for_child_exit_without_reaping(pid);
-                let _ = observer_tx.send(PipeChildCommand::ExitReady);
+                let command = if wait_for_child_exit_without_reaping(pid).is_ok() {
+                    PipeChildCommand::ExitReady
+                } else {
+                    PipeChildCommand::ObserveFailed
+                };
+                let _ = observer_tx.send(command);
             });
             let wait_completion = Arc::clone(&completion);
             std::thread::spawn(move || {
@@ -808,6 +813,10 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
                 while !exit_ready {
                     match command_rx.recv() {
                         Ok(PipeChildCommand::ExitReady) => exit_ready = true,
+                        Ok(PipeChildCommand::ObserveFailed) => {
+                            let _ = child.kill();
+                            exit_ready = true;
+                        }
                         Ok(PipeChildCommand::Kill) => {
                             let _ = child.kill();
                         }
