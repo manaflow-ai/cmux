@@ -12,7 +12,7 @@ permissions: {}
 jobs:
   validate:
     name: CLA policy guard
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04 # github-hosted-required: base-controlled pull_request_target guard must not run on a self-hosted runner a pull request could influence
     timeout-minutes: 10
     permissions:
       contents: read
