@@ -15,6 +15,11 @@
         "fork": "อย่าลองใหม่ สร้าง VM ใหม่ด้วย `cmux vm new`",
         "default": "อย่าลองใหม่ เรียกใช้ `cmux vm ls` หรือติดต่อฝ่ายสนับสนุนหากคิดว่านี่เป็นข้อผิดพลาด"
       }
+    },
+    "requiresPro": {
+      "title": "ต้องใช้ cmux Pro",
+      "message": "Cloud VM ต้องใช้แผน cmux Pro",
+      "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
     }
   },
   "billingRecovery": {

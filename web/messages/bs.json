@@ -15,6 +15,11 @@
         "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
         "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
+    },
+    "requiresPro": {
+      "title": "Potreban je cmux Pro",
+      "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
+      "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
     }
   },
   "billingRecovery": {

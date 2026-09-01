@@ -15,6 +15,11 @@
         "fork": "請勿重試。請使用 `cmux vm new` 建立新的虛擬機。",
         "default": "請勿重試。使用 `cmux vm ls` 查看虛擬機；如果你認為這是錯誤，請聯絡支援團隊。"
       }
+    },
+    "requiresPro": {
+      "title": "需要 cmux Pro",
+      "message": "雲端虛擬機需要 cmux Pro 方案。",
+      "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
     }
   },
   "billingRecovery": {

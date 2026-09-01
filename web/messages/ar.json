@@ -15,6 +15,11 @@
         "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux vm new`.",
         "default": "لا تعاود المحاولة. شغّل `cmux vm ls` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
       }
+    },
+    "requiresPro": {
+      "title": "يتطلب cmux Pro",
+      "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
+      "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
     }
   },
   "billingRecovery": {

@@ -60211,91 +60211,6 @@
         }
       }
     },
-    "cloudTree.deleteWorkspace.confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.message.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace closes on the machine."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシン上のワークスペースが閉じます。"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.message.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Its terminal is killed with it. To keep it, use “Close Workspace” instead — it moves to the Terminals pool."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.message.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Its %d terminals are killed with it. To keep them, use “Close Workspace” instead — they move to the Terminals pool."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中の%d個のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
-          }
-        }
-      }
-    },
-    "cloudTree.deleteWorkspace.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete workspace “%@”?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース「%@」を削除しますか？"
-          }
-        }
-      }
-    },
     "cloudTree.killTerminal.confirm": {
       "extractionState": "manual",
       "localizations": {
@@ -60353,30 +60268,98 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Workspace (Keep Terminals)"
+            "value": "Close Workspace…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを閉じる（ターミナルを保持）"
+            "value": "ワークスペースを閉じる…"
           }
         }
       }
     },
-    "cloudTree.menu.deleteWorkspace": {
+    "cloudTree.closeWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete Workspace and Terminals…"
+            "value": "Close workspace “%@”?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースとターミナルを削除…"
+            "value": "ワークスペース「%@」を閉じますか？"
+          }
+        }
+      }
+    },
+    "cloudTree.closeWorkspace.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its terminal is killed with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中のターミナルも一緒に終了します。"
+          }
+        }
+      }
+    },
+    "cloudTree.closeWorkspace.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its %d terminals are killed with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中の%d個のターミナルも一緒に終了します。"
+          }
+        }
+      }
+    },
+    "cloudTree.closeWorkspace.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を閉じています…"
           }
         }
       }
@@ -60428,23 +60411,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称変更…"
-          }
-        }
-      }
-    },
-    "cloudTree.operation.deleteWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleting %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を削除しています…"
           }
         }
       }
@@ -60948,13 +60914,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Workspace"
+            "value": "Close Workspace…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを閉じる"
+            "value": "ワークスペースを閉じる…"
           }
         }
       }
@@ -61044,23 +61010,6 @@
         }
       }
     },
-    "cloudTree.terminal.badge.detached": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "detached"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タブなし"
-          }
-        }
-      }
-    },
     "cloudTree.terminal.badge.views": {
       "extractionState": "manual",
       "localizations": {
@@ -61078,23 +61027,6 @@
         }
       }
     },
-    "cloudTree.terminal.views.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 tab on the machine shows this terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシン上の 1 個のタブがこのターミナルを表示しています"
-          }
-        }
-      }
-    },
     "cloudTree.terminal.views.other": {
       "extractionState": "manual",
       "localizations": {
@@ -61108,23 +61040,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシン上の %d 個のタブがこのターミナルを表示しています"
-          }
-        }
-      }
-    },
-    "cloudTree.terminal.views.zero": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No tabs on the machine show this terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このターミナルを表示しているタブはマシン上にありません"
           }
         }
       }
@@ -126801,6 +126716,23 @@
         }
       }
     },
+    "cloudVM.error.requiresPro.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM を作成するには https://cmux.com/pricing で cmux Pro にアップグレードしてください。"
+          }
+        }
+      }
+    },
     "machines.empty.upgrade": {
       "extractionState": "manual",
       "localizations": {
@@ -188209,6 +188141,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "共有…"
+          }
+        }
+      }
+    },
+    "settings.networking.irx.notConfigurable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This setting is not configurable with the current transport."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この設定は現在のトランスポートでは変更できません。"
           }
         }
       }
