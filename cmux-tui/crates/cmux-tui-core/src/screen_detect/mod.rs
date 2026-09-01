@@ -78,6 +78,7 @@ struct TrackedTerminal {
 #[derive(Debug, Default)]
 pub(crate) struct ScreenDetectTracker {
     terminals: HashMap<String, TrackedTerminal>,
+    pending_emissions: HashMap<String, ScreenDetectEmission>,
 }
 
 impl ScreenDetectTracker {
@@ -174,6 +175,18 @@ impl ScreenDetectTracker {
         }
     }
 
+    pub(crate) fn stage_failed_emission(&mut self, emission: ScreenDetectEmission) {
+        self.pending_emissions.insert(emission.terminal_id.clone(), emission);
+    }
+
+    pub(crate) fn pending_emission(&self, terminal_id: &str) -> Option<ScreenDetectEmission> {
+        self.pending_emissions.get(terminal_id).cloned()
+    }
+
+    pub(crate) fn clear_pending_emission(&mut self, terminal_id: &str) {
+        self.pending_emissions.remove(terminal_id);
+    }
+
     /// Fold one evaluated detection. `None` detection means the foreground
     /// process is not a supported agent (or is gone): a live screen-derived
     /// entry is closed with a session-ended-equivalent `Done` emission.
@@ -229,6 +242,7 @@ impl ScreenDetectTracker {
     /// from the roster by the terminal lifecycle, not by an exit emission.
     pub(crate) fn retain_terminals(&mut self, live: impl Fn(&str) -> bool) {
         self.terminals.retain(|terminal_id, _| live(terminal_id));
+        self.pending_emissions.retain(|terminal_id, _| live(terminal_id));
     }
 }
 

@@ -5923,9 +5923,11 @@ impl Mux {
         // side effect in the same order as the durable reducer snapshot.
         let _fold = self.agent_roster_fold.lock().unwrap();
         loop {
-            // Read the full contiguous journal tail while holding registry
-            // before roster. A single callback may need several pages.
-            let (deltas_to_apply, previous_host, page_was_empty) = {
+            // Consume one record at a time. The reducer cursor is persisted
+            // only after that record's side effects succeed, so a partial
+            // page failure cannot roll back already committed records and
+            // replay their broadcasts on every retry.
+            let (record, previous_host, deltas, screen_detect) = {
                 let mut registry = self.workspace_registry.lock().unwrap();
                 let mut host = self.agent_roster.lock().unwrap();
                 let page = match registry.session_journal_after(host.cursor, 512) {
@@ -5937,74 +5939,52 @@ impl Mux {
                         return;
                     }
                 };
-                if page.records.is_empty() {
-                    (Vec::new(), host.clone(), true)
-                } else {
-                    let previous_host = host.clone();
-                    let mut deltas_to_apply = Vec::new();
-                    for record in &page.records {
-                        let deltas = host.roster.apply(&RosterEvent::from_record(record));
-                        host.cursor = host.cursor.max(record.sequence);
-                        host.ordering_token = host.ordering_token.saturating_add(1);
-                        let echo = record
-                            .payload
-                            .get("adapter")
-                            .and_then(|adapter| adapter.get("id"))
-                            .and_then(Value::as_str)
-                            == Some(SOCKET_REPORT_ADAPTER);
-                        let screen_detect =
-                            record.payload.get("native_event").and_then(Value::as_str)
-                                == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
-                        if !echo && screen_detect && !deltas.is_empty() {
-                            deltas_to_apply.push((
-                                deltas,
-                                record.kind.clone(),
-                                screen_detect,
-                                record.clone(),
-                            ));
-                        }
-                    }
-                    (deltas_to_apply, previous_host, false)
-                }
+                let Some(record) = page.records.into_iter().next() else { break };
+                let previous_host = host.clone();
+                let deltas = host.roster.apply(&RosterEvent::from_record(&record));
+                host.cursor = host.cursor.max(record.sequence);
+                host.ordering_token = host.ordering_token.saturating_add(1);
+                let echo = record
+                    .payload
+                    .get("adapter")
+                    .and_then(|adapter| adapter.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(SOCKET_REPORT_ADAPTER);
+                let screen_detect = record.payload.get("native_event").and_then(Value::as_str)
+                    == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
+                (record, previous_host, deltas, !echo && screen_detect)
             };
             let mut side_effects_failed = false;
-            for (deltas, kind, screen_detect, record) in deltas_to_apply {
-                let mut record_failed = false;
+            if screen_detect && !deltas.is_empty() {
                 for delta in deltas {
-                    if let Err(error) = self.apply_roster_delta(delta, &kind, screen_detect) {
+                    if let Err(error) =
+                        self.apply_roster_delta(delta, &record.kind, true, record.sequence)
+                    {
                         eprintln!("cmux-tui: agent roster side effect failed: {error}");
                         side_effects_failed = true;
-                        record_failed = true;
                     }
-                }
-                if record_failed {
-                    self.enqueue_agent_roster_retry(&record);
                 }
             }
             if side_effects_failed {
-                // Leave the durable cursor at the last fully applied page.
-                // A later journal wake retries this page instead of treating
-                // a failed projection as complete.
+                // Leave the durable cursor at the last fully applied record.
+                // A later journal wake retries this record only; previous
+                // records already have durable progress and are not replayed.
                 let mut registry = self.workspace_registry.lock().unwrap();
                 *self.agent_roster.lock().unwrap() = previous_host;
                 drop(registry);
+                self.enqueue_agent_roster_retry(&record);
                 return;
             }
-            if !page_was_empty {
-                let mut registry = self.workspace_registry.lock().unwrap();
-                let host = self.agent_roster.lock().unwrap();
-                if let Err(error) = registry.put_journal_reducer_state_ordered(
-                    AGENT_ROSTER_REDUCER_ID,
-                    AGENT_ROSTER_REDUCER_VERSION,
-                    host.cursor,
-                    host.ordering_token,
-                    &host.roster.snapshot().to_string(),
-                ) {
-                    eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-                }
-            }
-            if page_was_empty {
-                break;
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let host = self.agent_roster.lock().unwrap();
+            if let Err(error) = registry.put_journal_reducer_state_ordered(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                host.ordering_token,
+                &host.roster.snapshot().to_string(),
+            ) {
+                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
             }
         }
     }
@@ -6046,6 +6026,7 @@ impl Mux {
         delta: crate::journal_reducers::RosterDelta,
         kind: &str,
         screen_detect: bool,
+        sequence: u64,
     ) -> anyhow::Result<()> {
         use crate::journal_reducers::RosterDelta;
         let (terminal_id, state, source, session, agent_adapter) = match delta {
@@ -6063,8 +6044,11 @@ impl Mux {
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return Ok(()) };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return Ok(()) };
+        // The journal sequence makes retries of a partially applied record
+        // replay the same mutation, so already committed deltas are
+        // idempotent while the reducer cursor remains behind that record.
         let mutation = match WorkspaceMutation::new(
-            format!("roster-{}", crate::workspace_registry::new_uuid_v4()),
+            format!("roster-{sequence}-{terminal_id}"),
             "journal-reducer",
         ) {
             Ok(mutation) => mutation,

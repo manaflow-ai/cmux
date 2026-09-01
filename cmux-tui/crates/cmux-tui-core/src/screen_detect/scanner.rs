@@ -102,6 +102,16 @@ pub(crate) fn scan(
     for (terminal_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
+        if let Some(pending) = tracker.pending_emission(terminal_id) {
+            if mux.append_screen_detect_event(&pending).is_ok() {
+                tracker.clear_pending_emission(terminal_id);
+            }
+            // Preserve event order. A failed pending emission is retried on
+            // the next scan without evaluating newer screen state.
+            if tracker.pending_emission(terminal_id).is_some() {
+                continue;
+            }
+        }
         let quiesced = tracker.observe_revision(terminal_id, revision, now);
         let lookup_due = tracker.should_lookup_foreground_agent(terminal_id, now);
         let mut exited = false;
@@ -163,7 +173,9 @@ pub(crate) fn scan(
             }
         };
         if let Some(emission) = emission {
-            let _ = mux.append_screen_detect_event(&emission);
+            if mux.append_screen_detect_event(&emission).is_err() {
+                tracker.stage_failed_emission(emission);
+            }
         }
     }
 }
