@@ -67,6 +67,8 @@ struct TrackedTerminal {
     foreground_agent: Option<String>,
     /// Last scan that queried foreground process metadata.
     last_process_lookup_at: Option<Instant>,
+    /// Whether the cached foreground identity came from a successful lookup.
+    foreground_identity_known: bool,
     /// Earliest time to retry a failed viewport read.
     retry_after: Option<Instant>,
     /// Last (agent, state) journaled; emissions are edges over this.
@@ -137,6 +139,7 @@ impl ScreenDetectTracker {
         }
         let previous = entry.foreground_agent.as_deref();
         entry.foreground_agent = agent.map(str::to_string);
+        entry.foreground_identity_known = true;
         // A supported-agent swap must not retain the old agent's last emitted
         // state. A transition to None keeps it so the caller can emit Done.
         if agent.is_some() && previous.is_some() && previous != agent {
@@ -165,6 +168,16 @@ impl ScreenDetectTracker {
 
     pub(crate) fn foreground_agent(&self, terminal_id: &str) -> Option<String> {
         self.terminals.get(terminal_id).and_then(|entry| entry.foreground_agent.clone())
+    }
+
+    pub(crate) fn foreground_identity_known(&self, terminal_id: &str) -> bool {
+        self.terminals.get(terminal_id).is_some_and(|entry| entry.foreground_identity_known)
+    }
+
+    pub(crate) fn invalidate_foreground_identity(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.foreground_identity_known = false;
+        }
     }
 
     /// Re-arm the current revision after a transient viewport read failure.

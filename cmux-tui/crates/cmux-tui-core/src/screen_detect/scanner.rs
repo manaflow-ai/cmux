@@ -131,12 +131,20 @@ pub(crate) fn scan(
                     identity_edge = tracker.note_foreground_agent(terminal_id, None);
                     exited = true;
                 }
-                ProcessLookup::Unknown => unknown = true,
+                ProcessLookup::Unknown => {
+                    tracker.invalidate_foreground_identity(terminal_id);
+                    unknown = true;
+                }
             }
         }
         if unknown {
             // Keep the prior identity and roster state. The next scan can
             // retry process lookup without emitting a false Done edge.
+            continue;
+        }
+        if !tracker.foreground_identity_known(terminal_id) {
+            // No successful process lookup has established an identity yet.
+            // Screen text alone must not promote a stale or unknown process.
             continue;
         }
         let manifest =

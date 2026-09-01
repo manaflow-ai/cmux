@@ -9981,6 +9981,20 @@ impl Mux {
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut host = self.agent_roster.lock().unwrap();
         if agent.state == AgentState::Done {
+            if let Some(existing) = host.roster.entries.get(agent.terminal_id.as_str()) {
+                let rank = |source: &str| match source {
+                    "hook" => 3_u8,
+                    "detected" => 2,
+                    "socket" => 1,
+                    _ => 0,
+                };
+                if rank(&existing.source) > rank(agent.source.as_str())
+                    || (existing.source == agent.source.as_str()
+                        && existing.updated_at_ms > agent.updated_at_ms)
+                {
+                    return;
+                }
+            }
             if !host.roster.retire_terminal(agent.terminal_id.as_str()) {
                 return;
             }
@@ -10003,6 +10017,22 @@ impl Mux {
             agent: agent.agent.clone(),
             updated_at_ms: agent.updated_at_ms,
         };
+        if let Some(existing) = host.roster.entries.get(agent.terminal_id.as_str()) {
+            let rank = |source: &str| match source {
+                "hook" => 3_u8,
+                "detected" => 2,
+                "socket" => 1,
+                _ => 0,
+            };
+            // The journal echo is only a durability retry. It must not
+            // overwrite a stronger or newer entry that arrived while the
+            // direct projection was being admitted.
+            if rank(&existing.source) > rank(&entry.source)
+                || (existing.source == entry.source && existing.updated_at_ms > entry.updated_at_ms)
+            {
+                return;
+            }
+        }
         if host.roster.entries.get(agent.terminal_id.as_str()) == Some(&entry) {
             return;
         }
