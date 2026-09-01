@@ -402,7 +402,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           ''|*[!0-9]*) cmux_test_process_count= ;;
         esac
         if [ -n "$cmux_test_process_count" ]; then
-          ulimit -u "$((cmux_test_process_count + 8))" 2>/dev/null || true
+          ulimit -u "$((cmux_test_process_count + 16))" 2>/dev/null || \
+            ulimit -u 100 2>/dev/null || true
+        else
+          ulimit -u 100 2>/dev/null || true
         fi
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true

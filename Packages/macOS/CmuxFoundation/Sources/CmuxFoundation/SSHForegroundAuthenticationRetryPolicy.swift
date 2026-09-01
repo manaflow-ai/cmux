@@ -133,6 +133,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_kill_candidates="$cmux_ssh_auth_state_dir/kill-candidates"
           cmux_ssh_auth_term_event_dir="${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_tree_root_pid"
           cmux_ssh_auth_term_event_fifo="$cmux_ssh_auth_term_event_dir/done"
+          cmux_ssh_auth_term_event_owned=0
           cmux_ssh_auth_caller_group_file="$cmux_ssh_auth_state_dir/caller-group"
           : > "$cmux_ssh_auth_owned" || exit 0
           : > "$cmux_ssh_auth_pending" || exit 0
@@ -331,8 +332,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_resume_file "$cmux_ssh_auth_pending"
               cmux_ssh_auth_resume_file "$cmux_ssh_auth_owned"
             fi
-            /bin/rm -f "$cmux_ssh_auth_term_event_fifo" 2>/dev/null || true
-            /bin/rmdir "$cmux_ssh_auth_term_event_dir" 2>/dev/null || true
+            if [ "$cmux_ssh_auth_term_event_owned" = 1 ]; then
+              /bin/rm -f "$cmux_ssh_auth_term_event_fifo" 2>/dev/null || true
+              /bin/rmdir "$cmux_ssh_auth_term_event_dir" 2>/dev/null || true
+            fi
             /bin/rm -f "$cmux_ssh_auth_snapshot" "$cmux_ssh_auth_members" \
               "$cmux_ssh_auth_pending" "$cmux_ssh_auth_owned" "$cmux_ssh_auth_groups" \
               "$cmux_ssh_auth_live" "$cmux_ssh_auth_term" \
@@ -354,7 +357,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # process cannot receive an event from this cleanup attempt.
           if /bin/mkdir "$cmux_ssh_auth_term_event_dir" 2>/dev/null && \
             /usr/bin/mkfifo "$cmux_ssh_auth_term_event_fifo" 2>/dev/null; then
-            :
+            cmux_ssh_auth_term_event_owned=1
           else
             /bin/rmdir "$cmux_ssh_auth_term_event_dir" 2>/dev/null || true
             cmux_ssh_auth_term_event_fifo=
