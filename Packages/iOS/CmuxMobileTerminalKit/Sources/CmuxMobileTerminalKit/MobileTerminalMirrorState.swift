@@ -1,4 +1,4 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 
 /// Lifecycle state for one mounted terminal mirror.
 ///
