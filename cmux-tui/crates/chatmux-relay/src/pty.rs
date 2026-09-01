@@ -1586,7 +1586,7 @@ impl Inner {
             .expect("attach lock")
             .get(&pty_id)
             .is_some_and(|current| Arc::ptr_eq(&current.publication_gate, &publication_gate));
-        if !authority_current || !attachment_current {
+        if cancellation.is_cancelled() || !authority_current || !attachment_current {
             let removed = {
                 let _state = self.tunnel_state.lock().expect("tunnel state lock");
                 let mut attachments = self.attachments.lock().expect("attach lock");
@@ -1632,6 +1632,7 @@ impl Inner {
             return;
         };
         if context.cancellation.is_cancelled()
+            || cancellation.is_cancelled()
             || !self.transport_auth_is_current(context, &auth)
             || !self.attachment_snapshot_is_current(pty_id, &current_attachment)
         {
@@ -1643,6 +1644,7 @@ impl Inner {
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
         if context.cancellation.is_cancelled()
+            || cancellation.is_cancelled()
             || !self
                 .auth_for_transport(context)
                 .is_some_and(|auth| self.transport_auth_is_current(context, &auth))
@@ -2466,7 +2468,7 @@ impl Inner {
         open_permit: &OpenPermit,
     ) -> Result<Opened, String> {
         let mut created = false;
-        let mut pending_viewer = false;
+        let pending_viewer = Arc::new(AtomicBool::new(false));
         let shell_session = loop {
             if let Some(existing) =
                 self.shell_sessions.lock().expect("shell lock").get(session).cloned()
@@ -2478,7 +2480,7 @@ impl Inner {
                 }
                 existing.control.resize(cols, rows);
                 existing.pending_viewers.fetch_add(1, Ordering::AcqRel);
-                pending_viewer = true;
+                pending_viewer.store(true, Ordering::Release);
                 break existing;
             }
             let (notify, owner, waiter) = {
@@ -2665,13 +2667,15 @@ impl Inner {
             session: Arc::clone(&shell_session),
             viewer_id,
             released: Arc::clone(&released),
+            pending_viewer: Arc::clone(&pending_viewer),
         });
 
         let start_session = Arc::clone(&shell_session);
+        let start_pending_viewer = Arc::clone(&pending_viewer);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
             // This open has reached its publication callback. It no longer
             // counts as a pending viewer for cancellation cleanup.
-            if pending_viewer {
+            if start_pending_viewer.swap(false, Ordering::AcqRel) {
                 start_session.pending_viewers.fetch_sub(1, Ordering::AcqRel);
             }
             let (banner, replay, alive, delivery_lock) = {
@@ -2756,11 +2760,15 @@ struct ShellViewerControl {
     session: Arc<ShellSession>,
     viewer_id: u64,
     released: Arc<AtomicBool>,
+    pending_viewer: Arc<AtomicBool>,
 }
 
 impl ShellViewerControl {
     fn release(&self) {
         self.released.store(true, Ordering::SeqCst);
+        if self.pending_viewer.swap(false, Ordering::AcqRel) {
+            self.session.pending_viewers.fetch_sub(1, Ordering::AcqRel);
+        }
         {
             let _flow = self.session.flow_lock.lock().expect("shell flow lock");
             let mut inner = self.session.inner.lock().expect("shell inner lock");
