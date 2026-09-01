@@ -13,6 +13,7 @@ struct SleepyModeDefaultsKeys {
     static let showStatus = "sleepyMode.showStatus"
     static let showPets = "sleepyMode.showPets"
     static let showWhenKeepingAwake = "sleepyMode.showWhenKeepingAwake"
+    static let lockMacWhenKeepingAwake = "sleepyMode.lockMacWhenKeepingAwake"
     static let customFace = "sleepyMode.customFace"
     static let customCap = "sleepyMode.customCap"
     static let customBlush = "sleepyMode.customBlush"

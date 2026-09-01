@@ -43,10 +43,24 @@ extension TerminalController {
             }
             lockScreen = value
         }
+        var lockMac: Bool?
+        if v2HasNonNullParam(params, "lock_mac") {
+            guard let value = v2Bool(params, "lock_mac") else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "caffeine.error.invalidLockMac",
+                        defaultValue: "lock_mac must be true or false."
+                    ),
+                    data: nil
+                )
+            }
+            lockMac = value
+        }
         guard let caffeineController else {
             return v2CaffeineStatus()
         }
-        caffeineController.setEnabled(enabled, lockScreen: lockScreen)
+        caffeineController.setEnabled(enabled, lockScreen: lockScreen, lockMac: lockMac)
         return .ok(Self.caffeineStatusPayload(caffeineController))
     }
 

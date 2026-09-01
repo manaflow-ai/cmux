@@ -2425,6 +2425,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         caffeineController.lockScreenPreference = {
             SleepyModeController.shared.store.showWhenKeepingAwake
         }
+        caffeineController.lockMacPreference = {
+            SleepyModeController.shared.store.lockMacWhenKeepingAwake
+        }
+        caffeineController.lockMacAction = {
+            let controls = SleepyModeController.shared.powerControls
+            Task { await controls.lockMacNow() }
+        }
         caffeineController.onStateChange = { [weak self] enabled in
             self?.menuBarExtraController?.refreshForDebugControls()
             MobileHostService.emitEvent(

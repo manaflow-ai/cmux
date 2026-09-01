@@ -13420,6 +13420,7 @@ class TerminalController {
                 case "status": store.showStatus.toggle()
                 case "pets": store.showPets.toggle()
                 case "keepawake": store.showWhenKeepingAwake.toggle()
+                case "lockmac": store.lockMacWhenKeepingAwake.toggle()
                 default: unknown = true
                 }
             case "customcolor":

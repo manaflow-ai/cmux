@@ -38,6 +38,8 @@ public final class SleepyModeSettingsStore {
     /// Whether the scene is shown as a lock screen whenever cmux keeps the
     /// Mac awake.
     public var showWhenKeepingAwake: Bool { didSet { persist(showWhenKeepingAwake, SleepyModeDefaultsKeys.showWhenKeepingAwake) } }
+    /// Whether keeping the Mac awake also engages the real macOS login lock.
+    public var lockMacWhenKeepingAwake: Bool { didSet { persist(lockMacWhenKeepingAwake, SleepyModeDefaultsKeys.lockMacWhenKeepingAwake) } }
 
     /// Custom face color ("RRGGBB"), used when `theme == .custom`.
     public var customFace: String { didSet { persist(customFace, SleepyModeDefaultsKeys.customFace) } }
@@ -69,6 +71,7 @@ public final class SleepyModeSettingsStore {
         showStatus = defaults.object(forKey: SleepyModeDefaultsKeys.showStatus) as? Bool ?? fallback.showStatus
         showPets = defaults.object(forKey: SleepyModeDefaultsKeys.showPets) as? Bool ?? fallback.showPets
         showWhenKeepingAwake = defaults.object(forKey: SleepyModeDefaultsKeys.showWhenKeepingAwake) as? Bool ?? fallback.showWhenKeepingAwake
+        lockMacWhenKeepingAwake = defaults.object(forKey: SleepyModeDefaultsKeys.lockMacWhenKeepingAwake) as? Bool ?? fallback.lockMacWhenKeepingAwake
         customFace = defaults.string(forKey: SleepyModeDefaultsKeys.customFace) ?? fallback.customFace
         customCap = defaults.string(forKey: SleepyModeDefaultsKeys.customCap) ?? fallback.customCap
         customBlush = defaults.string(forKey: SleepyModeDefaultsKeys.customBlush) ?? fallback.customBlush

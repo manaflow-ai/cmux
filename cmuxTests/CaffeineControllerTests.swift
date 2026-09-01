@@ -169,6 +169,52 @@ struct CaffeineControllerTests {
     }
 
     @Test
+    func lockMacFiresOnEnableAndImpliesTheCover() {
+        let lockScreen = FakeLockScreen()
+        let controller = makeController(preference: { false }, lockScreen: lockScreen)
+        var lockMacCount = 0
+        controller.lockMacAction = { lockMacCount += 1 }
+
+        controller.setEnabled(true, lockMac: true)
+        #expect(lockMacCount == 1)
+        #expect(lockScreen.isPresented)
+
+        controller.setEnabled(false)
+        #expect(lockMacCount == 1)
+    }
+
+    @Test
+    func lockMacPreferenceAppliesOnTheEnableTransitionOnly() {
+        let lockScreen = FakeLockScreen()
+        let controller = makeController(preference: { false }, lockScreen: lockScreen)
+        var lockMacCount = 0
+        controller.lockMacPreference = { true }
+        controller.lockMacAction = { lockMacCount += 1 }
+
+        controller.setEnabled(true)
+        #expect(lockMacCount == 1)
+
+        controller.setEnabled(true)
+        #expect(lockMacCount == 1)
+
+        controller.setEnabled(false)
+        controller.setEnabled(true, lockMac: false)
+        #expect(lockMacCount == 1)
+    }
+
+    @Test
+    func explicitNoCoverKeepsLockMacUncovered() {
+        let lockScreen = FakeLockScreen()
+        let controller = makeController(preference: { false }, lockScreen: lockScreen)
+        var lockMacCount = 0
+        controller.lockMacAction = { lockMacCount += 1 }
+
+        controller.setEnabled(true, lockScreen: false, lockMac: true)
+        #expect(lockMacCount == 1)
+        #expect(!lockScreen.isPresented)
+    }
+
+    @Test
     func lockScreenStartedAfterManualDismissBelongsToTheUser() {
         let lockScreen = FakeLockScreen()
         let controller = makeController(preference: { true }, lockScreen: lockScreen)

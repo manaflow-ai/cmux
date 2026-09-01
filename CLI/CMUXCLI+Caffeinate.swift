@@ -12,6 +12,7 @@ extension CMUXCLI {
         jsonOutput: Bool
     ) throws {
         var lockScreen: Bool?
+        var lockMac: Bool?
         var jsonFlag = false
         var positional: [String] = []
         for arg in commandArgs {
@@ -20,13 +21,15 @@ extension CMUXCLI {
                 lockScreen = true
             case "--no-lock-screen":
                 lockScreen = false
+            case "--lock-mac":
+                lockMac = true
             case "--json":
                 jsonFlag = true
             default:
                 if arg.hasPrefix("-") {
                     throw CLIError(message: String(
                         localized: "cli.caffeinate.error.unknownFlag",
-                        defaultValue: "caffeinate: unknown flag '\(arg)'. Flags: --lock-screen, --no-lock-screen, --json"
+                        defaultValue: "caffeinate: unknown flag '\(arg)'. Flags: --lock-screen, --no-lock-screen, --lock-mac, --json"
                     ))
                 }
                 positional.append(arg)
@@ -43,19 +46,19 @@ extension CMUXCLI {
         let payload: [String: Any]
         switch subcommand {
         case "status":
-            guard lockScreen == nil else {
+            guard lockScreen == nil, lockMac == nil else {
                 throw CLIError(message: String(
                     localized: "cli.caffeinate.error.statusLockScreen",
-                    defaultValue: "caffeinate status doesn't take --lock-screen/--no-lock-screen"
+                    defaultValue: "caffeinate status doesn't take lock-screen/lock-mac flags"
                 ))
             }
             payload = try client.sendV2(method: "caffeine.status", params: [:])
         case "on", "off":
-            payload = try setCaffeine(enabled: subcommand == "on", lockScreen: lockScreen, client: client)
+            payload = try setCaffeine(enabled: subcommand == "on", lockScreen: lockScreen, lockMac: lockMac, client: client)
         case "toggle":
             let status = try client.sendV2(method: "caffeine.status", params: [:])
             let enabled = (status["enabled"] as? Bool) ?? false
-            payload = try setCaffeine(enabled: !enabled, lockScreen: lockScreen, client: client)
+            payload = try setCaffeine(enabled: !enabled, lockScreen: lockScreen, lockMac: lockMac, client: client)
         default:
             throw CLIError(message: String(
                 localized: "cli.caffeinate.error.unknownSubcommand",
@@ -70,10 +73,13 @@ extension CMUXCLI {
         }
     }
 
-    private func setCaffeine(enabled: Bool, lockScreen: Bool?, client: SocketClient) throws -> [String: Any] {
+    private func setCaffeine(enabled: Bool, lockScreen: Bool?, lockMac: Bool?, client: SocketClient) throws -> [String: Any] {
         var params: [String: Any] = ["enabled": enabled]
         if let lockScreen {
             params["lock_screen"] = lockScreen
+        }
+        if let lockMac {
+            params["lock_mac"] = lockMac
         }
         return try client.sendV2(method: "caffeine.set", params: params)
     }

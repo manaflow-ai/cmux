@@ -44,6 +44,13 @@ final class CaffeineController {
     /// Only a caffeine-owned lock screen is dismissed when caffeine ends.
     @ObservationIgnored private var ownsLockScreen = false
 
+    /// Persisted "engage the real macOS login lock while keeping the Mac
+    /// awake" preference; the lock can only be lifted with Touch ID or the
+    /// account password, which is why it is an action, never state we undo.
+    @ObservationIgnored var lockMacPreference: () -> Bool = { false }
+    /// Fires the real macOS login lock (Sleepy Mode's "Lock Mac" action).
+    @ObservationIgnored var lockMacAction: () -> Void = {}
+
     var isLockScreenPresented: Bool { lockScreenPresenter?.isPresented ?? false }
 
     init(
@@ -61,11 +68,13 @@ final class CaffeineController {
         self.endActivity = endActivity
     }
 
-    /// `lockScreen` is the per-call override (CLI `--lock-screen` /
-    /// `--no-lock-screen`, RPC `lock_screen`); nil falls back to the persisted
-    /// preference on the disabled→enabled transition and leaves the lock
-    /// screen untouched on redundant enables.
-    func setEnabled(_ enabled: Bool, lockScreen: Bool? = nil) {
+    /// `lockScreen` and `lockMac` are the per-call overrides (CLI
+    /// `--lock-screen`/`--no-lock-screen`/`--lock-mac`, RPC `lock_screen`/
+    /// `lock_mac`); nil falls back to the persisted preferences on the
+    /// disabled→enabled transition and leaves both untouched on redundant
+    /// enables. `lockMac` implies the cover unless the cover was explicitly
+    /// declined.
+    func setEnabled(_ enabled: Bool, lockScreen: Bool? = nil, lockMac: Bool? = nil) {
         let wasEnabled = isEnabled
 
         if enabled != wasEnabled {
@@ -78,7 +87,7 @@ final class CaffeineController {
             isEnabled = enabled
         }
 
-        applyLockScreen(enabled: enabled, wasEnabled: wasEnabled, override: lockScreen)
+        applyLockScreen(enabled: enabled, wasEnabled: wasEnabled, override: lockScreen, lockMacOverride: lockMac)
 
         if enabled != wasEnabled {
             onStateChange?(enabled)
@@ -97,13 +106,12 @@ final class CaffeineController {
         ownsLockScreen = false
     }
 
-    private func applyLockScreen(enabled: Bool, wasEnabled: Bool, override: Bool?) {
-        guard let presenter = lockScreenPresenter else { return }
-
+    private func applyLockScreen(enabled: Bool, wasEnabled: Bool, override: Bool?, lockMacOverride: Bool?) {
         guard enabled else {
-            // Ending caffeine tears down only a lock screen caffeine put up;
-            // a user-started Sleepy Mode session stays.
-            if ownsLockScreen, presenter.isPresented {
+            // Ending caffeine tears down only a lock screen caffeine put up; a
+            // user-started Sleepy Mode session stays, and an engaged macOS
+            // lock stays until the user unlocks it themselves.
+            if let presenter = lockScreenPresenter, ownsLockScreen, presenter.isPresented {
                 presenter.dismiss()
             }
             ownsLockScreen = false
@@ -112,17 +120,26 @@ final class CaffeineController {
 
         // Redundant enables without an explicit choice leave the lock screen
         // alone, so a user who dismissed it isn't surprised by it returning.
-        let want: Bool? = override ?? (wasEnabled ? nil : lockScreenPreference())
-        guard let want else { return }
+        let wantLockMac: Bool? = lockMacOverride ?? (wasEnabled ? nil : lockMacPreference())
+        var wantCover: Bool? = override ?? (wasEnabled ? nil : lockScreenPreference())
+        if wantLockMac == true, wantCover == nil {
+            wantCover = true
+        }
 
-        if want {
-            if !presenter.isPresented {
-                presenter.present()
-                ownsLockScreen = true
+        if let presenter = lockScreenPresenter, let wantCover {
+            if wantCover {
+                if !presenter.isPresented {
+                    presenter.present()
+                    ownsLockScreen = true
+                }
+            } else if ownsLockScreen, presenter.isPresented {
+                presenter.dismiss()
+                ownsLockScreen = false
             }
-        } else if ownsLockScreen, presenter.isPresented {
-            presenter.dismiss()
-            ownsLockScreen = false
+        }
+
+        if wantLockMac == true {
+            lockMacAction()
         }
     }
 }

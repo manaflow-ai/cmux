@@ -113,6 +113,14 @@ public struct SleepyModeSection: View {
                 ) {
                     Toggle("", isOn: $store.showWhenKeepingAwake).labelsHidden().controlSize(.small)
                 }
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    String(localized: "sleepyMode.settings.lockMacWhenKeepingAwake", defaultValue: "Lock Mac while Keep Mac Awake is on"),
+                    subtitle: String(localized: "sleepyMode.settings.lockMacWhenKeepingAwake.subtitle", defaultValue: "Also engages the real macOS login lock, so Touch ID or your password is required to get back in. The Mac keeps running behind the lock.")
+                ) {
+                    Toggle("", isOn: $store.lockMacWhenKeepingAwake).labelsHidden().controlSize(.small)
+                }
             }
 
             SettingsCard {
