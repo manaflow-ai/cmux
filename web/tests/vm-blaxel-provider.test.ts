@@ -462,7 +462,10 @@ describe("background provisioning", () => {
     // The stock-image path installs sudo too (baked images already ship it).
     expect(CMUX_PROVISION_SCRIPT).toMatch(/apt-get install[^\n]*\n[^\n]*\bsudo\b/);
     expect(CMUX_PROVISION_SCRIPT).toMatch(/apk add[^\n]*\bsudo\b/);
-    // Root-run provisioning hands what it wrote in the home to the work user.
+    // Root-run provisioning hands what it wrote in the home to the work user —
+    // but only on rootfs homes: through a mounted view chown is a no-op and the
+    // walk over a grown persistent home would be pure wasted disk work.
+    expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /home/cmux 2>/dev/null && return 0");
     expect(CMUX_PROVISION_SCRIPT).toContain("chown -R cmux:cmux /home/cmux/.bun /home/cmux/.npm-global /home/cmux/.local");
     expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
   });

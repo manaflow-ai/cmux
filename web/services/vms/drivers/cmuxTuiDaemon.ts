@@ -217,10 +217,16 @@ export function cmuxTuiDaemonCommand(
     // backing path as root, so sessions and daemon state stay on persistent
     // storage. The rootfs dir at ${home} is writable yet disposable — never it.
     `elif mountpoint -q ${backing} 2>/dev/null && ! mountpoint -q ${home} 2>/dev/null; then ` +
+    // Degraded but recoverable: every bootstrap and daemon restart re-runs the
+    // user setup, which retries the view mount; the breadcrumb makes the state
+    // findable on the machine instead of silent.
+    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s view-missing\\n' "$(date -u +%FT%TZ)" >> /etc/cmux/root-session-fallback; } 2>/dev/null; ` +
     `cd ${backing} && exec env HOME=${backing} TERM=xterm-256color ${bin} ${args}; ` +
     `elif id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && runuser -u ${user} -- test -w ${home} 2>/dev/null; then ` +
     `cd ${home} && exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash TERM=xterm-256color ${bin} ${args}; ` +
-    `else cd ${home} && exec env HOME=${home} TERM=xterm-256color ${bin} ${args}; fi`
+    `else ` +
+    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s user-unusable\\n' "$(date -u +%FT%TZ)" >> /etc/cmux/root-session-fallback; } 2>/dev/null; ` +
+    `cd ${home} && exec env HOME=${home} TERM=xterm-256color ${bin} ${args}; fi`
   );
 }
 

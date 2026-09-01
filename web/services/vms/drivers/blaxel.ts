@@ -291,10 +291,14 @@ shell_profile() {
   [ -f ${CMUX_CLOUD_HOME}/.profile ] || printf '%s\\n' '[ -f ${CMUX_CLOUD_HOME}/.bashrc ] && . ${CMUX_CLOUD_HOME}/.bashrc' > ${CMUX_CLOUD_HOME}/.profile
 }
 
-# Provisioning runs as root; the home belongs to the cmux user. Scoped to the dirs
-# this script writes (never the whole home, which re-runs on every resurrection).
+# Provisioning runs as root; the home belongs to the cmux user. Only needed when
+# the home is a plain rootfs dir (no-volume machines, always small): a mounted
+# bindfs view already presents every file as cmux-owned and turns chown into a
+# pure no-op, so walking a grown persistent home there would be wasted disk work
+# on every resurrection. Scoped to the dirs this script writes, never the whole home.
 own_home() {
   id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1 || return 0
+  mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null && return 0
   chown -R ${CMUX_CLOUD_USER}:${CMUX_CLOUD_USER} ${CMUX_CLOUD_HOME}/.bun ${CMUX_CLOUD_HOME}/.npm-global ${CMUX_CLOUD_HOME}/.local ${CMUX_CLOUD_HOME}/.bashrc ${CMUX_CLOUD_HOME}/.profile 2>/dev/null || true
 }
 
@@ -1459,12 +1463,15 @@ async function verifiedCustomDomain(): Promise<string | null> {
 
 // One shell round-trip that samples everything the Cloud panel's activity view shows.
 // Two /proc/stat reads half a second apart give a real CPU% (loadavg alone lags minutes).
-// The disk row reads the persistent home volume wherever this machine mounts it:
-// /home/cmux on current machines, /root on pre-layout sandboxes still alive.
+// The disk row reads the persistent home volume wherever this machine holds it:
+// the /home/cmux view on healthy machines, the raw backing mount when the view is
+// missing (the degraded state sessions fail over to), /root on pre-layout sandboxes.
 export const MACHINE_STATS_COMMAND =
   "head -1 /proc/stat; sleep 0.5; head -1 /proc/stat; cat /proc/loadavg; nproc; " +
   `grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; ` +
-  `(mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null && df -kP ${CMUX_CLOUD_HOME} || df -kP /root) | tail -1`;
+  `(if mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then df -kP ${CMUX_CLOUD_HOME}; ` +
+  `elif mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then df -kP ${CMUX_HOME_VOLUME_BACKING_PATH}; ` +
+  `else df -kP /root; fi) | tail -1`;
 
 export function parseMachineStats(
   stdout: string,
