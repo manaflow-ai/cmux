@@ -173,9 +173,11 @@ extension CMUXCLI {
         }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        let data = try handle.read(
-            upToCount: AutomationConfigStore.maximumJSONInputBytes + 1
-        ) ?? Data()
+        let data = try AutomationConfigStore.readBoundedData(
+            maximumBytes: AutomationConfigStore.maximumJSONInputBytes
+        ) { count in
+            try handle.read(upToCount: count)
+        }
         guard data.count <= AutomationConfigStore.maximumJSONInputBytes else {
             throw CLIError(message: automationLocalized(
                 "cli.automation.error.eventObject",

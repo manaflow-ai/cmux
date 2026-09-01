@@ -48,7 +48,7 @@ nonisolated struct AutomationPayloadRedactor: Sendable {
         guard !isSensitiveKey(key) else { return .string("[redacted]") }
         switch item {
         case .array(let items):
-            return .array(items.map { value($0, key: nil) })
+            return .array(items.map { value($0, key: key) })
         case .object(let object):
             var redacted: [String: AutomationJSONValue] = [:]
             for (childKey, childValue) in object {
@@ -72,7 +72,7 @@ nonisolated struct AutomationPayloadRedactor: Sendable {
             }
             return redacted
         case let array as [Any]:
-            return array.map { redactedFoundationObject($0, key: nil) }
+            return array.map { redactedFoundationObject($0, key: key) }
         case let string as String:
             return redactedURL(string, key: key)
         default:
@@ -96,7 +96,7 @@ nonisolated struct AutomationPayloadRedactor: Sendable {
         }
         if let queryItems = components.queryItems {
             components.queryItems = queryItems.map { item in
-                guard isSensitiveKey(item.name) else { return item }
+                guard isSensitiveURLQueryKey(item.name) else { return item }
                 changed = true
                 return URLQueryItem(name: item.name, value: "[redacted]")
             }
@@ -114,5 +114,16 @@ nonisolated struct AutomationPayloadRedactor: Sendable {
         guard let key else { return false }
         let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
         return sensitiveKeyFragments.contains { normalized.contains($0) }
+    }
+
+    private func isSensitiveURLQueryKey(_ key: String) -> Bool {
+        let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
+        return isSensitiveKey(key)
+            || normalized == "auth"
+            || normalized == "authcode"
+            || normalized == "authentication"
+            || normalized == "oauth"
+            || normalized == "sig"
+            || normalized.hasSuffix("signature")
     }
 }

@@ -156,13 +156,24 @@ final class AutomationConfigStore {
     private func boundedData(at url: URL) throws -> Data {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        return try Self.readBoundedData(maximumBytes: Int(Self.maximumFileBytes)) { count in
+            try handle.read(upToCount: count)
+        }
+    }
+
+    /// Accumulates short reads while capping the returned data at one sentinel byte
+    /// beyond the configured maximum.
+    nonisolated static func readBoundedData(
+        maximumBytes: Int,
+        readChunk: (Int) throws -> Data?
+    ) throws -> Data {
         var data = Data()
-        data.reserveCapacity(min(Int(Self.maximumFileBytes), 64 * 1024))
-        while data.count <= Int(Self.maximumFileBytes) {
-            let remaining = Int(Self.maximumFileBytes) + 1 - data.count
-            let chunk = try handle.read(upToCount: min(remaining, 64 * 1024)) ?? Data()
-            if chunk.isEmpty { break }
-            data.append(chunk)
+        data.reserveCapacity(min(maximumBytes, 64 * 1024))
+        while data.count <= maximumBytes {
+            let remaining = maximumBytes + 1 - data.count
+            let chunk = try readChunk(min(remaining, 64 * 1024)) ?? Data()
+            guard !chunk.isEmpty else { break }
+            data.append(chunk.prefix(remaining))
         }
         return data
     }
