@@ -199,13 +199,18 @@ extension TerminalController {
     }
 
     func v2MobilePanelArtifactStat(params: [String: Any]) async -> V2CallResult {
-        let resolution = mobilePanelArtifactCanonicalPath(params: params)
-        guard let canonicalPath = resolution.canonicalPath else {
+        let resolution = await mobilePanelArtifactCanonicalPath(params: params)
+        guard let canonicalPath = resolution.canonicalPath,
+              let authorizedIdentity = resolution.authorizedIdentity else {
             return resolution.failure ?? mobilePanelArtifactInternalError()
         }
         do {
             let stat = try await Task.detached(priority: .utility) {
-                try ArtifactByteReader().stat(path: canonicalPath)
+                try ArtifactByteReader().stat(
+                    path: canonicalPath,
+                    authorizedCanonicalPath: canonicalPath,
+                    authorizedIdentity: authorizedIdentity
+                )
             }.value
             return mobilePanelArtifactResult(stat)
         } catch ArtifactByteReader.Error.fileNotFound {
@@ -236,8 +241,9 @@ extension TerminalController {
         params: [String: Any],
         executionContext: MobileHostRPCExecutionContext? = nil
     ) async -> V2CallResult {
-        let resolution = mobilePanelArtifactCanonicalPath(params: params)
-        guard let canonicalPath = resolution.canonicalPath else {
+        let resolution = await mobilePanelArtifactCanonicalPath(params: params)
+        guard let canonicalPath = resolution.canonicalPath,
+              let authorizedIdentity = resolution.authorizedIdentity else {
             return resolution.failure ?? mobilePanelArtifactInternalError()
         }
         let offset = max(0, Int64(v2Int(params, "offset") ?? 0))
@@ -255,7 +261,8 @@ extension TerminalController {
                 }
                 return mobilePanelArtifactResult(
                     try await executionContext.issueArtifactTransfer(
-                        canonicalPath: canonicalPath
+                        canonicalPath: canonicalPath,
+                        authorizedIdentity: authorizedIdentity
                     )
                 )
             }
@@ -263,7 +270,9 @@ extension TerminalController {
                 try ArtifactByteReader().fetch(
                     path: canonicalPath,
                     offset: offset,
-                    length: length
+                    length: length,
+                    authorizedCanonicalPath: canonicalPath,
+                    authorizedIdentity: authorizedIdentity
                 )
             }.value
             return mobilePanelArtifactResult(chunk)
@@ -323,8 +332,9 @@ extension TerminalController {
     }
 
     func v2MobilePanelArtifactThumbnail(params: [String: Any]) async -> V2CallResult {
-        let resolution = mobilePanelArtifactCanonicalPath(params: params)
-        guard let canonicalPath = resolution.canonicalPath else {
+        let resolution = await mobilePanelArtifactCanonicalPath(params: params)
+        guard let canonicalPath = resolution.canonicalPath,
+              let authorizedIdentity = resolution.authorizedIdentity else {
             return resolution.failure ?? mobilePanelArtifactInternalError()
         }
         let maxDimension = min(max(v2Int(params, "max_dimension") ?? 512, 64), 1024)
@@ -332,7 +342,9 @@ extension TerminalController {
             let thumbnail = try await Task.detached(priority: .utility) {
                 try ArtifactByteReader().thumbnail(
                     path: canonicalPath,
-                    maxDimension: maxDimension
+                    maxDimension: maxDimension,
+                    authorizedCanonicalPath: canonicalPath,
+                    authorizedIdentity: authorizedIdentity
                 )
             }.value
             return mobilePanelArtifactResult(thumbnail)
@@ -355,11 +367,15 @@ extension TerminalController {
 
     private func mobilePanelArtifactCanonicalPath(
         params: [String: Any]
-    ) -> (canonicalPath: String?, failure: V2CallResult?) {
+    ) async -> (
+        canonicalPath: String?,
+        authorizedIdentity: ChatArtifactFileIdentity?,
+        failure: V2CallResult?
+    ) {
         guard let requestedWorkspaceID = v2UUID(params, "workspace_id"),
               let requestedSurfaceID = v2UUID(params, "surface_id"),
               let requestedPath = mobileNonEmpty(v2RawString(params, "path")) else {
-            return (nil, .err(
+            return (nil, nil, .err(
                 code: "invalid_params",
                 message: String(
                     localized: "mobile.panel.artifact.error.invalidParams",
@@ -375,7 +391,7 @@ extension TerminalController {
            resolved.workspace.id == requestedWorkspaceID,
            resolvedSurfaceID == requestedSurfaceID,
            let panel = resolved.workspace.panels[resolvedSurfaceID] else {
-            return (nil, .err(
+            return (nil, nil, .err(
                 code: "not_found",
                 message: String(
                     localized: "mobile.panel.artifact.error.panelNotFound",
@@ -399,7 +415,7 @@ extension TerminalController {
                 workspaceID: requestedWorkspaceID.uuidString,
                 surfaceID: requestedSurfaceID.uuidString
             )
-            return (nil, .err(
+            return (nil, nil, .err(
                 code: "not_found",
                 message: String(
                     localized: "mobile.panel.artifact.error.panelNotFound",
@@ -419,14 +435,14 @@ extension TerminalController {
             // canonicalization fails), but the phone must hear the accurate
             // story: the file is gone, not that access was denied.
             if !FileManager.default.fileExists(atPath: currentFilePath) {
-                return (nil, mobilePanelArtifactFileError(
+                return (nil, nil, mobilePanelArtifactFileError(
                     code: "file_not_found",
                     key: "mobile.chat.artifact.error.fileNotFound",
                     defaultValue: "That file is no longer available on the Mac.",
                     path: requestedPath
                 ))
             }
-            return (nil, .err(
+            return (nil, nil, .err(
                 code: "forbidden",
                 message: String(
                     localized: "mobile.panel.artifact.error.forbidden",
@@ -435,7 +451,32 @@ extension TerminalController {
                 data: ["path": requestedPath]
             ))
         }
-        return (canonicalPath, nil)
+        let authorizedIdentity: ChatArtifactFileIdentity
+        if let recordedIdentity = panelArtifactAuthorizationStore.authorizedIdentity(
+            workspaceID: requestedWorkspaceID.uuidString,
+            surfaceID: requestedSurfaceID.uuidString,
+            currentFilePath: currentFilePath,
+            requestedPath: requestedPath
+        ) {
+            authorizedIdentity = recordedIdentity
+        } else {
+            do {
+                authorizedIdentity = try await Task.detached(priority: .utility) {
+                    try ArtifactByteReader().identity(
+                        path: canonicalPath,
+                        authorizedCanonicalPath: canonicalPath
+                    )
+                }.value
+            } catch {
+                return (nil, nil, mobilePanelArtifactFileError(
+                    code: "file_not_found",
+                    key: "mobile.chat.artifact.error.fileNotFound",
+                    defaultValue: "That file is no longer available on the Mac.",
+                    path: requestedPath
+                ))
+            }
+        }
+        return (canonicalPath, authorizedIdentity, nil)
     }
 
     private func mobilePanelArtifactResult<T: Encodable>(_ value: T) -> V2CallResult {

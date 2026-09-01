@@ -154,6 +154,7 @@ actor MobileHostIrohArtifactTransferRegistry {
 
     func issue(
         canonicalPath: String,
+        authorizedIdentity: ChatArtifactFileIdentity,
         peer: CmxIrohAdmittedPeer
     ) throws -> ChatArtifactLaneDescriptor {
         let currentTime = now()
@@ -161,11 +162,16 @@ actor MobileHostIrohArtifactTransferRegistry {
         guard entries.count < Self.maximumEntryCount else {
             throw Error.capacityExceeded
         }
-        let resolvedPath = URL(fileURLWithPath: canonicalPath)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .path
-        let identity = try MobileHostIrohArtifactFileIdentity.snapshot(path: resolvedPath)
+        // `canonicalPath` is the path returned by the authorization scope. Do
+        // not resolve it again here: a replaced ancestor could otherwise make
+        // the capability point at a new, unauthorized target. The descriptor
+        // helper verifies the opened path against this authorization-time value.
+        let resolvedPath = URL(fileURLWithPath: canonicalPath).standardizedFileURL.path
+        let identity = try MobileHostIrohArtifactFileIdentity.snapshot(
+            path: resolvedPath,
+            expectedCanonicalPath: resolvedPath,
+            expectedIdentity: authorizedIdentity
+        )
         guard identity.size >= 0 else { throw Error.invalidFile }
         let capability = try resourceID()
         guard entries[capability] == nil else { throw Error.capacityExceeded }
@@ -235,8 +241,12 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
     let modifiedSeconds: Int64
     let modifiedNanoseconds: Int64
 
-    static func snapshot(path: String) throws -> Self {
-        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+    static func snapshot(
+        path: String,
+        expectedCanonicalPath: String,
+        expectedIdentity: ChatArtifactFileIdentity
+    ) throws -> Self {
+        let descriptor = Darwin.open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else {
             switch POSIXErrorCode(rawValue: Darwin.errno) {
             case .ENOENT, .ESTALE:
@@ -254,6 +264,17 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
         }
         guard (value.st_mode & S_IFMT) == S_IFREG else {
             throw MobileHostIrohArtifactTransferRegistry.Error.notRegularFile
+        }
+        if ChatArtifactFileIdentity(
+            device: UInt64(value.st_dev),
+            inode: UInt64(value.st_ino)
+        ) != expectedIdentity {
+            throw MobileHostIrohArtifactTransferRegistry.Error.fileNotFound
+        }
+        guard let openedPath = openedPath(for: descriptor),
+              canonicalPath(openedPath)
+                == URL(fileURLWithPath: expectedCanonicalPath).standardizedFileURL.path else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.fileNotFound
         }
         return identity(from: value)
     }
@@ -276,6 +297,24 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
             modifiedNanoseconds: Int64(value.st_mtimespec.tv_nsec)
         )
     }
+
+    private static func openedPath(for descriptor: Int32) -> String? {
+        var buffer = [UInt8](repeating: 0, count: Int(PATH_MAX))
+        let result = buffer.withUnsafeMutableBytes {
+            (bytes: UnsafeMutableRawBufferPointer) -> Int32 in
+            guard let baseAddress = bytes.baseAddress else { return -1 }
+            return Darwin.fcntl(descriptor, F_GETPATH, baseAddress)
+        }
+        guard result == 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+    }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+    }
 }
 
 /// Random-access file reader backed by DispatchIO so a slow file system never
@@ -290,7 +329,7 @@ private final class MobileHostIrohArtifactDispatchReader: @unchecked Sendable {
     private let channel: DispatchIO
 
     init(path: String) throws {
-        let fileDescriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        let fileDescriptor = Darwin.open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fileDescriptor >= 0 else {
             throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
         }

@@ -75,14 +75,18 @@ actor OutOfOrderCaptureStore: ArtifactStoring {
     ) async -> [ArtifactImportAttempt] {
         importCount += 1
         if importCount == 1, rejectsFirstImportAsBusy {
+            firstImportStarted?.resume()
+            firstImportStarted = nil
             return candidates.map { _ in
                 .rejected(.storeBusy("artifact store"))
             }
         }
         importedPaths.append(contentsOf: candidates.map(\.sourceURL.path))
-        if importCount == 1, suspendsFirstImport {
+        if importCount == 1 {
             firstImportStarted?.resume()
             firstImportStarted = nil
+        }
+        if importCount == 1, suspendsFirstImport {
             await withCheckedContinuation { continuation in
                 firstImportRelease = continuation
             }

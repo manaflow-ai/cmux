@@ -150,8 +150,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     private func startArtifactPreviewLoad(force: Bool = false) {
+        let artifactRoot = artifactFile?.artifactRoot
         if force {
-            let artifactRoot = artifactFile?.artifactRoot
             artifactPreviewToken = UUID()
             artifactPreviewTask?.cancel()
             artifactPreviewTask = nil
@@ -162,21 +162,50 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
                 try? FileManager.default.removeItem(at: artifactReadCopyURL)
                 self.artifactReadCopyURL = nil
             }
-            guard let artifactRoot,
-                  let refreshed = ArtifactSidebarFileAccess().openedFile(
-                      for: URL(fileURLWithPath: filePath),
-                      artifactRoot: artifactRoot
-                  ) else {
+            guard artifactRoot != nil else {
                 isFileUnavailable = true
                 return
             }
-            artifactFile = refreshed
         }
         guard let artifactFile, artifactPreviewTask == nil else { return }
         let token = artifactPreviewToken
-        artifactPreviewTask = Task { @MainActor [weak self, artifactFile] in
-            let temporaryURL = await artifactFile.makeTemporaryPreviewURLAsync(
-                maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
+        let sourcePath = filePath
+        artifactPreviewTask = Task { @MainActor [weak self, artifactFile, artifactRoot, force] in
+            let fileForPreview: ArtifactSidebarFileAccess.OpenedFile?
+            if force {
+                guard let artifactRoot else {
+                    if let self, self.artifactPreviewToken == token {
+                        self.artifactPreviewTask = nil
+                        self.isFileUnavailable = true
+                    }
+                    return
+                }
+                fileForPreview = await ArtifactSidebarFileAccess().openedFileAsync(
+                    for: URL(fileURLWithPath: sourcePath),
+                    artifactRoot: artifactRoot
+                )
+                guard let self,
+                      self.artifactPreviewToken == token else {
+                    return
+                }
+                guard let fileForPreview else {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                    return
+                }
+                self.artifactFile = fileForPreview
+            } else {
+                fileForPreview = artifactFile
+            }
+            guard let fileForPreview else {
+                if let self, self.artifactPreviewToken == token {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                }
+                return
+            }
+            let temporaryURL = await fileForPreview.makeTemporaryPreviewURLAsync(
+                maximumBytes: Int64(FilePreviewTextLoader.maximumLoadedTextBytes)
             )
             guard let self else {
                 if let temporaryURL {
@@ -224,7 +253,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let task = Task { @MainActor [weak self, readURL, contentToken, replacingDirtyContent] in
             let result = await FilePreviewTextLoader.load(
                 url: readURL,
-                maximumBytes: 4 * 1024 * 1024
+                maximumBytes: FilePreviewTextLoader.maximumLoadedTextBytes
             )
             guard let self,
                   !Task.isCancelled,

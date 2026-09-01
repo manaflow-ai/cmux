@@ -12,6 +12,49 @@ import Testing
 
 struct AgentArtifactCaptureCoordinatorTests {
     @MainActor
+    @Test("Startup schedules capture for a transcript already present on disk")
+    func startupSchedulesExistingTranscriptCapture() async throws {
+        let projectRoot = try temporaryProjectRoot()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let transcript = projectRoot.appendingPathComponent("startup.jsonl")
+        let artifact = projectRoot.appendingPathComponent("startup.md")
+        try "captured".write(to: artifact, atomically: true, encoding: .utf8)
+        try codexCommandLines(
+            command: "true > \(artifact.path)",
+            callID: "startup-capture"
+        )
+        .joined(separator: "\n")
+        .write(to: transcript, atomically: true, encoding: .utf8)
+
+        var record = captureRecord(
+            projectRoot: projectRoot,
+            agentKind: .codex,
+            sessionID: "startup-session",
+            state: .ended
+        )
+        record.transcriptPath = transcript.path
+        let registry = AgentChatSessionRegistry(
+            hookStore: AgentChatHookSessionStore(
+                homeDirectory: projectRoot.appendingPathComponent("empty-home", isDirectory: true)
+            ),
+            restoredRecords: [record]
+        )
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: store)
+            ),
+            isAutomaticArtifactCaptureEnabled: { true }
+        )
+
+        service.start()
+        await store.waitUntilFirstImportStarts()
+
+        #expect(await store.importedPaths == [artifact.path])
+    }
+
+    @MainActor
     @Test func scheduledCaptureContinuesPolicyBacklogWithoutNewEvent() async throws {
         let projectRoot = try temporaryProjectRoot()
         defer { try? FileManager.default.removeItem(at: projectRoot) }
@@ -762,6 +805,34 @@ struct AgentArtifactCaptureCoordinatorTests {
             ],
         ])
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private func codexCommandLines(command: String, callID: String) throws -> [String] {
+        [
+            try codexLine(type: "response_item", payload: [
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": try json(["cmd": command]),
+                "call_id": callID,
+            ]),
+            try codexLine(type: "response_item", payload: [
+                "type": "function_call_output",
+                "call_id": callID,
+                "output": "Process exited with code 0\nOutput:\n",
+            ]),
+        ]
+    }
+
+    private func codexLine(type: String, payload: [String: Any]) throws -> String {
+        try json([
+            "timestamp": "2026-07-21T12:00:00.000Z",
+            "type": type,
+            "payload": payload,
+        ])
+    }
+
+    private func json(_ object: [String: Any]) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
     }
 
     private func claudeArtifactLine(path: String) throws -> String {

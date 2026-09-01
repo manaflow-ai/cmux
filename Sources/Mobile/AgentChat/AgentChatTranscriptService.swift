@@ -350,8 +350,22 @@ final class AgentChatTranscriptService {
         }
         // Seeding reads+parses the hook-store JSON off the main actor; kick it
         // off and return. Live hook events also populate the registry, and the
-        // seed converges within milliseconds.
-        Task { [weak self] in await self?.registry.seedFromHookStores() }
+        // seed converges within milliseconds. Once seeded, schedule one
+        // bounded artifact-index pass for each existing transcript so a turn
+        // completed while cmux was closed is not lost.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.registry.seedFromHookStores()
+            for record in self.registry.recentSessions(
+                workspaceID: nil,
+                limit: Self.maxArtifactOnlyTailers,
+                excludingEnded: true
+            ) {
+                self.ensureTailerForEagerObservation(for: record)
+            }
+            self.scheduleInitialArtifactCaptures()
+            self.reconcileTranscriptTailerOwnership()
+        }
     }
 
     /// Ingests one hook event (called from the socket dispatch path).

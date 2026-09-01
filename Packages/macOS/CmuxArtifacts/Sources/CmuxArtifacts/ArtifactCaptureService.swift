@@ -182,6 +182,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
         sourceURL: URL,
         context: ArtifactCaptureContext,
         expectedCanonicalPath: String,
+        expectedIdentity: ArtifactFileIdentity? = nil,
         capturedAt: Date = .now
     ) async throws -> ArtifactImportOutcome {
         let configuration = await store.configuration(projectRoot: context.projectRoot).normalized
@@ -189,7 +190,8 @@ public actor ArtifactCaptureService: ArtifactCapturing {
             candidates: [ArtifactCandidate(
                 sourceURL: sourceURL,
                 provenance: .manual,
-                expectedCanonicalPath: expectedCanonicalPath
+                expectedCanonicalPath: expectedCanonicalPath,
+                expectedIdentity: expectedIdentity
             )],
             context: context,
             configuration: configuration,

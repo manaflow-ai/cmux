@@ -10,6 +10,7 @@ public final class PanelArtifactAuthorizationStore {
 
     private let resolver: any ChatArtifactScope.FileSystemResolving
     private var canonicalPathByGrantKey: [GrantKey: String] = [:]
+    private var identityByGrantKey: [GrantKey: ChatArtifactFileIdentity] = [:]
 
     /// Creates a lifecycle-bound panel grant registry.
     ///
@@ -44,9 +45,20 @@ public final class PanelArtifactAuthorizationStore {
             resolver: resolver
         ) else {
             canonicalPathByGrantKey.removeValue(forKey: key)
+            identityByGrantKey.removeValue(forKey: key)
             return nil
         }
         canonicalPathByGrantKey[key] = canonicalPath
+        if let identity = try? ArtifactByteReader().identity(
+            path: canonicalPath,
+            authorizedCanonicalPath: canonicalPath
+        ) {
+            identityByGrantKey[key] = identity
+        } else {
+            // Keep the legacy path grant for injected/test resolvers, but make
+            // production reads recapture and verify identity before use.
+            identityByGrantKey.removeValue(forKey: key)
+        }
         return canonicalPath
     }
 
@@ -57,6 +69,9 @@ public final class PanelArtifactAuthorizationStore {
     ///   - surfaceID: Closed or replaced panel surface identifier.
     public func invalidate(workspaceID: String, surfaceID: String) {
         canonicalPathByGrantKey.removeValue(
+            forKey: GrantKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        )
+        identityByGrantKey.removeValue(
             forKey: GrantKey(workspaceID: workspaceID, surfaceID: surfaceID)
         )
     }
@@ -86,6 +101,35 @@ public final class PanelArtifactAuthorizationStore {
         return requestedCanonicalPath
     }
 
+    /// Returns the device/inode captured when a panel path was granted.
+    ///
+    /// A missing identity means the grant was created by a compatibility or
+    /// injected resolver that could not inspect the path; callers must then
+    /// recapture identity immediately before the operation and still verify it
+    /// at the descriptor boundary.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the panel.
+    ///   - surfaceID: Panel authorizing the request.
+    ///   - requestedPath: Absolute path requested by the mobile client.
+    /// - Returns: Captured device/inode identity, when available.
+    public func authorizedIdentity(
+        workspaceID: String,
+        surfaceID: String,
+        requestedPath: String
+    ) -> ChatArtifactFileIdentity? {
+        let key = GrantKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        guard let grantedPath = canonicalPathByGrantKey[key],
+              let requestedCanonicalPath = ChatArtifactScope.canonicalizedPath(
+                  requestedPath,
+                  resolver: resolver
+              ),
+              requestedCanonicalPath == grantedPath else {
+            return nil
+        }
+        return identityByGrantKey[key]
+    }
+
     /// Resolves a request only when both the live panel path and request still
     /// canonicalize to the recorded grant.
     ///
@@ -110,8 +154,8 @@ public final class PanelArtifactAuthorizationStore {
         let key = GrantKey(workspaceID: workspaceID, surfaceID: surfaceID)
         guard let grantedPath = canonicalPathByGrantKey[key],
               let currentCanonicalPath = ChatArtifactScope.canonicalizedPath(
-                currentFilePath,
-                resolver: resolver
+                  currentFilePath,
+                  resolver: resolver
               ),
               currentCanonicalPath == grantedPath,
               let requestedCanonicalPath = ChatArtifactScope.canonicalizedPath(
@@ -122,5 +166,31 @@ public final class PanelArtifactAuthorizationStore {
             return nil
         }
         return requestedCanonicalPath
+    }
+
+    /// Returns the captured identity when the live panel and request still
+    /// match the recorded path grant.
+    public func authorizedIdentity(
+        workspaceID: String,
+        surfaceID: String,
+        currentFilePath: String,
+        requestedPath: String
+    ) -> ChatArtifactFileIdentity? {
+        let key = GrantKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        guard let grantedPath = canonicalPathByGrantKey[key],
+              let identity = identityByGrantKey[key],
+              let currentCanonicalPath = ChatArtifactScope.canonicalizedPath(
+                  currentFilePath,
+                  resolver: resolver
+              ),
+              currentCanonicalPath == grantedPath,
+              let requestedCanonicalPath = ChatArtifactScope.canonicalizedPath(
+                  requestedPath,
+                  resolver: resolver
+              ),
+              requestedCanonicalPath == grantedPath else {
+            return nil
+        }
+        return identity
     }
 }

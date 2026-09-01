@@ -150,7 +150,11 @@ extension TerminalController {
         }
         do {
             let stat = try await Task.detached {
-                try ArtifactByteReader().stat(path: resolved.canonicalPath)
+                try ArtifactByteReader().stat(
+                    path: resolved.canonicalPath,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
             let canSaveToArtifacts: Bool
             if let context = resolved.authorizedCaptureContext,
@@ -206,12 +210,19 @@ extension TerminalController {
                 }
                 return ChatArtifactWire.result(
                     try await executionContext.issueArtifactTransfer(
-                        canonicalPath: resolved.canonicalPath
+                        canonicalPath: resolved.canonicalPath,
+                        authorizedIdentity: resolved.authorizedIdentity
                     )
                 )
             }
             let chunk = try await Task.detached {
-                try ArtifactByteReader().fetch(path: resolved.canonicalPath, offset: offset, length: length)
+                try ArtifactByteReader().fetch(
+                    path: resolved.canonicalPath,
+                    offset: offset,
+                    length: length,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
             return ChatArtifactWire.result(chunk)
         } catch let error as MobileHostIrohArtifactTransferRegistry.Error {
@@ -255,7 +266,12 @@ extension TerminalController {
         let maxDimension = min(max(v2Int(params, "max_dimension") ?? 512, 64), 1024)
         do {
             let thumbnail = try await Task.detached {
-                try ArtifactByteReader().thumbnail(path: resolved.canonicalPath, maxDimension: maxDimension)
+                try ArtifactByteReader().thumbnail(
+                    path: resolved.canonicalPath,
+                    maxDimension: maxDimension,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
             return ChatArtifactWire.result(thumbnail)
         } catch let error as ArtifactByteReader.Error {
@@ -272,7 +288,11 @@ extension TerminalController {
         }
         do {
             let listing = try await Task.detached {
-                try ArtifactByteReader().list(path: resolved.canonicalPath)
+                try ArtifactByteReader().list(
+                    path: resolved.canonicalPath,
+                    authorizedCanonicalPath: resolved.canonicalPath,
+                    authorizedIdentity: resolved.authorizedIdentity
+                )
             }.value
             return ChatArtifactWire.result(listing)
         } catch let error as ArtifactByteReader.Error {
@@ -304,7 +324,8 @@ extension TerminalController {
             let result = try await service.saveArtifact(
                 context: captureContext,
                 sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false),
-                expectedCanonicalPath: resolved.canonicalPath
+                expectedCanonicalPath: resolved.canonicalPath,
+                expectedIdentity: resolved.authorizedIdentity
             )
             return ChatArtifactWire.result(result)
         } catch {
@@ -348,6 +369,7 @@ extension TerminalController {
         let authorizedCaptureContext: ArtifactCaptureContext?
         let requestedPath: String
         let canonicalPath: String
+        let authorizedIdentity: ChatArtifactFileIdentity
     }
 
     enum ChatArtifactResolution {
@@ -405,13 +427,27 @@ extension TerminalController {
             )
             switch pathResult {
             case .success(let canonicalPath):
+                let authorizedIdentity: ChatArtifactFileIdentity
+                do {
+                    authorizedIdentity = try await Task.detached(priority: .utility) {
+                        try ArtifactByteReader().identity(
+                            path: canonicalPath,
+                            authorizedCanonicalPath: canonicalPath
+                        )
+                    }.value
+                } catch let error as ArtifactByteReader.Error {
+                    return .failure(mobileArtifactReadFailure(error, path: requestedPath))
+                } catch {
+                    return .failure(mobileArtifactReadFailure(.readFailed, path: requestedPath))
+                }
                 let captureContext = operation.resolvesCaptureProject
                     ? await service.artifactCaptureContext(for: resolved.record)
                     : nil
                 return .success(ResolvedChatArtifact(
                     authorizedCaptureContext: captureContext,
                     requestedPath: requestedPath,
-                    canonicalPath: canonicalPath
+                    canonicalPath: canonicalPath,
+                    authorizedIdentity: authorizedIdentity
                 ))
             case .canonicalizationFailed:
                 debugLogMobileChatArtifactDenial(

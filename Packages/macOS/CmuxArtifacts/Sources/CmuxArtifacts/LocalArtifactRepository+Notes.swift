@@ -279,11 +279,15 @@ extension LocalArtifactRepository: NoteStoring {
         if let size = note.size, size > Self.maximumNoteBytes {
             throw CmuxNoteStoreError.noteTooLarge(actual: size, limit: Self.maximumNoteBytes)
         }
+        guard let expectedIdentity = note.fileIdentity else {
+            throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
+        }
         let url = URL(fileURLWithPath: note.absolutePath, isDirectory: false)
         guard let data = try ArtifactBoundedFileReader(fileManager: fileManager).data(
             url: url,
             allowedRoot: paths.filesystemRoot,
-            maximumBytes: Self.maximumNoteBytes
+            maximumBytes: Self.maximumNoteBytes,
+            expectedIdentity: expectedIdentity
         ) else {
             throw CmuxNoteStoreError.pathOutsideStore(note.absolutePath)
         }

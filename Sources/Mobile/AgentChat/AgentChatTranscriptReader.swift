@@ -4,7 +4,8 @@ import Foundation
 /// Reads a newline-aligned transcript suffix without retaining the discarded prefix.
 struct AgentChatTranscriptReader {
     private static let chunkSize = 64 * 1024
-    private static let maximumRetainedLineCount = 16_384
+    /// Maximum number of transcript records retained for one artifact index.
+    static let maximumRetainedLineCount = 16_384
 
     func read(
         handle: FileHandle,

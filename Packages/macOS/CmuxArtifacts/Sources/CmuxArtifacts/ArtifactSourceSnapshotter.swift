@@ -13,6 +13,7 @@ struct ArtifactSourceSnapshotter {
         maximumBytes: Int64?,
         stagedURL: URL,
         expectedCanonicalPath: String? = nil,
+        expectedIdentity: ArtifactFileIdentity? = nil,
         stagingLease: ArtifactImportStagingLease? = nil
     ) throws -> ArtifactSourceSnapshot {
         try Task.checkCancellation()
@@ -43,6 +44,13 @@ struct ArtifactSourceSnapshotter {
         guard fstat(sourceDescriptor, &sourceStatus) == 0,
               (sourceStatus.st_mode & S_IFMT) == S_IFREG else {
             throw ArtifactStoreError.sourceNotRegularFile(source.path)
+        }
+        if let expectedIdentity,
+           ArtifactFileIdentity(
+               device: UInt64(sourceStatus.st_dev),
+               inode: UInt64(sourceStatus.st_ino)
+           ) != expectedIdentity {
+            throw ArtifactStoreError.pathOutsideStore(source.path)
         }
         if let expectedCanonicalPath {
             let resolver = ArtifactPathResolver(fileManager: fileManager)

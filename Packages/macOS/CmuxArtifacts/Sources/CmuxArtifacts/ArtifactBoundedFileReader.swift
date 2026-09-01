@@ -12,7 +12,12 @@ struct ArtifactBoundedFileReader {
         throw CocoaError(.fileReadUnknown)
     }
 
-    func data(url: URL, allowedRoot: URL, maximumBytes: Int64) throws -> Data? {
+    func data(
+        url: URL,
+        allowedRoot: URL,
+        maximumBytes: Int64,
+        expectedIdentity: ArtifactFileIdentity? = nil
+    ) throws -> Data? {
         try Task.checkCancellation()
         guard maximumBytes >= 0, maximumBytes < Int.max else { return nil }
         let descriptor = Darwin.open(
@@ -27,6 +32,13 @@ struct ArtifactBoundedFileReader {
               (status.st_mode & S_IFMT) == S_IFREG,
               status.st_size >= 0,
               status.st_size <= maximumBytes else {
+            return nil
+        }
+        if let expectedIdentity,
+           ArtifactFileIdentity(
+               device: UInt64(status.st_dev),
+               inode: UInt64(status.st_ino)
+           ) != expectedIdentity {
             return nil
         }
 

@@ -27,8 +27,9 @@ struct TranscriptToolCompletion: Sendable {
     ///
     /// Claude must carry an explicit `is_error: false` flag before its output
     /// can authorize a mutation. Textual exit-code headers are display data,
-    /// not provider-authenticated success evidence. Empty or missing output
-    /// still fails closed when no exit code is available.
+    /// not provider-authenticated success evidence. An explicit success flag
+    /// also authorizes an intentionally empty result; missing flags still fail
+    /// closed.
     static func authorizesMutation(
         output: String?,
         isError: Bool?,
@@ -38,9 +39,12 @@ struct TranscriptToolCompletion: Sendable {
             return exitCode == 0 && isError == false
         }
         guard isError == false else { return false }
-        guard let output,
-              !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
+        // Claude's explicit success flag is sufficient even when a command
+        // intentionally produces no stdout (for example, a shell redirect).
+        // Keep textual failure envelopes conservative when output exists.
+        guard let output else { return false }
+        guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return true
         }
         return !reportsFailureWithoutExitStatus(output)
     }

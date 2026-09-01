@@ -1086,30 +1086,63 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 
-    private func startArtifactPreviewLoad(force: Bool = false) {
+    @discardableResult
+    private func startArtifactPreviewLoad(force: Bool = false) -> Task<Void, Never>? {
+        let artifactRoot = artifactFile?.artifactRoot
         if force {
-            let artifactRoot = artifactFile?.artifactRoot
             artifactPreviewToken = UUID()
             artifactPreviewTask?.cancel()
             artifactPreviewTask = nil
+            textLoadCoordinator.cancel()
             if let artifactReadCopyURL {
                 try? FileManager.default.removeItem(at: artifactReadCopyURL)
                 self.artifactReadCopyURL = nil
             }
-            guard let artifactRoot,
-                  let refreshed = ArtifactSidebarFileAccess().openedFile(
-                      for: URL(fileURLWithPath: filePath),
-                      artifactRoot: artifactRoot
-                  ) else {
+            guard artifactRoot != nil else {
                 isFileUnavailable = true
+                return nil
+            }
+        }
+        guard let artifactFile, artifactPreviewTask == nil else {
+            return artifactPreviewTask
+        }
+        let token = artifactPreviewToken
+        let sourcePath = filePath
+        let task = Task { @MainActor [weak self, artifactFile, artifactRoot, force] in
+            let fileForPreview: ArtifactSidebarFileAccess.OpenedFile?
+            if force {
+                guard let artifactRoot else {
+                    if let self, self.artifactPreviewToken == token {
+                        self.artifactPreviewTask = nil
+                        self.isFileUnavailable = true
+                    }
+                    return
+                }
+                fileForPreview = await ArtifactSidebarFileAccess().openedFileAsync(
+                    for: URL(fileURLWithPath: sourcePath),
+                    artifactRoot: artifactRoot
+                )
+                guard let self,
+                      self.artifactPreviewToken == token else {
+                    return
+                }
+                guard let fileForPreview else {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                    return
+                }
+                self.artifactFile = fileForPreview
+            } else {
+                fileForPreview = artifactFile
+            }
+            guard let fileForPreview else {
+                if let self, self.artifactPreviewToken == token {
+                    self.artifactPreviewTask = nil
+                    self.isFileUnavailable = true
+                }
                 return
             }
-            artifactFile = refreshed
-        }
-        guard let artifactFile, artifactPreviewTask == nil else { return }
-        let token = artifactPreviewToken
-        artifactPreviewTask = Task { @MainActor [weak self, artifactFile] in
-            let temporaryURL = await artifactFile.makeTemporaryPreviewURLAsync(
+            let temporaryURL = await fileForPreview.makeTemporaryPreviewURLAsync(
                 maximumBytes: ArtifactCaptureConfiguration.defaultValue.maximumFileBytes
             )
             guard let self else {
@@ -1137,8 +1170,12 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             }
             self.artifactReadCopyURL = temporaryURL
             self.previewRevisionState.increment()
-            _ = self.prepareContentForPreviewMode()
+            if let contentTask = self.prepareContentForPreviewMode() {
+                await contentTask.value
+            }
         }
+        artifactPreviewTask = task
+        return task
     }
 
     func focus() {
@@ -1275,8 +1312,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func reloadFromDisk() -> Task<Void, Never> {
         lastObservedFileState = .capture(path: filePath)
         if artifactFile != nil {
-            startArtifactPreviewLoad(force: true)
-            return Task {}
+            return startArtifactPreviewLoad(force: true) ?? Task {}
         }
         let fileURL = fileURL
         let modeResolver = modeResolver

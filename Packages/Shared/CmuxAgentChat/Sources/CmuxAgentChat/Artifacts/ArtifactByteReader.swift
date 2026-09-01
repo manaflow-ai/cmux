@@ -10,7 +10,8 @@ import UniformTypeIdentifiers
 public struct ArtifactByteReader: Sendable {
     /// Maximum immediate children returned by one directory-list request.
     public static let maximumDirectoryEntryCount = 500
-    private static let utf8SniffByteCount = 8 * 1024
+    /// Maximum directory entries inspected before a listing is marked capped.
+    static let maximumDirectoryScanEntryCount = 100_000
 
     /// Filesystem/decoder failures surfaced by artifact RPC handlers.
     public enum Error: Swift.Error, Sendable, Equatable {
@@ -35,15 +36,118 @@ public struct ArtifactByteReader: Sendable {
     /// Creates a byte reader.
     public init() {}
 
+    /// Captures the device/inode identity for an already-authorized path.
+    ///
+    /// Callers retain the returned value and supply it to later reads so a
+    /// replacement inode at the same pathname cannot silently become
+    /// authorized. The optional canonical path keeps the capture tied to the
+    /// same ancestor-swap check used by fetch and listing operations.
+    ///
+    /// - Parameters:
+    ///   - path: Path to inspect.
+    ///   - authorizedCanonicalPath: Canonical path captured by the scope check.
+    /// - Returns: Stable device/inode identity for the path.
+    public func identity(
+        path: String,
+        authorizedCanonicalPath: String? = nil
+    ) throws -> ChatArtifactFileIdentity {
+        let metadata = try verifiedMetadata(
+            path: path,
+            expectedCanonicalPath: authorizedCanonicalPath
+        )
+        return ChatArtifactFileIdentity(
+            device: metadata.device,
+            inode: metadata.inode
+        )
+    }
+
     /// Reads metadata for an already-authorized path.
-    public func stat(path: String) throws -> ChatArtifactStat {
-        let attributes = try attributes(path: path)
-        return stat(path: path, attributes: attributes)
+    ///
+    /// - Parameters:
+    ///   - path: Path to inspect.
+    ///   - authorizedCanonicalPath: Canonical path captured at authorization
+    ///     time. Supplying it pins metadata to the same scope decision and
+    ///     rejects an ancestor replacement before the descriptor is opened.
+    ///   - authorizedIdentity: Device/inode captured at authorization time.
+    ///     Supplying it rejects a replacement object at the same pathname.
+    public func stat(
+        path: String,
+        authorizedCanonicalPath: String? = nil,
+        authorizedIdentity: ChatArtifactFileIdentity? = nil
+    ) throws -> ChatArtifactStat {
+        if let authorizedCanonicalPath {
+            let metadata = try verifiedMetadata(
+                path: path,
+                expectedCanonicalPath: authorizedCanonicalPath,
+                expectedIdentity: authorizedIdentity
+            )
+            let kind: ChatArtifactKind
+            switch metadata.fileType {
+            case S_IFDIR:
+                kind = .directory
+            case S_IFREG:
+                do {
+                    let opened = try openVerifiedRegularFileAt(
+                        path: path,
+                        expectedCanonicalPath: authorizedCanonicalPath,
+                        expectedDevice: metadata.device,
+                        expectedInode: metadata.inode
+                    )
+                    defer { Darwin.close(opened.descriptor) }
+                    kind = kindForDescriptor(
+                        path: path,
+                        descriptor: opened.descriptor,
+                        isDirectory: false
+                    )
+                } catch Error.fileNotFound {
+                    throw Error.fileNotFound
+                } catch {
+                    kind = extensionDerivedKind(path: path)
+                }
+            default:
+                kind = .binary
+            }
+            return ChatArtifactStat(
+                exists: true,
+                isDirectory: metadata.fileType == S_IFDIR,
+                size: metadata.size,
+                modifiedAt: metadata.modifiedAt,
+                kind: kind,
+                mimeType: mimeType(path: path, isDirectory: metadata.fileType == S_IFDIR)
+            )
+        }
+        if let authorizedIdentity {
+            let metadata = try verifiedMetadata(
+                path: path,
+                expectedIdentity: authorizedIdentity
+            )
+            return stat(path: path, metadata: metadata)
+        }
+        return stat(path: path, metadata: try lstatMetadata(path: path))
     }
 
     /// Reads one clamped byte chunk for an already-authorized file path.
-    public func fetch(path: String, offset: Int64, length: Int) throws -> ChatArtifactChunk {
-        let opened = try openVerifiedRegularFile(path: path)
+    ///
+    /// - Parameters:
+    ///   - path: Path to read.
+    ///   - offset: Requested byte offset, clamped to the opened file size.
+    ///   - length: Maximum number of bytes to return.
+    ///   - authorizedCanonicalPath: Canonical path captured at authorization
+    ///     time. Supplying it prevents an ancestor replacement between scope
+    ///     validation and this open from redirecting the read.
+    ///   - authorizedIdentity: Device/inode captured at authorization time.
+    public func fetch(
+        path: String,
+        offset: Int64,
+        length: Int,
+        authorizedCanonicalPath: String? = nil,
+        authorizedIdentity: ChatArtifactFileIdentity? = nil
+    ) throws -> ChatArtifactChunk {
+        let opened = try openVerifiedRegularFile(
+            path: path,
+            expectedCanonicalPath: authorizedCanonicalPath,
+            expectedIdentity: authorizedIdentity
+        )
         let handle = opened.handle
         defer { try? handle.close() }
         let totalSize = opened.size
@@ -66,37 +170,60 @@ public struct ArtifactByteReader: Sendable {
 
     private func stat(
         path: String,
-        attributes: [FileAttributeKey: Any]
+        metadata: VerifiedMetadata
     ) -> ChatArtifactStat {
-        let fileType = attributes[.type] as? FileAttributeType
-        let isDirectory = fileType == .typeDirectory
-        let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        let modifiedAt = attributes[.modificationDate] as? Date ?? Date(timeIntervalSince1970: 0)
+        let isDirectory = metadata.fileType == S_IFDIR
         let kind = kind(
             path: path,
             isDirectory: isDirectory,
-            isRegularFile: fileType == .typeRegular
+            isRegularFile: metadata.fileType == S_IFREG
         )
         return ChatArtifactStat(
             exists: true,
             isDirectory: isDirectory,
-            size: size,
-            modifiedAt: modifiedAt,
+            size: metadata.size,
+            modifiedAt: metadata.modifiedAt,
             kind: kind,
             mimeType: mimeType(path: path, isDirectory: isDirectory)
         )
     }
 
     /// Generates a JPEG thumbnail for an already-authorized image path.
-    public func thumbnail(path: String, maxDimension: Int) throws -> ChatArtifactThumbnail {
-        let opened = try openVerifiedRegularFile(path: path)
-        try? opened.handle.close()
-        guard kind(path: path, isDirectory: false) == .image else {
+    ///
+    /// - Parameters:
+    ///   - path: Image path to decode.
+    ///   - maxDimension: Maximum thumbnail dimension in pixels.
+    ///   - authorizedCanonicalPath: Canonical path captured at authorization
+    ///     time. Supplying it prevents an ancestor replacement between scope
+    ///     validation and this open from redirecting the decoder.
+    ///   - authorizedIdentity: Device/inode captured at authorization time.
+    public func thumbnail(
+        path: String,
+        maxDimension: Int,
+        authorizedCanonicalPath: String? = nil,
+        authorizedIdentity: ChatArtifactFileIdentity? = nil
+    ) throws -> ChatArtifactThumbnail {
+        let opened = try openVerifiedRegularFile(
+            path: path,
+            expectedCanonicalPath: authorizedCanonicalPath,
+            expectedIdentity: authorizedIdentity
+        )
+        defer { try? opened.handle.close() }
+        guard kindForDescriptor(
+            path: path,
+            descriptor: opened.handle.fileDescriptor,
+            isDirectory: false
+        ) == .image else {
             throw Error.unsupportedMedia
         }
-        let url = URL(fileURLWithPath: path)
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            _ = try attributes(path: path)
+        // Keep the validated descriptor open for ImageIO. Reopening `path`
+        // after authorization would permit a concurrent replacement to point
+        // the decoder at an unrelated inode.
+        let descriptorURL = URL(
+            fileURLWithPath: "/dev/fd/\(opened.handle.fileDescriptor)",
+            isDirectory: false
+        )
+        guard let source = CGImageSourceCreateWithURL(descriptorURL as CFURL, nil) else {
             throw Error.corruptMedia
         }
         let options: [CFString: Any] = [
@@ -134,43 +261,173 @@ public struct ArtifactByteReader: Sendable {
     ///
     /// One readdir pass collects child names; per-child filesystem metadata is
     /// read only for the capped entries that the listing actually returns.
-    public func list(path: String) throws -> ChatArtifactDirectoryListing {
-        let stat = try stat(path: path)
-        guard stat.isDirectory else { throw Error.notDirectory }
-        let names: [String]
-        do {
-            names = try FileManager.default.contentsOfDirectory(atPath: path)
-        } catch {
-            throw filesystemError(error)
+    ///
+    /// - Parameters:
+    ///   - path: Directory path to list.
+    ///   - authorizedCanonicalPath: Canonical path captured at authorization
+    ///     time. Supplying it prevents an ancestor replacement between scope
+    ///     validation and this open from redirecting the listing.
+    ///   - authorizedIdentity: Device/inode captured at authorization time.
+    public func list(
+        path: String,
+        authorizedCanonicalPath: String? = nil,
+        authorizedIdentity: ChatArtifactFileIdentity? = nil
+    ) throws -> ChatArtifactDirectoryListing {
+        let directoryDescriptor = try openVerifiedDirectory(
+            path: path,
+            expectedCanonicalPath: authorizedCanonicalPath,
+            expectedIdentity: authorizedIdentity
+        )
+        defer { Darwin.close(directoryDescriptor) }
+        // Preserve close-on-exec on the descriptor handed to `fdopendir`; a
+        // plain `dup` clears it during the interval before the stream closes.
+        let streamDescriptor = Darwin.fcntl(directoryDescriptor, F_DUPFD_CLOEXEC, 3)
+        guard streamDescriptor >= 0,
+              let stream = fdopendir(streamDescriptor) else {
+            if streamDescriptor >= 0 { Darwin.close(streamDescriptor) }
+            throw Error.readFailed
         }
-        let sortedNames = names.sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
+        defer { closedir(stream) }
+
+        var names = DirectoryNameMaxHeap(capacity: Self.maximumDirectoryEntryCount)
+        var listingIncomplete = false
+        var scanLimitReached = false
+        var scannedEntryCount = 0
+        while true {
+            errno = 0
+            guard let entry = readdir(stream) else {
+                let errorCode = errno
+                guard errorCode == 0 else {
+                    throw filesystemError(errno: Int32(errorCode))
+                }
+                break
+            }
+            scannedEntryCount += 1
+            if scannedEntryCount > Self.maximumDirectoryScanEntryCount {
+                scanLimitReached = true
+                break
+            }
+            if scannedEntryCount.isMultiple(of: 512) {
+                try Task.checkCancellation()
+            }
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
+                String(cString: raw.bindMemory(to: CChar.self).baseAddress!)
+            }
+            guard name != ".", name != ".." else { continue }
+            let direntType = Int32(entry.pointee.d_type)
+            if direntType == DT_LNK {
+                // Symlink children are intentionally excluded from the result
+                // set; filtering before the bounded heap prevents them from
+                // consuming slots that should be available to returnable entries.
+                continue
+            }
+            if direntType == DT_UNKNOWN {
+                var childMetadata = Darwin.stat()
+                let metadataResult = name.withCString { pointer in
+                    Darwin.fstatat(
+                        directoryDescriptor,
+                        pointer,
+                        &childMetadata,
+                        AT_SYMLINK_NOFOLLOW
+                    )
+                }
+                guard metadataResult == 0 else {
+                    listingIncomplete = true
+                    continue
+                }
+                guard (childMetadata.st_mode & S_IFMT) != S_IFLNK else { continue }
+            }
+            names.insert(name)
         }
-        let directoryURL = URL(fileURLWithPath: path, isDirectory: true)
+        let sortedNames = names.sortedValues
         var listed: [ChatArtifactDirectoryEntry] = []
         listed.reserveCapacity(min(sortedNames.count, Self.maximumDirectoryEntryCount))
         for name in sortedNames.prefix(Self.maximumDirectoryEntryCount) {
-            do {
-                let entry = directoryURL.appendingPathComponent(name)
-                let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
-                let isDirectory = values.isDirectory ?? false
-                listed.append(ChatArtifactDirectoryEntry(
-                    name: name,
-                    isDirectory: isDirectory,
-                    size: Int64(values.fileSize ?? 0),
-                    kind: kind(path: entry.path, isDirectory: isDirectory)
-                ))
-            } catch {
-                let failure = filesystemError(error)
-                if failure == .fileNotFound {
-                    continue
-                }
-                throw failure
+            var metadata = Darwin.stat()
+            let metadataResult = name.withCString { pointer in
+                Darwin.fstatat(
+                    directoryDescriptor,
+                    pointer,
+                    &metadata,
+                    AT_SYMLINK_NOFOLLOW
+                )
             }
+            guard metadataResult == 0 else {
+                let errorCode = errno
+                switch POSIXErrorCode(rawValue: errorCode) {
+                case .ENOENT, .ESTALE, .ENOTDIR, .ELOOP:
+                    listingIncomplete = true
+                default:
+                    listingIncomplete = true
+                }
+                continue
+            }
+            let entryType = metadata.st_mode & S_IFMT
+            let isDirectory = entryType == S_IFDIR
+            guard entryType != S_IFLNK else {
+                listingIncomplete = true
+                continue
+            }
+            let kind: ChatArtifactKind
+            if isDirectory {
+                kind = .directory
+            } else if entryType == S_IFREG {
+                let childDescriptor = name.withCString { pointer in
+                    Darwin.openat(
+                        directoryDescriptor,
+                        pointer,
+                        O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+                    )
+                }
+                if childDescriptor >= 0 {
+                    defer { Darwin.close(childDescriptor) }
+                    var childMetadata = Darwin.stat()
+                    guard Darwin.fstat(childDescriptor, &childMetadata) == 0 else {
+                        listingIncomplete = true
+                        continue
+                    }
+                    guard UInt64(childMetadata.st_dev) == UInt64(metadata.st_dev),
+                          UInt64(childMetadata.st_ino) == UInt64(metadata.st_ino) else {
+                        listingIncomplete = true
+                        continue
+                    }
+                    kind = kindForDescriptor(
+                        path: name,
+                        descriptor: childDescriptor,
+                        isDirectory: false
+                    )
+                } else {
+                    let errorCode = errno
+                    switch POSIXErrorCode(rawValue: errorCode) {
+                    case .EACCES, .EPERM:
+                        listingIncomplete = true
+                        break
+                    case .ENOENT, .ESTALE, .ENOTDIR, .ELOOP:
+                        listingIncomplete = true
+                        continue
+                    default:
+                        listingIncomplete = true
+                        continue
+                    }
+                    // Metadata remains useful when a regular child is not
+                    // readable. Preserve the entry and use its safe extension
+                    // classification instead of failing the whole listing.
+                    kind = extensionDerivedKind(path: name)
+                }
+            } else {
+                kind = .binary
+            }
+            listed.append(ChatArtifactDirectoryEntry(
+                name: name,
+                isDirectory: isDirectory,
+                size: max(Int64(metadata.st_size), 0),
+                kind: kind
+            ))
         }
         return ChatArtifactDirectoryListing(
             entries: listed,
-            isTruncated: names.count > Self.maximumDirectoryEntryCount
+            isTruncated: names.didExceedCapacity || scanLimitReached,
+            isIncomplete: listingIncomplete
         )
     }
 
@@ -181,197 +438,5 @@ public struct ArtifactByteReader: Sendable {
             isDirectory: isDirectory,
             isRegularFile: nil
         )
-    }
-
-    private func kind(
-        path: String,
-        isDirectory: Bool,
-        isRegularFile: Bool?
-    ) -> ChatArtifactKind {
-        if isDirectory { return .directory }
-        if isRegularFile == false { return .binary }
-        let fileExtension = URL(fileURLWithPath: path).pathExtension
-        let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
-        guard let type, !type.isDynamic else {
-            let verifiedRegularFile: Bool
-            if let isRegularFile {
-                verifiedRegularFile = isRegularFile
-            } else {
-                let attributes = try? attributes(path: path)
-                verifiedRegularFile = (attributes?[.type] as? FileAttributeType) == .typeRegular
-            }
-            guard verifiedRegularFile else { return .binary }
-            return isUTF8Text(path: path) ? .text : .binary
-        }
-        if type.conforms(to: .image) { return .image }
-        if type.conforms(to: .text) || type.conforms(to: .sourceCode) || type.conforms(to: .json) {
-            return .text
-        }
-        return .binary
-    }
-
-    private func isUTF8Text(path: String) -> Bool {
-        guard let opened = try? openVerifiedRegularFile(path: path) else {
-            return false
-        }
-        let handle = opened.handle
-        defer { try? handle.close() }
-        let bytes: Data
-        do {
-            bytes = try handle.read(upToCount: Self.utf8SniffByteCount + 1) ?? Data()
-        } catch {
-            return false
-        }
-        let sample = Data(bytes.prefix(Self.utf8SniffByteCount))
-        if String(data: sample, encoding: .utf8) != nil {
-            return true
-        }
-        guard bytes.count > Self.utf8SniffByteCount else {
-            return false
-        }
-        return hasValidUTF8PrefixEndingInPartialScalar(sample)
-    }
-
-    private func hasValidUTF8PrefixEndingInPartialScalar(_ data: Data) -> Bool {
-        let bytes = Array(data)
-        guard !bytes.isEmpty else { return false }
-        let earliestCandidate = max(0, bytes.count - 4)
-        for start in stride(from: bytes.count - 1, through: earliestCandidate, by: -1) {
-            guard let expectedLength = utf8ScalarLength(leadingByte: bytes[start]) else {
-                continue
-            }
-            let actualLength = bytes.count - start
-            guard actualLength < expectedLength,
-                  utf8PartialScalarBytesAreValid(Array(bytes[start...])) else {
-                continue
-            }
-            let prefix = Data(bytes[..<start])
-            return String(data: prefix, encoding: .utf8) != nil
-        }
-        return false
-    }
-
-    /// Opens `path` without blocking and validates the opened descriptor as a regular file.
-    func openVerifiedRegularFile(path: String) throws -> (handle: FileHandle, size: Int64) {
-        // Set close-on-exec atomically at open; fcntl afterward cannot close the fork race.
-        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
-        guard descriptor >= 0 else { throw filesystemError(errno: Darwin.errno) }
-
-        var metadata = Darwin.stat()
-        guard Darwin.fstat(descriptor, &metadata) == 0 else {
-            let errorCode = Darwin.errno
-            Darwin.close(descriptor)
-            throw filesystemError(errno: errorCode)
-        }
-        guard (metadata.st_mode & S_IFMT) == S_IFREG else {
-            Darwin.close(descriptor)
-            throw Error.notRegularFile
-        }
-
-        let flags = Darwin.fcntl(descriptor, F_GETFL, 0)
-        guard flags >= 0,
-              Darwin.fcntl(descriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
-            let errorCode = Darwin.errno
-            Darwin.close(descriptor)
-            throw filesystemError(errno: errorCode)
-        }
-
-        return (
-            FileHandle(fileDescriptor: descriptor, closeOnDealloc: true),
-            max(Int64(metadata.st_size), 0)
-        )
-    }
-
-    private func utf8ScalarLength(leadingByte: UInt8) -> Int? {
-        switch leadingByte {
-        case 0xC2...0xDF:
-            return 2
-        case 0xE0...0xEF:
-            return 3
-        case 0xF0...0xF4:
-            return 4
-        default:
-            return nil
-        }
-    }
-
-    private func utf8PartialScalarBytesAreValid(_ bytes: [UInt8]) -> Bool {
-        guard let leadingByte = bytes.first else { return false }
-        for byte in bytes.dropFirst() where byte & 0xC0 != 0x80 {
-            return false
-        }
-        guard bytes.count > 1 else { return true }
-        let firstContinuation = bytes[1]
-        switch leadingByte {
-        case 0xE0:
-            return firstContinuation >= 0xA0
-        case 0xED:
-            return firstContinuation <= 0x9F
-        case 0xF0:
-            return firstContinuation >= 0x90
-        case 0xF4:
-            return firstContinuation <= 0x8F
-        default:
-            return true
-        }
-    }
-
-    private func attributes(path: String) throws -> [FileAttributeKey: Any] {
-        do {
-            return try FileManager.default.attributesOfItem(atPath: path)
-        } catch {
-            throw filesystemError(error)
-        }
-    }
-
-    private func filesystemError(_ error: any Swift.Error) -> Error {
-        if let readerError = error as? Error {
-            return readerError
-        }
-        if let posixError = error as? POSIXError {
-            return filesystemError(errno: posixError.code.rawValue)
-        }
-        let nsError = error as NSError
-        if nsError.domain == NSPOSIXErrorDomain {
-            return filesystemError(errno: Int32(nsError.code))
-        }
-        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
-           underlying !== nsError {
-            return filesystemError(underlying)
-        }
-        if let cocoaError = error as? CocoaError {
-            switch cocoaError.code {
-            case .fileReadNoSuchFile:
-                return .fileNotFound
-            case .fileReadNoPermission:
-                return .permissionDenied
-            default:
-                break
-            }
-        }
-        return .readFailed
-    }
-
-    private func filesystemError(errno errorCode: Int32) -> Error {
-        switch POSIXErrorCode(rawValue: errorCode) {
-        case .ENOENT, .ESTALE:
-            return .fileNotFound
-        case .EACCES, .EPERM:
-            return .permissionDenied
-        case .ENOTDIR:
-            return .notDirectory
-        case .EISDIR:
-            return .notRegularFile
-        default:
-            return .readFailed
-        }
-    }
-
-    private func mimeType(path: String, isDirectory: Bool) -> String? {
-        guard !isDirectory,
-              let type = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension) else {
-            return nil
-        }
-        return type.preferredMIMEType
     }
 }

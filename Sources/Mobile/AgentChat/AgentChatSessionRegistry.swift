@@ -6,7 +6,10 @@ import Foundation
 /// hook events and the on-disk hook session stores.
 @MainActor
 final class AgentChatSessionRegistry {
+    private static let recencyIndexCapacity = 64
     private var records: [String: AgentChatSessionRecord] = [:]
+    private var allSessionRecencyIndex = AgentChatSessionRecencyIndex(capacity: recencyIndexCapacity)
+    private var activeSessionRecencyIndex = AgentChatSessionRecencyIndex(capacity: recencyIndexCapacity)
     private var sessionSurfaceIndex = ChatSessionSurfaceIndex<String>()
     private var liveSessionIDBySurfaceID: [String: String] = [:]
     private var liveClaudeSessionIDsBySurfaceID: [String: Set<String>] = [:]
@@ -64,6 +67,16 @@ final class AgentChatSessionRegistry {
         }
         rebuildSessionIndexes()
         for record in records.values {
+            allSessionRecencyIndex.upsert(
+                sessionID: record.sessionID,
+                lastActivityAt: record.lastActivityAt
+            )
+            if record.state != .ended {
+                activeSessionRecencyIndex.upsert(
+                    sessionID: record.sessionID,
+                    lastActivityAt: record.lastActivityAt
+                )
+            }
             syncProcessExitWatch(for: record)
         }
     }
@@ -77,6 +90,92 @@ final class AgentChatSessionRegistry {
         return records.values
             .filter { workspaceID == nil || $0.workspaceID == workspaceID }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+
+    /// Returns the most recently active matching sessions without allocating or
+    /// sorting the entire retained registry. Startup consumers use this bounded
+    /// top-K view before creating tailers or capture work.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace UUID filter, or `nil` for all workspaces.
+    ///   - limit: Maximum records to retain and return.
+    ///   - excludingEnded: Whether ended records should be ignored before the
+    ///     top-K bound is applied.
+    /// - Returns: At most `limit` records, most recent first.
+    func recentSessions(
+        workspaceID: String?,
+        limit: Int,
+        excludingEnded: Bool = false
+    ) -> [AgentChatSessionRecord] {
+        let capacity = max(0, limit)
+        guard capacity > 0 else { return [] }
+        if workspaceID == nil {
+            rebuildRecentSessionIndexesIfNeeded()
+            if excludingEnded {
+                return activeSessionRecencyIndex
+                    .mostRecentSessionIDs(limit: capacity)
+                    .compactMap { records[$0] }
+            }
+            return allSessionRecencyIndex
+                .mostRecentSessionIDs(limit: capacity)
+                .compactMap { records[$0] }
+        }
+        var retained: [AgentChatSessionRecord] = []
+        retained.reserveCapacity(capacity)
+        for record in records.values
+        where (workspaceID == nil || record.workspaceID == workspaceID)
+            && (!excludingEnded || record.state != .ended) {
+            guard retained.count >= capacity else {
+                retained.append(record)
+                continue
+            }
+            guard let oldestIndex = retained.indices.min(by: { lhs, rhs in
+                Self.isOlderSession(retained[lhs], than: retained[rhs])
+            }), Self.isOlderSession(retained[oldestIndex], than: record) else {
+                continue
+            }
+            retained[oldestIndex] = record
+        }
+        return retained.sorted { lhs, rhs in
+            if lhs.lastActivityAt != rhs.lastActivityAt {
+                return lhs.lastActivityAt > rhs.lastActivityAt
+            }
+            return lhs.sessionID < rhs.sessionID
+        }
+    }
+
+    private static func isOlderSession(
+        _ lhs: AgentChatSessionRecord,
+        than rhs: AgentChatSessionRecord
+    ) -> Bool {
+        if lhs.lastActivityAt != rhs.lastActivityAt {
+            return lhs.lastActivityAt < rhs.lastActivityAt
+        }
+        return lhs.sessionID > rhs.sessionID
+    }
+
+    /// Rebuilds a bounded index only after a retained top-K entry disappears.
+    /// Normal hook/activity updates stay O(log 64); the authoritative registry
+    /// is scanned only for that rare invalidation path.
+    private func rebuildRecentSessionIndexesIfNeeded() {
+        if allSessionRecencyIndex.needsRebuild {
+            allSessionRecencyIndex.reset()
+            for record in records.values {
+                allSessionRecencyIndex.upsert(
+                    sessionID: record.sessionID,
+                    lastActivityAt: record.lastActivityAt
+                )
+            }
+        }
+        if activeSessionRecencyIndex.needsRebuild {
+            activeSessionRecencyIndex.reset()
+            for record in records.values where record.state != .ended {
+                activeSessionRecencyIndex.upsert(
+                    sessionID: record.sessionID,
+                    lastActivityAt: record.lastActivityAt
+                )
+            }
+        }
     }
 
     /// Reconciles the session's exit watcher with its current pid. Called from
@@ -735,6 +834,18 @@ final class AgentChatSessionRegistry {
         replacing previous: AgentChatSessionRecord?
     ) {
         records[record.sessionID] = record
+        allSessionRecencyIndex.upsert(
+            sessionID: record.sessionID,
+            lastActivityAt: record.lastActivityAt
+        )
+        if record.state == .ended {
+            activeSessionRecencyIndex.remove(sessionID: record.sessionID)
+        } else {
+            activeSessionRecencyIndex.upsert(
+                sessionID: record.sessionID,
+                lastActivityAt: record.lastActivityAt
+            )
+        }
         syncProcessExitWatch(for: record)
         updateSessionIndexes(previous: previous, current: record)
         onRecordChanged?(record, previous)
@@ -743,6 +854,8 @@ final class AgentChatSessionRegistry {
     /// Removes one record and reconciles every derived registry structure.
     private func removeRecord(sessionID: String) {
         guard var record = records.removeValue(forKey: sessionID) else { return }
+        allSessionRecencyIndex.remove(sessionID: sessionID)
+        activeSessionRecencyIndex.remove(sessionID: sessionID)
         stampVersion(&record)
         exitWatchers[sessionID]?.source.cancel()
         exitWatchers[sessionID] = nil

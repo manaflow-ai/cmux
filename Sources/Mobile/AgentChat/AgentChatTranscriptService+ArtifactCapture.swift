@@ -3,6 +3,12 @@ import CmuxArtifacts
 import Foundation
 
 extension AgentChatTranscriptService {
+    /// Maximum historical sessions scheduled by one startup recovery pass.
+    /// The registry may contain arbitrarily old hook-store records, so startup
+    /// work is bounded to the most recently active sessions; live hook events
+    /// continue to schedule older sessions on demand.
+    private static let maximumInitialArtifactCaptureSessions = 64
+
     /// Whether automatic capture needs live transcript completion events without mobile clients.
     var observesTranscriptsForAutomaticArtifactCapture: Bool {
         artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
@@ -32,9 +38,14 @@ extension AgentChatTranscriptService {
         automaticArtifactCaptureWasEnabled = isEnabled
 
         if isEnabled {
-            for record in registry.sessions(workspaceID: nil) where record.state != .ended {
+            for record in registry.recentSessions(
+                workspaceID: nil,
+                limit: Self.maxArtifactOnlyTailers,
+                excludingEnded: true
+            ) {
                 ensureTailerForEagerObservation(for: record)
             }
+            scheduleInitialArtifactCaptures()
             reconcileTranscriptTailerOwnership()
             return
         }
@@ -45,6 +56,19 @@ extension AgentChatTranscriptService {
         artifactCaptureDebounceTasks.values.forEach { $0.task.cancel() }
         artifactCaptureDebounceTasks.removeAll()
         reconcileTranscriptTailerOwnership()
+    }
+
+    /// Schedules one bounded capture pass for transcripts already present when
+    /// automatic capture starts or is enabled. Live tailer events continue to
+    /// drive later revisions; the initial pass covers turns completed offline.
+    func scheduleInitialArtifactCaptures() {
+        guard observesTranscriptsForAutomaticArtifactCapture else { return }
+        for record in registry.recentSessions(
+            workspaceID: nil,
+            limit: Self.maximumInitialArtifactCaptureSessions
+        ) {
+            scheduleArtifactCapture(for: record)
+        }
     }
 
     /// Records the strongest current consumer for a tailer and refreshes its
@@ -322,7 +346,8 @@ extension AgentChatTranscriptService {
     func saveArtifact(
         context: ArtifactCaptureContext,
         sourceURL: URL,
-        expectedCanonicalPath: String
+        expectedCanonicalPath: String,
+        expectedIdentity: ChatArtifactFileIdentity
     ) async throws -> ChatArtifactSaveResult {
         guard let artifactCaptureCoordinator else {
             throw AgentArtifactCaptureSaveError.rejected
@@ -330,7 +355,8 @@ extension AgentChatTranscriptService {
         return try await artifactCaptureCoordinator.save(
             context: context,
             sourceURL: sourceURL,
-            expectedCanonicalPath: expectedCanonicalPath
+            expectedCanonicalPath: expectedCanonicalPath,
+            expectedIdentity: expectedIdentity
         )
     }
 

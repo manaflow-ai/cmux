@@ -257,8 +257,16 @@ actor AgentChatArtifactIndex {
         transcriptLineage: String,
         previousArtifacts: [ChatArtifactIndexedReference]
     ) throws -> Snapshot {
-        let text = String(decoding: slice.data, as: UTF8.self)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        // The reader keeps at most this many line starts, but decode records
+        // lazily as well so a future reader change cannot turn a byte-bounded
+        // suffix into an unbounded array of per-line strings.
+        let lines = AgentChatTranscriptReader.BoundedLineSequence(
+            data: slice.data,
+            maximumLineCount: min(
+                slice.lineStartOffsets.count,
+                AgentChatTranscriptReader.maximumRetainedLineCount
+            )
+        )
         let parseResult: ChatTranscriptParseResult
         switch agentKind {
         case .codex:

@@ -87,6 +87,7 @@ extension LocalArtifactRepository {
                     stagedURL: stagedURL,
                     expectedCanonicalPath: candidate.expectedCanonicalPath
                         ?? sourcePathResolver.canonicalPath(source),
+                    expectedIdentity: candidate.expectedIdentity,
                     stagingLease: stagingLease
                 )
                 stagedBytes += snapshot.size
@@ -94,7 +95,8 @@ extension LocalArtifactRepository {
                     candidate: ArtifactCandidate(
                         sourceURL: source,
                         provenance: candidate.provenance,
-                        expectedCanonicalPath: candidate.expectedCanonicalPath
+                        expectedCanonicalPath: candidate.expectedCanonicalPath,
+                        expectedIdentity: candidate.expectedIdentity
                     ),
                     snapshot: snapshot,
                     digest: try ArtifactDigestCalculator(fileManager: fileManager).digest(

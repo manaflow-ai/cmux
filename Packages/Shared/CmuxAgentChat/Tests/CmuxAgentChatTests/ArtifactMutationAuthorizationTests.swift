@@ -105,6 +105,48 @@ struct ArtifactMutationAuthorizationTests {
         #expect(artifact.captureAuthorization == nil)
     }
 
+    @Test("Explicit Claude success with empty output authorizes a mutation")
+    func explicitClaudeSuccessWithEmptyOutputAuthorizesMutation() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "empty-success", "name": "Write",
+            "input": ["file_path": "/tmp/empty-success.md", "content": "draft"],
+        ]])
+        let result = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "empty-success",
+            "content": "", "is_error": false,
+        ]])
+
+        let parsed = ClaudeTranscriptParser().parse(
+            lines: [invocation, result],
+            startingSeq: 0
+        )
+        let artifact = try #require(indexedArtifacts(parsed).first)
+
+        #expect(artifact.path.hasSuffix("/tmp/empty-success.md"))
+        #expect(artifact.provenance == .created)
+        #expect(artifact.captureAuthorization != nil)
+    }
+
+    @Test("Claude success without a content field remains read-only")
+    func missingClaudeToolContentIsReference() throws {
+        let invocation = claudeLine(type: "assistant", content: [[
+            "type": "tool_use", "id": "missing-content", "name": "Write",
+            "input": ["file_path": "/tmp/missing-content.md", "content": "draft"],
+        ]])
+        let result = claudeLine(type: "user", content: [[
+            "type": "tool_result", "tool_use_id": "missing-content", "is_error": false,
+        ]])
+
+        let parsed = ClaudeTranscriptParser().parse(
+            lines: [invocation, result],
+            startingSeq: 0
+        )
+        let artifact = try #require(indexedArtifacts(parsed).first)
+
+        #expect(artifact.provenance == .referenced)
+        #expect(artifact.captureAuthorization == nil)
+    }
+
     @Test("Failed Codex apply_patch remains a read-only reference")
     func failedCodexPatchIsReference() throws {
         let call = codexLine(type: "response_item", payload: [

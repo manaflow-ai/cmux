@@ -10,6 +10,16 @@ import Testing
 #endif
 
 struct AgentChatArtifactIndexSafetyTests {
+    @Test func transcriptLineSequenceDecodesOnlyItsBoundedPrefix() {
+        let data = Data((0..<10).map { "line-\($0)\n" }.joined().utf8)
+        let lines = Array(AgentChatTranscriptReader.BoundedLineSequence(
+            data: data,
+            maximumLineCount: 3
+        ))
+
+        #expect(lines == ["line-0", "line-1", "line-2"])
+    }
+
     @Test func cacheGenerationIncludesTranscriptIdentityAndScanLimit() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
