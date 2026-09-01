@@ -1984,6 +1984,7 @@ final class TerminalNotificationStore: ObservableObject {
 
         let removedIDStrings = removedIDs.map(\.uuidString)
         removeDeliveredNotifications(withIdentifiers: removedIDStrings)
+        removePendingNotificationRequests(withIdentifiers: removedIDStrings)
         var drainedSuperseded: [String] = []
         for notification in removedNotifications {
             drainedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.flush(
