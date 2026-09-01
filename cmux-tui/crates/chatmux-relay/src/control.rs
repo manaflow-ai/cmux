@@ -443,20 +443,13 @@ mod tests {
         accepted_rx.await.expect("wait for control close test server");
         control.pause();
 
-        // Register both waiters before end() so the test deterministically
-        // exercises the paused-reader branch and the close wakeup.
+        // Register the paused-reader waiter before dropping the last control
+        // Arc so the test exercises the RAII close path.
         let read_waiting = control.arm_reader_waiting();
         paused_tx.send(()).expect("tell server that reader is paused");
         read_waiting.await.expect("paused reader entered wait");
-        let waiter_control = Arc::clone(&control);
-        let reader_done = tokio::spawn(async move { waiter_control.wait_reader_done().await });
-        tokio::task::yield_now().await;
         drop(control);
 
-        tokio::time::timeout(Duration::from_secs(1), reader_done)
-            .await
-            .expect("paused reader exits after end")
-            .expect("join paused reader waiter");
         tokio::time::timeout(Duration::from_secs(1), server)
             .await
             .expect("server observes client close")
