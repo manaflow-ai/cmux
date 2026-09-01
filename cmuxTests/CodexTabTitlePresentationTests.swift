@@ -79,7 +79,7 @@ struct CodexTabTitlePresentationTests {
         #expect(tab.isLoading)
     }
 
-    @Test("same-text auto-to-user ownership removes the transient marker")
+    @Test("same-text auto-to-user ownership removes the marker but keeps activity")
     func sameTextOwnershipChangeReconcilesPresentation() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
@@ -104,7 +104,7 @@ struct CodexTabTitlePresentationTests {
         )
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "Generated lane")
-        #expect(!tab.isLoading)
+        #expect(tab.isLoading)
     }
 
     @Test("a remote tmux mirror clears stale Codex tab presentation state")
