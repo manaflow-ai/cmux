@@ -1,0 +1,45 @@
+name: cmux skill contracts
+
+on:
+  pull_request:
+    paths:
+      - "skills/cmux-browser/**"
+      - ".agents/skills"
+      - ".claude/skills/**"
+      - "skills.sh"
+      - "scripts/validate-cmux-browser-skill.py"
+      - "tests/test_cmux_browser_skill.py"
+      - ".github/workflows/cmux-skill-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "skills/cmux-browser/**"
+      - ".agents/skills"
+      - ".claude/skills/**"
+      - "skills.sh"
+      - "scripts/validate-cmux-browser-skill.py"
+      - "tests/test_cmux_browser_skill.py"
+      - ".github/workflows/cmux-skill-contract.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-skill-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-skill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate browser skill documentation contract
+        run: python3 scripts/validate-cmux-browser-skill.py --no-cli
+
+      - name: Exercise browser skill regression guard
+        run: python3 tests/test_cmux_browser_skill.py
