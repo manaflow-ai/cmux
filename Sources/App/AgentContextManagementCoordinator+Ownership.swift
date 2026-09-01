@@ -57,12 +57,14 @@ extension AgentContextManagementCoordinator {
         guard let binding = owner.binding(panelId: panelId),
               let provider = AgentContextProvider(managedAgentKind: binding.kind) else {
             owner.setContextPressureMonitoringEnabled(panelId: panelId, enabled: false)
+            owner.setContextPressureProvider(panelId: panelId, provider: nil)
             _ = owner.resetContextPressureDetector(panelId: panelId)
             resetForUnboundSession(panelId: panelId)
             return
         }
         let pendingUserInput = userInputObservedBeforePressure.remove(panelId) != nil
         guard let existingState = states[panelId] else {
+            owner.setContextPressureProvider(panelId: panelId, provider: provider)
             owner.setContextPressureMonitoringEnabled(
                 panelId: panelId,
                 enabled: true
@@ -85,6 +87,7 @@ extension AgentContextManagementCoordinator {
             return
         }
         guard existingState.provider == provider, sameSession(existingState.binding, binding) else {
+            owner.setContextPressureProvider(panelId: panelId, provider: provider)
             let generation = owner.resetContextPressureDetector(panelId: panelId)
             resetForUnboundSession(panelId: panelId)
             states[panelId] = makePanelState(
@@ -100,6 +103,7 @@ extension AgentContextManagementCoordinator {
                 panelId: panelId,
                 enabled: true
             )
+            owner.setContextPressureProvider(panelId: panelId, provider: provider)
             structuredLog(
                 "detector-reset-requested",
                 workspaceID: owner.workspaceID,
@@ -112,6 +116,7 @@ extension AgentContextManagementCoordinator {
             panelId: panelId,
             enabled: true
         )
+        owner.setContextPressureProvider(panelId: panelId, provider: provider)
         var state = existingState
         if pendingUserInput {
             _ = cancelPendingRecovery(panelId: panelId, state: &state, owner: owner)
@@ -119,6 +124,8 @@ extension AgentContextManagementCoordinator {
         // A transfer/binding publication requires fresh provider evidence even
         // when the managed session identity is unchanged.
         state.pressureConfirmation.reset()
+        state.providerEvidenceConfirmed = false
+        state.providerEvidenceReceivedAt = nil
         // Binding publication is also the lifecycle boundary for transfers.
         // Re-read both authoritative maps before evaluating preserved pressure
         // so source-owner evidence cannot leak into the destination session.
@@ -154,6 +161,7 @@ extension AgentContextManagementCoordinator {
         userInputObservedBeforePressure.remove(panelId)
         if let owner = currentOwner {
             owner.setContextPressureMonitoringEnabled(panelId: panelId, enabled: false)
+            owner.setContextPressureProvider(panelId: panelId, provider: nil)
             owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
         }
     }

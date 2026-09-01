@@ -102,6 +102,22 @@ extension AgentContextManagementCoordinator {
             terminal(panelId: panelId)?.surface.setContextPressureMonitoringEnabled(enabled)
         }
 
+        /// Selects the one managed provider whose structured pressure events
+        /// may be parsed on this surface. A nil hint disables provider-specific
+        /// parsing until an authoritative binding is published.
+        func setContextPressureProvider(
+            panelId: UUID,
+            provider: AgentContextProvider?
+        ) {
+            let hint: String?
+            switch provider {
+            case .claudeCode: hint = "claude"
+            case .codex: hint = "codex"
+            case nil: hint = nil
+            }
+            terminal(panelId: panelId)?.surface.setContextPressureProvider(hint)
+        }
+
         @discardableResult
         func resetContextPressureDetector(panelId: UUID) -> UInt64 {
             terminal(panelId: panelId)?.surface.resetContextPressureDetectors() ?? 0
@@ -203,6 +219,15 @@ extension AgentContextManagementCoordinator {
         /// running-to-idle boundary.
         var recoveryAwaitingLifecycleBoundary = false
         var recoveryObservedRunning = false
+        /// A clear that was deemed unsafe requires an explicit manual recovery
+        /// before a later pressure episode can authorize another write.
+        var manualRecoveryRequired = false
+        /// Provider-originated structured evidence for the current pressure
+        /// episode. PTY text alone is diagnostic and never authorizes a write.
+        var providerEvidenceConfirmed = false
+        /// Receipt time used to discard a pre-compact hook that cannot belong
+        /// to the next pressure marker.
+        var providerEvidenceReceivedAt: Date?
         var unsafeClearNotificationSent = false
     }
 

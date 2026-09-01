@@ -7,6 +7,10 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     /// Whether a fresh provider running-to-idle boundary confirmed the
     /// pressure episode.
     public let pressureConfirmed: Bool
+    /// Whether an accepted, provider-originated lifecycle event confirmed the
+    /// pressure episode. Terminal text remains diagnostic until this evidence
+    /// is present.
+    public let providerEvidenceConfirmed: Bool
     /// Whether the pane still has an authoritative managed-session binding.
     public let managedSessionBound: Bool
     /// Provider identity for this pane.
@@ -30,6 +34,9 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     public let preservationCompleted: Bool
     /// Whether a preservation instruction is awaiting its lifecycle boundary.
     public let preservationAwaitingAcknowledgement: Bool
+    /// Whether a previous destructive-clear decision requires manual recovery
+    /// before another automated write may be attempted.
+    public let manualRecoveryRequired: Bool
 
     /// Creates immutable policy input.
     ///
@@ -38,6 +45,8 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     ///   - pressureDetected: Whether provider pressure output has been observed.
     ///   - pressureConfirmed: Whether a fresh provider running-to-idle boundary
     ///     confirmed the pressure episode.
+    ///   - providerEvidenceConfirmed: Whether an accepted provider lifecycle
+    ///     event independently confirmed the pressure episode.
     ///   - managedSessionBound: Whether the pane still has a complete managed-session binding.
     ///   - provider: The managed provider that owns the pane.
     ///   - lifecycle: Authoritative provider lifecycle evidence.
@@ -49,10 +58,12 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     ///   - preserveState: Whether clear should first request a durable handoff note.
     ///   - preservationCompleted: Whether the handoff request completed a lifecycle boundary and file check.
     ///   - preservationAwaitingAcknowledgement: Whether the handoff request is still in flight.
+    ///   - manualRecoveryRequired: Whether a prior unsafe clear requires manual recovery.
     public init(
         enabled: Bool,
         pressureDetected: Bool,
         pressureConfirmed: Bool = false,
+        providerEvidenceConfirmed: Bool = false,
         managedSessionBound: Bool,
         provider: AgentContextProvider,
         lifecycle: AgentContextLifecycleState,
@@ -63,11 +74,13 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
         action: AgentContextInjectionAction,
         preserveState: Bool,
         preservationCompleted: Bool,
-        preservationAwaitingAcknowledgement: Bool = false
+        preservationAwaitingAcknowledgement: Bool = false,
+        manualRecoveryRequired: Bool = false
     ) {
         self.enabled = enabled
         self.pressureDetected = pressureDetected
         self.pressureConfirmed = pressureConfirmed
+        self.providerEvidenceConfirmed = providerEvidenceConfirmed
         self.managedSessionBound = managedSessionBound
         self.provider = provider
         self.lifecycle = lifecycle
@@ -79,5 +92,6 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
         self.preserveState = preserveState
         self.preservationCompleted = preservationCompleted
         self.preservationAwaitingAcknowledgement = preservationAwaitingAcknowledgement
+        self.manualRecoveryRequired = manualRecoveryRequired
     }
 }

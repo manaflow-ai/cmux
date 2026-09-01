@@ -4,8 +4,8 @@ public enum AgentContextInjectionBlockReason: String, Codable, Equatable, Sendab
     case disabled
     /// No pressure event has been observed.
     case noPressure
-    /// Terminal text was observed, but a fresh provider running-to-idle
-    /// boundary has not confirmed the pressure episode yet.
+    /// Terminal text or provider evidence has not completed the fresh
+    /// confirmation requirements for this pressure episode.
     case pressureUnconfirmed
     /// The pane no longer has a managed provider binding.
     case unmanagedSession
@@ -30,4 +30,6 @@ public enum AgentContextInjectionBlockReason: String, Codable, Equatable, Sendab
     case preservationInFlight
     /// A durable handoff file could not be proven before a destructive clear.
     case preservationUnavailable
+    /// A previous unsafe destructive-clear decision requires manual recovery.
+    case manualInterventionRequired
 }

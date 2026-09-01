@@ -41,9 +41,8 @@ extension AgentContextManagementCoordinator {
         states[panelId] = state
         guard hadPendingRecovery else { return }
         structuredLog("user-input-cancelled", workspaceID: nil, surfaceID: panelId, detail: "context recovery cancelled")
-        // Re-evaluate immediately so a destructive action that is now unsafe
-        // surfaces its notification at the user-input boundary, rather than
-        // waiting for an unrelated lifecycle or settings event.
+        // Re-evaluate immediately so any surviving owner/binding state is
+        // reconciled at the user-input boundary rather than on a later event.
         evaluate(surfaceID: panelId, owner: owner)
     }
 
@@ -57,6 +56,18 @@ extension AgentContextManagementCoordinator {
         let hadPendingRecovery = state.pressure.isUnderPressure
             || state.preservationAwaitingAcknowledgement
             || state.injectionInFlight
+        let shouldNotifyUnsafeClear = hadPendingRecovery
+            && settings.action == .clear
+        if shouldNotifyUnsafeClear, let owner {
+            // Preserve the cancellation evidence long enough to surface the
+            // destructive-action warning. The reset below intentionally clears
+            // pressure, so notifying only after it would lose the reason.
+            notifyUnsafeClear(
+                owner: owner,
+                surfaceID: panelId,
+                reason: .userInputObserved
+            )
+        }
         // A click or other explicit-input edge can arrive while the pane is
         // otherwise idle. Only latch the cancellation when there was pending
         // recovery work; an idle interaction must not suppress a later
@@ -67,6 +78,8 @@ extension AgentContextManagementCoordinator {
         state.injectionInFlight = false
         state.pressure = AgentContextPressureSnapshot()
         state.pressureConfirmation.reset()
+        state.providerEvidenceConfirmed = false
+        state.providerEvidenceReceivedAt = nil
         state.preservationCompleted = false
         state.preservationAwaitingAcknowledgement = false
         state.preservationObservedRunning = false
@@ -75,7 +88,10 @@ extension AgentContextManagementCoordinator {
         state.preservationVerificationInFlight = false
         state.recoveryAwaitingLifecycleBoundary = false
         state.recoveryObservedRunning = false
-        state.unsafeClearNotificationSent = false
+        state.unsafeClearNotificationSent = shouldNotifyUnsafeClear && owner != nil
+        if shouldNotifyUnsafeClear {
+            state.manualRecoveryRequired = true
+        }
         if let owner {
             let resetGeneration = owner.resetContextPressureDetector(panelId: panelId)
             state.detectorGeneration = max(state.detectorGeneration, resetGeneration)

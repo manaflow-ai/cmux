@@ -10,12 +10,23 @@ public struct AgentContextInjectionPolicy: Sendable {
     public func decide(_ input: AgentContextInjectionInput) -> AgentContextInjectionDecision {
         guard input.enabled else { return .wait(.disabled) }
         guard input.pressureDetected else { return .wait(.noPressure) }
+        guard input.providerEvidenceConfirmed else {
+            // Structured provider evidence may arrive after the PTY marker;
+            // keep both actions pending rather than treating the normal
+            // ordering gap as a destructive-clear failure.
+            return .wait(.pressureUnconfirmed)
+        }
         guard input.pressureConfirmed else {
             return input.action == .clear
                 ? .unsafe(.pressureUnconfirmed)
                 : .wait(.pressureUnconfirmed)
         }
         guard input.managedSessionBound else { return .wait(.unmanagedSession) }
+        guard !input.manualRecoveryRequired else {
+            return input.action == .clear
+                ? .unsafe(.manualInterventionRequired)
+                : .wait(.manualInterventionRequired)
+        }
         // Explicit input is the strongest signal in the policy. It must win
         // even when an automation sequence or dialog state was already
         // recorded, so cmux never races a user for the PTY.

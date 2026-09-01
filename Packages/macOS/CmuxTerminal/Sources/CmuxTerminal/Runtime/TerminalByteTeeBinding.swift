@@ -30,6 +30,14 @@ public protocol TerminalByteTeeLease: AnyObject, Sendable {
     ///   context-pressure detection/reporting. Automated recovery writes are
     ///   gated separately by the app-level policy setting.
     func setContextPressureMonitoringEnabled(_ enabled: Bool)
+
+    /// Selects the provider whose pressure detector is eligible on this
+    /// surface. The hint is a persisted managed-agent kind (for example,
+    /// `claude` or `codex`); nil clears the selection.
+    ///
+    /// - Parameter provider: The authoritative provider hint, or nil while the
+    ///   surface is unbound.
+    func setContextPressureProvider(_ provider: String?)
 }
 
 public extension TerminalByteTeeLease {
@@ -40,6 +48,10 @@ public extension TerminalByteTeeLease {
     /// Default no-op for tee leases that do not install context-pressure
     /// detectors.
     func setContextPressureMonitoringEnabled(_: Bool) {}
+
+    /// Default no-op for tee leases that do not install context-pressure
+    /// detectors.
+    func setContextPressureProvider(_: String?) {}
 }
 
 /// Installs and tears down the shared PTY output tee for runtime surfaces.
@@ -57,6 +69,8 @@ public protocol TerminalByteTeeBinding: AnyObject, Sendable {
     ///     this runtime-surface lifetime.
     ///   - contextPressureMonitoringEnabled: Whether provider-pressure parsing
     ///     is eligible when the callback is installed.
+    ///   - contextPressureProvider: The authoritative provider hint, or nil
+    ///     until the surface receives a managed-session binding.
     /// - Returns: The retained lease the caller releases on teardown.
     @MainActor
     func installTee(
@@ -64,7 +78,8 @@ public protocol TerminalByteTeeBinding: AnyObject, Sendable {
         workspaceID: UUID,
         surfaceID: UUID,
         contextPressureDetectorGeneration: UInt64,
-        contextPressureMonitoringEnabled: Bool
+        contextPressureMonitoringEnabled: Bool,
+        contextPressureProvider: String?
     ) -> any TerminalByteTeeLease
 
     /// Drops all tee/replay state keyed by a surface id.

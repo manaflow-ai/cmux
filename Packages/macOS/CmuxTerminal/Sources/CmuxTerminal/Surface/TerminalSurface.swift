@@ -350,6 +350,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// replaced runtime so a newly installed tee starts with the authoritative
     /// managed-session state instead of waiting for another lifecycle event.
     @MainActor var contextPressureMonitoringEnabled = false
+    /// Desired managed provider for the pressure tee. Nil keeps provider
+    /// parsing disabled until an authoritative binding is published.
+    @MainActor var contextPressureProvider: String? = nil
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it

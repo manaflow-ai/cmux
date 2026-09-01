@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reads bounded handoff metadata and contents for context-clear verification.
-nonisolated protocol AgentContextHandoffFileSystem: Sendable {
+protocol AgentContextHandoffFileSystem: Sendable {
     /// Returns metadata for a path, or `nil` when no path exists.
     /// - Parameter path: The local handoff path to inspect.
     /// - Returns: Typed metadata when the path exists.

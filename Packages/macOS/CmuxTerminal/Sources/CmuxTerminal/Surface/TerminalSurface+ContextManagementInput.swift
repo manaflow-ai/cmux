@@ -28,6 +28,18 @@ extension TerminalSurface {
         mobileByteTeeLease?.setContextPressureMonitoringEnabled(enabled)
     }
 
+    /// Selects the one provider detector eligible for this surface's PTY
+    /// output. A nil value clears the selection while an ownership transfer is
+    /// in flight.
+    ///
+    /// - Parameter provider: The managed-agent kind (`claude` or `codex`), or nil.
+    @MainActor
+    public func setContextPressureProvider(_ provider: String?) {
+        let normalized = provider?.trimmingCharacters(in: .whitespacesAndNewlines)
+        contextPressureProvider = normalized?.isEmpty == true ? nil : normalized
+        mobileByteTeeLease?.setContextPressureProvider(contextPressureProvider)
+    }
+
     /// Notifies the current panel owner after explicit terminal input is accepted.
     @MainActor
     public func didAcceptExplicitInput() {

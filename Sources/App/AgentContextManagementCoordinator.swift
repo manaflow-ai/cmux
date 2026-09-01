@@ -51,6 +51,22 @@ final class AgentContextManagementCoordinator {
     static let logger = Logger(subsystem: "com.cmuxterm.app", category: "AgentContextManagement")
     private var settingsObserver: NSObjectProtocol?
     private var userDefaultsObserver: NSObjectProtocol?
+    private var pendingReevaluationTask: Task<Void, Never>?
+    private var pendingForcedReevaluation = false
+
+    private struct SettingsSnapshot: Equatable {
+        let enabled: Bool
+        let action: AgentContextInjectionAction
+        let preservesState: Bool
+
+        init(settings: AgentContextManagementSettings) {
+            enabled = settings.isEnabled
+            action = settings.action
+            preservesState = settings.preservesState
+        }
+    }
+
+    private var lastSettingsSnapshot: SettingsSnapshot?
 
     init(
         notificationCenter: NotificationCenter = .default,
@@ -63,13 +79,14 @@ final class AgentContextManagementCoordinator {
             defaults: defaults,
             notificationCenter: notificationCenter
         )
+        self.lastSettingsSnapshot = SettingsSnapshot(settings: settings)
         settingsObserver = notificationCenter.addObserver(
             forName: AgentContextManagementSettings.didChangeNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
-                self?.reevaluateAll()
+                self?.scheduleReevaluation(force: true)
             }
         }
         // Settings UI writes go through UserDefaultsSettingsStore, while
@@ -82,13 +99,14 @@ final class AgentContextManagementCoordinator {
             queue: nil
         ) { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
-                self?.reevaluateAll()
+                self?.scheduleReevaluation(force: false)
             }
         }
     }
 
     deinit {
         preservationVerificationTasks.values.forEach { $0.cancel() }
+        pendingReevaluationTask?.cancel()
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
         }
@@ -143,6 +161,7 @@ final class AgentContextManagementCoordinator {
             // injection separately below.
             enabled: true
         )
+        owner.setContextPressureProvider(panelId: surfaceID, provider: provider)
 
         let matchingEvents = events.filter { event in
             guard provider == event.provider else {
@@ -274,6 +293,17 @@ final class AgentContextManagementCoordinator {
         let previousSignals = Set(state.pressure.detectedSignals)
         var signals = state.pressure.detectedSignals
         var occurrences = state.pressure.occurrences
+        if !Self.providerEvidenceIsFresh(state.providerEvidenceReceivedAt) {
+            state.providerEvidenceConfirmed = false
+            state.providerEvidenceReceivedAt = nil
+        }
+        if !pressureWasActive {
+            // A provider event from an earlier episode must not authorize a
+            // fresh textual marker. A still-fresh hook may have arrived just
+            // before the marker; its bounded receipt window is retained.
+            state.manualRecoveryRequired = false
+            state.unsafeClearNotificationSent = false
+        }
         for event in matchingEvents {
             if !signals.contains(event.signal) { signals.append(event.signal) }
             occurrences[event.signal] = max(occurrences[event.signal, default: 0], event.occurrence)
@@ -314,12 +344,15 @@ final class AgentContextManagementCoordinator {
             panelId: panelId,
             enabled: false
         )
+        currentOwner?.setContextPressureProvider(panelId: panelId, provider: nil)
         if preserveState {
             // Transfer keeps the pressure snapshot, but destination shell
             // callbacks must not reuse source-owner lifecycle confirmation
             // before the destination binding fence is published.
             if var state = states[panelId] {
                 state.pressureConfirmation.reset()
+                state.providerEvidenceConfirmed = false
+                state.providerEvidenceReceivedAt = nil
                 states[panelId] = state
             }
         } else {
@@ -369,12 +402,35 @@ final class AgentContextManagementCoordinator {
         for group in groupedOwners.values {
             let owner = group.owner
             for panelId in group.panelIDs {
+                if let provider = states[panelId]?.provider {
+                    owner.setContextPressureProvider(panelId: panelId, provider: provider)
+                }
                 owner.setContextPressureMonitoringEnabled(
                     panelId: panelId,
                     enabled: true
                 )
                 evaluate(surfaceID: panelId, owner: owner)
             }
+        }
+    }
+
+    /// Coalesces settings notifications onto one main-actor turn. UserDefaults
+    /// broadcasts unrelated writes too, so unchanged context settings are
+    /// filtered before walking the panel index.
+    private func scheduleReevaluation(force: Bool) {
+        pendingForcedReevaluation = pendingForcedReevaluation || force
+        guard pendingReevaluationTask == nil else { return }
+        pendingReevaluationTask = Task { @MainActor [weak self] in
+            // Yield once so a batch of UserDefaults writes shares one pass.
+            await Task.yield()
+            guard let self, !Task.isCancelled else { return }
+            self.pendingReevaluationTask = nil
+            let shouldForce = self.pendingForcedReevaluation
+            self.pendingForcedReevaluation = false
+            let snapshot = SettingsSnapshot(settings: self.settings)
+            guard shouldForce || snapshot != self.lastSettingsSnapshot else { return }
+            self.lastSettingsSnapshot = snapshot
+            self.reevaluateAll()
         }
     }
 

@@ -1,9 +1,152 @@
+import CMUXAgentLaunch
 import CmuxSidebar
 import CmuxWorkspaces
 import Foundation
 
 @MainActor
 extension AgentContextManagementCoordinator {
+    /// Bounds how long a provider hook may wait for its matching PTY marker.
+    static let providerEvidenceMaximumAge: TimeInterval = 60
+    private static let invalidEvidenceSurfaceID = UUID(
+        uuidString: "00000000-0000-0000-0000-000000000000"
+    )!
+
+    private static func feedSource(for provider: AgentContextProvider) -> String {
+        switch provider {
+        case .claudeCode: return "claude"
+        case .codex: return "codex"
+        }
+    }
+
+    private static func uuid(from rawValue: String?) -> UUID? {
+        guard let rawValue else { return nil }
+        return UUID(uuidString: rawValue.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func eventSessionMatchesBinding(
+        _ rawEventSessionID: String,
+        source: String,
+        bindingKind: String?,
+        checkpointID: String
+    ) -> Bool {
+        let trimmed = rawEventSessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let prefix = "\(source.lowercased())-"
+        let unprefixed = trimmed.lowercased().hasPrefix(prefix)
+            ? String(trimmed.dropFirst(prefix.count))
+            : trimmed
+        let candidates = [trimmed, unprefixed]
+        return candidates.contains { candidate in
+            checkpointID.caseInsensitiveCompare(candidate) == .orderedSame
+                || ManagedAgentSessionIdentity.sessionIDsMatch(
+                    kind: bindingKind ?? source,
+                    lhs: checkpointID,
+                    rhs: candidate
+                )
+        }
+    }
+
+    /// Returns whether a structured provider event is recent enough to apply.
+    static func providerEvidenceIsFresh(_ receivedAt: Date?) -> Bool {
+        guard let receivedAt else { return false }
+        return Date().timeIntervalSince(receivedAt) <= providerEvidenceMaximumAge
+    }
+
+    /// Accepts one provider-originated compaction hook as independent evidence
+    /// for the currently visible pressure episode. Raw PTY markers continue to
+    /// drive diagnostics and sidebar status, but never authorize a write on
+    /// their own.
+    func confirmProviderEvidence(from event: WorkstreamEvent) {
+        guard event.hookEventName == .preCompact else { return }
+        guard let provider = AgentContextProvider(managedAgentKind: event.source),
+              Self.feedSource(for: provider) == event.source.lowercased() else {
+            structuredLog(
+                "provider-evidence.ignored",
+                workspaceID: nil,
+                surfaceID: Self.invalidEvidenceSurfaceID,
+                detail: "reason=source-mismatch source=\(event.source)"
+            )
+            return
+        }
+        guard let workspaceID = Self.uuid(from: event.workspaceId),
+              let surfaceID = Self.uuid(from: event.surfaceId),
+              let owner = owner(for: surfaceID, preferredWorkspaceID: workspaceID),
+              owner.workspaceID == workspaceID,
+              owner.contains(panelId: surfaceID),
+              let binding = owner.binding(panelId: surfaceID),
+              AgentContextProvider(managedAgentKind: binding.kind) == provider,
+              let checkpointID = binding.checkpointId,
+              Self.eventSessionMatchesBinding(
+                  event.sessionId,
+                  source: event.source,
+                  bindingKind: binding.kind,
+                  checkpointID: checkpointID
+              ) else {
+            structuredLog(
+                "provider-evidence.ignored",
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                detail: "reason=target-or-session-mismatch source=\(event.source)"
+            )
+            return
+        }
+
+        owner.setContextPressureMonitoringEnabled(panelId: surfaceID, enabled: true)
+        owner.setContextPressureProvider(panelId: surfaceID, provider: provider)
+        var state = states[surfaceID]
+            ?? makePanelState(
+                panelId: surfaceID,
+                provider: provider,
+                binding: binding,
+                owner: owner,
+                detectorGeneration: owner.contextPressureDetectorGeneration(panelId: surfaceID)
+            )
+        guard state.provider == provider, sameSession(state.binding, binding) else {
+            structuredLog(
+                "provider-evidence.ignored",
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                detail: "reason=state-session-mismatch"
+            )
+            return
+        }
+        guard Self.providerEvidenceIsFresh(event.receivedAt) else {
+            structuredLog(
+                "provider-evidence.ignored",
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                detail: "reason=stale-event"
+            )
+            return
+        }
+        guard state.pressure.isUnderPressure
+            || state.lifecycle == .running
+            || state.shellActivity == .commandRunning else {
+            // A pre-compact hook may arrive just before the PTY marker. Keep a
+            // short-lived token only while the provider is demonstrably in a
+            // live turn; an idle/unbound hook cannot authorize later text.
+            structuredLog(
+                "provider-evidence.ignored",
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                detail: "reason=no-live-turn"
+            )
+            return
+        }
+        state.providerEvidenceConfirmed = true
+        state.providerEvidenceReceivedAt = event.receivedAt
+        states[surfaceID] = state
+        structuredLog(
+            "provider-evidence.confirmed",
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            detail: "source=\(event.source) hook=\(event.hookEventName.rawValue)"
+        )
+        if state.pressure.isUnderPressure {
+            evaluate(surfaceID: surfaceID, owner: owner)
+        }
+    }
+
     func evaluate(surfaceID: UUID, owner: PanelOwner) {
         guard var state = states[surfaceID] else { return }
         guard let binding = owner.binding(panelId: surfaceID),
@@ -15,6 +158,7 @@ extension AgentContextManagementCoordinator {
             enabled: settings.isEnabled,
             pressureDetected: state.pressure.isUnderPressure,
             pressureConfirmed: state.pressureConfirmation.isConfirmed,
+            providerEvidenceConfirmed: state.providerEvidenceConfirmed,
             managedSessionBound: owner.binding(panelId: surfaceID)?.isAgentHookBinding == true,
             provider: state.provider,
             lifecycle: state.lifecycle,
@@ -25,7 +169,8 @@ extension AgentContextManagementCoordinator {
             action: settings.action,
             preserveState: settings.preservesState,
             preservationCompleted: state.preservationCompleted,
-            preservationAwaitingAcknowledgement: state.preservationAwaitingAcknowledgement
+            preservationAwaitingAcknowledgement: state.preservationAwaitingAcknowledgement,
+            manualRecoveryRequired: state.manualRecoveryRequired
         )
         let decision = policy.decide(input)
         structuredLog(
@@ -35,18 +180,26 @@ extension AgentContextManagementCoordinator {
             detail: "decision=\(String(describing: decision))"
         )
         guard case .inject(let step) = decision else {
-            if case .unsafe(let reason) = decision,
-               settings.action == .clear,
-               !state.unsafeClearNotificationSent {
+            if case .unsafe(let reason) = decision, settings.action == .clear {
+                let shouldNotify = !state.unsafeClearNotificationSent
+                // A lifecycle/provider confirmation can legitimately arrive
+                // after the first marker. Do not turn that transient evidence
+                // gap into a permanent manual-intervention latch.
+                if reason != .pressureUnconfirmed {
+                    state.manualRecoveryRequired = true
+                }
                 state.unsafeClearNotificationSent = true
                 states[surfaceID] = state
-                notifyUnsafeClear(owner: owner, surfaceID: surfaceID, reason: reason)
+                if shouldNotify {
+                    notifyUnsafeClear(owner: owner, surfaceID: surfaceID, reason: reason)
+                }
             }
             return
         }
         guard let terminal = owner.terminal(panelId: surfaceID) else {
             let shouldNotify = settings.action == .clear && !state.unsafeClearNotificationSent
             if settings.action == .clear {
+                state.manualRecoveryRequired = true
                 state.unsafeClearNotificationSent = true
             }
             states[surfaceID] = state
@@ -71,6 +224,7 @@ extension AgentContextManagementCoordinator {
             // state, even if an earlier unsafe-clear notification was sent.
             state.unsafeClearNotificationSent = false
             guard let handoffPath = owner.contextHandoffFileURL(panelId: surfaceID) else {
+                state.manualRecoveryRequired = true
                 state.unsafeClearNotificationSent = true
                 state.preservationAwaitingAcknowledgement = true
                 state.preservationHandoffPath = nil
@@ -125,8 +279,20 @@ extension AgentContextManagementCoordinator {
                 state.preservationRequestedAt = nil
                 state.preservationVerificationInFlight = false
             }
-            if settings.action == .clear, !state.unsafeClearNotificationSent {
+            if settings.action == .clear {
+                let shouldNotify = !state.unsafeClearNotificationSent
+                state.manualRecoveryRequired = true
                 state.unsafeClearNotificationSent = true
+                guard shouldNotify else {
+                    states[surfaceID] = state
+                    structuredLog(
+                        "injection.rejected",
+                        workspaceID: owner.workspaceID,
+                        surfaceID: surfaceID,
+                        detail: "step=\(step.rawValue) reason=surface-unavailable"
+                    )
+                    return
+                }
                 states[surfaceID] = state
                 notifyUnsafeClear(
                     owner: owner,
@@ -164,6 +330,9 @@ extension AgentContextManagementCoordinator {
         state.recoveryAwaitingLifecycleBoundary = true
         state.recoveryObservedRunning = false
         state.unsafeClearNotificationSent = false
+        state.manualRecoveryRequired = false
+        state.providerEvidenceConfirmed = false
+        state.providerEvidenceReceivedAt = nil
         state.preservationHandoffPath = nil
         state.preservationRequestedAt = nil
         state.preservationVerificationInFlight = false
@@ -246,6 +415,7 @@ extension AgentContextManagementCoordinator {
             // durable evidence; a later explicit user input starts a fresh
             // pressure episode and clears this gate.
             state.unsafeClearNotificationSent = currentOwner.map { _ in true } ?? false
+            state.manualRecoveryRequired = true
             if case .none = currentOwner {
                 // A transfer may temporarily remove every owner. Allow the
                 // destination binding callback to request preservation again.

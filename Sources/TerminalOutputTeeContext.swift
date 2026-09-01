@@ -42,6 +42,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         var contextPressureDetectorResetRequested = false
         var contextPressureMonitoringEnabled = false
         var contextPressureMonitoringGeneration: UInt64 = 0
+        var contextPressureProvider: String?
     }
 
     /// Confirmed turns arrive at most once per confirmation delay, so this
@@ -68,6 +69,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
         contextPressureGeneration: UInt64 = 0,
         contextPressureMonitoringEnabled: Bool = false,
+        contextPressureProvider: String? = nil,
         contextPressureHandler: (@MainActor @Sendable (UUID, UUID, UInt64, [AgentContextPressureEvent]) -> Void)? = nil
     ) {
         self.workspaceID = workspaceID
@@ -86,12 +88,13 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
         self.contextPressureHandler = contextPressureHandler
         self.contextPressureGeneration = contextPressureGeneration
-        if contextPressureMonitoringEnabled {
-            forwardQueue.withLock { $0.contextPressureMonitoringEnabled = true }
-        }
         self.contextPressureDetectors = Dictionary(uniqueKeysWithValues: AgentContextProvider.allCases.map { provider in
             (provider, AgentContextPressureDetector(provider: provider))
         })
+        forwardQueue.withLock { state in
+            state.contextPressureMonitoringEnabled = contextPressureMonitoringEnabled
+            state.contextPressureProvider = contextPressureProvider
+        }
     }
 
     /// Publishes a reset edge for the serialized PTY callback to consume.
@@ -125,6 +128,21 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
     }
 
+    /// Selects the one provider detector that may inspect this surface's PTY
+    /// output. The update crosses the serialized callback boundary through the
+    /// same bounded control lock as monitoring eligibility.
+    func setContextPressureProvider(_ provider: String?) {
+        let normalized = provider?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = normalized?.isEmpty == true ? nil : normalized
+        forwardQueue.withLock { state in
+            guard state.contextPressureProvider != value else { return }
+            state.contextPressureProvider = value
+            state.contextPressureDetectorResetRequested = true
+            state.contextPressureMonitoringGeneration &+= 1
+            state.contextPressurePending = nil
+        }
+    }
+
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
         let now = clock.now
         for index in detectors.indices {
@@ -145,7 +163,8 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                 resetGeneration: state.contextPressureResetGeneration,
                 detectorResetRequested: state.contextPressureDetectorResetRequested,
                 monitoringEnabled: state.contextPressureMonitoringEnabled,
-                monitoringGeneration: state.contextPressureMonitoringGeneration
+                monitoringGeneration: state.contextPressureMonitoringGeneration,
+                provider: state.contextPressureProvider
             )
             state.contextPressureResetGeneration = nil
             state.contextPressureDetectorResetRequested = false
@@ -163,16 +182,14 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
            requestedGeneration > contextPressureGeneration {
             contextPressureGeneration = requestedGeneration
         }
-        guard control.monitoringEnabled, contextPressureHandler != nil else { return }
+        guard control.monitoringEnabled,
+              let provider = AgentContextProvider(managedAgentKind: control.provider),
+              contextPressureHandler != nil else { return }
         let output = String(decoding: bytes, as: UTF8.self)
         guard !output.isEmpty else { return }
-        var eventsToDeliver: [AgentContextPressureEvent] = []
-        for provider in AgentContextProvider.allCases {
-            guard var detector = contextPressureDetectors[provider] else { continue }
-            let events = detector.consume(output)
-            contextPressureDetectors[provider] = detector
-            eventsToDeliver.append(contentsOf: events)
-        }
+        guard var detector = contextPressureDetectors[provider] else { return }
+        let eventsToDeliver = detector.consume(output)
+        contextPressureDetectors[provider] = detector
         if !eventsToDeliver.isEmpty {
             enqueueContextPressure(
                 workspaceID,

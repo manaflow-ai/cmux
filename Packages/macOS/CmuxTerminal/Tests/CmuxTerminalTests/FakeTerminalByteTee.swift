@@ -9,7 +9,8 @@ final class FakeTerminalByteTee: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID,
         contextPressureDetectorGeneration: UInt64,
-        contextPressureMonitoringEnabled: Bool
+        contextPressureMonitoringEnabled: Bool,
+        contextPressureProvider: String?
     ) -> any TerminalByteTeeLease {
         FakeTerminalByteTeeLease()
     }

@@ -109,6 +109,10 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         func setContextPressureMonitoringEnabled(_ enabled: Bool) {
             context.takeUnretainedValue().setContextPressureMonitoringEnabled(enabled)
         }
+
+        func setContextPressureProvider(_ provider: String?) {
+            context.takeUnretainedValue().setContextPressureProvider(provider)
+        }
     }
 
     @MainActor
@@ -117,7 +121,8 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID,
         contextPressureDetectorGeneration: UInt64,
-        contextPressureMonitoringEnabled: Bool
+        contextPressureMonitoringEnabled: Bool,
+        contextPressureProvider: String?
     ) -> any TerminalByteTeeLease {
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
@@ -125,6 +130,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
             contextPressureGeneration: contextPressureDetectorGeneration,
             contextPressureMonitoringEnabled: contextPressureMonitoringEnabled,
+            contextPressureProvider: contextPressureProvider,
             contextPressureHandler: { workspaceID, surfaceID, generation, events in
                 AppDelegate.shared?.agentContextManagementCoordinator.handle(
                     events: events,

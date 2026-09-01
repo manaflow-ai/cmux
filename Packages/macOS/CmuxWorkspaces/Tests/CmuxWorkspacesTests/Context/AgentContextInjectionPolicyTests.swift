@@ -10,17 +10,20 @@ struct AgentContextInjectionPolicyTests {
         shell: PanelShellActivityState = .commandRunning,
         action: AgentContextInjectionAction = .compact,
         pressureConfirmed: Bool = true,
+        providerEvidenceConfirmed: Bool = true,
         preserveState: Bool = false,
         dialogOpen: Bool = false,
         userInputObserved: Bool = false,
         injectionInFlight: Bool = false,
         preservationCompleted: Bool = false,
-        preservationAwaitingAcknowledgement: Bool = false
+        preservationAwaitingAcknowledgement: Bool = false,
+        manualRecoveryRequired: Bool = false
     ) -> AgentContextInjectionInput {
         AgentContextInjectionInput(
             enabled: true,
             pressureDetected: true,
             pressureConfirmed: pressureConfirmed,
+            providerEvidenceConfirmed: providerEvidenceConfirmed,
             managedSessionBound: true,
             provider: .claudeCode,
             lifecycle: lifecycle,
@@ -31,7 +34,8 @@ struct AgentContextInjectionPolicyTests {
             action: action,
             preserveState: preserveState,
             preservationCompleted: preservationCompleted,
-            preservationAwaitingAcknowledgement: preservationAwaitingAcknowledgement
+            preservationAwaitingAcknowledgement: preservationAwaitingAcknowledgement,
+            manualRecoveryRequired: manualRecoveryRequired
         )
     }
 
@@ -51,6 +55,30 @@ struct AgentContextInjectionPolicyTests {
         #expect(
             policy.decide(input(action: .clear, pressureConfirmed: false))
                 == .unsafe(.pressureUnconfirmed)
+        )
+    }
+
+    @Test("Textual pressure also needs provider-originated evidence")
+    func providerEvidenceIsRequired() {
+        #expect(
+            policy.decide(input(providerEvidenceConfirmed: false))
+                == .wait(.pressureUnconfirmed)
+        )
+        #expect(
+            policy.decide(input(action: .clear, providerEvidenceConfirmed: false))
+                == .wait(.pressureUnconfirmed)
+        )
+    }
+
+    @Test("A prior unsafe clear requires manual recovery")
+    func manualRecoveryBlocksAutomation() {
+        #expect(
+            policy.decide(input(manualRecoveryRequired: true))
+                == .wait(.manualInterventionRequired)
+        )
+        #expect(
+            policy.decide(input(action: .clear, manualRecoveryRequired: true))
+                == .unsafe(.manualInterventionRequired)
         )
     }
 

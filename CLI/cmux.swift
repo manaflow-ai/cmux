@@ -38745,6 +38745,14 @@ export default CMUXSessionRestore;
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
+        if source == "claude" || source == "codex",
+           let surfaceId = firstString(
+               in: stdinObj,
+               keys: ["surface_id", "surfaceId"]
+           ) ?? env["CMUX_SURFACE_ID"],
+           !surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            eventDict["surface_id"] = surfaceId
+        }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
             ?? stdinObj["toolResponse"]

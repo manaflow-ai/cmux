@@ -48,6 +48,7 @@ extension AgentContextManagementCoordinator {
             panelId: panelId,
             enabled: true
         )
+        owner.setContextPressureProvider(panelId: panelId, provider: provider)
         guard AgentContextProvider(managedAgentKind: key) == provider else {
             structuredLog(
                 "lifecycle.ignored",
@@ -75,6 +76,14 @@ extension AgentContextManagementCoordinator {
         state.lifecycleByKey[key] = lifecycle
         state.lifecycle = Self.effectiveLifecycle(from: state.lifecycleByKey.values)
         state.dialogOpen = state.lifecycle == .needsInput
+        if !state.pressure.isUnderPressure,
+           (previousLifecycle == .idle || previousLifecycle == .needsInput),
+           state.lifecycle == .running {
+            // A new provider turn supersedes any pending pre-compact token
+            // left by the previous turn.
+            state.providerEvidenceConfirmed = false
+            state.providerEvidenceReceivedAt = nil
+        }
         if state.pressure.isUnderPressure {
             state.pressureConfirmation.observeLifecycle(state.lifecycle)
         }
@@ -95,6 +104,7 @@ extension AgentContextManagementCoordinator {
                 preservationVerificationRequest = (path, requestedAt)
             } else if state.preservationHandoffPath == nil || state.preservationRequestedAt == nil {
                 state.unsafeClearNotificationSent = true
+                state.manualRecoveryRequired = true
                 preservationVerificationUnavailable = true
                 structuredLog(
                     "preservation.rejected",
@@ -127,6 +137,8 @@ extension AgentContextManagementCoordinator {
             // pressure at the fresh prompt.
             state.pressure = AgentContextPressureSnapshot()
             state.pressureConfirmation.reset()
+            state.providerEvidenceConfirmed = false
+            state.providerEvidenceReceivedAt = nil
             let resetGeneration = owner.resetContextPressureDetector(panelId: panelId)
             state.detectorGeneration = max(state.detectorGeneration, resetGeneration)
             state.userInputObserved = false
@@ -170,6 +182,7 @@ extension AgentContextManagementCoordinator {
             panelId: panelId,
             enabled: true
         )
+        owner.setContextPressureProvider(panelId: panelId, provider: provider)
         var state = resolvedPanelState(
             panelId: panelId,
             provider: provider,
@@ -206,6 +219,8 @@ extension AgentContextManagementCoordinator {
         state.dialogOpen = state.lifecycle == .needsInput
         if state.lifecycle == .unknown {
             state.pressureConfirmation.reset()
+            state.providerEvidenceConfirmed = false
+            state.providerEvidenceReceivedAt = nil
             cancelPreservationVerification(panelId: panelId)
             state.preservationAwaitingAcknowledgement = false
             state.preservationObservedRunning = false
