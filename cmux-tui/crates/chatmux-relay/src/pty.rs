@@ -2049,13 +2049,17 @@ mod tests {
             started: Notify::new(),
         });
         let cancellation = CancellationToken::new();
-        let request = control_request_until_cancelled(
-            control.as_ref(),
-            "attach-surface",
-            json!({ "surface": 7 }),
-            &cancellation,
-        );
-        let task = tokio::spawn(request);
+        let request_control = TestArc::clone(&control);
+        let request_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            control_request_until_cancelled(
+                request_control.as_ref(),
+                "attach-surface",
+                json!({ "surface": 7 }),
+                &request_cancellation,
+            )
+            .await
+        });
         control.started.notified().await;
         cancellation.cancel();
         let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
