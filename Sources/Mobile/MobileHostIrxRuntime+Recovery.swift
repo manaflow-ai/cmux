@@ -119,30 +119,25 @@ extension MobileHostIrxRuntime {
     /// so the same pre-increment value drives both policy classification and
     /// expiry-aware delay calculation.
     private func activationFailureCount(for failure: IrxBrokerFailure) -> Int {
-        if failure.statusCode == 401, !failure.requiresReauthentication {
-            return activationUnauthorizedFailureCount
+        return switch failure.escalationBucket {
+        case .unauthorized: activationUnauthorizedFailureCount
+        case .missingAuthentication: activationMissingAuthenticationFailureCount
+        case .transient: activationRetryFailureCount
         }
-        if failure.errorCode == "missing_authentication" {
-            return activationMissingAuthenticationFailureCount
-        }
-        return activationRetryFailureCount
     }
 
     /// Advances only the counter associated with a retryable failure. Keeping
     /// this beside ``activationFailureCount(for:)`` prevents auth and generic
     /// outages from consuming one another's escalation budgets.
     private func advanceActivationFailureCount(for failure: IrxBrokerFailure) {
-        if failure.statusCode == 401, !failure.requiresReauthentication {
+        switch failure.escalationBucket {
+        case .unauthorized:
             activationUnauthorizedFailureCount = min(
-                activationUnauthorizedFailureCount + 1,
-                20
-            )
-        } else if failure.errorCode == "missing_authentication" {
+                activationUnauthorizedFailureCount + 1, 20)
+        case .missingAuthentication:
             activationMissingAuthenticationFailureCount = min(
-                activationMissingAuthenticationFailureCount + 1,
-                20
-            )
-        } else {
+                activationMissingAuthenticationFailureCount + 1, 20)
+        case .transient:
             activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
         }
     }

@@ -66,12 +66,39 @@ struct IrxHostActivationPolicyTests {
                 code: "missing_authentication"
             )
         )
+        #expect(failure.escalationBucket == .transient)
         #expect(
             policy.decision(
                 for: failure,
                 failureCount: 20,
                 jitterUnitInterval: 0
             ) == .stopped
+        )
+    }
+
+    @Test("a status-bearing missing-auth code uses the generic backoff bucket")
+    func statusBearingMissingAuthenticationUsesTransientLadder() {
+        let failure = IrxBrokerFailure(
+            operation: .mint,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 429,
+                code: "missing_authentication"
+            )
+        )
+        #expect(failure.escalationBucket == .transient)
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: 0
+            ) == .retry(delay: 1, retryAfterSeconds: nil)
+        )
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 2,
+                jitterUnitInterval: 0
+            ) == .retry(delay: 4, retryAfterSeconds: nil)
         )
     }
 

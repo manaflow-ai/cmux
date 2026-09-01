@@ -36,6 +36,22 @@ public enum IrxBrokerFailureKind: String, Codable, Equatable, Sendable {
 /// The wrapper retains only stable operation, status, and error-code fields;
 /// raw response bodies and token material never cross into the journal or UI.
 public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
+    /// Selects the counter used for bounded auth-recovery escalation.
+    ///
+    /// This classification is deliberately derived once from the typed
+    /// failure context. A broker response body that happens to use the
+    /// `missing_authentication` code with an HTTP status remains a normal
+    /// transient failure; only a missing, status-less auth snapshot enters
+    /// the dedicated account-transition bucket.
+    public enum EscalationBucket: String, Codable, Equatable, Sendable {
+        /// A post-recovery HTTP 401 that may be a short propagation race.
+        case unauthorized
+        /// A status-less missing session snapshot during account transition.
+        case missingAuthentication = "missing_authentication"
+        /// All other retryable failures use the generic transient ladder.
+        case transient
+    }
+
     public let operation: IrxBrokerOperation
     public let kind: IrxBrokerFailureKind
     public let statusCode: Int?
@@ -180,6 +196,17 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
     /// Whether the caller should retry with bounded backoff.
     public var isRetryable: Bool {
         kind == .transient
+    }
+
+    /// The single counter bucket shared by the policy and every lifecycle
+    /// owner. Definitive auth failures do not consume a retry counter.
+    public var escalationBucket: EscalationBucket {
+        guard !requiresReauthentication else { return .transient }
+        if statusCode == 401 { return .unauthorized }
+        if statusCode == nil, errorCode == "missing_authentication" {
+            return .missingAuthentication
+        }
+        return .transient
     }
 
     /// Attributes safe to attach to an irx journal event.

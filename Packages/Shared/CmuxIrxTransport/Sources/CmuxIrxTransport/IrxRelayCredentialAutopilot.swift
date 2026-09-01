@@ -260,19 +260,20 @@ public actor IrxRelayCredentialAutopilot {
         credentialExpiry: Date?,
         escalateUnauthorized: Bool = true
     ) async -> FailureCounts? {
-        let isPostRecoveryUnauthorized = failure.statusCode == 401
-            && !failure.requiresReauthentication
-        let isMissingAuthentication = failure.errorCode == "missing_authentication"
+        let escalationBucket = failure.escalationBucket
         // Select one cause-specific count and feed it to both the policy and
         // the bounded-delay/journal path. Auxiliary hint retries suppress only
         // terminal auth escalation; they still use their local count.
-        let decisionFailureCount = isPostRecoveryUnauthorized
-            ? unauthorizedFailureCount
-            : (isMissingAuthentication
-                ? missingAuthenticationFailureCount
-                : failureCount)
+        let decisionFailureCount: Int = switch escalationBucket {
+        case .unauthorized:
+            unauthorizedFailureCount
+        case .missingAuthentication:
+            missingAuthenticationFailureCount
+        case .transient:
+            failureCount
+        }
         let suppressAuthEscalation =
-            (isPostRecoveryUnauthorized || isMissingAuthentication)
+            escalationBucket != .transient
                 && !escalateUnauthorized
         let decision = retryPolicy.decision(
             for: failure,
@@ -310,12 +311,12 @@ public actor IrxRelayCredentialAutopilot {
             )
             guard !Task.isCancelled else { return nil }
             return FailureCounts(
-                transient: isPostRecoveryUnauthorized || isMissingAuthentication
-                    ? failureCount : min(failureCount + 1, 20),
-                unauthorized: isPostRecoveryUnauthorized
+                transient: escalationBucket == .transient
+                    ? min(failureCount + 1, 20) : failureCount,
+                unauthorized: escalationBucket == .unauthorized
                     ? min(unauthorizedFailureCount + 1, 20)
                     : unauthorizedFailureCount,
-                missingAuthentication: isMissingAuthentication
+                missingAuthentication: escalationBucket == .missingAuthentication
                     ? min(missingAuthenticationFailureCount + 1, 20)
                     : missingAuthenticationFailureCount
             )

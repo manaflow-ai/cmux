@@ -70,16 +70,15 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
         // propagation race, so allow a small bounded retry window. It must
         // still escalate rather than rebuilding the endpoint forever when the
         // broker persistently rejects the rotated pair.
-        if escalateUnauthorized,
-           failure.statusCode == 401,
-           failureCount >= postRecoveryUnauthorizedFailureLimit {
-            return .reauthenticationRequired
-        }
-        if escalateUnauthorized,
-           failure.statusCode == nil,
-           failure.errorCode == "missing_authentication",
-           failureCount >= missingAuthenticationFailureLimit {
-            return .reauthenticationRequired
+        if escalateUnauthorized {
+            switch failure.escalationBucket {
+            case .unauthorized where failureCount >= postRecoveryUnauthorizedFailureLimit:
+                return .reauthenticationRequired
+            case .missingAuthentication where failureCount >= missingAuthenticationFailureLimit:
+                return .reauthenticationRequired
+            case .unauthorized, .missingAuthentication, .transient:
+                break
+            }
         }
         if failure.requiresReauthentication {
             return .reauthenticationRequired
