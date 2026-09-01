@@ -1285,6 +1285,8 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--session",
     "--machine",
     "--terminal",
+    "--cols",
+    "--rows",
     "--state",
     "--machine-provider",
     "--cloud-host",
@@ -1668,7 +1670,7 @@ fn exit_pipe_io(reason: pipe_io::PipeIoExitReason) -> ! {
         let _ = writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
         let _ = stderr.flush();
     }
-    std::process::exit(reason.exit_code());
+    client_log::exit(reason.exit_code());
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
@@ -1739,9 +1741,7 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
     if args.pipe_io {
         let surface = surface_only.expect("--pipe-io is validated to carry --terminal");
         let terminal = terminal.as_ref().expect("--pipe-io is validated to carry --terminal");
-        let session = Session::Remote(remote.clone());
         let reason = pipe_io::run(
-            &session,
             &remote,
             &socket_path,
             terminal,

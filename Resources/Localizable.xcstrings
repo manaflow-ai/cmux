@@ -176649,22 +176649,76 @@
     "settings.betaFeatures.cloudTerminalManualIO": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "إدخال وإخراج يدوي للطرفية السحابية" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ručni I/O cloud terminala" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Manuel I/O for cloudterminal" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Manuelles I/O für Cloud-Terminal" } },
         "en": { "stringUnit": { "state": "translated", "value": "Cloud Terminal Manual IO" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナル マニュアルIO" } }
+        "es": { "stringUnit": { "state": "translated", "value": "E/S manual del terminal en la nube" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "E/S manuel du terminal cloud" } },
+        "it": { "stringUnit": { "state": "translated", "value": "I/O manuale del terminale cloud" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナルの手動I/O" } },
+        "km": { "stringUnit": { "state": "translated", "value": "I/O ដោយដៃសម្រាប់ស្ថានីយ cloud" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 터미널 수동 I/O" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Manuell I/O for skyterminal" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ręczne wejście/wyjście terminala w chmurze" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "E/S manual do terminal na nuvem" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ручной ввод-вывод облачного терминала" } },
+        "th": { "stringUnit": { "state": "translated", "value": "I/O แบบแมนนวลสำหรับเทอร์มินัลคลาวด์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut terminali manuel G/Ç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ручний ввід-вивід хмарного термінала" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云终端手动输入输出" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端終端機手動輸入輸出" } }
       }
     },
     "settings.betaFeatures.cloudTerminalManualIO.subtitleOn": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعرض طرفيات الأجهزة السحابية عبر مرحّل بايتات مع إعادة تشغيل منظمة وواجهة إعادة اتصال داخل اللوحة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Terminali cloud mašina prikazuju se preko bajtnog releja sa strukturiranim ponavljanjem i preklapanjem za ponovno povezivanje." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloudmaskiners terminaler vises via et byte-relæ med struktureret afspilning og en genforbindelsesoverlejring i ruden." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Terminals werden über ein Byte-Relay mit strukturierter Wiedergabe und einer Wiederverbindungsanzeige im Bereich dargestellt." } },
         "en": { "stringUnit": { "state": "translated", "value": "Cloud machine terminals render through a byte relay with structured replay and an in-pane reconnect overlay." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシンのターミナルは、構造化リプレイとペイン内再接続オーバーレイを備えたバイトリレーで描画されます。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Los terminales de máquinas en la nube se muestran mediante un relé de bytes con reproducción estructurada y una superposición de reconexión en el panel." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les terminaux des machines cloud utilisent un relais d’octets avec relecture structurée et une superposition de reconnexion dans le panneau." } },
+        "it": { "stringUnit": { "state": "translated", "value": "I terminali delle macchine cloud vengono visualizzati tramite un relay di byte con riproduzione strutturata e sovrapposizione di riconnessione nel pannello." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシンのターミナルは、構造化リプレイとペイン内再接続オーバーレイを備えたバイトリレーで描画されます。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ស្ថានីយរបស់ម៉ាស៊ីន cloud បង្ហាញតាមរយៈ byte relay ដែលមាន replay មានរចនាសម្ព័ន្ធ និងផ្ទាំងជូនដំណឹងភ្ជាប់ឡើងវិញក្នុងផ្ទាំង។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 머신 터미널은 구조화된 재생과 창 내 재연결 오버레이를 제공하는 바이트 릴레이로 표시됩니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Cloudmaskiners terminaler vises via et byte-relé med strukturert avspilling og et gjenoppkoblingslag i ruten." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Terminale maszyn w chmurze są wyświetlane przez przekaźnik bajtów ze strukturalnym odtwarzaniem i nakładką ponownego połączenia w panelu." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Os terminais das máquinas na nuvem usam um relay de bytes com replay estruturado e uma sobreposição de reconexão no painel." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Терминалы облачных машин работают через байтовый ретранслятор со структурированным воспроизведением и окном переподключения в панели." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เทอร์มินัลของเครื่องคลาวด์แสดงผ่านรีเลย์ไบต์ที่มีการเล่นซ้ำแบบมีโครงสร้างและโอเวอร์เลย์เชื่อมต่อใหม่ในบานหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut makinesi terminalleri, yapılandırılmış yeniden oynatma ve bölme içi yeniden bağlanma katmanı sunan bir bayt rölesiyle görüntülenir." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Термінали хмарних машин працюють через байтовий ретранслятор зі структурованим відтворенням і панеллю повторного підключення." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云机器终端通过字节中继显示，并提供结构化重放和窗格内重连提示。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端機器終端機透過位元組中繼顯示，提供結構化重播與窗格內重新連線提示。" } }
       }
     },
     "settings.betaFeatures.cloudTerminalManualIO.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تشغّل طرفيات الأجهزة السحابية عميل cmux-tui attach كعملية للوحة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Terminali cloud mašina pokreću cmux-tui attach klijent kao proces okna." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloudmaskiners terminaler kører cmux-tui attach-klienten som rudens proces." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Terminals führen den cmux-tui-attach-Client als Prozess des Bereichs aus." } },
         "en": { "stringUnit": { "state": "translated", "value": "Cloud machine terminals run the cmux-tui attach client as the pane's process." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシンのターミナルはcmux-tui attachクライアントをペインのプロセスとして実行します。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Los terminales de máquinas en la nube ejecutan el cliente cmux-tui attach como proceso del panel." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les terminaux des machines cloud exécutent le client cmux-tui attach comme processus du panneau." } },
+        "it": { "stringUnit": { "state": "translated", "value": "I terminali delle macchine cloud eseguono il client cmux-tui attach come processo del pannello." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシンのターミナルは、cmux-tui attach クライアントをペインのプロセスとして実行します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ស្ថានីយរបស់ម៉ាស៊ីន cloud ដំណើរការ cmux-tui attach client ជាដំណើរការរបស់ផ្ទាំង។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 머신 터미널은 cmux-tui attach 클라이언트를 창 프로세스로 실행합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Cloudmaskiners terminaler kjører cmux-tui attach-klienten som rutens prosess." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Terminale maszyn w chmurze uruchamiają klienta cmux-tui attach jako proces panelu." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Os terminais das máquinas na nuvem executam o cliente cmux-tui attach como processo do painel." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Терминалы облачных машин запускают клиент cmux-tui attach как процесс панели." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เทอร์มินัลของเครื่องคลาวด์เรียกใช้ไคลเอ็นต์ cmux-tui attach เป็นกระบวนการของบานหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut makinesi terminalleri cmux-tui attach istemcisini bölmenin işlemi olarak çalıştırır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Термінали хмарних машин запускають клієнт cmux-tui attach як процес панелі." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云机器终端将 cmux-tui attach 客户端作为窗格进程运行。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端機器終端機會將 cmux-tui attach 用戶端作為窗格程序執行。" } }
       }
     },
     "settings.betaFeatures.warning": {
@@ -257442,43 +257496,151 @@
     "tui.overlay.reconnecting.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting to the terminal session" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションに再接続中" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "الطرفية السحابية غير متاحة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Cloud terminal nije dostupan" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloudterminal er ikke tilgængelig" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Terminal nicht verfügbar" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud terminal unavailable" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Terminal en la nube no disponible" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Terminal cloud indisponible" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Terminale cloud non disponibile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナルを利用できません" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ស្ថានីយ cloud មិនអាចប្រើបាន" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 터미널을 사용할 수 없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skyterminalen er ikke tilgjengelig" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Terminal w chmurze jest niedostępny" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Terminal na nuvem indisponível" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Облачный терминал недоступен" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เทอร์มินัลคลาวด์ไม่พร้อมใช้งาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut terminali kullanılamıyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хмарний термінал недоступний" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云终端不可用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端終端機無法使用" } }
       }
     },
     "tui.overlay.reconnecting.detail": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The session daemon is unreachable (attempt %lld). The terminal shows its last state; input is paused." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "セッションデーモンに接続できません（試行 %lld 回目）。ターミナルは最後の状態を表示しており、入力は一時停止中です。" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "جارٍ محاولة إعادة الاتصال (المحاولة %lld). تعرض الطرفية حالتها الأخيرة، والإدخال متوقف مؤقتًا." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pokušaj ponovnog povezivanja (%lld. pokušaj). Terminal prikazuje posljednje stanje; unos je pauziran." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Forsøger at oprette forbindelse igen (forsøg %lld). Terminalen viser sin seneste tilstand; input er sat på pause." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verbindung wird wiederhergestellt (Versuch %lld). Das Terminal zeigt den letzten Zustand; Eingaben sind pausiert." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Trying to reconnect (attempt %lld). The terminal shows its last state; input is paused." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Intentando reconectar (intento %lld). El terminal muestra su último estado; la entrada está en pausa." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Tentative de reconnexion (tentative %lld). Le terminal affiche son dernier état ; la saisie est en pause." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nuovo tentativo di connessione (tentativo %lld). Il terminale mostra l'ultimo stato; l'input è in pausa." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再接続を試行中（%lld 回目）。ターミナルには最後の状態が表示され、入力は一時停止しています。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កំពុងព្យាយាមភ្ជាប់ឡើងវិញ (លើកទី %lld)។ ស្ថានីយបង្ហាញស្ថានភាពចុងក្រោយ ហើយការបញ្ចូលត្រូវបានផ្អាក។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다시 연결하는 중(%lld번째 시도). 터미널에 마지막 상태가 표시되며 입력은 일시 중지됩니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Prøver å koble til på nytt (forsøk %lld). Terminalen viser siste tilstand; inndata er satt på pause." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ponowna próba połączenia (%lld. próba). Terminal pokazuje ostatni stan, a wprowadzanie danych jest wstrzymane." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Tentando reconectar (tentativa %lld). O terminal mostra o último estado; a entrada está pausada." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Попытка переподключения (%lld). Терминал показывает последнее состояние, ввод приостановлен." } },
+        "th": { "stringUnit": { "state": "translated", "value": "กำลังลองเชื่อมต่อใหม่ (ครั้งที่ %lld) เทอร์มินัลแสดงสถานะล่าสุด และหยุดรับข้อมูลชั่วคราว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yeniden bağlanılıyor (deneme %lld). Terminal son durumunu gösteriyor, giriş duraklatıldı." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Спроба повторного підключення (%lld). Термінал показує останній стан, введення призупинено." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在尝试重新连接（第 %lld 次）。终端显示最后状态，输入已暂停。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在嘗試重新連線（第 %lld 次）。終端機顯示最後狀態，輸入已暫停。" } }
       }
     },
     "tui.overlay.failed.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Terminal relay unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリレーを利用できません" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "الطرفية السحابية غير متاحة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Cloud terminal nije dostupan" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloudterminal er ikke tilgængelig" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Terminal nicht verfügbar" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud terminal unavailable" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Terminal en la nube no disponible" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Terminal cloud indisponible" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Terminale cloud non disponibile" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナルを利用できません" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ស្ថានីយ cloud មិនអាចប្រើបាន" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 터미널을 사용할 수 없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skyterminalen er ikke tilgjengelig" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Terminal w chmurze jest niedostępny" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Terminal na nuvem indisponível" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Облачный терминал недоступен" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เทอร์มินัลคลาวด์ไม่พร้อมใช้งาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut terminali kullanılamıyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хмарний термінал недоступний" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云终端不可用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端終端機無法使用" } }
       }
     },
     "tui.overlay.failed.detail": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The relay for this terminal keeps failing. Retry now, or close the pane and reopen the terminal from the machine\u2019s tree." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルのリレーが繰り返し失敗しています。今すぐ再試行するか、ペインを閉じてマシンのツリーからターミナルを開き直してください。" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يمكن اتصال هذه الطرفية. أعد المحاولة، أو أغلق اللوحة وافتح الطرفية من شجرة الجهاز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ovaj terminal se ne može povezati. Pokušajte ponovo ili zatvorite okno i otvorite terminal iz stabla mašine." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Denne terminal kan ikke oprette forbindelse. Prøv igen, eller luk ruden og åbn terminalen fra maskinens træ." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Dieses Terminal kann keine Verbindung herstellen. Versuchen Sie es erneut oder schließen Sie den Bereich und öffnen Sie das Terminal im Maschinenbaum." } },
+        "en": { "stringUnit": { "state": "translated", "value": "This terminal cannot connect. Retry, or close the pane and reopen the terminal from the machine's tree." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Este terminal no puede conectarse. Reintenta o cierra el panel y vuelve a abrirlo desde el árbol de la máquina." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ce terminal ne peut pas se connecter. Réessayez, ou fermez le panneau et rouvrez le terminal depuis l’arbre de la machine." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Questo terminale non può connettersi. Riprova oppure chiudi il pannello e riapri il terminale dall'albero della macchina." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルに接続できません。再試行するか、ペインを閉じてマシンのツリーからターミナルを開き直してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ស្ថានីយនេះមិនអាចភ្ជាប់បានទេ។ ព្យាយាមម្តងទៀត ឬបិទផ្ទាំង ហើយបើកស្ថានីយពីមែកធាងម៉ាស៊ីន។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 터미널에 연결할 수 없습니다. 다시 시도하거나 창을 닫고 머신 트리에서 터미널을 다시 여세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Denne terminalen kan ikke koble til. Prøv igjen, eller lukk ruten og åpne terminalen fra maskintreet." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie można połączyć z tym terminalem. Spróbuj ponownie albo zamknij panel i otwórz terminal z drzewa maszyny." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível conectar este terminal. Tente novamente ou feche o painel e reabra o terminal na árvore da máquina." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удается подключиться к этому терминалу. Повторите попытку или закройте панель и откройте терминал в дереве машины." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เทอร์มินัลนี้เชื่อมต่อไม่ได้ ลองอีกครั้ง หรือปิดบานหน้าต่างแล้วเปิดเทอร์มินัลจากต้นไม้เครื่อง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu terminale bağlanılamıyor. Yeniden deneyin veya bölmeyi kapatıp terminali makine ağacından açın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдається підключитися до цього термінала. Повторіть спробу або закрийте панель і відкрийте термінал із дерева машини." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法连接到此终端。请重试，或关闭窗格后从机器树重新打开终端。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法連線到此終端機。請重試，或關閉窗格後從機器樹重新開啟終端機。" } }
       }
     },
     "tui.overlay.ended.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Terminal session ended" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "انتهت جلسة الطرفية السحابية" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Sesija cloud terminala je završena" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloudterminal-sessionen er afsluttet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Terminalsitzung beendet" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud terminal session ended" } },
+        "es": { "stringUnit": { "state": "translated", "value": "La sesión del terminal en la nube terminó" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Session du terminal cloud terminée" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sessione del terminale cloud terminata" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナルセッションが終了しました" } },
+        "km": { "stringUnit": { "state": "translated", "value": "វគ្គស្ថានីយ cloud បានបញ្ចប់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드 터미널 세션 종료됨" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skyterminaløkten er avsluttet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Sesja terminala w chmurze zakończona" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A sessão do terminal na nuvem terminou" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сеанс облачного терминала завершен" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เซสชันเทอร์มินัลคลาวด์สิ้นสุดแล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bulut terminali oturumu sona erdi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Сеанс хмарного термінала завершено" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云终端会话已结束" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端終端機工作階段已結束" } }
       }
     },
     "tui.overlay.ended.detail": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The daemon-backed terminal has ended. Close the tab, or keep it to read the final screen." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルが終了しました。タブを閉じるか、最後の画面を確認するために残せます。" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "انتهت جلسة الطرفية. أغلق علامة التبويب، أو اتركها لقراءة الشاشة الأخيرة." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ova terminalska sesija je završena. Zatvorite karticu ili je ostavite da pročitate posljednji ekran." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Denne terminals session er afsluttet. Luk fanen, eller behold den for at læse den sidste skærm." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Diese Terminalsitzung ist beendet. Schließen Sie den Tab oder lassen Sie ihn geöffnet, um den letzten Bildschirm zu lesen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "This terminal session has ended. Close the tab, or keep it to read the final screen." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Esta sesión del terminal terminó. Cierra la pestaña o mantenla para leer la pantalla final." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Cette session de terminal est terminée. Fermez l’onglet ou gardez-le pour lire l’écran final." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Questa sessione del terminale è terminata. Chiudi la scheda oppure lasciala aperta per leggere la schermata finale." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルセッションは終了しました。タブを閉じるか、最後の画面を確認するために残してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "វគ្គស្ថានីយនេះបានបញ្ចប់។ បិទផ្ទាំង ឬទុកវាដើម្បីអានអេក្រង់ចុងក្រោយ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 터미널 세션이 종료되었습니다. 탭을 닫거나 마지막 화면을 확인하려면 그대로 두세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Denne terminaløkten er avsluttet. Lukk fanen, eller behold den for å lese siste skjermbilde." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ta sesja terminala zakończyła się. Zamknij kartę albo pozostaw ją, aby odczytać ostatni ekran." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Esta sessão do terminal terminou. Feche a aba ou mantenha-a para ler a tela final." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сеанс терминала завершен. Закройте вкладку или оставьте ее, чтобы прочитать последний экран." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เซสชันเทอร์มินัลนี้สิ้นสุดแล้ว ปิดแท็บหรือเก็บไว้เพื่ออ่านหน้าจอสุดท้าย" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bu terminal oturumu sona erdi. Sekmeyi kapatın veya son ekranı okumak için açık bırakın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Цей сеанс термінала завершено. Закрийте вкладку або залиште її, щоб прочитати останній екран." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此终端会话已结束。请关闭标签页，或保留它以查看最后的屏幕。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此終端機工作階段已結束。請關閉分頁，或保留它以閱讀最後畫面。" } }
       }
     },
     "uiTest.bonsplit.action.title": {

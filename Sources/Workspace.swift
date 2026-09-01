@@ -7342,7 +7342,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
         // Manual-IO cloud terminal panes carry their own per-pane relay state
         // machine; its overlay wins over the workspace-level presentation.
-        if let pump = TuiManualIOPumpRegistry.shared.pump(forSurfaceID: surfaceId) {
+        if let pump = terminalPanel(for: surfaceId)?.cloudTuiManualIOPump {
             return pump.overlayPresentation
         }
         return CloudTerminalReconnectOverlayPolicy.presentation(
@@ -9140,8 +9140,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// terminal: the pane renders daemon bytes through a manual-mirror
     /// surface, and the pump owns the `attach --pipe-io` relay against the
     /// machine link's local socket (reconnect state machine included). The
-    /// pump is registered by surface id, which stays stable across detach
-    /// transfers; ``Workspace/removePanel`` stops it on a real discard.
+    /// pump is retained by the panel, which stays stable across detach
+    /// transfers; panel lifecycle teardown stops it on a real discard.
     private func makeCloudTuiManualIOPanel(
         id newPanelID: UUID,
         attach: CloudTuiManualIOAttach,
@@ -9163,12 +9163,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // scrollback and is never locally reflowed, its TUI repaints itself
         // when the daemon-side resize lands.
         surface.setManualIONoReflow(false)
-        pump.start(surface: surface)
         pump.onStateChange = { [weak surface] in
             surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }
-        TuiManualIOPumpRegistry.shared.register(pump, surfaceID: surface.id)
-        return TerminalPanel(workspaceId: id, surface: surface)
+        pump.start(surface: surface)
+        return TerminalPanel(workspaceId: id, surface: surface, cloudTuiManualIOPump: pump)
     }
 
     /// Creates a configured manual-mirror ``TerminalPanel`` for one remote tmux pane,
@@ -13496,6 +13495,9 @@ extension Workspace: BonsplitDelegate {
         if let terminalPanel = panel as? TerminalPanel {
             let shouldFocusTerminalSurface = shouldMoveTerminalSurfaceFocus(for: focusIntent)
             terminalPanel.surface.setFocus(shouldFocusTerminalSurface)
+            if shouldFocusTerminalSurface {
+                terminalPanel.markCloudTuiManualIOGeometryOwnershipChanged()
+            }
             terminalPanel.hostedView.setActive(true)
             if reassertAppKitFocus && shouldFocusTerminalSurface {
                 terminalPanel.focus(focusTransactionId: focusTransactionId)
