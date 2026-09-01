@@ -23184,7 +23184,7 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> [String: String] {
         let surfaceAliasToken = [paneId, surfaceId]
-            .compactMap { raw in
+            .compactMap { raw -> String? in
                 guard tmuxSurfaceAliasSurfaceId(raw) != nil else { return nil }
                 return normalizedTmuxTarget(raw)
             }
