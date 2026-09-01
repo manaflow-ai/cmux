@@ -156,7 +156,7 @@ final class VideoBackgroundPlaybackCoordinator {
     }
 
     private func freezeClock() {
-        guard let runningSince else { return }
+        guard runningSince != nil else { return }
         accumulatedPosition = currentPosition()
         self.runningSince = nil
     }
