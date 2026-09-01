@@ -4495,7 +4495,7 @@ private struct BackgroundDebugView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassMaterial") private var bgGlassMaterial = "hudWindow"
-    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
+    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
 
     var body: some View {
         ScrollView {
@@ -4541,7 +4541,7 @@ private struct BackgroundDebugView: View {
                         bgGlassTintHex = "#000000"
                         bgGlassTintOpacity = 0.03
                         bgGlassMaterial = "hudWindow"
-                        bgGlassEnabled = false
+                        bgGlassEnabled = true
                         updateWindowGlassTint()
                     }
 

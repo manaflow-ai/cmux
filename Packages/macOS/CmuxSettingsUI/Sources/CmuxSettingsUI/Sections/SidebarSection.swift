@@ -38,6 +38,11 @@ public struct SidebarSection: View {
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    @State var glassTint: DefaultsValueModel<Double>
+    @State var peekReveal: DefaultsValueModel<SidebarPeekRevealPreset>
+    @State var peekDisabled: DefaultsValueModel<Bool>
+    @State var rowDensity: DefaultsValueModel<SidebarRowDensity>
+    @State var dragSwitchDisabled: DefaultsValueModel<Bool>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -71,6 +76,11 @@ public struct SidebarSection: View {
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
+        _glassTint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.tintOpacity))
+        _peekReveal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.peekReveal))
+        _peekDisabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.peekDisabled))
+        _rowDensity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rowDensity))
+        _dragSwitchDisabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.dragSwitchDisabled))
     }
     /// The rendered sidebar settings section.
     public var body: some View {
@@ -110,6 +120,11 @@ public struct SidebarSection: View {
             compactAgentStatus,
             rightMaxWidth,
             rememberedRightMaxWidth,
+            glassTint,
+            peekReveal,
+            peekDisabled,
+            rowDensity,
+            dragSwitchDisabled,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -188,6 +203,8 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             SettingsCardDivider()
+
+            customizationRows
 
             SettingsCardRow(
                 configurationReview: .settingsOnly,

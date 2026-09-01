@@ -35,15 +35,22 @@ final class SidebarPeekController: ObservableObject {
 
     // MARK: - Events
 
-    func pointerEnteredEdge() { send(.pointerEnteredEdge) }
+    func pointerEnteredEdge() {
+        SidebarNavigationTimings.begin("peek")
+        send(.pointerEnteredEdge)
+    }
     /// Edge-enter with the dwell skipped: hovering an activation control (the
     /// titlebar's sidebar toggle) is already a deliberate act, so the reveal
     /// starts the moment the pointer lands instead of after the edge dwell.
     func pointerEnteredActivationControl() {
+        SidebarNavigationTimings.begin("peek")
         send(.pointerEnteredEdge)
         send(.dwellElapsed)
     }
-    func pointerExitedEdge() { send(.pointerExitedEdge) }
+    func pointerExitedEdge() {
+        SidebarNavigationTimings.cancel("peek")
+        send(.pointerExitedEdge)
+    }
     func dragEnteredEdge() { send(.dragEnteredEdge) }
     func workspaceActivated() { send(.workspaceActivated) }
     func escapePressed() { send(.escapePressed) }
@@ -80,6 +87,9 @@ final class SidebarPeekController: ObservableObject {
         // pointer crossing of the edge strip, most of which change nothing.
         if presentsPanel != state.presentsPanel {
             presentsPanel = state.presentsPanel
+            if presentsPanel {
+                SidebarNavigationTimings.end("peek")
+            }
         }
     }
 

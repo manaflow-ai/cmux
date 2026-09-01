@@ -23,6 +23,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
     let isPresented: Bool
+    let usesCompactTopInset: Bool
     let unreadSource: SidebarUnreadModel
     /// Invoked when a completed row click parks awaiting live actions; the
     /// owner must invalidate itself so this view re-applies (issue #9690).
@@ -39,6 +40,7 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> SidebarWorkspaceTableContainerView {
+        context.coordinator.usesCompactTopInset = usesCompactTopInset
         let container = context.coordinator.makeContainerView()
         container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         container.emptyDropIndicatorView.colorScheme = colorScheme

@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSidebar
 import SwiftUI
 
@@ -26,6 +27,11 @@ struct SidebarPeekPresentation: ViewModifier {
     /// is being superseded by the docked pane: the fixed sidebar replaces it
     /// in place, and a card gliding off underneath reads as a ghost.
     var dismissesInstantly: Bool = false
+    /// The card's legibility tint (alpha included), resolved from the same
+    /// appearance policy that paints the docked ground.
+    var panelTint: Color = Color(nsColor: .windowBackgroundColor).opacity(0.52)
+    /// The card's glass material, matching the docked ground's.
+    var panelGlassMaterial: NSVisualEffectView.Material = .popover
     /// Card geometry for floating mode.
     let panelMetrics: SidebarPeekPanelMetrics
     /// Acquires and releases the pointer hold as the pointer crosses the panel.
@@ -39,7 +45,11 @@ struct SidebarPeekPresentation: ViewModifier {
 
     func body(content: Content) -> some View {
         if rendersAsCard {
-            SidebarPeekPanelChrome(metrics: panelMetrics) {
+            SidebarPeekPanelChrome(
+                metrics: panelMetrics,
+                tint: panelTint,
+                glassMaterial: panelGlassMaterial
+            ) {
                 content.frame(width: width, alignment: .leading)
             }
             .frame(width: floatingWidth, alignment: .leading)

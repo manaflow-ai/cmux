@@ -1,3 +1,5 @@
+import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSidebar
 import SwiftUI
@@ -89,10 +91,26 @@ extension ContentView {
     func sidebarPeekCard(width: CGFloat) -> some View {
         let revealed = sidebarPanelCardIsRevealed
         let appearance = windowAppearanceSnapshot
+        // The card wears the docked ground's exact wash: same resolved tint
+        // (colour and alpha) and same material, so floating and docked read
+        // as one surface in two positions. The tint-opacity slider moves
+        // both together through this single resolution.
+        var panelTint = Color(nsColor: .windowBackgroundColor).opacity(0.52)
+        var panelGlassMaterial = NSVisualEffectView.Material.popover
+        if case let .sidebarMaterial(materialPolicy) = appearance.policy(for: .leftSidebar) {
+            panelTint = Color(nsColor: materialPolicy.tintColor)
+            if let material = materialPolicy.material {
+                panelGlassMaterial = material
+            }
+        }
         // `isPresented: true` keeps the panel's list live even while hidden:
         // suspending it on dismissal blanks the rows the moment the slide-out
         // starts, which reads as the panel vanishing instead of leaving.
-        return sidebarView(isPresented: true, attachesFocusBoundary: false)
+        return sidebarView(
+            isPresented: true,
+            attachesFocusBoundary: false,
+            usesCompactTopInset: true
+        )
             .environment(\.colorScheme, appearance.sidebarContentColorScheme)
             .modifier(SidebarPeekPresentation(
                 isRevealed: revealed,
@@ -100,6 +118,8 @@ extension ContentView {
                 width: width,
                 // Docking supersedes the card in place: no exit slide.
                 dismissesInstantly: sidebarState.occupiesLayout,
+                panelTint: panelTint,
+                panelGlassMaterial: panelGlassMaterial,
                 panelMetrics: sidebarPeekPanelMetrics,
                 onPanelHoverChange: { isInside in
                     if isInside {

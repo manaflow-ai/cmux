@@ -49,6 +49,7 @@ final class SidebarToggleAnimator: ObservableObject {
         // Only a docked pane trades width with the terminal; floating
         // visibility is the peek panel's business.
         guard sidebarState.presentationMode == .docked else { return false }
+        SidebarNavigationTimings.begin(targetVisible ? "toggle.show" : "toggle.hide")
         cancelSweep()
         if targetVisible {
             // Docking over an already-revealed peek card swaps in place: the
@@ -61,6 +62,10 @@ final class SidebarToggleAnimator: ObservableObject {
                 : max(layout.width, CGFloat(SessionPersistencePolicy.defaultSidebarWidth))
             sidebarState.applyVisibilityBypassingOrchestrator(true)
             layout.width = 1
+            // The width snap above IS the first visual feedback for show (the
+            // terminal steps aside in this very turn); the sweep that follows
+            // is the pane gliding in.
+            SidebarNavigationTimings.end("toggle.show")
             sweep(from: 1, to: target, completion: nil)
             return true
         } else {
@@ -93,6 +98,7 @@ final class SidebarToggleAnimator: ObservableObject {
                     ? 2 * progress * progress
                     : 1 - pow(-2 * progress + 2, 2) / 2
                 layout.width = from + (to - from) * CGFloat(eased)
+                SidebarNavigationTimings.end("toggle.hide")
                 if progress >= 1 {
                     tick.invalidate()
                     self.timer = nil

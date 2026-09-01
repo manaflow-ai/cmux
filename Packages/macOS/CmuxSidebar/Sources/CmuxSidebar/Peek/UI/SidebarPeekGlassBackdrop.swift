@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 public import SwiftUI
 
 /// Behind-window blur for the floating card.
@@ -11,16 +11,19 @@ public import SwiftUI
 public struct SidebarPeekGlassBackdrop: NSViewRepresentable {
     /// Corner radius matching the card shape.
     public let cornerRadius: CGFloat
+    /// The material to blur with, matching the docked ground's.
+    public let material: NSVisualEffectView.Material
 
     /// Creates the backdrop.
-    public init(cornerRadius: CGFloat) {
+    public init(cornerRadius: CGFloat, material: NSVisualEffectView.Material = .popover) {
         self.cornerRadius = cornerRadius
+        self.material = material
     }
 
     public func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.blendingMode = .behindWindow
-        view.material = .popover
+        view.material = material
         view.state = .active
         view.wantsLayer = true
         view.layer?.cornerRadius = cornerRadius
@@ -30,6 +33,7 @@ public struct SidebarPeekGlassBackdrop: NSViewRepresentable {
     }
 
     public func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
         view.layer?.cornerRadius = cornerRadius
     }
 }

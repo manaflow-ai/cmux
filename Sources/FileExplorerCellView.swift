@@ -88,7 +88,15 @@ final class FileExplorerCellView: NSTableCellView {
         iconHeightConstraint.constant = style.iconSize
         iconToTextConstraint.constant = style.iconToTextSpacing
 
-        if style == .finder {
+        if let materialIcon = MaterialFileIconResolver.shared.image(
+            name: node.name, isDirectory: node.isDirectory, pointSize: style.iconSize
+        ) {
+            // VS Code-style Material icons ship their own colors; no tint.
+            iconView.apply(CmuxResolvedIconRequest(
+                source: .image(materialIcon),
+                size: NSSize(width: style.iconSize, height: style.iconSize)
+            ))
+        } else if style == .finder {
             // Native Finder icon pixels miss 3:1 in light mode; use their masks with the dynamic palette tint.
             if node.isDirectory {
                 iconView.apply(CmuxResolvedIconRequest(

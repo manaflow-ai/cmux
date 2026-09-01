@@ -19,7 +19,7 @@ struct UserDefaultsWindowBackgroundSettings: WindowBackgroundSettingsReading {
     }
 
     var isBackgroundGlassEnabled: Bool {
-        defaults.object(forKey: "bgGlassEnabled") as? Bool ?? false
+        defaults.object(forKey: "bgGlassEnabled") as? Bool ?? true
     }
 }
 

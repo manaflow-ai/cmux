@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxNotifications
+import CmuxSettings
 import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
@@ -150,6 +151,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         previewBailoutTask?.cancel()
     }
+<<<<<<< HEAD
 
     private func clearPendingWorkspaceDragWriters(
         preserving preservedWriter: SidebarWorkspaceDragPasteboardWriter? = nil
@@ -202,6 +204,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             detachController(from: abandonedSourceTable)
         }
     }
+
+    /// Set by the representable before the container is built: the floating
+    /// panel's table has no titlebar band to clear, so it takes the compact
+    /// top inset.
+    var usesCompactTopInset = false
+    private var resolvedScrollInsets: SidebarWorkspaceScrollInsets {
+        usesCompactTopInset ? .floatingPanel : .workspaceList
+    }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
@@ -252,10 +262,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.contentInsets = NSEdgeInsets(
-            top: SidebarWorkspaceScrollInsets.workspaceList.top
+            top: resolvedScrollInsets.top
                 + SidebarWorkspaceListMetrics.rowVerticalPadding,
             left: 0,
-            bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+            bottom: resolvedScrollInsets.bottom
                 + SidebarWorkspaceListMetrics.rowVerticalPadding,
             right: 0
         )
@@ -1004,6 +1014,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         }
 
+        if hasStructuralChanges || !contentChanges.isEmpty {
+            SidebarNavigationTimings.lapPendingSwitch("applyReached")
+            // The authoritative apply is the shared completion point for
+            // switch, create, and close.
+            SidebarNavigationTimings.endAnyApplyDriven()
+        }
         noteServedHeightDivergence(in: containerView.tableView)
 
 #if DEBUG
@@ -1120,6 +1136,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let configuration = rows[row]
         if let actions = configuration.appKitWorkspaceRowActions {
             previewSelection(row: row, modifiers: click.modifiers, hitView: nil)
+            // Assume warm; the mount reconcile reclassifies to cold when the
+            // target workspace has to mount.
+            SidebarNavigationTimings.begin("switch.warm")
             dispatchSelection(modifiers: click.modifiers) {
                 actions.commands.updateSelection(modifiers: click.modifiers)
             }
@@ -1150,7 +1169,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             selectionCoalescer.flushNow()
             action()
         } else {
-            selectionCoalescer.request(action)
+            selectionCoalescer.request {
+                SidebarNavigationTimings.lapPendingSwitch("selectionDispatched")
+                action()
+            }
         }
     }
 
@@ -1519,7 +1541,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // to it, so the tab in your hand is the tab you are on. Single
             // drags only; a multi-selection drag must not collapse the very
             // selection it is moving.
-            if (actions?.movingWorkspaceCount?(workspaceId) ?? 1) <= 1,
+            if !SidebarCustomizationSettings.dragSwitchDisabled(),
+               (actions?.movingWorkspaceCount?(workspaceId) ?? 1) <= 1,
                let sourceRow = draggedRows.first,
                rows.indices.contains(sourceRow),
                rows[sourceRow].appKitWorkspaceRowModel?.isActive == false,
@@ -1999,6 +2022,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             reorderDragWindowPoint = nil
             retireReorderIndicator()
             return false
+        }
+        let reorderTickStart = ProcessInfo.processInfo.systemUptime
+        defer {
+            SidebarNavigationTimings.recordSampledTick("reorder.tick", startUptime: reorderTickStart)
         }
         reorderDragPayloadWorkspaceId = payloadWorkspaceId
         guard !targets.isEmpty,
@@ -3406,7 +3433,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             ).minY - 1
         } else {
             y = container.bounds.height
-                - SidebarWorkspaceScrollInsets.workspaceList.top
+                - resolvedScrollInsets.top
                 - SidebarWorkspaceListMetrics.rowVerticalPadding
         }
         let leadingIndent: CGFloat = {

@@ -117,12 +117,10 @@ enum RightSidebarChromeMetrics {
 
 enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
-    /// Height reserved at the head of the list for the new-workspace row.
-    static let newWorkspaceRowHeight: CGFloat = 30
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
-    static let topScrimHeight: CGFloat = firstRowTopOffset + newWorkspaceRowHeight + 20
+    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
     static let bottomScrimHeight: CGFloat = firstRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
@@ -134,15 +132,26 @@ enum SidebarWorkspaceListMetrics {
     }
 
     static var scrollTopInset: CGFloat {
-        // The new-workspace row sits in this reserved band, above the first
-        // workspace row.
-        max(0, firstRowTopOffset - rowVerticalPadding) + newWorkspaceRowHeight
+        max(0, firstRowTopOffset - rowVerticalPadding)
     }
+
+    /// Compact top metrics for the floating panel: its window already starts
+    /// below the titlebar, so the docked pane's reserved titlebar band is
+    /// dead space there.
+    static let compactScrollTopInset: CGFloat = 8
+    static let compactTopScrimHeight: CGFloat = 24
 }
 
 struct SidebarWorkspaceScrollInsets: Equatable {
     static let workspaceList = SidebarWorkspaceScrollInsets(
         top: SidebarWorkspaceListMetrics.scrollTopInset,
+        bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
+    )
+
+    /// The floating panel's list: same bottom (the footer still lives
+    /// there), compact top (no titlebar band to clear).
+    static let floatingPanel = SidebarWorkspaceScrollInsets(
+        top: SidebarWorkspaceListMetrics.compactScrollTopInset,
         bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
     )
 

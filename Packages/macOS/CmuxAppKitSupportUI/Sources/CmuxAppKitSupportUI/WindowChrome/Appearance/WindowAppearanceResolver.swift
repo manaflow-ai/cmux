@@ -86,7 +86,7 @@ public struct WindowAppearanceResolver {
             sidebarTintOpacity: defaults.object(forKey: "sidebarTintOpacity") as? Double ?? tintDefaults.opacity,
             sidebarCornerRadius: defaults.object(forKey: "sidebarCornerRadius") as? Double ?? 0.0,
             sidebarBlurOpacity: defaults.object(forKey: "sidebarBlurOpacity") as? Double ?? 1.0,
-            bgGlassEnabled: defaults.object(forKey: "bgGlassEnabled") as? Bool ?? false,
+            bgGlassEnabled: defaults.object(forKey: "bgGlassEnabled") as? Bool ?? true,
             bgGlassTintHex: defaults.string(forKey: "bgGlassTintHex") ?? "#000000",
             bgGlassTintOpacity: defaults.object(forKey: "bgGlassTintOpacity") as? Double ?? 0.03,
             reduceTransparency: reduceTransparency

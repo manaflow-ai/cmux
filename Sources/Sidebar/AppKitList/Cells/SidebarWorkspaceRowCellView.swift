@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import Combine
 import CmuxFoundation
+import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
@@ -1274,7 +1275,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let leading = outerPad + contentPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
         let trailing = width - outerPad - contentPad
         let contentWidth = max(10, trailing - leading)
-        var y: CGFloat = 8
+        var y: CGFloat = model.settings.rowDensity.rowVerticalPadding
         let spacing: CGFloat = 4
 
         // Title line
@@ -1526,7 +1527,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
 
-        y += 8
+        y += model.settings.rowDensity.rowVerticalPadding
 
         if apply {
             contentContainer.frame = NSRect(x: 0, y: 0, width: width, height: y)
