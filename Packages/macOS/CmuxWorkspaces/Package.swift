@@ -23,6 +23,9 @@ let package = Package(
         .package(path: "../CMUXDebugLog"),
         // CmuxTestSupport backs FileOpen/ PreferredEditorService UI-test capture.
         .package(path: "../CmuxTestSupport"),
+        // CMUXAgentLaunch is a leaf service dependency used only by the
+        // incident-shaped restore acceptance suite.
+        .package(path: "../CMUXAgentLaunch"),
     ],
     targets: [
         .target(
@@ -43,6 +46,7 @@ let package = Package(
             name: "CmuxWorkspacesTests",
             dependencies: [
                 "CmuxWorkspaces",
+                .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
             ],
