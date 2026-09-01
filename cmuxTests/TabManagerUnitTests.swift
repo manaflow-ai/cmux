@@ -3977,7 +3977,7 @@ struct CrossWindowWorkspaceSplitZoomTests {
         )
 
         destination.attachWorkspace(detached, select: true)
-        #expect(destination.selectedWorkspace?.bonsplitController.isSplitZoomed != true)
+        #expect(destination.selectedWorkspace?.bonsplitController.isSplitZoomed == false)
     }
 
     /// Verifies that detaching an unselected workspace also clears zoom before transfer.
@@ -4004,7 +4004,7 @@ struct CrossWindowWorkspaceSplitZoomTests {
         )
 
         destination.attachWorkspace(detached, select: true)
-        #expect(destination.selectedWorkspace?.bonsplitController.isSplitZoomed != true)
+        #expect(destination.selectedWorkspace?.bonsplitController.isSplitZoomed == false)
     }
 }
 
