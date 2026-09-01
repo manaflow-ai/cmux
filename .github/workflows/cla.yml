@@ -44,7 +44,10 @@ jobs:
               github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
             )
           )
-        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        # Pinned to master's head: the repo is archived, v2.6.1 is the final
+        # release, and master adds one real fix over it ($contributorName not
+        # replaced in the signing comment). SHA-pinned, so immutable.
+        uses: contributor-assistant/github-action@58daaf842ac3a5a064edeaebe5987b7e196a3f22 # master 2026-03-23, v2.6.1+4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # v2.6.1 (the newest release; upstream master still declares node20)
