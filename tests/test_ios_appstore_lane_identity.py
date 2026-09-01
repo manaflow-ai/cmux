@@ -995,7 +995,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     )
     _check(
         "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
-        "App Store archive enables crash reporting",
+        "App Store archive keeps crash reporting enabled",
     )
     _check(
         all("PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call for call in archive_call),
@@ -1025,7 +1025,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     )
     _check(
         info.get("CMUXCrashReportingEnabled") == "YES",
-        "final signed IPA enables crash reporting",
+        "final signed IPA keeps crash reporting enabled",
     )
 
 
