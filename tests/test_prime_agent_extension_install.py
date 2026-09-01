@@ -321,7 +321,7 @@ if (payloads[1].prompt !== "root prompt" || payloads[2].last_assistant_message !
   throw new Error(`root lifecycle payloads were incomplete: ${JSON.stringify(payloads)}`);
 }
 const envLines = lines(process.env.FAKE_PRIME_CMUX_ENV_LOG);
-if (envLines.filter((line) => line === "kind=prime-agent").length !== 3
+if (envLines.filter((line) => line === "kind=prime-agent").length !== 6
   || envLines.some((line) => line === "argv=stale-capture")) {
   throw new Error(`root launch capture was not normalized: ${lines(process.env.FAKE_PRIME_CMUX_ENV_LOG)}`);
 }
