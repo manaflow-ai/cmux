@@ -7,6 +7,7 @@ import {
 } from "../../../../../services/subrouter/routeHelpers";
 import { resolveSubrouterRequestContext } from "../../../../../services/subrouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
+import { unmirrorConnectedAccount } from "../../../../../services/coderouter/accountMirror";
 
 
 type RouteContext = {
@@ -29,13 +30,18 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   try {
     const tenant = await client.exchangeTeam(accessToken, team);
     await client.deleteAccount(tenant.tenantKey, accountId);
+    // Keep the cloud machines' vault in step with the connected accounts.
+    const vmPlane = await unmirrorConnectedAccount({
+      teamId: team.teamId,
+      subrouterAccountId: accountId,
+    });
     captureCoderouterEvent({
       event: "coderouter_account_removed",
       userId: resolved.value.user.id,
       teamId: team.teamId,
       properties: { source: "legacy_dashboard" },
     });
-    return jsonResponse({ ok: true, teamId: team.teamId });
+    return jsonResponse({ ok: true, teamId: team.teamId, vmPlane });
   } catch (err) {
     return subrouterErrorResponse(err);
   }

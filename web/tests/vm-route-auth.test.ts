@@ -134,6 +134,33 @@ mock.module("../services/vms/workflows", () => ({
 // suite's fixture data leaks in. The thrown message must match pro.ts's
 // isMissingDatabaseConfig so the reconcile degrades exactly like a
 // DATABASE_URL-less environment.
+// Every machine-creating route mints the coderouter model-plane env; the mint
+// itself is covered in coderouter-vm-model-plane.test.ts.
+const MODEL_PLANE_ENV = {
+  OPENAI_BASE_URL: "https://cmux.test/v1",
+  OPENAI_API_KEY: "crt_route-test",
+  CMUX_CODEROUTER_URL: "https://cmux.test",
+};
+const mintVmModelPlaneEnvBestEffort = mock(async () => MODEL_PLANE_ENV);
+// Same by-value capture and per-file toggle as the workflows mock above: bun
+// module mocks are process-global, so the stub applies only while this file's
+// tests run (see useWorkflowStubs) and every other export stays real for the
+// suites that exercise the real mint in the same run.
+const vmModelPlaneModule = await import("../services/coderouter/vmModelPlane");
+const realMintVmModelPlaneEnvBestEffort = vmModelPlaneModule.mintVmModelPlaneEnvBestEffort;
+const realMintVmModelPlaneEnv = vmModelPlaneModule.mintVmModelPlaneEnv;
+const realVmModelPlaneEnabled = vmModelPlaneModule.vmModelPlaneEnabled;
+const realVmRouteTokenLabel = vmModelPlaneModule.VM_ROUTE_TOKEN_LABEL;
+mock.module("../services/coderouter/vmModelPlane", () => ({
+  mintVmModelPlaneEnvBestEffort: ((...args: Parameters<typeof realMintVmModelPlaneEnvBestEffort>) =>
+    useWorkflowStubs
+      ? (mintVmModelPlaneEnvBestEffort as (...a: unknown[]) => Promise<typeof MODEL_PLANE_ENV>)(...args)
+      : realMintVmModelPlaneEnvBestEffort(...args)) as typeof realMintVmModelPlaneEnvBestEffort,
+  mintVmModelPlaneEnv: realMintVmModelPlaneEnv,
+  vmModelPlaneEnabled: realVmModelPlaneEnabled,
+  VM_ROUTE_TOKEN_LABEL: realVmRouteTokenLabel,
+}));
+
 mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
@@ -479,6 +506,47 @@ describe("VM REST auth", () => {
       provider: "freestyle",
       image: "sh-b3jqa6o88qe6l738dw9z",
       imageVersion: "freestyle-signedadmin-20260625b",
+    }));
+  });
+
+  test("machine creates and Base opens both hand the minted model-plane env to the workflow", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-kind",
+      provider: "freestyle",
+      image: "sh-b3jqa6o88qe6l738dw9z",
+      imageVersion: "freestyle-signedadmin-20260625b",
+      status: "running",
+      createdAt: 1_777_000_000_000,
+      baseId: "base-1",
+      baseName: "Base",
+      generation: 1,
+      retainedProviderVmId: null,
+    });
+
+    const create = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "base" }),
+      }),
+    );
+    expect(create.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ envs: MODEL_PLANE_ENV }));
+
+    // A Base machine is wired exactly like `cmux vm new`: no machine is born
+    // without the coderouter model-plane env.
+    const open = await baseOpenRoute.POST(
+      new Request("https://cmux.test/api/vm/base/open", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "base" }),
+      }),
+    );
+    expect(open.status).toBe(200);
+    expect(openBaseVm).toHaveBeenCalledWith(expect.objectContaining({ envs: MODEL_PLANE_ENV }));
+    expect(mintVmModelPlaneEnvBestEffort).toHaveBeenCalledWith(expect.objectContaining({
+      requestUrl: "https://cmux.test/api/vm/base/open",
     }));
   });
 

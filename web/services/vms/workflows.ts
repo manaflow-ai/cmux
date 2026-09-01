@@ -439,6 +439,7 @@ export function openBaseVm(input: {
   readonly imageVersion?: string | null;
   readonly baseName?: string;
   readonly bakedFreestyleSignedAdmin?: boolean;
+  readonly envs?: Readonly<Record<string, string>>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -466,6 +467,7 @@ export function resetBaseVm(input: {
   readonly baseName?: string;
   readonly reason?: string | null;
   readonly bakedFreestyleSignedAdmin?: boolean;
+  readonly envs?: Readonly<Record<string, string>>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -496,6 +498,8 @@ function finishBaseCreate(
     readonly imageVersion?: string | null;
     readonly baseName?: string;
     readonly bakedFreestyleSignedAdmin?: boolean;
+    /** Create-time machine env (the coderouter model-plane vars); see createVm. */
+    readonly envs?: Readonly<Record<string, string>>;
     readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
@@ -548,6 +552,7 @@ function finishBaseCreate(
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
         bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        envs: input.envs,
       }),
     ).pipe(
       Effect.tapError((err) =>
