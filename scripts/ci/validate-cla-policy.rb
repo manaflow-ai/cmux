@@ -22,8 +22,11 @@ MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
 CLA_ACTION = "manaflow-ai/cla-github-action@5749bd2e5867b7545e66b55ac44acf616595bde3"
-CLA_RUNNER = "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
-CLA_RUNNER_PATH = /\Ajobs\.(?:CLACommentGate|CLAAssistant|CLALedgerWriter|CLACompatibility|RerunFailedCLA|LockMergedPullRequest)\.runs-on\z/
+# CLA policy jobs handle repository trust decisions and must stay on an
+# ephemeral GitHub-hosted runner. A repository variable could redirect this
+# privileged work to an untrusted self-hosted machine, so the label is an
+# immutable contract.
+CLA_RUNNER = "ubuntu-24.04".freeze
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
@@ -31,7 +34,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "8af51413cbb503fc1cc4aa306f85932dd6ba37b1b58ecd4bfddb06d19e2735a9"
+EXPECTED_GUARD_SCRIPT_DIGEST = "b3d70d468aa9ed59cbc8eca3eadceebe7031b8237afc5700e4c4b9222e02e23c"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -113,7 +116,6 @@ GITHUB_TOKEN_EXPRESSION_PATTERN = /\bgithub\b.*\btoken\b|\btoJSON\s*\(\s*github\
 ALLOWED_EXPRESSION_PATHS = [
   /\Aenv\.[^.]+\z/,
   /\Ajobs\.[^.]+\.if\z/,
-  CLA_RUNNER_PATH,
   /\Ajobs\.[^.]+\.concurrency\.group\z/,
   /\Ajobs\.[^.]+\.outputs\.[^.]+\z/,
   /\Ajobs\.[^.]+\.steps\.\d+\.env\.[^.]+\z/,
@@ -778,9 +780,6 @@ def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_
     joined_path = path.map(&:to_s).join(".")
     fail!("#{name} has an expression in an unreviewed field") unless
       ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) }
-    if joined_path.match?(CLA_RUNNER_PATH) && value != CLA_RUNNER
-      fail!("#{name} has an unapproved CLA runner expression")
-    end
     if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
@@ -1185,16 +1184,17 @@ def run_runner_regression_matrix!
     assert_cla_runner(expected_runner, "#{job_name}.runs-on")
   end
 
-  {
+  rejected_runners = {
     "configured repository variable" => "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
     "alternate repository variable" => "${{ vars.OTHER_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
     "event-controlled runner" => "${{ github.event.repository.default_branch }}",
     "self-hosted runner" => "self-hosted",
     "floating GitHub runner" => "ubuntu-latest"
-  }.each do |name, runner|
+  }
+  rejected_runners.each do |name, runner|
     expect_policy_error(name) { assert_cla_runner(runner, "CLACommentGate.runs-on") }
   end
-  puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + 3} cases)"
+  puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + rejected_runners.length} cases)"
 end
 
 def run_trusted_review_regression_matrix!
@@ -1650,7 +1650,6 @@ def validate_guard_script(raw)
     "assert_safe_expression_fields",
     "assert_cla_runner",
     "CLA_RUNNER",
-    "CLA_RUNNER_PATH",
     "assert_safe_run_text",
     "assert_exact_normalized_run",
     "run_guard_contract_regression_matrix!",
