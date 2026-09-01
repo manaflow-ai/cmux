@@ -234,6 +234,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "%@ を無効にしました" } }
       }
     },
+    "cli.automation.output.enableRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enable request queued for %@. Run cmux automation logs to verify completion." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ の有効化要求をキューに追加しました。完了を確認するには cmux automation logs を実行してください。" } }
+      }
+    },
+    "cli.automation.output.disableRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Disable request queued for %@. Run cmux automation logs to verify completion." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ の無効化要求をキューに追加しました。完了を確認するには cmux automation logs を実行してください。" } }
+      }
+    },
     "cli.automation.state.enabled": {
       "extractionState": "manual",
       "localizations": {

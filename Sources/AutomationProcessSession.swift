@@ -7,11 +7,6 @@ import Foundation
 /// exit watcher time to attach before execution starts and lets every exit path
 /// signal descendants as well as the shell itself.
 actor AutomationProcessSession {
-    private enum TerminationReason {
-        case cancelled
-        case timedOut
-    }
-
     private let command: String
     private let environment: [String: String]
     private var processIdentifier: pid_t?
@@ -19,7 +14,7 @@ actor AutomationProcessSession {
     private var processExitSource: DispatchSourceProcess?
     private var timeoutSource: DispatchSourceTimer?
     private var continuation: AsyncStream<Int32>.Continuation?
-    private var terminationReason: TerminationReason?
+    private var terminationReason: AutomationProcessTerminationReason?
     private var finished = false
 
     init(command: String, environment: [String: String]) {
@@ -106,7 +101,7 @@ actor AutomationProcessSession {
         timer.resume()
     }
 
-    private func terminate(reason: TerminationReason) {
+    private func terminate(reason: AutomationProcessTerminationReason) {
         guard !finished else { return }
         if terminationReason == nil {
             terminationReason = reason

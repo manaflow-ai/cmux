@@ -379,31 +379,28 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
         return true
     }
 
+    /// Produces the locale-independent key used by selectors and engine indexes.
+    nonisolated static func caseInsensitiveMatchKey(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+    }
+
     private static func matchesSelector(_ selector: String?, against actual: String?) -> Bool {
         guard let selector else { return true }
         guard let actual else { return false }
         let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         if trimmed == "*" { return true }
+        let actualKey = caseInsensitiveMatchKey(actual)
         if trimmed.hasPrefix("*") && trimmed.hasSuffix("*") {
-            return actual.range(
-                of: String(trimmed.dropFirst().dropLast()),
-                options: [.caseInsensitive]
-            ) != nil
+            return actualKey.contains(caseInsensitiveMatchKey(String(trimmed.dropFirst().dropLast())))
         }
         if trimmed.hasPrefix("*") {
-            return actual.range(
-                of: String(trimmed.dropFirst()),
-                options: [.caseInsensitive, .anchored, .backwards]
-            ) != nil
+            return actualKey.hasSuffix(caseInsensitiveMatchKey(String(trimmed.dropFirst())))
         }
         if trimmed.hasSuffix("*") {
-            return actual.range(
-                of: String(trimmed.dropLast()),
-                options: [.caseInsensitive, .anchored]
-            ) != nil
+            return actualKey.hasPrefix(caseInsensitiveMatchKey(String(trimmed.dropLast())))
         }
-        return actual.compare(trimmed, options: [.caseInsensitive]) == .orderedSame
+        return actualKey == caseInsensitiveMatchKey(trimmed)
     }
 
     private static func value(
@@ -484,7 +481,7 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
             if let value = operators["equals"] { return matchesValue(actual, expected: value) }
             if let value = operators["contains"] {
                 if let actualString = actual.stringValue, let expectedString = value.stringValue {
-                    return actualString.range(of: expectedString, options: [.caseInsensitive]) != nil
+                    return caseInsensitiveMatchKey(actualString).contains(caseInsensitiveMatchKey(expectedString))
                 }
                 if let actualArray = actual.arrayValue {
                     return actualArray.contains { matchesValue($0, expected: value) }

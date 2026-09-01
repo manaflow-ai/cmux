@@ -14,13 +14,17 @@ final class AutomationConfigStore {
     private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let mutationCoordinator: AutomationConfigMutationCoordinator
 
     init(
         fileURL: URL = AutomationConfigStore.defaultFileURL(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        mutationCoordinator: AutomationConfigMutationCoordinator? = nil
     ) {
         self.fileURL = fileURL
         self.fileManager = fileManager
+        self.mutationCoordinator = mutationCoordinator
+            ?? AutomationConfigMutationCoordinator(fileURL: fileURL, fileManager: fileManager)
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.decoder = JSONDecoder()
@@ -34,15 +38,21 @@ final class AutomationConfigStore {
 
     /// Loads the file, treating a missing file as an empty v1 configuration.
     func load() throws -> AutomationConfiguration {
-        guard fileManager.fileExists(atPath: fileURL.path) else {
+        let sourceURL = resolvedDestinationURL()
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
             return AutomationConfiguration()
         }
-        if let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
-           let size = attributes[.size] as? NSNumber,
-           size.uint64Value > Self.maximumFileBytes {
+        let attributes = try fileManager.attributesOfItem(atPath: sourceURL.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw AutomationConfigStoreError.invalidRule("automation configuration must be a regular file")
+        }
+        if let size = attributes[.size] as? NSNumber, size.uint64Value > Self.maximumFileBytes {
             throw AutomationConfigStoreError.fileTooLarge
         }
-        let data = try Data(contentsOf: fileURL)
+        let data = try boundedData(at: sourceURL)
+        guard data.count <= Self.maximumFileBytes else {
+            throw AutomationConfigStoreError.fileTooLarge
+        }
         let configuration = try decoder.decode(AutomationConfiguration.self, from: data)
         guard configuration.version == AutomationConfiguration.currentVersion else {
             throw AutomationConfigStoreError.unsupportedVersion(configuration.version)
@@ -60,8 +70,13 @@ final class AutomationConfigStore {
     nonisolated func loadOffMain() async throws -> AutomationConfiguration {
         let url = fileURL
         let fileManager = fileManager
+        let mutationCoordinator = mutationCoordinator
         return try await Task.detached(priority: .utility) {
-            try AutomationConfigStore(fileURL: url, fileManager: fileManager).load()
+            try AutomationConfigStore(
+                fileURL: url,
+                fileManager: fileManager,
+                mutationCoordinator: mutationCoordinator
+            ).load()
         }.value
     }
 
@@ -75,11 +90,7 @@ final class AutomationConfigStore {
         id: String,
         _ update: @escaping @Sendable (inout AutomationRule) -> Void
     ) async throws -> AutomationRule {
-        let url = fileURL
-        let fileManager = fileManager
-        return try await Task.detached(priority: .utility) {
-            try AutomationConfigStore(fileURL: url, fileManager: fileManager).updateRule(id: id, update)
-        }.value
+        try await mutationCoordinator.updateRule(id: id, update)
     }
 
     /// Writes a complete configuration using a temporary sibling and rename.
@@ -122,16 +133,6 @@ final class AutomationConfigStore {
         )
     }
 
-    func updateRule(id: String, _ update: (inout AutomationRule) -> Void) throws -> AutomationRule {
-        var configuration = try load()
-        guard let index = configuration.rules.firstIndex(where: { $0.id == id }) else {
-            throw AutomationConfigStoreError.ruleNotFound(id)
-        }
-        update(&configuration.rules[index])
-        try save(configuration)
-        return configuration.rules[index]
-    }
-
     /// Resolves the final symlink component even when its target is dangling.
     /// `URL.resolvingSymlinksInPath()` intentionally leaves a dangling final
     /// link untouched, which would make an atomic save replace the link itself.
@@ -147,6 +148,22 @@ final class AutomationConfigStore {
             ).standardizedFileURL
         }
         return candidate.resolvingSymlinksInPath()
+    }
+
+    /// Reads at most one byte beyond the configured limit so a file that grows
+    /// after the metadata check cannot allocate an unbounded buffer.
+    private func boundedData(at url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var data = Data()
+        data.reserveCapacity(min(Int(Self.maximumFileBytes), 64 * 1024))
+        while data.count <= Int(Self.maximumFileBytes) {
+            let remaining = Int(Self.maximumFileBytes) + 1 - data.count
+            let chunk = try handle.read(upToCount: min(remaining, 64 * 1024)) ?? Data()
+            if chunk.isEmpty { break }
+            data.append(chunk)
+        }
+        return data
     }
 
     private func validate(_ configuration: AutomationConfiguration) throws {

@@ -10,20 +10,23 @@ nonisolated enum AutomationConfigStoreError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unsupportedVersion(let version):
-            return String(
+            let format = String(
                 localized: "automation.error.unsupportedVersion",
-                defaultValue: "Unsupported automation configuration version \(version)"
+                defaultValue: "Unsupported automation configuration version %lld"
             )
+            return String.localizedStringWithFormat(format, Int64(version))
         case .ruleNotFound(let id):
-            return String(
+            let format = String(
                 localized: "automation.error.ruleNotFound",
-                defaultValue: "Automation rule not found: \(id)"
+                defaultValue: "Automation rule not found: %@"
             )
+            return String.localizedStringWithFormat(format, id)
         case .invalidRule(let message):
-            return String(
+            let format = String(
                 localized: "automation.error.invalidRule",
-                defaultValue: "Invalid automation rule: \(message)"
+                defaultValue: "Invalid automation rule: %@"
             )
+            return String.localizedStringWithFormat(format, message)
         case .fileTooLarge:
             return String(
                 localized: "automation.error.fileTooLarge",

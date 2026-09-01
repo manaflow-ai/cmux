@@ -186,7 +186,7 @@ struct AutomationRuleTests {
     }
 
     @Test("saving a symlinked configuration updates its target")
-    func symlinkedConfigurationPreservesLink() throws {
+    func symlinkedConfigurationPreservesLink() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-automation-symlink-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -214,7 +214,7 @@ struct AutomationRuleTests {
             ]
         )
         try store.save(configuration)
-        _ = try store.updateRule(id: "managed") { $0.enabled = false }
+        _ = try await store.updateRuleOffMain(id: "managed") { $0.enabled = false }
 
         #expect(FileManager.default.fileExists(atPath: linkURL.path))
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path) == targetURL.path)

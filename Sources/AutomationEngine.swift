@@ -18,6 +18,15 @@ final class AutomationEngine {
     private static let maximumChainDepth = 16
     private static let maximumConcurrentFirings = 32
     private static let defaultRateLimit = AutomationRateLimit(intervalSeconds: 1, maximum: 1)
+    private static let subscriptionControlEventNames: Set<String> = [
+        "config.reloaded",
+        "sidebar.metadata.updated",
+        "sidebar.metadata.cleared",
+        "sidebar.reset",
+        "workspace.created",
+        "workspace.closed",
+        "workspace.renamed"
+    ]
 
     private let configStore: AutomationConfigStore
     private let eventBus: CmuxEventBus
@@ -97,7 +106,7 @@ final class AutomationEngine {
     }
 
     private func installSubscription(afterSequence: Int64?) {
-        guard shouldRun, rules.contains(where: \.enabled) else { return }
+        guard shouldRun else { return }
         restartTask?.cancel()
         restartTask = nil
         let filters = subscriptionFilters()
@@ -253,9 +262,9 @@ final class AutomationEngine {
                 value.isEmpty || value.contains("*") ? nil : value
             }
             if let exactEvent, rule.when.category == nil {
-                rulesByEventName[exactEvent, default: []].append(rule)
+                rulesByEventName[AutomationRule.caseInsensitiveMatchKey(exactEvent), default: []].append(rule)
             } else if let exactCategory, rule.when.event == nil {
-                rulesByCategory[exactCategory, default: []].append(rule)
+                rulesByCategory[AutomationRule.caseInsensitiveMatchKey(exactCategory), default: []].append(rule)
             } else {
                 unindexedRules.append(rule)
             }
@@ -264,27 +273,13 @@ final class AutomationEngine {
 
     private func subscriptionFilters() -> (names: Set<String>, categories: Set<String>) {
         let enabledRules = rules.filter(\.enabled)
-        guard !enabledRules.isEmpty else { return ([], []) }
-        let exactEvents = enabledRules.compactMap { rule -> String? in
-            guard let event = rule.when.event,
-                  !event.isEmpty,
-                  !event.contains("*"),
-                  rule.when.category == nil else { return nil }
-            return event
+        guard !enabledRules.isEmpty else {
+            return (Self.subscriptionControlEventNames, [])
         }
-        if exactEvents.count == enabledRules.count {
-            return (Set(exactEvents), [])
-        }
-        let exactCategories = enabledRules.compactMap { rule -> String? in
-            guard let category = rule.when.category,
-                  !category.isEmpty,
-                  !category.contains("*"),
-                  rule.when.event == nil else { return nil }
-            return category
-        }
-        if exactCategories.count == enabledRules.count {
-            return ([], Set(exactCategories))
-        }
+        // Selector matching is intentionally case-insensitive, while the
+        // event bus's name/category filters are exact. Keep this subscription
+        // unfiltered so a case variant can never be rejected before matching,
+        // and so engine-control/invalidation events are always observed.
         return ([], [])
     }
 
@@ -320,12 +315,21 @@ final class AutomationEngine {
         let task = Task { @MainActor [weak self] in
             defer { self?.enabledUpdateTasks.removeValue(forKey: taskID) }
             guard let self else { return }
-            do {
-                _ = try await self.setEnabled(id: id, enabled: enabled).get()
-            } catch {
+            guard !Task.isCancelled else { return }
+            let result = await self.setEnabled(id: id, enabled: enabled)
+            switch result {
+            case .success:
                 self.record(
                     ruleID: id,
-                    eventName: "config.enable",
+                    eventName: enabled ? "config.enable" : "config.disable",
+                    status: "completed",
+                    detail: enabled ? "rule enabled" : "rule disabled",
+                    chain: []
+                )
+            case .failure(let error):
+                self.record(
+                    ruleID: id,
+                    eventName: enabled ? "config.enable" : "config.disable",
                     status: "error",
                     detail: String(describing: error),
                     chain: []
@@ -492,9 +496,9 @@ final class AutomationEngine {
 
     private func candidateRules(eventName: String, category: String?) -> [AutomationRule] {
         var candidates = unindexedRules
-        candidates.append(contentsOf: rulesByEventName[eventName] ?? [])
+        candidates.append(contentsOf: rulesByEventName[AutomationRule.caseInsensitiveMatchKey(eventName)] ?? [])
         if let category {
-            candidates.append(contentsOf: rulesByCategory[category] ?? [])
+            candidates.append(contentsOf: rulesByCategory[AutomationRule.caseInsensitiveMatchKey(category)] ?? [])
         }
         var seen = Set<String>()
         return candidates.filter { seen.insert($0.id).inserted }
