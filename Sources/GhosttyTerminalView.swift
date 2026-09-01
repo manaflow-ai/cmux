@@ -2084,6 +2084,18 @@ class GhosttyApp {
                 source:
                     "reloadConfiguration:\(source):resolved"
             )
+            // Capture presentation values before mutating the runtime config.
+            // The reload acknowledgement and metrics must describe one disk
+            // snapshot; do not perform a second uncached read after the C
+            // runtime has been updated.
+            GhosttyConfig.invalidateLoadCache()
+            let presentationConfiguration = GhosttyConfig.loadForCmux(
+                preferredColorScheme:
+                    effectiveReloadColorScheme,
+                useCache: false,
+                globalFontMagnificationPercent:
+                    reloadMagnificationPercent
+            )
             suppressGhosttyReloadActions {
                 ghostty_app_update_config_without_surface_propagation(
                     app,
@@ -2106,15 +2118,8 @@ class GhosttyApp {
                 reloadMagnificationPercent
             terminalFontConfigurationGeneration &+= 1
             lastAppearanceColorScheme = reloadColorScheme
-            GhosttyConfig.invalidateLoadCache()
             publishConfigurationPresentationMetrics(
-                configuration: GhosttyConfig.loadForCmux(
-                    preferredColorScheme:
-                        effectiveReloadColorScheme,
-                    useCache: false,
-                    globalFontMagnificationPercent:
-                        reloadMagnificationPercent
-                )
+                configuration: presentationConfiguration
             )
 #if DEBUG
             cmuxDebugLog(
@@ -2176,6 +2181,16 @@ class GhosttyApp {
                     stagedResolvedAppearance
                         .backgroundColor
             )
+        // Keep presentation metrics tied to the same resolved read that was
+        // captured before committing the new runtime configuration. A second
+        // uncached read after the commit could observe a file edit mid-reload.
+        let presentationConfiguration = GhosttyConfig.loadForCmux(
+            preferredColorScheme:
+                effectiveReloadColorScheme,
+            useCache: false,
+            globalFontMagnificationPercent:
+                reloadMagnificationPercent
+        )
         // Ghostty consults its runtime scheme while loading conditional
         // themes. Restore the applied scheme before incremental capture so
         // neither the renderer nor surrounding UI exposes the staged theme.
@@ -2251,13 +2266,7 @@ class GhosttyApp {
         )
         lastAppearanceColorScheme = reloadColorScheme
         publishConfigurationPresentationMetrics(
-            configuration: GhosttyConfig.loadForCmux(
-                preferredColorScheme:
-                    effectiveReloadColorScheme,
-                useCache: false,
-                globalFontMagnificationPercent:
-                    reloadMagnificationPercent
-            )
+            configuration: presentationConfiguration
         )
 #if DEBUG
         cmuxDebugLog(
