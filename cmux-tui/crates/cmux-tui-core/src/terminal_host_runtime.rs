@@ -513,6 +513,37 @@ mod unix {
         }
     }
 
+    /// Own a PTY child until the host's reaper thread has taken responsibility
+    /// for it.  Every fallible setup step after `pty.spawn` keeps this guard
+    /// alive, so a failed reader, writer, callback, or thread setup cannot
+    /// leave the interactive child detached from its parent.
+    struct SpawnedPtyChild {
+        child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+    }
+
+    impl SpawnedPtyChild {
+        fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
+            Self { child: Some(child) }
+        }
+
+        fn child(&self) -> &dyn cmux_pty::Child {
+            self.child.as_deref().expect("PTY child is present")
+        }
+
+        fn child_mut(&mut self) -> &mut dyn cmux_pty::Child {
+            self.child.as_deref_mut().expect("PTY child is present")
+        }
+    }
+
+    impl Drop for SpawnedPtyChild {
+        fn drop(&mut self) {
+            if let Some(child) = self.child.as_deref_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
     #[derive(Debug)]
     struct HostLaunch {
         endpoint: String,
@@ -4877,9 +4908,10 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(command)?;
-        let pid = child.process_id();
-        let killer = child.clone_killer();
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        let mut child = SpawnedPtyChild::new(child);
+        let pid = child.child().process_id();
+        let killer = child.child().clone_killer();
         let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
         let mut pty_reader = master.try_clone_reader()?;
         let pty_writer = master.take_writer()?;
@@ -5141,7 +5173,7 @@ mod unix {
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
                     if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = wait_for_native_child_status(child.as_mut());
+                        let exit = wait_for_native_child_status(child.child_mut());
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
                         *child_host.child_exit.0.lock().unwrap() = Some(exit);
@@ -5164,7 +5196,7 @@ mod unix {
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
-                let exit = wait_for_native_child_status(child.as_mut());
+                let exit = wait_for_native_child_status(child.child_mut());
                 child_host.child_reaped.store(true, Ordering::Release);
                 child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
