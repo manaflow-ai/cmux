@@ -27345,7 +27345,9 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionID: acceptedSessionId,
+                    turnID: parsedInput.turnId
                 )
                 try setClaudeStatus(
                     client: client,
@@ -27543,7 +27545,9 @@ struct CMUXCLI {
                         && claudeHookProvesNormalCompletion(
                             assistantMessage: claudeAssistantMessageFromHookPayload(parsedInput.object),
                             payload: parsedInput.rawObject ?? parsedInput.object
-                        )
+                        ),
+                    sessionID: parsedInput.sessionId,
+                    turnID: parsedInput.turnId
                 )
                 if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
@@ -27739,7 +27743,9 @@ struct CMUXCLI {
                 key: Self.claudeCodeStatusKey,
                 lifecycle: .running,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                sessionID: parsedInput.sessionId,
+                turnID: parsedInput.turnId
             )
             try setClaudeStatus(
                 client: client,
@@ -28022,7 +28028,9 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionID: parsedInput.sessionId,
+                    turnID: parsedInput.turnId
                 )
                 _ = try? setClaudeStatus(
                     client: client,
@@ -28301,7 +28309,9 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
+                    surfaceId: existingSurfaceId,
+                    sessionID: parsedInput.sessionId,
+                    turnID: parsedInput.turnId
                 )
                 // In bypassPermissions (--dangerously-skip-permissions) mode no
                 // PermissionRequest or Notification hook follows, so this handler must
@@ -28383,7 +28393,9 @@ struct CMUXCLI {
                 key: Self.claudeCodeStatusKey,
                 lifecycle: .running,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                sessionID: parsedInput.sessionId,
+                turnID: parsedInput.turnId
             )
 
             let statusValue: String
@@ -28476,7 +28488,10 @@ struct CMUXCLI {
         surfaceId: String?,
         promptBoundary: Bool = false,
         normalCompletion: Bool = false,
-        hookFailureEvidence: Bool = false
+        hookFailureEvidence: Bool = false,
+        sessionID: String? = nil,
+        turnID: String? = nil,
+        terminalLifecycleID: UUID? = nil
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
@@ -28486,8 +28501,15 @@ struct CMUXCLI {
             let boundaryOption = promptBoundary ? " --prompt-boundary" : ""
             let completionOption = normalCompletion ? " --normal-completion" : ""
             let failureOption = hookFailureEvidence ? " --hook-failure" : ""
+            let terminalLifecycleOption = (terminalLifecycleID
+                ?? UUID(uuidString: ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"] ?? ""))
+                .map { " --terminal-lifecycle-id=\($0.uuidString)" } ?? ""
+            let sessionOption = sessionID
+                .map { " --session-id=\(socketQuote($0))" } ?? ""
+            let turnOption = turnID
+                .map { " --turn-id=\(socketQuote($0))" } ?? ""
             _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(boundaryOption)\(completionOption)\(failureOption)",
+                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(boundaryOption)\(completionOption)\(failureOption)\(terminalLifecycleOption)\(sessionOption)\(turnOption)",
                 client: client
             )
         } catch {
@@ -34823,7 +34845,9 @@ export default CMUXSessionRestore;
                 key: def.statusKey,
                 lifecycle: .unknown,
                 workspaceId: workspaceId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                sessionID: sessionId,
+                turnID: input.turnId
             )
             if !suppressVisibleMutations {
                 if let owner = try? store.lookup(sessionId: sessionId) {
@@ -35186,7 +35210,9 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionID: sessionId,
+                    turnID: input.turnId
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -35722,7 +35748,9 @@ export default CMUXSessionRestore;
                         surfaceId: surfaceId,
                         promptBoundary: def.name == "codex",
                         normalCompletion: false,
-                        hookFailureEvidence: def.name == "codex"
+                        hookFailureEvidence: def.name == "codex",
+                        sessionID: sessionId,
+                        turnID: input.turnId
                     )
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
@@ -35740,7 +35768,9 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .needsInput,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionID: sessionId,
+                        turnID: input.turnId
                     )
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -35762,7 +35792,9 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .running,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionID: sessionId,
+                        turnID: input.turnId
                     )
                     let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                     if def.name == "cursor" {
@@ -35804,7 +35836,9 @@ export default CMUXSessionRestore;
                                     ]
                                 ),
                                 payload: input.rawObject ?? input.object
-                            )
+                            ),
+                        sessionID: sessionId,
+                        turnID: input.turnId
                     )
                     setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
@@ -35941,7 +35975,9 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionID: sessionId,
+                    turnID: input.turnId
                 )
             }
             if !suppressVisibleMutations {
@@ -36374,7 +36410,9 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionID: sessionId,
+                    turnID: input.turnId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -36396,7 +36434,9 @@ export default CMUXSessionRestore;
                     key: def.statusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    sessionID: sessionId,
+                    turnID: input.turnId
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -36413,7 +36453,9 @@ export default CMUXSessionRestore;
                         key: def.statusKey,
                         lifecycle: .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionID: sessionId,
+                        turnID: input.turnId
                     )
                 }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)

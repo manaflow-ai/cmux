@@ -1,4 +1,5 @@
 import Foundation
+import CmuxControlSocket
 
 @MainActor
 extension AgentStallSupervisor {
@@ -13,10 +14,17 @@ extension AgentStallSupervisor {
         provider: String,
         binding: SurfaceResumeBindingSnapshot,
         state incomingState: AgentStallSupervisorPanelState,
-        sameSession: Bool
+        sameSession: Bool,
+        identity: ControlSidebarLifecycleIdentity?
     ) {
         var state = incomingState
-        if sameSession, state.lifecycle == .running, state.phase == .running {
+        let reportedTurnID = identity?.turnID
+        let sameTurn = state.turnID == nil || reportedTurnID == nil || state.turnID == reportedTurnID
+        let sameTerminalGeneration = state.terminalLifecycleID == nil
+            || identity?.terminalLifecycleID == nil
+            || state.terminalLifecycleID == identity?.terminalLifecycleID
+        if sameSession, sameTurn, sameTerminalGeneration,
+           state.lifecycle == .running, state.phase == .running {
             // Claude's PreToolUse and Codex's intermediate status hooks can
             // report running many times during one turn. Resetting the tail
             // here would make the final Stop banner depend on hook timing.
@@ -63,6 +71,9 @@ extension AgentStallSupervisor {
         state.pendingBoundary = nil
         state.processID = process?.pid
         state.processIdentity = process?.identity
+        state.sessionID = identity?.sessionID ?? binding.checkpointId
+        state.turnID = reportedTurnID
+        state.terminalLifecycleID = identity?.terminalLifecycleID
         if !preservingRetry { state.retryAttempts = 0 }
         statesByPanelID[panelID] = state
         let hasOutputCapture = outputDemand.beginCapture(

@@ -126,7 +126,7 @@ extension TerminalController: ControlSidebarContext {
     nonisolated func controlSidebarAgentLifecycleUsage() -> String {
         String(
             localized: "cli.socket.setAgentLifecycle.usage",
-            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure]"
+            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--prompt-boundary] [--normal-completion] [--hook-failure] [--terminal-lifecycle-id=<id>] [--session-id=<id>] [--turn-id=<id>]"
         )
     }
 
@@ -174,13 +174,31 @@ extension TerminalController: ControlSidebarContext {
         panelID: UUID?,
         promptBoundary: Bool = false,
         normalCompletion: Bool = false,
-        hookFailureEvidence: Bool = false
+        hookFailureEvidence: Bool = false,
+        identity: ControlSidebarLifecycleIdentity? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+        let mutation: @MainActor () -> Void = { [weak self] in
+            guard let self,
+                  let owner = self.controlSidebarResolvePanelOwner(
+                      target: target,
+                      panelID: panelID
+                  ) else {
+                return
+            }
+            guard self.controlSidebarAgentLifecycleIsAdmissible(
+                owner: owner,
+                panelID: panelID,
+                key: key,
+                lifecycle: lifecycle,
+                promptBoundary: promptBoundary,
+                identity: identity
+            ) else {
+                return
+            }
             let outputCapture: AgentStallOutputCapture?
             if lifecycle == .running {
                 outputCapture = nil
@@ -206,9 +224,44 @@ extension TerminalController: ControlSidebarContext {
                 promptBoundary: promptBoundary,
                 normalCompletion: normalCompletion,
                 hookFailureEvidence: hookFailureEvidence,
-                outputCapture: outputCapture
+                outputCapture: outputCapture,
+                identity: identity
             )
         }
+        if lifecycle == .running, !promptBoundary, let panelID {
+            // Tool hooks are presentation-only while a turn is open. Keep at
+            // most one pending running hint per surface, without moving it
+            // behind an already queued authoritative boundary.
+            TerminalMutationBus.shared.enqueueCoalescingMainActorMutation(
+                replaceKey: .agentLifecycle(surfaceId: panelID),
+                mutation
+            )
+        } else {
+            TerminalMutationBus.shared.enqueueMainActorMutation(mutation)
+        }
+    }
+
+    @MainActor
+    private func controlSidebarAgentLifecycleIsAdmissible(
+        owner: ControlSidebarPanelOwner,
+        panelID: UUID?,
+        key: String,
+        lifecycle: AgentHibernationLifecycleState,
+        promptBoundary: Bool,
+        identity: ControlSidebarLifecycleIdentity?
+    ) -> Bool {
+        guard let panelID,
+              let supervisor = AppDelegate.shared?.agentStallSupervisor else {
+            return true
+        }
+        return supervisor.lifecycleEventIsCurrent(
+            owner: owner,
+            panelID: panelID,
+            key: key,
+            lifecycle: lifecycle,
+            promptBoundary: promptBoundary,
+            identity: identity
+        )
     }
 
     func controlSidebarSetWorkspaceLoading(

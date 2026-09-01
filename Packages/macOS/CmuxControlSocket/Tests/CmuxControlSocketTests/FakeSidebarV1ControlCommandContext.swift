@@ -25,7 +25,8 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         panelID: UUID?,
         promptBoundary: Bool,
         normalCompletion: Bool,
-        hookFailureEvidence: Bool
+        hookFailureEvidence: Bool,
+        identity: ControlSidebarLifecycleIdentity?
     )?
     nonisolated(unsafe) var shellStateCall: (
         scope: ControlSidebarPanelScope,
@@ -79,9 +80,10 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         panelID: UUID?,
         promptBoundary: Bool,
         normalCompletion: Bool,
-        hookFailureEvidence: Bool
+        hookFailureEvidence: Bool,
+        identity: ControlSidebarLifecycleIdentity?
     ) {
-        agentLifecycleCall = (target, key, lifecycleRawValue, panelID, promptBoundary, normalCompletion, hookFailureEvidence)
+        agentLifecycleCall = (target, key, lifecycleRawValue, panelID, promptBoundary, normalCompletion, hookFailureEvidence, identity)
     }
 
     nonisolated func controlSidebarScheduleScopedShellState(

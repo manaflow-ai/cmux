@@ -70,7 +70,11 @@ extension ControlSidebarPanelOwner {
         checkpointID: String,
         panelID: UUID
     ) -> (pid: pid_t, identity: AgentPIDProcessIdentity)? {
-        let expectedKeys = agentStallProcessKeys(provider: provider, checkpointID: checkpointID)
+        let expectedKeys = agentStallProcessKeys(
+            provider: provider,
+            checkpointID: checkpointID,
+            panelID: panelID
+        )
         let candidate: (pid_t, AgentPIDProcessIdentity)?
         switch self {
         case .workspace(let workspace):
@@ -119,7 +123,8 @@ extension ControlSidebarPanelOwner {
         }
         let expectedKeys = Set(agentStallProcessKeys(
             provider: provider,
-            checkpointID: checkpointID
+            checkpointID: checkpointID,
+            panelID: panelID
         ))
         switch self {
         case .workspace(let workspace):
@@ -167,9 +172,20 @@ extension ControlSidebarPanelOwner {
 
     private func agentStallProcessKeys(
         provider: String,
-        checkpointID: String
+        checkpointID: String,
+        panelID: UUID
     ) -> [String] {
         let providerKey = provider == "claude" ? "claude_code" : provider
+        if provider == "claude" {
+            // A PID report can race the binding publication. The panel-scoped
+            // fallback keeps that early report attributable without falling
+            // back to the workspace-global bare `claude_code` key.
+            return [
+                "\(providerKey).\(checkpointID)",
+                "\(providerKey).panel.\(panelID.uuidString.lowercased())",
+                providerKey,
+            ]
+        }
         return ["\(providerKey).\(checkpointID)", providerKey]
     }
 }

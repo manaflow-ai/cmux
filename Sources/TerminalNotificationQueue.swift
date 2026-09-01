@@ -48,6 +48,10 @@ enum TerminalMutationReplaceKey: Hashable, Sendable {
     /// Shell reports follow a live surface across workspace and Dock moves, so
     /// their queue identity is the globally stable surface id alone.
     case shellActivity(surfaceId: UUID)
+    /// Non-authoritative agent lifecycle updates are presentation hints. They
+    /// coalesce by stable surface identity while authoritative prompt-boundary
+    /// events retain FIFO ordering in the ordinary mutation lane.
+    case agentLifecycle(surfaceId: UUID)
     /// Metadata whose mutation closure still resolves the claimed workspace.
     case scoped(tabId: UUID, surfaceId: UUID, kind: ScopedKind)
 }
@@ -366,6 +370,52 @@ final class TerminalMutationBus: @unchecked Sendable {
         if shouldScheduleDrain {
             scheduleDrain()
         }
+        return true
+    }
+
+    /// Last-write-wins mutation that keeps an existing entry's queue position.
+    ///
+    /// Presentation hints use this form so a newer hint cannot leapfrog an
+    /// authoritative boundary that was already queued for the same surface.
+    /// The pending entry remains bounded at one per replacement key while the
+    /// main actor is unable to drain.
+    @discardableResult
+    nonisolated func enqueueCoalescingMainActorMutation(
+        replaceKey: TerminalMutationReplaceKey,
+        admitting shouldEnqueue: () -> Bool = { true },
+        _ mutation: @escaping @MainActor () -> Void
+    ) -> Bool {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        guard shouldEnqueue() else {
+            lock.unlock()
+            return false
+        }
+        if let index = pending.firstIndex(where: { $0.performReplaceKey == replaceKey }) {
+            let existing = pending[index]
+            pending[index] = TerminalSocketMutationEntry(
+                sequence: existing.sequence,
+                mutation: .perform(mutation),
+                notificationGeneration: nil,
+                notificationCoalescingKey: nil,
+                performReplaceKey: replaceKey
+            )
+            lock.unlock()
+            return true
+        }
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: .perform(mutation),
+            notificationGeneration: nil,
+            notificationCoalescingKey: nil,
+            performReplaceKey: replaceKey
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain { drainScheduled = true }
+        lock.unlock()
+
+        if shouldScheduleDrain { scheduleDrain() }
         return true
     }
 

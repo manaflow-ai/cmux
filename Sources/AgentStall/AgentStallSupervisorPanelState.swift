@@ -50,6 +50,10 @@ struct AgentStallSupervisorPanelState {
     var binding: SurfaceResumeBindingSnapshot?
     var processID: pid_t?
     var processIdentity: AgentPIDProcessIdentity?
+    /// Identity of the terminal process and provider turn currently captured.
+    var terminalLifecycleID: UUID?
+    var sessionID: String?
+    var turnID: String?
     var ownerToken: String?
     var retryAttempts = 0
     var phase: Phase = .idle

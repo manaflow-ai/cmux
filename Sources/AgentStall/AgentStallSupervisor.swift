@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxFoundation
 import Foundation
 import OSLog
@@ -21,6 +22,9 @@ final class AgentStallSupervisor {
     let presentation: AgentStallPresentation
     /// Clock used by each panel's cancellation-aware retry scheduler.
     let retryClock: any Clock<Duration>
+    /// Maximum time to wait for the managed agent's next running hook after
+    /// retry input is accepted by the terminal surface.
+    let retryAcknowledgementTimeout: Duration
     var statesByPanelID: [UUID: AgentStallSupervisorPanelState] = [:]
     var internalInputPanelIDs: Set<UUID> = []
 
@@ -35,7 +39,8 @@ final class AgentStallSupervisor {
         policy: AgentStallSupervisorPolicy = .standard,
         retryActionResolver: AgentStallRetryActionResolver = AgentStallRetryActionResolver(),
         settings: AgentSessionAutoRetrySettings = AgentSessionAutoRetrySettings(),
-        retryClock: any Clock<Duration> = ContinuousClock()
+        retryClock: any Clock<Duration> = ContinuousClock(),
+        retryAcknowledgementTimeout: Duration = .seconds(15)
     ) {
         self.app = app
         self.classifier = classifier
@@ -43,6 +48,7 @@ final class AgentStallSupervisor {
         self.retryActionResolver = retryActionResolver
         self.settings = settings
         self.retryClock = retryClock
+        self.retryAcknowledgementTimeout = retryAcknowledgementTimeout
         self.outputDemand = outputDemand
         self.presentation = AgentStallPresentation(notificationStore: notificationStore)
 
@@ -58,6 +64,98 @@ final class AgentStallSupervisor {
         outputDemand.clearAllCaptures()
     }
 
+    /// Checks producer identity before the caller consumes any PTY evidence.
+    ///
+    /// Prompt-boundary events must carry the terminal process and provider-turn
+    /// identities captured by the matching running event. This admission check
+    /// is deliberately side-effect free so queued stale events can be dropped
+    /// without draining the next turn's capture.
+    func lifecycleEventIsCurrent(
+        owner: ControlSidebarPanelOwner,
+        panelID: UUID,
+        key: String,
+        lifecycle: AgentHibernationLifecycleState,
+        promptBoundary: Bool,
+        identity: ControlSidebarLifecycleIdentity?
+    ) -> Bool {
+        guard owner.containsAgentStallPanel(panelID),
+              let binding = owner.agentStallResumeBinding(panelID),
+              let provider = supportedProvider(kind: binding.kind, key: key) else {
+            // Non-managed/custom lifecycle keys retain their legacy behavior.
+            return true
+        }
+        guard binding.hasCompleteManagedSessionIdentity else { return false }
+        if let reportedTerminalLifecycleID = identity?.terminalLifecycleID {
+            guard GhosttyApp.terminalSurfaceRegistry.terminalLifecycleID(surfaceID: panelID)
+                    == reportedTerminalLifecycleID else {
+                Self.logger.debug(
+                    "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=terminal-generation-mismatch"
+                )
+                return false
+            }
+        } else if promptBoundary {
+            Self.logger.debug(
+                "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=missing-terminal-generation"
+            )
+            return false
+        }
+        if let reportedSessionID = identity?.sessionID {
+            guard let checkpointID = binding.checkpointId,
+                  ManagedAgentSessionIdentity.sessionIDsMatch(
+                      kind: provider,
+                      lhs: reportedSessionID,
+                      rhs: checkpointID
+                  ) else {
+                Self.logger.debug(
+                    "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=session-mismatch"
+                )
+                return false
+            }
+        } else if promptBoundary {
+            Self.logger.debug(
+                "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=missing-session"
+            )
+            return false
+        }
+
+        guard let state = statesByPanelID[panelID] else {
+            return !promptBoundary
+        }
+        if let expectedTerminalLifecycleID = state.terminalLifecycleID,
+           let reportedTerminalLifecycleID = identity?.terminalLifecycleID,
+           expectedTerminalLifecycleID != reportedTerminalLifecycleID {
+            return false
+        }
+        if let expectedTurnID = state.turnID {
+            if lifecycle == .running {
+                // A new turn on the same managed process starts a fresh
+                // generation; handleRunningLifecycle will replace the state.
+                if let reportedTurnID = identity?.turnID, expectedTurnID == reportedTurnID {
+                    return true
+                }
+            } else {
+                guard identity?.turnID == expectedTurnID else {
+                    Self.logger.debug(
+                        "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=turn-mismatch"
+                    )
+                    return false
+                }
+            }
+        }
+        if promptBoundary {
+            guard lifecycle == .idle || lifecycle == .needsInput,
+                  let expectedTurnID = state.turnID,
+                  let reportedTurnID = identity?.turnID,
+                  expectedTurnID == reportedTurnID else {
+                Self.logger.debug(
+                    "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=turn-mismatch"
+                )
+                return false
+            }
+        }
+        return true
+    }
+
     /// Records an already-ordered managed lifecycle event from Claude/Codex hooks.
     func lifecycleDidChange(
         owner: ControlSidebarPanelOwner,
@@ -67,7 +165,8 @@ final class AgentStallSupervisor {
         promptBoundary: Bool,
         normalCompletion: Bool = false,
         hookFailureEvidence: Bool = false,
-        outputCapture: AgentStallOutputCapture? = nil
+        outputCapture: AgentStallOutputCapture? = nil,
+        identity: ControlSidebarLifecycleIdentity? = nil
     ) {
         guard owner.containsAgentStallPanel(panelID),
               let binding = owner.agentStallResumeBinding(panelID),
@@ -76,6 +175,17 @@ final class AgentStallSupervisor {
         }
         guard binding.hasCompleteManagedSessionIdentity else {
             cancel(panelID: panelID, reason: "unsupported-or-unbound-lifecycle")
+            return
+        }
+
+        guard lifecycleEventIsCurrent(
+            owner: owner,
+            panelID: panelID,
+            key: key,
+            lifecycle: lifecycle,
+            promptBoundary: promptBoundary,
+            identity: identity
+        ) else {
             return
         }
 
@@ -98,7 +208,8 @@ final class AgentStallSupervisor {
                 provider: provider,
                 binding: binding,
                 state: state,
-                sameSession: sameSession
+                sameSession: sameSession,
+                identity: identity
             )
 
         case .idle, .needsInput:

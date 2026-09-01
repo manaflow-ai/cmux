@@ -121,11 +121,50 @@ extension AgentStallSupervisor {
 
         state.phase = .retrying
         state.retryAttempts = request.attempt
-        state.retryScheduler = nil
+        let scheduler = state.retryScheduler
+            ?? MainActorDeferredActionScheduler(clock: retryClock)
+        state.retryScheduler = scheduler
         statesByPanelID[request.panelID] = state
         presentation.clearStatus(owner: owner, panelID: request.panelID)
+        scheduler.schedule(after: retryAcknowledgementTimeout) { [weak self] in
+            self?.retryAcknowledgementTimedOut(request)
+        }
         Self.logger.info(
             "event=retry-injected provider=\(request.provider, privacy: .public) action=\(request.actionID, privacy: .public) workspace=\(owner.id, privacy: .public) panel=\(request.panelID, privacy: .public) generation=\(request.generation) attempt=\(request.attempt) maximumAttempts=\(request.maximumAttempts)"
+        )
+    }
+
+    /// Fails closed when accepted retry bytes do not produce a fresh running
+    /// hook within the bounded acknowledgement window. Acceptance by the
+    /// terminal transport alone is not proof that the provider recalled the
+    /// prompt, so the user receives the same exhausted-retry guidance as any
+    /// other terminal recovery failure.
+    private func retryAcknowledgementTimedOut(_ request: AgentStallRetryRequest) {
+        guard let state = statesByPanelID[request.panelID],
+              state.phase == .retrying,
+              state.retryToken == request.token,
+              state.generation == request.generation else {
+            return
+        }
+        guard let owner = resolveOwner(
+            panelID: request.panelID,
+            preferredWorkspaceID: request.workspaceID
+        ) else {
+            cancel(panelID: request.panelID, reason: "retry-ack-owner-missing")
+            return
+        }
+        guard owner.agentStallOwnerToken == request.ownerToken,
+              owner.containsAgentStallPanel(request.panelID),
+              let currentBinding = owner.agentStallResumeBinding(request.panelID),
+              currentBinding.isSameManagedSession(as: request.binding) else {
+            cancel(panelID: request.panelID, reason: "retry-ack-revalidation-failed")
+            return
+        }
+        markExhausted(
+            owner: owner,
+            panelID: request.panelID,
+            generation: request.generation,
+            reason: "retry-ack-timeout"
         )
     }
 

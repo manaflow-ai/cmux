@@ -11831,7 +11831,7 @@ class TerminalController {
     private func helpText() -> String {
         let agentLifecycleHelp = String(
             localized: "cli.socket.setAgentLifecycle.help",
-            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--prompt-boundary] [--normal-completion] [--hook-failure] - Report coding-agent lifecycle and authoritative turn boundaries"
+            defaultValue: "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--prompt-boundary] [--normal-completion] [--hook-failure] [--terminal-lifecycle-id=ID] [--session-id=ID] [--turn-id=ID] - Report coding-agent lifecycle and authoritative turn boundaries"
         )
         var text = """
         Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)

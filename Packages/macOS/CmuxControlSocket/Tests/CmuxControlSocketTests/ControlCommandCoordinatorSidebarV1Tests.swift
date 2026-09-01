@@ -27,6 +27,27 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentLifecycleCall?.hookFailureEvidence == true)
     }
 
+    @Test func agentLifecycleForwardsTurnAndTerminalIdentity() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let terminalLifecycleID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex idle --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) --prompt-boundary "
+                + "--terminal-lifecycle-id=\(terminalLifecycleID.uuidString) "
+                + "--session-id=session-1 --turn-id=turn-2"
+        )
+
+        #expect(response == "OK")
+        #expect(context.agentLifecycleCall?.identity?.terminalLifecycleID == terminalLifecycleID)
+        #expect(context.agentLifecycleCall?.identity?.sessionID == "session-1")
+        #expect(context.agentLifecycleCall?.identity?.turnID == "turn-2")
+    }
+
     @Test func agentPIDClearForwardsOwnedKeyRequirement() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
