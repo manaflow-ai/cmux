@@ -8,7 +8,6 @@ import Foundation
 #endif
 
 /// Polls a terminal runtime for its controlling TTY with one shared timeout policy.
-@MainActor
 struct TerminalControllingTTYWaiter {
     private let clock: ContinuousClock
     private let pollInterval: Duration
