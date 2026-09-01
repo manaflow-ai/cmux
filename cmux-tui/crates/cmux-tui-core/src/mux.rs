@@ -5869,6 +5869,7 @@ impl Mux {
             Some(hook_state),
             Some(sequence),
             AgentReportOrigin::RosterFold,
+            None,
         )?;
         fences.insert(
             terminal_id.clone(),
