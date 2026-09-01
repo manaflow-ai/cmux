@@ -454,8 +454,6 @@ if [[ -n "$READINESS_CURSOR" ]]; then
   if [[ "$TARGET" == "device" ]]; then
     echo "==> iPhone auth gate: PASS — $BUNDLE_ID on $DEVICE_ID verified profile $CMUX_DEV_AUTH_PROFILE ($CMUX_DEV_AUTH_ACCOUNT), signed in + paired"
   fi
-elif [[ -n "$READINESS_CURSOR" ]]; then
-  echo "==> release-gate app owns authenticated RPC readiness verification"
 elif [[ "$TARGET" == "device" ]]; then
   # Only reachable with --no-attach + CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1
   # (any other unverified device path already exited above). Say so loudly so
