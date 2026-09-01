@@ -362,11 +362,21 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"Interrupted by user (Ctrl+C)","background_tasks":[],"session_crons":[]}"#
         let (snapshot, _, _) = try runStopHook(name: "claude-interrupt", sessionId: session, stdin: stdin)
 
+        let abnormalSubtitles = [
+            "Model at capacity",
+            "Quota exhausted",
+            "Rate limited",
+            "Request timed out",
+            "Authentication error",
+            "Network error",
+            "Error",
+        ]
+        let notifications = snapshot.filter { $0.hasPrefix("notify_target_async ") }
         #expect(
-            snapshot.allSatisfy {
-                !$0.contains("Model at capacity")
-                    && !$0.contains("Quota exhausted")
-                    && !$0.contains("Request timed out")
+            notifications.allSatisfy { line in
+                abnormalSubtitles.allSatisfy { subtitle in
+                    !line.contains("|\(subtitle)|")
+                }
             },
             "A user interrupt must not produce an abnormal provider-error notification, saw \(snapshot)"
         )

@@ -32,6 +32,8 @@ struct CodexTerminalErrorNotificationTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let hookInput = #"{"session_id":"\#(sessionID)","cwd":"\#(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"\#(banner)"}"#
@@ -85,6 +87,8 @@ struct CodexTerminalErrorNotificationTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let hookInput = """
@@ -178,6 +182,8 @@ struct CodexTerminalErrorNotificationTests {
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let hookInput = """

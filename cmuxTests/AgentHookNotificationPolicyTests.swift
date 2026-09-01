@@ -129,6 +129,81 @@ struct AgentHookNotificationPolicyTests {
         )
     }
 
+    @Test func structuredUserRequestedReasonSuppressesStaleProviderBanner() throws {
+        let providerBanner = "Selected model is at capacity. Please try a different model."
+        let input = ClaudeHookParsedInput(
+            rawObject: [
+                "hook_event_name": "Stop",
+                "terminationReason": "user_requested",
+                "last_assistant_message": providerBanner,
+            ],
+            object: [
+                "hook_event_name": "Stop",
+                "terminationReason": "user_requested",
+                "last_assistant_message": providerBanner,
+            ],
+            rawFallback: nil,
+            sessionId: nil,
+            turnId: nil,
+            cwd: nil,
+            transcriptPath: nil
+        )
+        let cli = CMUXCLI(args: [])
+        let grok = try #require(CMUXCLI.agentDefs.first { $0.name == "grok" })
+
+        #expect(cli.isManagedAgentUserInitiatedStop(input: input))
+        #expect(
+            cli.summarizeGenericAbnormalStop(def: grok, input: input, lastMessage: nil) == nil,
+            "A structured user_requested stop must suppress a stale provider banner"
+        )
+        #expect(
+            cli.codexAbnormalStopBannerCandidate(from: input.object) == nil,
+            "The Codex banner path must apply the same user-abort suppression"
+        )
+    }
+
+    @Test func embeddedHTTPStatusCodesDoNotClassifyAsProviderFailures() {
+        let classifier = AgentHookAbnormalStopClassifier()
+        let cases = [
+            "request_id=req-429-attempt",
+            "correlation_id=abc529xyz error details omitted",
+        ]
+
+        for message in cases {
+            #expect(
+                classifier.abnormalStopClass(signal: "Stop", message: message) == nil,
+                "A status-looking substring inside an identifier must not classify: \(message)"
+            )
+        }
+    }
+
+    @Test func ordinaryQuotaProseIsNotClassifiedAsAProviderFailure() {
+        let classifier = AgentHookAbnormalStopClassifier()
+        let message = "The report says quota exceeded for a previous run."
+
+        #expect(
+            classifier.abnormalStopClass(signal: "Stop", message: message) == nil,
+            "Ordinary prose mentioning quota exceeded must fail closed"
+        )
+    }
+
+    @Test func longTerminationReasonRetainsProviderFailureMarker() throws {
+        let reason = String(repeating: "provider context ", count: 8)
+            + "API Error: 529 overloaded_error"
+        let rawObject: [String: Any] = [
+            "hook_event_name": "Stop",
+            "terminationReason": reason,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: rawObject)
+        let rawInput = try #require(String(data: data, encoding: .utf8))
+        let cli = CMUXCLI(args: [])
+        let parsed = cli.parseClaudeHookInput(rawInput: rawInput)
+        let grok = try #require(CMUXCLI.agentDefs.first { $0.name == "grok" })
+        let summary = cli.summarizeGenericAbnormalStop(def: grok, input: parsed, lastMessage: nil)
+
+        #expect(summary?.subtitle == "Model at capacity")
+    }
+
     @Test func providerErrorBodyRedactsDiagnostics() throws {
         let raw = #"API Error: request_id=abc123 Authorization: Bearer secret-value stack trace at Provider.call() payload={"token":"secret"}"#
         let summary = try #require(
@@ -512,12 +587,13 @@ struct AgentHookNotificationPolicyTests {
     }
 
     @Test func cursorCommandPreviewRedactsHeaderAndFlagCredentials() {
-        let command = "curl -H 'X-Api-Key: shortsecret' -H 'Authorization: Basic hunter2' --api-key shortsecret --secret-access-key shortsecret --token shorttoken AWS_SECRET_ACCESS_KEY=abc123 -u alice:s3cr3t redis-cli -a s3cr3t mysql -psecret openssl -pass pass:hunter2 gpg --passphrase hunter2"
+        let command = "curl -H 'X-Api-Key: shortsecret' -H 'Authorization: Basic hunter2' --api-key shortsecret --secret-access-key shortsecret --token shorttoken AWS_SECRET_ACCESS_KEY=abc123 AWS_ACCESS_KEY_ID=access123 -u alice:s3cr3t redis-cli -a s3cr3t mysql -psecret openssl -pass pass:hunter2 gpg --passphrase hunter2"
         let redacted = AgentHookNotificationPolicy.redactSensitiveCommand(command)
 
         #expect(!redacted.contains("shortsecret"))
         #expect(!redacted.contains("shorttoken"))
         #expect(!redacted.contains("abc123"))
+        #expect(!redacted.contains("access123"))
         #expect(!redacted.contains("alice:s3cr3t"))
         #expect(!redacted.contains("s3cr3t"))
         #expect(!redacted.contains("hunter2"))

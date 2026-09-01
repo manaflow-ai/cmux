@@ -63,6 +63,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             notifications.first?.contains("Grok|Rate limited|") == true,
             "A rate-limit termination reason without a message should classify as rate limited, saw \(notifications)"
         )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                context.state.snapshot(),
+                kind: "agent.error.reported",
+                agentKey: "grok",
+                sessionId: context.sessionId
+            ),
+            "A classified generic stop must journal an error boundary, saw \(context.state.snapshot())"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                context.state.snapshot(),
+                kind: "agent.turn.completed",
+                agentKey: "grok",
+                sessionId: context.sessionId
+            ),
+            "A classified generic stop must not journal a completion boundary, saw \(context.state.snapshot())"
+        )
     }
 
     func testGrokIncidentalCompletionCueAfterInterleavedNotificationDoesNotReding() throws {
