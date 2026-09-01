@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 
 extension AppDelegate {
     /// Routes adjacent surface navigation and surface/workspace reordering through

@@ -7,6 +7,7 @@ import CmuxBrowser
 import CmuxCore
 import CmuxFoundation
 import CmuxNotifications
+import CmuxPanes
 import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore

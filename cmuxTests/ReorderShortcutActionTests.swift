@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import CmuxCanvasUI
 import CmuxSettings
 import Foundation

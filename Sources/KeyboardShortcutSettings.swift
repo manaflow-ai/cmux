@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon
+import CmuxPanes
 import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
