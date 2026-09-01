@@ -9,6 +9,7 @@ import {
   vmRequiresProResponse,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
+import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
 import {
   isVmNotFoundError,
 } from "../../../../../services/vms/errors";
@@ -98,6 +99,7 @@ export async function POST(
           image: result.fork.image,
           imageVersion: result.fork.imageVersion,
           status: result.fork.status,
+          capabilities: vmCapabilitiesFor(result.fork.provider, result.fork.providerVmId),
           createdAt: result.fork.createdAt,
         });
       } catch (err) {

@@ -827,6 +827,11 @@ extension CMUXCLI {
             if direction != nil, pane == nil {
                 throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
             }
+            // A side means "split that pane"; --tabs means "tabs in that pane". The server
+            // would honor the side and silently drop --tabs, so refuse the mix up front.
+            if tabs, direction != nil {
+                throw CLIError(message: "vm workspace open: --tabs cannot be combined with --left/--right/--up/--down (pick tabs in the pane, or a split beside it)\n\n\(Self.vmWorkspaceUsage)")
+            }
             if here {
                 params["here"] = true
                 if let localWorkspace { params["target_workspace_id"] = localWorkspace }

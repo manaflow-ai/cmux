@@ -216,6 +216,12 @@ export interface VMProvider {
    * exists. Everything omitted defaults to supported.
    */
   readonly capabilities?: Partial<VmCapabilities>;
+  /**
+   * Per-machine overrides on top of `capabilities`, for providers that span platforms
+   * with different feature sets (Freestyle beta machines cannot fork). Omitted flags
+   * fall back to the provider-level answer.
+   */
+  vmCapabilities?(vmId: string): Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;

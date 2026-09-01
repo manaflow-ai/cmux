@@ -12,6 +12,7 @@ import {
   type VMHandle,
   type VMProvider,
   type VMStatus,
+  type VmCapabilities,
 } from "./types";
 import {
   recordSpanError,
@@ -117,6 +118,11 @@ export class FreestyleProvider implements VMProvider {
   /** Beta marker where metadata flows, id shape everywhere else. */
   private isBetaMachine(vmId: string, metadata?: Record<string, unknown>): boolean {
     return freestylePlatformIsBeta(metadata) || isFreestyleBetaVmId(vmId);
+  }
+
+  /** The beta API has no fork (`fork()` below refuses); clients must not offer it. */
+  vmCapabilities(vmId: string): Partial<VmCapabilities> {
+    return isFreestyleBetaVmId(vmId) ? { fork: false } : {};
   }
 
   async create(options: CreateOptions): Promise<VMHandle> {

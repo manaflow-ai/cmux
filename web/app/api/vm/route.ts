@@ -129,7 +129,7 @@ export async function GET(request: Request): Promise<Response> {
         kind: vmImageKindFor(entry.provider, entry.image),
         // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
         // the app when false; the CLI errors before calling).
-        capabilities: vmCapabilitiesFor(entry.provider),
+        capabilities: vmCapabilitiesFor(entry.provider, entry.providerVmId),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         // Server-authoritative expiry of the free access window for this machine
@@ -513,6 +513,7 @@ export async function POST(request: Request): Promise<Response> {
           image: created.image,
           imageVersion: created.imageVersion,
           kind: imageSelection.kind,
+          capabilities: vmCapabilitiesFor(created.provider, created.providerVmId),
           createdAt: created.createdAt,
         });
       }

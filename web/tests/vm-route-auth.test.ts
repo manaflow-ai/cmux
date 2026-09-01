@@ -406,6 +406,9 @@ describe("VM REST auth", () => {
       provider: "freestyle",
       image: "snapshot-test",
       kind: "base",
+      // Every VM-summary response carries the machine's capabilities, not just the
+      // list: a fresh create must not advertise verbs its provider will refuse.
+      capabilities: { snapshot: true, restore: true, fork: true },
       createdAt: 1_777_000_000_000,
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({

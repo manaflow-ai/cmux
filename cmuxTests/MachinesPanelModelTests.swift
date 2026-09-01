@@ -757,18 +757,6 @@ final class MachinesPanelModelTests: XCTestCase {
 /// outline updates rows in place unless the tree's structure changed.
 @MainActor
 final class CloudTreeScopeAndSignatureTests: XCTestCase {
-    func testMachineCapabilitiesDecodeWithSupportedDefaults() {
-        XCTAssertEqual(VMCapabilities(json: nil), .all, "an older control plane supports everything")
-        XCTAssertEqual(VMCapabilities(json: ["snapshot": false, "fork": false]), VMCapabilities(snapshot: false, restore: true, fork: false))
-        XCTAssertEqual(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true]),
-                       VMCapabilities(snapshot: false, restore: true, fork: true))
-        let summary = VMSummary(id: "m", provider: "blaxel", status: "running", image: "sandbox/cmux-devbox:latest", createdAt: 0, base: nil)
-        XCTAssertEqual(summary.capabilities, .all)
-        var declared = summary
-        declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
-        XCTAssertFalse(declared.capabilities.snapshot)
-    }
-
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", cwd: String? = "/root") -> SurfaceResource {
         SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: cwd, lifecycle: .running, agent: nil, remoteWorkspace: SurfaceRemoteWorkspace(id: "ws_0", name: "0", index: 0, focused: true), port: nil, url: nil)
     }
@@ -833,6 +821,21 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
 /// the raw catalog (whose This Mac entry counted as a row) while the
 /// cloud-only tree drew nothing. The emptiness decision must match what
 /// `nodes` actually renders.
+@Suite("VM capabilities decode")
+struct VMCapabilitiesDecodeTests {
+    @Test func supportedDefaultsAndDeclaredFlags() {
+        #expect(VMCapabilities(json: nil) == .all, "an older control plane supports everything")
+        #expect(VMCapabilities(json: ["snapshot": false, "fork": false]) == VMCapabilities(snapshot: false, restore: true, fork: false))
+        #expect(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true])
+            == VMCapabilities(snapshot: false, restore: true, fork: true))
+        let summary = VMSummary(id: "m", provider: "blaxel", status: "running", image: "sandbox/cmux-devbox:latest", createdAt: 0, base: nil)
+        #expect(summary.capabilities == .all)
+        var declared = summary
+        declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
+        #expect(!declared.capabilities.snapshot)
+    }
+}
+
 @Suite struct CloudTreeEmptyDecisionTests {
     private func info(_ machine: SurfaceMachineID) -> SurfaceMachineInfo {
         SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: "blaxel/xfce-vnc:latest", hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: machine.isLocal ? .notApplicable : .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)

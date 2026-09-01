@@ -1,5 +1,5 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
-import { defaultProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -111,6 +111,7 @@ export async function POST(request: Request): Promise<Response> {
           image: restored.image,
           imageVersion: restored.imageVersion,
           status: restored.status,
+          capabilities: vmCapabilitiesFor(restored.provider, restored.providerVmId),
           createdAt: restored.createdAt,
         });
       } catch (err) {

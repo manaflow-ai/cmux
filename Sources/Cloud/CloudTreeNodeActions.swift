@@ -244,6 +244,17 @@ struct CloudTreeNodeActions {
         workspaceID: String
     ) async throws -> Int {
         await provider.refresh()
+        // `refresh()` swallows link/snapshot failures and republishes whatever partial
+        // list it has; deleting on top of that would close the workspace while unseen
+        // terminals keep running. A link that is not connected after the re-sync aborts
+        // before anything is closed.
+        let linkState = provider.info.linkState
+        guard linkState == .connected else {
+            let detail = provider.info.linkError.map { ": \($0)" } ?? ""
+            throw SurfaceCatalogError.unsupported(
+                "deleting \(workspaceID) on \(machine.rawValue): the machine link is \(linkState.rawValue)\(detail) — nothing was closed; retry after `cmux vm tree \(machine.rawValue) --refresh`"
+            )
+        }
         let doomed = catalog.snapshot.resources(on: machine).filter { resource in
             resource.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspaceID }
         }

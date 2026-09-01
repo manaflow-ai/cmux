@@ -287,15 +287,38 @@ extension TerminalController {
         destinationParams["workspace_id"] = params["target_workspace_id"]
         let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams) : nil
         if here, localWorkspaceID == nil {
-            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open: no target workspace for `here` (pass `target_workspace_id`, or select one).")
+            let explicit = Self.surfaceString(params["target_workspace_id"])
+            return v2Error(id: id, code: "invalid_params", message: explicit == nil
+                ? "vm.workspace_open: no target workspace for `here` (pass `target_workspace_id`, or select one)."
+                : "vm.workspace_open: `target_workspace_id` \(explicit!) is not a local workspace (UUID or `workspace:N`); run `cmux workspace list`.")
         }
         let destination = localWorkspaceID.map { Self.surfaceDestination(surfaceResolvedParams(destinationParams), workspaceID: $0) }
         return v2VmCall(id: id, timeoutSeconds: 240) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
-            let resources = await catalog.snapshot.resources(on: machine).filter { $0.remoteWorkspace?.id == remoteWorkspaceID }
-            guard let workspace = resources.first?.remoteWorkspace else {
+            let snapshot = await catalog.snapshot
+            // The workspace comes from the machine's authoritative list, and members are
+            // every resource with a VIEW in it (`remoteWorkspaces`, not just the first
+            // view) — a terminal shared with another workspace still belongs here, and an
+            // empty workspace is a real workspace that simply opens nothing (D9).
+            let resources = snapshot.resources(on: machine).filter { resource in
+                resource.remoteWorkspaces.contains { $0.id == remoteWorkspaceID }
+            }
+            let listed = snapshot.machines.first { $0.id == machine }?.remoteWorkspaces?.first { $0.id == remoteWorkspaceID }
+            guard let workspace = listed ?? resources.first?.remoteWorkspaces.first(where: { $0.id == remoteWorkspaceID }) else {
                 throw SurfaceCatalogError.destinationNotFound("workspace \(remoteWorkspaceID) on \(vmId)")
+            }
+            if resources.isEmpty {
+                return [
+                    "machine": machine.rawValue,
+                    "remote_workspace_id": remoteWorkspaceID,
+                    "remote_workspace_name": workspace.name,
+                    "workspace_id": NSNull(),
+                    "surface_ids": [String](),
+                    "opened": 0,
+                    "here": destination != nil,
+                    "empty": true,
+                ]
             }
             let group = SurfaceResourceGroup(title: workspace.name, resources: resources.map(\.id))
             let focus = Self.surfaceBool(params["focus"]) ?? true
@@ -446,10 +469,12 @@ extension TerminalController {
     }
 
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
-    /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace.
+    /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace. An
+    /// explicit `workspace_id` that does not resolve yields nil rather than the selected
+    /// workspace: a stale or mistyped target must fail, not open somewhere else.
     nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any]) -> UUID? {
-        if let explicit = v2UUID(params, "workspace_id") {
-            return explicit
+        if let raw = Self.surfaceString(params["workspace_id"]), !raw.isEmpty {
+            return v2UUID(params, "workspace_id")
         }
         if let paneID = v2UUID(params, "pane_id"), let located = v2MainSync({ self.v2LocatePane(paneID) }) {
             return located.workspace.id

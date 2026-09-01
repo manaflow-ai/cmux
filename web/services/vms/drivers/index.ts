@@ -34,14 +34,16 @@ export function defaultProviderId(): ProviderId {
   return "blaxel";
 }
 
-/** The provider's capability set with defaults applied: an absent flag means supported,
- *  and `fork` follows the method's existence unless declared. */
-export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
+/** The capability set for one machine (or the provider in general when `vmId` is
+ *  omitted) with defaults applied: a per-machine override wins, then the provider's
+ *  declaration, then "supported" — except `fork`, which follows the method's existence. */
+export function vmCapabilitiesFor(id: ProviderId, vmId?: string): VmCapabilities {
   const provider = getProvider(id);
   const declared = provider.capabilities ?? {};
+  const perMachine = vmId && typeof provider.vmCapabilities === "function" ? provider.vmCapabilities(vmId) : {};
   return {
-    snapshot: declared.snapshot ?? true,
-    restore: declared.restore ?? true,
-    fork: declared.fork ?? typeof provider.fork === "function",
+    snapshot: perMachine.snapshot ?? declared.snapshot ?? true,
+    restore: perMachine.restore ?? declared.restore ?? true,
+    fork: perMachine.fork ?? declared.fork ?? typeof provider.fork === "function",
   };
 }

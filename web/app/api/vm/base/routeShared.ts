@@ -1,6 +1,6 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, type ProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -143,6 +143,7 @@ export async function runBaseRoute(input: {
     imageVersion: entry.imageVersion,
     kind: imageSelection.kind,
     status: entry.status,
+    capabilities: vmCapabilitiesFor(entry.provider, entry.providerVmId),
     createdAt: entry.createdAt,
     base: {
       id: entry.baseId,

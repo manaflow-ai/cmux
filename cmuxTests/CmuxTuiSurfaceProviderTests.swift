@@ -130,11 +130,11 @@ import Testing
         #expect(decoded == .display)
     }
 
-    @Test func exitedTerminalWithoutATabIsNotASurface() {
+    @Test func exitedTerminalWithoutATabIsNotASurface() throws {
         // cmux-tui keeps the record of a terminal whose process exited after its tab went
         // away; its selector no longer resolves, so nothing could open or close it.
         var snapshot = Self.sessionSnapshot
-        var terminals = snapshot["terminals"] as! [[String: Any]]
+        var terminals = try #require(snapshot["terminals"] as? [[String: Any]])
         terminals.append(["id": "term_gone", "tab_id": NSNull(), "tab_ids": [], "title": "", "lifecycle": "exited", "running": false,
                           "exit": ["outcome": ["kind": "exit", "code": 130]]])
         snapshot["terminals"] = terminals
@@ -328,7 +328,7 @@ import Testing
 
     @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {
         var snapshot = Self.sessionSnapshot
-        var tabs = snapshot["tabs"] as! [[String: Any]]
+        var tabs = try #require(snapshot["tabs"] as? [[String: Any]])
         tabs.append(["id": "tab_desk", "pane_id": "pane_2", "content_kind": "display", "content_id": "display:1"])
         snapshot["tabs"] = tabs
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)

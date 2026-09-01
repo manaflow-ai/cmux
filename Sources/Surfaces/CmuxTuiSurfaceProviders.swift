@@ -290,10 +290,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// A closed terminal has no pane to show any more: every local pane that projected it
     /// goes too, instead of lingering as a dead attach the person has to close by hand.
+    /// The one pane the control path refuses to close — the last surface of a local
+    /// workspace — stays put (its attach exits with the terminal), but its projection
+    /// ends now either way, so the catalog never points a pane at a dead resource.
     private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
         let wanted = Set(ids)
         for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
             SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+            catalog.endProjections(panelID: projection.panelID)
         }
     }
 

@@ -58,7 +58,7 @@ Machine workspaces, terminals, and panes (everything the Cloud sidebar does):
 
 ```
 cmux vm workspace new <id> [--name <n>]     # create a workspace on the machine (its ⌘N) and open it here
-cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]
+cmux vm workspace open <id> <ws> [--here [--workspace <local>]|--tabs|--pane <p> --left|--right|--up|--down]   # new local workspace by default; --here: into the current (or --workspace) one
 cmux vm workspace rename <id> <ws> <name>
 cmux vm workspace close <id> <ws>           # keep terminals: they detach into the Terminals pool
 cmux vm workspace rm <id> <ws>              # delete the workspace AND kill every terminal in it

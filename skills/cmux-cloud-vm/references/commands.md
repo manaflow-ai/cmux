@@ -36,11 +36,13 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-  terminals/                                   ← the pool: every terminal the machine owns
-  desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
+    (detached — no tab on the machine shows these)      ← the pool: alive, in no workspace (after `workspace close`)
+      ● term_c0d…  /root  (cmux surface open vivid-newt/terminal/term_c0d…)
+  desktop  (cmux vm open vivid-newt:desktop)   ← the machine's screen
+  ports/                                        ← forwarded ports, when any
 ```
 
-The sidebar shows the same tree in the same order (Workspaces, Terminals, Displays); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md).
+The sidebar shows the same resources as Workspaces, then a Terminals pool, then Displays; the CLI folds pool terminals into the `(detached …)` group under `workspaces/` rather than printing a `terminals/` header. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md).
 
 ## Surfaces: one open path for terminals, screens and browsers
 
