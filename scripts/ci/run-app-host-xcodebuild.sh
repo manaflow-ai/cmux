@@ -110,6 +110,32 @@ kill_stale_app_host() {
     "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT"
 }
 
+# Foundation may log the /tmp spelling even though the isolation identity uses
+# /private/tmp. Resolve directory aliases physically, while requiring the leaf
+# to remain an existing regular file rather than following a config symlink.
+cmux_resolve_reported_app_host_config_path() {
+  local candidate_path="$1"
+  case "$candidate_path" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  if [ ! -f "$candidate_path" ] || [ -L "$candidate_path" ]; then
+    return 1
+  fi
+
+  local parent_path filename resolved_parent
+  parent_path="${candidate_path%/*}"
+  filename="${candidate_path##*/}"
+  [ -n "$filename" ] || return 1
+  [ -n "$parent_path" ] || parent_path=/
+  resolved_parent="$(cd "$parent_path" 2>/dev/null && pwd -P)" || return 1
+  if [ "$resolved_parent" = / ]; then
+    CMUX_RESOLVED_REPORTED_APP_HOST_CONFIG_PATH="/$filename"
+  else
+    CMUX_RESOLVED_REPORTED_APP_HOST_CONFIG_PATH="${resolved_parent%/}/$filename"
+  fi
+}
+
 validate_app_host_config_paths() {
   local log_path="$1"
   local require_evidence="$2"
@@ -120,13 +146,10 @@ validate_app_host_config_paths() {
     return 1
   fi
 
-  # macOS resolves the published /tmp scope through /private/tmp, while
-  # Ghostty may report either spelling. Both roots were derived and validated
-  # above; keep the slash boundary so a same-prefix sibling is still rejected.
-  local published_expected_config_path resolved_expected_config_path
-  published_expected_config_path="${app_host_home_input%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  resolved_expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  local matches scan_status line reported_path
+  local expected_config_path
+  expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+  local matches scan_status line reported_path resolved_reported_path
+  local found_expected_evidence=0
   if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
   else
@@ -144,34 +167,34 @@ validate_app_host_config_paths() {
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
       reported_path="${line#*path=}"
-      case "$reported_path" in
-        "$app_host_home"|"${app_host_home%/}/"* \
-          |"$app_host_home_input"|"${app_host_home_input%/}/"*) ;;
+      reported_path="${reported_path%$'\r'}"
+      if ! cmux_resolve_reported_app_host_config_path "$reported_path"; then
+        echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
+        echo "$line" >&2
+        return 1
+      fi
+      resolved_reported_path="$CMUX_RESOLVED_REPORTED_APP_HOST_CONFIG_PATH"
+      case "$resolved_reported_path" in
+        "$app_host_home"|"${app_host_home%/}/"*) ;;
         *)
           echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
           echo "$line" >&2
           return 1
           ;;
       esac
+      case "$line" in
+        *"[default] reading configuration file path="*|*"[config] reading configuration file path="*)
+          if [ "$resolved_reported_path" = "$expected_config_path" ]; then
+            found_expected_evidence=1
+          fi
+          ;;
+      esac
     done <<< "$matches"
   fi
 
-  if [ "$require_evidence" = "1" ]; then
-    if ! grep -Fq \
-      "[default] reading configuration file path=$resolved_expected_config_path" \
-      "$log_path" \
-      && ! grep -Fq \
-        "[config] reading configuration file path=$resolved_expected_config_path" \
-        "$log_path" \
-      && ! grep -Fq \
-        "[default] reading configuration file path=$published_expected_config_path" \
-        "$log_path" \
-      && ! grep -Fq \
-        "[config] reading configuration file path=$published_expected_config_path" \
-        "$log_path"; then
-      echo "FAIL: app-host configuration evidence is missing" >&2
-      return 1
-    fi
+  if [ "$require_evidence" = "1" ] && [ "$found_expected_evidence" != "1" ]; then
+    echo "FAIL: app-host configuration evidence is missing" >&2
+    return 1
   fi
 }
 
