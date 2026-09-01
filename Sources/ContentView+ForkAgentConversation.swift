@@ -141,20 +141,11 @@ extension ContentView {
                 }
                 fallbackForValidation = currentFallbackSnapshot
             } else {
-                guard let currentIndexSnapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
-                    workspaceId: workspaceId,
-                    panelId: panelId,
-                    isRemoteContext: isRemoteContext
-                ),
-                      Self.commandPaletteForkSnapshotFingerprint(
-                        currentIndexSnapshot,
-                        isRemoteTerminal: isRemoteContext
-                      ) == selectedSnapshotFingerprint else {
-                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
-                    return
-                }
-                fallbackForValidation = nil
+                // authoritativeForkSnapshot already performed an exact fresh
+                // index/lifecycle check and refreshed the capability probe.
+                // Pass that candidate through the probe so a changed launch
+                // executable cannot be replaced by an older cache entry.
+                fallbackForValidation = snapshot
             }
             if AgentForkSupport.requiresForkValidationExecutableIdentity(
                 snapshot: snapshot,

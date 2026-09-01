@@ -34,6 +34,20 @@ extension Workspace {
             return false
         }
         snapshot = authoritativeSnapshot
+        guard let refreshedOwnership = surfaceOwnershipTarget(for: panelId),
+              let refreshedAnchorTabId = surfaceIdFromPanelId(
+                  refreshedOwnership.containerPanelID
+              ),
+              let refreshedPaneId = paneId(
+                  forPanelId: refreshedOwnership.containerPanelID
+              ),
+              isRemoteTerminalContext(refreshedOwnership.surfaceID)
+                  == isRemoteContext else {
+            return false
+        }
+        ownership = refreshedOwnership
+        anchorTabId = refreshedAnchorTabId
+        paneId = refreshedPaneId
         if AgentForkSupport.requiresForkValidationExecutableIdentity(
             snapshot: snapshot,
             isRemoteContext: isRemoteContext
@@ -50,7 +64,7 @@ extension Workspace {
                 workspaceId: id,
                 panelId: panelId,
                 isRemoteContext: isRemoteContext,
-                fallbackSnapshot: selection.validationFallbackSnapshot
+                fallbackSnapshot: snapshot
             ) else {
                 return false
             }

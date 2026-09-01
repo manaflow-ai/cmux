@@ -6,7 +6,8 @@ extension Workspace {
     /// Lifecycle-owned snapshots are the authoritative in-process binding. If
     /// a caller only has an availability-cache snapshot, refresh the shared
     /// index off the main actor and require an exact workspace/panel identity
-    /// before allowing it to be persisted on the new surface.
+    /// plus a fresh capability probe before allowing it to be persisted on the
+    /// new surface.
     @MainActor
     func authoritativeForkSnapshot(
         selected: SessionRestorableAgentSnapshot,
@@ -20,9 +21,8 @@ extension Workspace {
         }
         if let lifecycleSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId),
            Self.forkSnapshotsMatch(lifecycleSnapshot, selected) {
-            return await revalidatedForkSnapshotIfNeeded(
+            return await validatedForkSnapshot(
                 lifecycleSnapshot,
-                selected: selected,
                 panelId: panelId
             )
         }
@@ -36,33 +36,29 @@ extension Workspace {
               Self.forkSnapshotsMatch(entry.snapshot, selected) else {
             return nil
         }
-        return await revalidatedForkSnapshotIfNeeded(
+        return await validatedForkSnapshot(
             entry.snapshot,
-            selected: selected,
             panelId: panelId
         )
     }
 
-    private func revalidatedForkSnapshotIfNeeded(
+    private func validatedForkSnapshot(
         _ candidate: SessionRestorableAgentSnapshot,
-        selected: SessionRestorableAgentSnapshot,
         panelId: UUID
     ) async -> SessionRestorableAgentSnapshot? {
-        let selectedIdentity = AgentForkSupport.forkValidationIdentity(
-            snapshot: selected,
-            isRemoteContext: false
-        )
-        let candidateIdentity = AgentForkSupport.forkValidationIdentity(
+        guard AgentForkSupport.forkValidationIdentity(
             snapshot: candidate,
             isRemoteContext: false
-        )
-        guard let candidateIdentity else { return nil }
-        guard candidateIdentity != selectedIdentity else { return candidate }
+        ) != nil else {
+            return nil
+        }
 
         // A fresh lifecycle/index read can replace executable or registration
         // metadata while retaining the same session id. Re-run the capability
         // probe for that exact candidate and refresh cache metadata before
-        // persisting it on the destination surface.
+        // persisting it on the destination surface. This is intentionally
+        // performed even when the validation identity is unchanged: capability
+        // probes have their own expiry and a fork is a persistence boundary.
         await SharedLiveAgentIndex.shared.refreshForkAvailabilityNow(
             workspaceId: id,
             panelId: panelId,
