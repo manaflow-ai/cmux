@@ -42,7 +42,8 @@ extension CLITmuxCompatRemoteSplitTests {
 
         #expect(result.status != 0)
         #expect(result.stdout.isEmpty, Comment(rawValue: result.stdout))
-        #expect(result.stderr.contains("pane.surfaces"), Comment(rawValue: result.stderr))
+        #expect(result.stderr.contains("couldn't resolve the selected pane"), Comment(rawValue: result.stderr))
+        #expect(!result.stderr.contains("pane.surfaces"), Comment(rawValue: result.stderr))
     }
 
     /// A successful pane.surfaces response with a non-array field must not be
@@ -52,7 +53,8 @@ extension CLITmuxCompatRemoteSplitTests {
 
         #expect(result.status != 0)
         #expect(result.stdout.isEmpty, Comment(rawValue: result.stdout))
-        #expect(result.stderr.contains("pane.surfaces"), Comment(rawValue: result.stderr))
+        #expect(result.stderr.contains("couldn't resolve the selected pane"), Comment(rawValue: result.stderr))
+        #expect(!result.stderr.contains("pane.surfaces"), Comment(rawValue: result.stderr))
     }
 
     /// A non-empty response without a usable surface ID is malformed, not an empty pane.
