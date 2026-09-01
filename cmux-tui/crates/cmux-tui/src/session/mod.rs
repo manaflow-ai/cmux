@@ -150,6 +150,13 @@ pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_transport_failure)
 }
 
+/// Whether an error came from a request sent to the remote session. Callers
+/// that cross a public boundary must not serialize its `Display` text because
+/// the remote endpoint controls that text.
+pub(crate) fn is_remote_request_error(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<remote::RemoteRequestError>().is_some()
+}
+
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<remote::RemoteRequestError>()

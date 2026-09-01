@@ -61,6 +61,8 @@ const MAX_PIPE_IO_INPUT_BASE64_BYTES: usize = MAX_PIPE_IO_INPUT_BYTES.div_ceil(3
 /// top of the embedder's previous terminal state.
 const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
 const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+const REMOTE_OPERATION_FAILED_CODE: &str = "pipe_io.remote_operation_failed";
+const LOCAL_OPERATION_FAILED_CODE: &str = "pipe_io.operation_failed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipeIoExitReason {
@@ -187,7 +189,7 @@ pub fn run(
     if let Err(error) = session.claim_terminal_geometry(surface) {
         eprintln!(
             "{}",
-            serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
+            emit_public_error_diagnostic("claim-terminal-geometry", 0, 0, &error)
         );
     }
     spawn_stdin_pump(handle, sender, session.clone(), surface);
@@ -297,10 +299,7 @@ fn spawn_stdin_pump(
                                 })
                             ),
                             Err(error) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
-                                })
+                                "{}", emit_public_error_diagnostic("resize", cols, rows, &error)
                             ),
                         }
                     }
@@ -313,10 +312,7 @@ fn spawn_stdin_pump(
                                 serde_json::json!({"diag": {"claim": {"accepted": true}}})
                             ),
                             Err(error) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"claim": {"error": error.to_string()}}
-                                })
+                                "{}", emit_public_error_diagnostic("claim", 0, 0, &error)
                             ),
                         }
                     }
@@ -331,6 +327,55 @@ fn spawn_stdin_pump(
             let _ = sender.send(PipeIoEvent::StdinClosed);
         })
         .expect("spawn pipe-io stdin pump");
+}
+
+/// Build the machine-readable diagnostic sent to the embedder. Remote
+/// servers control rejection and transport text, so only a stable code and a
+/// generic message cross this boundary. The full error remains in the local
+/// client log for diagnosis.
+fn emit_public_error_diagnostic(
+    operation: &str,
+    cols: u16,
+    rows: u16,
+    error: &anyhow::Error,
+) -> serde_json::Value {
+    crate::client_log::error("pipe-io", &format!("{operation} request failed: {error:#}"));
+    public_error_payload(operation, cols, rows, error)
+}
+
+fn public_error_payload(
+    operation: &str,
+    cols: u16,
+    rows: u16,
+    error: &anyhow::Error,
+) -> serde_json::Value {
+    let is_remote = crate::session::is_remote_request_error(error);
+    let mut details = serde_json::Map::new();
+    if operation == "resize" {
+        details.insert("cols".into(), serde_json::json!(cols));
+        details.insert("rows".into(), serde_json::json!(rows));
+    }
+    details.insert(
+        "error_code".into(),
+        serde_json::Value::String(if is_remote {
+            REMOTE_OPERATION_FAILED_CODE.to_string()
+        } else {
+            LOCAL_OPERATION_FAILED_CODE.to_string()
+        }),
+    );
+    details.insert(
+        "error".into(),
+        serde_json::Value::String(if is_remote {
+            "remote operation failed".to_string()
+        } else {
+            "operation failed".to_string()
+        }),
+    );
+    let mut diag = serde_json::Map::new();
+    diag.insert(operation.to_string(), serde_json::Value::Object(details));
+    let mut root = serde_json::Map::new();
+    root.insert("diag".into(), serde_json::Value::Object(diag));
+    serde_json::Value::Object(root)
 }
 
 fn pump_events_to_stdout(
