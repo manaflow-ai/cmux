@@ -2,23 +2,25 @@
 
 cmux Cloud machines come up with their coding agents already routed through
 your team's AI subscriptions. There is nothing to log into on a machine —
-`claude`, `codex`, `opencode`, and `pi` work the moment a terminal opens. What
-they route over is the set of accounts your team has connected. You connect
-each account **once**, from your Mac.
+`claude`, `codex`, `opencode`, and `pi` work the moment a terminal opens,
+provided your team has connected an account for that agent. You connect each
+account **once**, from your Mac.
 
-## The one step
+## The one step (Claude)
 
-You are already signed into Claude Code (and/or Codex) on your Mac. Upload
-that login to your team:
+You are already signed into Claude Code on your Mac. Upload that login to your
+team:
 
 ```bash
 cmux ai-accounts upload claude     # uses ~/.claude/.credentials.json
-cmux ai-accounts upload codex      # uses ~/.codex/auth.json
 cmux ai-accounts list
 ```
 
-That is the whole setup. The same connect is available from the coderouter
-page of the web dashboard. From then on:
+That is the whole setup for Claude. The same connect is available from the
+coderouter page of the web dashboard. For Codex, connect through the
+coderouter CLI instead (`cr add codex`), which stores the account directly in
+the vault machines use; `cmux ai-accounts upload codex` connects Codex for
+the app only, not for machines (yet). From then on:
 
 - every **new** cloud machine (`cmux vm new`, the sidebar, a Base machine) is
   born with a machine-scoped route token and its agents pre-configured;

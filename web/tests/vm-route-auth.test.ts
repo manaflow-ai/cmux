@@ -230,6 +230,7 @@ beforeEach(() => {
   );
   createVm.mockClear();
   openBaseVm.mockClear();
+  mintVmModelPlaneEnvBestEffort.mockClear();
   resetBaseVm.mockClear();
   destroyVm.mockClear();
   openVmCmuxRemote.mockClear();
@@ -535,7 +536,10 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ envs: MODEL_PLANE_ENV }));
 
     // A Base machine is wired exactly like `cmux vm new`: no machine is born
-    // without the coderouter model-plane env.
+    // without the coderouter model-plane env. The Base mint is lazy — handed
+    // to the workflow as a thunk so an idempotent re-open of a running Base
+    // (which creates nothing) never mints a token it would then discard.
+    mintVmModelPlaneEnvBestEffort.mockClear();
     const open = await baseOpenRoute.POST(
       new Request("https://cmux.test/api/vm/base/open", {
         method: "POST",
@@ -544,7 +548,12 @@ describe("VM REST auth", () => {
       }),
     );
     expect(open.status).toBe(200);
-    expect(openBaseVm).toHaveBeenCalledWith(expect.objectContaining({ envs: MODEL_PLANE_ENV }));
+    expect(mintVmModelPlaneEnvBestEffort).not.toHaveBeenCalled();
+    const baseInput = (openBaseVm as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as {
+      mintEnvs?: () => Promise<Record<string, string> | undefined>;
+    } | undefined;
+    expect(typeof baseInput?.mintEnvs).toBe("function");
+    expect(await baseInput?.mintEnvs?.()).toEqual(MODEL_PLANE_ENV);
     expect(mintVmModelPlaneEnvBestEffort).toHaveBeenCalledWith(expect.objectContaining({
       requestUrl: "https://cmux.test/api/vm/base/open",
     }));

@@ -171,8 +171,9 @@ Claude Code login already on the machine, or the dashboard) and every cloud
 machine routes over it. That path stores accounts in the hosted Subrouter
 store; `web/services/coderouter/accountMirror.ts` mirrors the providers the
 machine plane serves (Claude) into the coderouter vault on connect and removes
-them on disconnect, best-effort and idempotent, so the two stores never
-diverge for the user. Codex reaches the vault through `cr add codex` today;
+them on disconnect, best-effort and idempotent, so normal connects keep the two
+stores in step (a vault outage is reported and heals on the next connect).
+Codex reaches the vault through `cr add codex` today;
 mirroring it too is a follow-up (its dedupe key is the ChatGPT account id).
 
 ## Incremental plan (follow-ups, in order)

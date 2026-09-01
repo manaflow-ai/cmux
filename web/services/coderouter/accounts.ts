@@ -15,14 +15,25 @@ import { reportCoderouterFailure } from "./observability";
 export async function addAccount(
   teamId: string,
   credential: CodeRouterCredential,
-): Promise<{ accountId: string; alreadyExists: boolean }> {
+  options: {
+    /**
+     * Replace a healthy existing account's credential instead of leaving it
+     * untouched — for callers that hand over freshly rotated tokens for an
+     * account the vault already knows (the connected-account mirror).
+     */
+    readonly refreshExisting?: boolean;
+  } = {},
+): Promise<{ accountId: string; alreadyExists: boolean; refreshed?: boolean }> {
   const existing = await findAccountByProviderIdentity(
     teamId,
     credential.provider,
     credential.accountId,
   );
-  if (existing?.state === "active" || existing?.state === "refreshing") {
-    return { accountId: existing.id, alreadyExists: true };
+  if (
+    (existing?.state === "active" || existing?.state === "refreshing") &&
+    !options.refreshExisting
+  ) {
+    return { accountId: existing.id, alreadyExists: true, refreshed: false };
   }
 
   const accountId = existing?.id ?? randomUUID();
@@ -45,7 +56,7 @@ export async function addAccount(
         credential.provider,
         credential.accountId,
       );
-      if (raced) return { accountId: raced.id, alreadyExists: true };
+      if (raced) return { accountId: raced.id, alreadyExists: true, refreshed: false };
       throw new Error("coderouter account insert lost a uniqueness race");
     }
   } else {
@@ -55,7 +66,7 @@ export async function addAccount(
       expectedRevision,
     });
   }
-  return { accountId, alreadyExists: false };
+  return { accountId, alreadyExists: existing !== null, refreshed: existing !== null };
 }
 
 export { listAccounts };

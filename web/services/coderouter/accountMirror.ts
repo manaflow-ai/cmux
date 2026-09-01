@@ -8,6 +8,7 @@
 // every machine's `claude` works immediately, and removing it un-mirrors it.
 // Mirroring is best-effort — a vault outage never fails the connect.
 import { addAccount } from "./accounts";
+import { accountAdditionAllowed } from "./entitlement";
 import { deleteAccount, findAccountByProviderIdentity } from "./repository";
 import type { ClaudeCredential } from "./types";
 import type { SubrouterAccount, SubrouterAccountInput } from "../subrouter/types";
@@ -34,7 +35,11 @@ export function credentialForMirror(
     accessToken: oauth.accessToken,
     refreshToken: oauth.refreshToken,
     accountId: mirroredProviderAccountId(created.id),
-    email: created.label ?? "",
+    // The vault's decrypt-path parser requires a non-empty email (it doubles
+    // as the account label), so an unlabeled connect falls back to the
+    // mirrored identity rather than storing a credential it can't read back.
+    email: created.label?.trim() || input.label?.trim() ||
+      mirroredProviderAccountId(created.id),
     expiresAt: oauth.expiresAt,
     ...(oauth.subscriptionType ? { subscriptionType: oauth.subscriptionType } : {}),
   };
@@ -45,6 +50,9 @@ export type MirrorDependencies = {
   readonly find: typeof findAccountByProviderIdentity;
   readonly remove: typeof deleteAccount;
   readonly report: typeof captureCoderouterError;
+  /** The same free-tier account gate `POST /api/coderouter/accounts` applies. */
+  readonly additionAllowed: typeof accountAdditionAllowed;
+  readonly hostedProRequired: () => boolean;
 };
 
 const defaultDependencies: MirrorDependencies = {
@@ -52,13 +60,21 @@ const defaultDependencies: MirrorDependencies = {
   find: findAccountByProviderIdentity,
   remove: deleteAccount,
   report: captureCoderouterError,
+  additionAllowed: accountAdditionAllowed,
+  hostedProRequired: () => process.env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
 };
 
-export type MirrorOutcome = "mirrored" | "already_mirrored" | "not_applicable" | "failed";
+export type MirrorOutcome =
+  | "mirrored"
+  | "refreshed"
+  | "not_applicable"
+  | "limit_reached"
+  | "failed";
 
 export async function mirrorConnectedAccount(
   input: {
     readonly teamId: string;
+    readonly stackUserId: string;
     readonly input: SubrouterAccountInput;
     readonly created: SubrouterAccount;
   },
@@ -67,8 +83,21 @@ export async function mirrorConnectedAccount(
   const credential = credentialForMirror(input.input, input.created);
   if (!credential) return "not_applicable";
   try {
-    const result = await dependencies.add(input.teamId, credential);
-    return result.alreadyExists ? "already_mirrored" : "mirrored";
+    // Mirroring must not be a way around the hosted account limit: the vault
+    // applies the same gate here as on its own add endpoint.
+    if (dependencies.hostedProRequired()) {
+      const decision = await dependencies.additionAllowed({
+        stackUserId: input.stackUserId,
+        teamId: input.teamId,
+        provider: credential.provider,
+        providerAccountId: credential.accountId,
+      });
+      if (!decision.allowed) return "limit_reached";
+    }
+    // A re-connect carries freshly rotated tokens; the vault copy must follow
+    // them rather than keep serving the older, sooner-expiring pair.
+    const result = await dependencies.add(input.teamId, credential, { refreshExisting: true });
+    return result.refreshed ? "refreshed" : "mirrored";
   } catch (error) {
     dependencies.report(error, {
       operation: "mirror_connected_account",

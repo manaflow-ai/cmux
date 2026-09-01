@@ -318,6 +318,8 @@ export function createVm(input: {
    * persisted in the VM row or providerMetadata.
    */
   readonly envs?: Readonly<Record<string, string>>;
+  /** Lazily minted create-time env, called only when a machine is actually created. */
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -440,6 +442,8 @@ export function openBaseVm(input: {
   readonly baseName?: string;
   readonly bakedFreestyleSignedAdmin?: boolean;
   readonly envs?: Readonly<Record<string, string>>;
+  /** Lazily minted create-time env, called only when a machine is actually created. */
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -468,6 +472,8 @@ export function resetBaseVm(input: {
   readonly reason?: string | null;
   readonly bakedFreestyleSignedAdmin?: boolean;
   readonly envs?: Readonly<Record<string, string>>;
+  /** Lazily minted create-time env, called only when a machine is actually created. */
+  readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -500,6 +506,7 @@ function finishBaseCreate(
     readonly bakedFreestyleSignedAdmin?: boolean;
     /** Create-time machine env (the coderouter model-plane vars); see createVm. */
     readonly envs?: Readonly<Record<string, string>>;
+    readonly mintEnvs?: () => Promise<Readonly<Record<string, string>> | undefined>;
     readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
@@ -545,6 +552,11 @@ function finishBaseCreate(
       idempotencyKey,
     }, create.vm, creditReservation);
 
+    // The model-plane token is minted only on this branch: an idempotent
+    // re-open of a running Base never creates a machine and must not burn a
+    // stored bearer token for nothing.
+    const envs = input.envs ??
+      (input.mintEnvs ? yield* Effect.promise(input.mintEnvs) : undefined);
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
@@ -552,7 +564,7 @@ function finishBaseCreate(
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
         bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
-        envs: input.envs,
+        envs,
       }),
     ).pipe(
       Effect.tapError((err) =>

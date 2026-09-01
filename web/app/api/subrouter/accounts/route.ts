@@ -56,6 +56,7 @@ export async function POST(request: Request): Promise<Response> {
     // mirrored into the coderouter vault that cloud machines route through.
     const vmPlane = await mirrorConnectedAccount({
       teamId: context.team.teamId,
+      stackUserId: context.user.id,
       input: input.value,
       created: account,
     });

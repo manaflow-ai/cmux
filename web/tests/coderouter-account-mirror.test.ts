@@ -28,12 +28,14 @@ function deps(overrides: Partial<MirrorDependencies> = {}): MirrorDependencies &
 } {
   const reports: unknown[] = [];
   return {
-    add: mock(async () => ({ accountId: "vault-1", alreadyExists: false })),
+    add: mock(async () => ({ accountId: "vault-1", alreadyExists: false, refreshed: false })),
     find: mock(async () => null),
     remove: mock(async () => ({ removed: true, lastAccount: false })),
     report: mock((error: unknown) => {
       reports.push(error);
     }) as unknown as MirrorDependencies["report"],
+    additionAllowed: mock(async () => ({ allowed: true })) as unknown as MirrorDependencies["additionAllowed"],
+    hostedProRequired: () => false,
     reports,
     ...overrides,
   };
@@ -51,6 +53,16 @@ describe("credentialForMirror", () => {
       subscriptionType: "max",
     });
     expect(mirroredProviderAccountId("sr-acct-1")).toBe("subrouter:sr-acct-1");
+  });
+
+  test("an unlabeled connect never stores an empty email (the decrypt parser would reject it)", () => {
+    const unlabeled = { ...claudeInput, label: undefined };
+    expect(credentialForMirror(unlabeled, { id: "sr-2", kind: "claude", label: null })?.email)
+      .toBe("subrouter:sr-2");
+    expect(credentialForMirror(unlabeled, { id: "sr-2", kind: "claude", label: "  " })?.email)
+      .toBe("subrouter:sr-2");
+    expect(credentialForMirror(claudeInput, { id: "sr-2", kind: "claude" })?.email)
+      .toBe("person@example.com");
   });
 
   test("has no vault mapping for API-key or Codex uploads", () => {
@@ -76,20 +88,23 @@ describe("mirrorConnectedAccount", () => {
   test("adds the claude credential to the team vault", async () => {
     const d = deps();
     const outcome = await mirrorConnectedAccount(
-      { teamId: "team-1", input: claudeInput, created },
+      { teamId: "team-1", stackUserId: "user-1", input: claudeInput, created },
       d,
     );
     expect(outcome).toBe("mirrored");
-    expect(d.add).toHaveBeenCalledWith("team-1", expect.objectContaining({
-      provider: "claude",
-      accountId: "subrouter:sr-acct-1",
-    }));
+    expect(d.add).toHaveBeenCalledWith(
+      "team-1",
+      expect.objectContaining({ provider: "claude", accountId: "subrouter:sr-acct-1" }),
+      { refreshExisting: true },
+    );
   });
 
-  test("reports an idempotent re-connect as already mirrored", async () => {
-    const d = deps({ add: mock(async () => ({ accountId: "vault-1", alreadyExists: true })) });
-    expect(await mirrorConnectedAccount({ teamId: "team-1", input: claudeInput, created }, d))
-      .toBe("already_mirrored");
+  test("a re-connect refreshes the vault copy with the rotated tokens", async () => {
+    const d = deps({
+      add: mock(async () => ({ accountId: "vault-1", alreadyExists: true, refreshed: true })),
+    });
+    expect(await mirrorConnectedAccount({ teamId: "team-1", stackUserId: "user-1", input: claudeInput, created }, d))
+      .toBe("refreshed");
   });
 
   test("a vault failure is reported and never thrown", async () => {
@@ -98,9 +113,31 @@ describe("mirrorConnectedAccount", () => {
         throw new Error("kms down");
       }),
     });
-    expect(await mirrorConnectedAccount({ teamId: "team-1", input: claudeInput, created }, d))
+    expect(await mirrorConnectedAccount({ teamId: "team-1", stackUserId: "user-1", input: claudeInput, created }, d))
       .toBe("failed");
     expect(d.reports).toHaveLength(1);
+  });
+
+  test("the hosted account limit applies to mirroring too", async () => {
+    const d = deps({
+      hostedProRequired: () => true,
+      additionAllowed: mock(async () => ({ allowed: false })) as unknown as MirrorDependencies["additionAllowed"],
+    });
+    expect(await mirrorConnectedAccount({ teamId: "team-1", stackUserId: "user-1", input: claudeInput, created }, d))
+      .toBe("limit_reached");
+    expect(d.add).not.toHaveBeenCalled();
+    expect(d.additionAllowed).toHaveBeenCalledWith({
+      stackUserId: "user-1",
+      teamId: "team-1",
+      provider: "claude",
+      providerAccountId: "subrouter:sr-acct-1",
+    });
+  });
+
+  test("an allowed gate lets the mirror through", async () => {
+    const d = deps({ hostedProRequired: () => true });
+    expect(await mirrorConnectedAccount({ teamId: "team-1", stackUserId: "user-1", input: claudeInput, created }, d))
+      .toBe("mirrored");
   });
 
   test("non-claude uploads are not applicable and touch nothing", async () => {
@@ -108,6 +145,7 @@ describe("mirrorConnectedAccount", () => {
     const outcome = await mirrorConnectedAccount(
       {
         teamId: "team-1",
+        stackUserId: "user-1",
         input: { provider: "openai-apikey", apiKey: "sk-openai" },
         created: { id: "o", kind: "openai-apikey" },
       },

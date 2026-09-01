@@ -461,6 +461,7 @@ describe("hosted Subrouter account routes", () => {
     expect(body.vmPlane).toBe("mirrored");
     expect(mirrorConnectedAccount).toHaveBeenCalledWith({
       teamId: "team-a",
+      stackUserId: "user-1",
       input: expect.objectContaining({
         provider: "claude",
         claudeAiOauth: expect.objectContaining({ accessToken: "sk-ant-oat-access" }),
