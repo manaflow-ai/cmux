@@ -43711,6 +43711,44 @@ mod tests {
     }
 
     #[test]
+    fn dropping_machine_action_worker_does_not_join_blocked_provider_call() {
+        let (events, _event_receiver) = crossbeam_channel::bounded(4);
+        let (started, starts) = std::sync::mpsc::channel();
+        let (release, releases) = std::sync::mpsc::channel();
+        let (closed, closes) = std::sync::mpsc::channel();
+        let mut worker = MachineActionWorker::spawn(
+            Box::new(OrderedBlockingMachineController {
+                started,
+                release: releases,
+                closed: Some(closed),
+            }),
+            events,
+        )
+        .unwrap();
+        worker
+            .perform(MachineRequest::Switch(MachineKey(1)), unused_machine_preparation())
+            .unwrap();
+        assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
+
+        let (drop_started, wait_for_drop) = std::sync::mpsc::channel();
+        let releaser = std::thread::spawn(move || {
+            wait_for_drop.recv().unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+            release.send(()).unwrap();
+        });
+        drop_started.send(()).unwrap();
+        let started_drop = Instant::now();
+        drop(worker);
+        assert!(
+            started_drop.elapsed() < Duration::from_millis(50),
+            "dropping a blocked machine worker waited for provider completion"
+        );
+
+        releaser.join().unwrap();
+        closes.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
     fn in_place_machine_switch_preserves_rail_view_focus_and_widths() {
         let first = Mux::new("machine-switch-first", SurfaceOptions::default());
         first.new_workspace(None, None).unwrap();
