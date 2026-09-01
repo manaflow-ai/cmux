@@ -669,13 +669,13 @@ public final class LocalLinuxComputerController {
                     if case let LocalLinuxError.inputFailed(errno) = error,
                        errno == Self.wouldBlockErrno {
                         waitForReadiness = true
-                        break
+                    } else {
+                        self.markInputFailure(
+                            (error as? LocalLinuxError)
+                                ?? .operationFailed("terminal input failed")
+                        )
+                        return
                     }
-                    self.markInputFailure(
-                        (error as? LocalLinuxError)
-                            ?? .operationFailed("terminal input failed")
-                    )
-                    return
                 }
 
                 guard self.inputWorkerID == workerID,

@@ -66,13 +66,17 @@ struct DeviceTreeView: View {
             List {
                 if let localComputerProvider, localComputerProvider.isAvailable {
                     Section {
-                        MobileLocalComputerRow(provider: localComputerProvider)
+                        MobileLocalComputerRow(
+                            title: localComputerProvider.title,
+                            subtitle: localComputerProvider.subtitle,
+                            symbolName: localComputerProvider.symbolName,
+                            destination: { localComputerProvider.makeDestination() }
+                        )
                     } header: {
                         Text(localComputerProvider.title)
                     }
                 }
-                if computers.isEmpty && store.hiddenComputers.isEmpty
-                    && !(localComputerProvider?.isAvailable ?? false) {
+                if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
                     // One row per Computer, grouped under the connection

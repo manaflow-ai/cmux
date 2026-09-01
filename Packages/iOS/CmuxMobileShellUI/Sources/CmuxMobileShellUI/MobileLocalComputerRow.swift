@@ -6,28 +6,35 @@ import SwiftUI
 /// navigation affordance as every other computer without pretending to be a
 /// remote workspace or connection.
 struct MobileLocalComputerRow: View {
-    let provider: any MobileLocalComputerProviding
+    /// Snapshot presentation values at the list boundary. The row must not
+    /// retain the mutable app provider as SwiftUI reevaluates its body.
+    let title: String
+    let subtitle: String
+    let symbolName: String
+    /// The destination remains a main-actor action because the provider owns
+    /// UI/controller state. It is invoked only when the row is selected.
+    let destination: @MainActor () -> AnyView
 
     var body: some View {
         NavigationLink {
-            provider.makeDestination()
+            destination()
         } label: {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
                         .fill(.blue.gradient)
                         .frame(width: 40, height: 40)
-                    Image(systemName: provider.symbolName)
+                    Image(systemName: symbolName)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(provider.title)
+                    Text(title)
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    Text(provider.subtitle)
+                    Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
