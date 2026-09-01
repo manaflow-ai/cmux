@@ -939,6 +939,8 @@ struct TabManagerSplitZoomCleanupTests {
 
 @MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    deinit {}
+
     func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()
         _ = manager.addWorkspace()
