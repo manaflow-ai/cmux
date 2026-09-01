@@ -65,7 +65,7 @@ fn detached_hook_exits_before_the_server_answers() {
     assert!(request.contains("\"session.journal.append\""), "{request}");
 
     // The server has not answered yet; the provider-facing process must be
-    // gone, with its stdout closed, well inside the 4 s receipt deadline.
+    // gone, with its stdout closed, without waiting for the receipt.
     let output = wait_with_output(child, Duration::from_secs(3))
         .expect("hook must exit before the journal receipt arrives");
     assert!(output.status.success(), "{output:?}");

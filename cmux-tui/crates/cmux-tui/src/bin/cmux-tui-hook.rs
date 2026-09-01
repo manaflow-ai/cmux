@@ -3,10 +3,13 @@
 //!
 //! Providers (codex, cursor, gemini, grok) run hook commands synchronously
 //! and block the agent until the command exits, so this helper never waits
-//! on the journal server in the provider's process: it reads the payload,
+//! for the journal commit in the provider's process: it reads the payload,
 //! hands the request to a detached child, and exits once the child has
-//! written the request (bounded by `HANDOFF_WAIT`) so events reach the
-//! server in provider order. The child waits for the receipt and retries.
+//! written the request to the server socket. Waiting for that write, and not
+//! for the receipt, keeps two properties: events reach the server in
+//! provider order, and a server that stops accepting requests applies
+//! backpressure to the provider instead of spawning an unbounded number of
+//! retrying children. The child waits for the receipt and retries.
 
 use std::env;
 use std::io::{self, BufRead, BufReader, Read};
@@ -24,10 +27,11 @@ const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
-/// Longest the provider-facing process waits for the detached child to write
-/// the request. Normally the write lands in a few milliseconds; this bound only
-/// matters when the server is not accepting connections.
-const HANDOFF_WAIT: Duration = Duration::from_millis(500);
+/// Safety bound on the provider-facing wait for the child's "request written"
+/// signal. The child itself gives up at `SOCKET_TIMEOUT` and closes the pipe,
+/// so this only fires if the child is stuck; the margin keeps the child's own
+/// deadline authoritative.
+const HANDOFF_SAFETY_WAIT: Duration = Duration::from_secs(5);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -394,10 +398,14 @@ mod detach {
 
     use anyhow::Context;
 
-    use super::{HANDOFF_WAIT, append_with_receipt};
+    use super::{HANDOFF_SAFETY_WAIT, append_with_receipt};
 
     /// Forks a detached child that performs the append, then returns once the
-    /// child has written the request or `HANDOFF_WAIT` elapsed.
+    /// child has written the request (normally milliseconds) or has given up
+    /// on delivering it. Ordering and backpressure both follow from that: the
+    /// next provider hook cannot start until this request is in the server's
+    /// socket buffer, and a server that stops accepting stalls the provider
+    /// for at most the child's `SOCKET_TIMEOUT` instead of fanning out.
     pub(super) fn append_detached(
         socket: &Path,
         request_id: &str,
@@ -463,13 +471,19 @@ mod detach {
         Ok(())
     }
 
-    /// Returns when the child reports the request was written (one byte), the
-    /// child exits (EOF), or `HANDOFF_WAIT` elapses.
+    /// Returns when the child reports the request was written (one byte) or
+    /// exits (EOF). `HANDOFF_SAFETY_WAIT` is an absolute deadline, so a signal
+    /// storm cannot extend it through repeated `EINTR`.
     fn wait_for_handoff(read_end: &OwnedFd) {
+        let deadline = std::time::Instant::now() + HANDOFF_SAFETY_WAIT;
         let mut descriptor =
             libc::pollfd { fd: read_end.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-        let timeout_ms = i32::try_from(HANDOFF_WAIT.as_millis()).unwrap_or(i32::MAX);
         loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return;
+            }
+            let timeout_ms = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
             // SAFETY: `descriptor` is one valid pollfd for the poll duration.
             let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
             if ready >= 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
@@ -491,8 +505,9 @@ mod detach {
 
     /// Respawns this helper detached from the provider's console and process
     /// group with the request on its stdin. The request is written to the
-    /// child's pipe before returning, so consecutive hooks still start in
-    /// provider order; the receipt wait happens in the child.
+    /// child's pipe before returning; unlike the unix path this does not wait
+    /// for the child's socket write, so ordering and backpressure on Windows
+    /// follow spawn order only.
     pub(super) fn append_detached(
         socket: &Path,
         request_id: &str,
