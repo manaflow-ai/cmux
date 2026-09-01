@@ -445,7 +445,11 @@ async function billingDunningInput(
 ): Promise<BillingDunningEmailInput> {
   const portalUrl = new URL("/api/billing/portal", publicOrigin);
   if (result.scope === "team") portalUrl.searchParams.set("scope", "team");
-  const customer = await stripeCustomerForDunning(invoice, dependencies);
+  const customer = await stripeCustomerForDunning(
+    invoice,
+    dependencies,
+    { emailRequired: !invoice.customer_email },
+  );
   return {
     invoiceId: invoice.id,
     // The invoice snapshot's customer_email is nullable; the retrieved
@@ -470,6 +474,7 @@ async function billingDunningInput(
 async function stripeCustomerForDunning(
   invoice: Stripe.Invoice,
   dependencies: StripeWebhookDependencies,
+  options: { readonly emailRequired: boolean } = { emailRequired: false },
 ): Promise<Stripe.Customer | null> {
   const invoiceCustomer = invoice.customer;
   if (typeof invoiceCustomer === "object" && invoiceCustomer !== null) {
@@ -484,9 +489,17 @@ async function stripeCustomerForDunning(
     const customer = await customers.retrieve(customerId);
     if ("deleted" in customer && customer.deleted) return null;
     return customer;
-  } catch {
-    // Locale is best effort. A transient customer lookup failure must not make
-    // Stripe retry an otherwise durable dunning delivery.
+  } catch (error) {
+    // When the invoice already carries an email, the lookup only supplies
+    // locale data and stays best effort. When it does not, this lookup is the
+    // only recipient source: a transient failure must stay Stripe-retryable
+    // instead of becoming a silent no_customer_email drop.
+    if (options.emailRequired) {
+      throw new BillingDunningDeliveryRetryableError(
+        "customer lookup failed while the invoice has no email",
+        { cause: error },
+      );
+    }
     return null;
   }
 }

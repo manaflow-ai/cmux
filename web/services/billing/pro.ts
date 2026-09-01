@@ -424,10 +424,10 @@ export async function stripeBillingStatusForUser(
     // newest row still supplies portal/recovery metadata.
     const [customerRows, subscriptionRows, hasActiveSubscription] = await Promise.all([
       customerRowsPromise,
-      orderedSubscriptionQuery.limit(1),
+      orderedSubscriptionQuery.limit(10),
       hasActiveStripeProSubscription(stackUserId),
     ]);
-    const subscription = subscriptionRows[0];
+    const subscription = pickPortalMetadataRow(subscriptionRows);
     return stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
@@ -489,10 +489,10 @@ export async function stripeBillingStatusForTeam(
     // Same any-active-row authority rule as the personal snapshot.
     const [customerRows, subscriptionRows, hasActiveSubscription] = await Promise.all([
       customerRowsPromise,
-      orderedSubscriptionQuery.limit(1),
+      orderedSubscriptionQuery.limit(10),
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
-    const subscription = subscriptionRows[0];
+    const subscription = pickPortalMetadataRow(subscriptionRows);
     return stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
@@ -626,6 +626,25 @@ function planIdFromMetadata(metadata: Record<string, unknown>): string | null {
 
 function isMissingDatabaseConfig(error: unknown): boolean {
   return error instanceof Error && /DATABASE_URL is required/.test(error.message);
+}
+
+/**
+ * Pick the subscription row that should drive portal/recovery metadata. A
+ * stale canceled row can carry the newest updatedAt, so prefer any
+ * portal-recoverable row (latest period end wins) and fall back to the first
+ * returned row.
+ */
+function pickPortalMetadataRow<T extends {
+  readonly status?: string | null;
+  readonly cancelAtPeriodEnd?: boolean | null;
+  readonly currentPeriodEnd?: Date | null;
+}>(rows: readonly T[]): T | undefined {
+  const recoverable = rows.filter((row) =>
+    (row.status && (STRIPE_PORTAL_RECOVERABLE_STATUSES as readonly string[]).includes(row.status)) ||
+    Boolean(row.cancelAtPeriodEnd));
+  if (recoverable.length === 0) return rows[0];
+  return [...recoverable].sort((a, b) =>
+    (b.currentPeriodEnd?.getTime() ?? 0) - (a.currentPeriodEnd?.getTime() ?? 0))[0];
 }
 
 function stripeBillingStatusFromRows(
