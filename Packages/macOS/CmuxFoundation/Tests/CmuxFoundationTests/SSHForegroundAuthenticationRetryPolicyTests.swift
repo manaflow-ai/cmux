@@ -381,10 +381,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
 
         let command = """
-        # Keep the fixture below the shared runner's process ceiling. The old
-        # recursive cleanup needs one short-lived process per scan and leaves
-        # descendants behind when that ceiling returns EAGAIN.
-        ulimit -u 100 2>/dev/null || true
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
         cmux_test_auth_root=$!
@@ -394,6 +390,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        # Lower the helper shell's process ceiling only after the full fixture
+        # exists. The old recursive cleanup then receives EAGAIN on its
+        # short-lived scans while the test chain remains runnable.
+        ulimit -u 100 2>/dev/null || true
         : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
