@@ -275,7 +275,7 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
         let child = unsafe { File::from_raw_fd(fd) };
         let observed = child.metadata().map_err(|_| "cwd is not accessible".to_owned())?;
         if expected.dev() != observed.dev() || expected.ino() != observed.ino() {
-            return Err("cwd changed while resolving".to_owned());
+            return Err("the selected folder changed; select it again".to_owned());
         }
         parent = child;
     }
