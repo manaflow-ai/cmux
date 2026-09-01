@@ -1,5 +1,6 @@
 import Foundation
 import Bonsplit
+import CmuxControlSocket
 
 extension TerminalController {
     nonisolated func v2String(_ params: [String: Any], _ key: String) -> String? {
@@ -84,10 +85,20 @@ extension TerminalController {
         return (min(max(rawPosition, 0.1), 0.9), nil)
     }
 
+    /// The legacy lane's twin of `ControlCommandCoordinator.uuid(_:_:)`,
+    /// including its restart-stable to runtime mapping, so the verbs still
+    /// served here (workspace move, mobile, file open) accept a pasted
+    /// `cmux://` link's ids exactly as the coordinator-owned verbs do.
+    ///
+    /// The alias lookup is `nonisolated` by design: this parse runs off the
+    /// main actor and must not take a hop to interpret an identifier.
     nonisolated func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
         guard let s = v2String(params, key) else { return nil }
         if let uuid = UUID(uuidString: s) {
-            return uuid
+            guard let kind = ControlCommandCoordinator.handleKind(forParamKey: key) else {
+                return uuid
+            }
+            return controlStableIdentities.runtimeUUID(for: uuid, kind: kind)
         }
         return v2MainSync { v2ResolveHandleRef(s) }
     }

@@ -46,6 +46,14 @@ public final class ControlCommandCoordinator {
     nonisolated let simulatorOperationAdmissionGate =
         ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 4)
 
+    /// Restart-stable to runtime identity aliases, so a `cmux://` link's ids
+    /// address the same object through the CLI that they address when opened.
+    ///
+    /// `nonisolated`: the legacy app-side param parse resolves identifiers off
+    /// the main actor and must not take a hop to interpret one.
+    @ObservationIgnored
+    public nonisolated let stableIdentities = ControlStableIdentityTable()
+
     /// Creates a coordinator.
     ///
     /// - Parameters:
@@ -211,6 +219,25 @@ public final class ControlCommandCoordinator {
         handles.removeRef(kind: kind, uuid: uuid)
     }
 
+    /// Publishes the restart-stable identity of every live object of one kind,
+    /// so callers can address it by the id a `cmux://` link carries.
+    ///
+    /// The app calls this from the same topology refresh that mints `kind:N`
+    /// refs, replacing the previous table wholesale.
+    ///
+    /// - Parameters:
+    ///   - kind: The handle kind the aliases belong to.
+    ///   - aliases: Stable id to current runtime id.
+    ///   - runtimeIds: Every live runtime id of this kind, which an alias may
+    ///     never shadow.
+    public func setStableAliases(
+        kind: ControlHandleKind,
+        _ aliases: [UUID: UUID],
+        runtimeIds: Set<UUID>
+    ) {
+        stableIdentities.replace(kind: kind, aliases: aliases, excludingRuntimeIds: runtimeIds)
+    }
+
     // MARK: - Wire helpers
 
     /// The `kind:N` ref for an optional id as a JSON value: the ref string, or
@@ -240,12 +267,35 @@ public final class ControlCommandCoordinator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// A UUID param, accepting either a UUID string or a `kind:N` ref resolved
-    /// through the handle registry (matches legacy `v2UUID`).
+    /// The handle kind a routing param names, or `nil` for params whose value
+    /// is not an addressable topology object.
+    ///
+    /// `terminal_id` and `tab_id` are the legacy spellings of `surface_id` and
+    /// address the same object, exactly as ``routingSelectors(_:)`` treats them.
+    public nonisolated static func handleKind(forParamKey key: String) -> ControlHandleKind? {
+        switch key {
+        case "window_id": return .window
+        case "workspace_id": return .workspace
+        case "group_id": return .workspaceGroup
+        case "pane_id": return .pane
+        case "surface_id", "terminal_id", "tab_id": return .surface
+        default: return nil
+        }
+    }
+
+    /// A UUID param, accepting a runtime UUID, a restart-stable UUID copied
+    /// from a `cmux://` link, or a `kind:N` ref resolved through the handle
+    /// registry (extends legacy `v2UUID`, which accepted only the latter two).
+    ///
+    /// Stable-to-runtime mapping happens here, at the one place every command's
+    /// identifier params are parsed, so `send`, `read-screen`, `list-*`, and
+    /// every other verb accept a pasted deep-link id without each resolver
+    /// growing its own fallback.
     func uuid(_ params: [String: JSONValue], _ key: String) -> UUID? {
         guard let raw = string(params, key) else { return nil }
         if let parsed = UUID(uuidString: raw) {
-            return parsed
+            guard let kind = Self.handleKind(forParamKey: key) else { return parsed }
+            return stableIdentities.runtimeUUID(for: parsed, kind: kind)
         }
         return handles.uuid(forRef: raw)
     }
