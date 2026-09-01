@@ -27,13 +27,16 @@ state. It also found foreground group-leader CWD selection in
 `3a3792622e59c7f2dc20f9c0236167161e4a5035`; cmux's generic
 `foreground_cwd` resource already resolves the group leader, so no
 herdr-specific CWD code is copied. Later upstream commits
+`207be3c771d281baae6e5fa0fb74be9a056e97a2`,
 `5158adab10b6dcfea9370782043392f80fa0643c`,
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
 `da8c7b05f9ef7898cfb7494989df8a533b947bb9`, and
 `99c23cd1ea7468bd3661f6483c7105396503b417` change Windows launch, process
-environment, process-job, or input handling. This package has no Windows SDK
-transport, native process backend, launch path, or input path, so those files
-are not copied. Recheck them before publishing a Windows package.
+environment, process-job, input handling, or the application/client shell
+rendering architecture. The shell-render refactor is not detector logic and
+is not copied. This package has no Windows SDK transport, native process
+backend, launch path, or input path, so those files are not copied. Recheck
+them before publishing a Windows package.
 
 The original cmux portions of this package are licensed under MIT. The full
 text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is

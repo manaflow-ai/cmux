@@ -61,7 +61,9 @@ retention fix in `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the
 userland tracker with a local revision fence. The foreground group-leader CWD
 fix in `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the
 generic `foreground_cwd` resource, so no herdr-specific CWD policy is copied.
-Later upstream commits
+The shell-render refactor in
+`207be3c771d281baae6e5fa0fb74be9a056e97a2` is application/client architecture,
+not detector behavior, and is not copied. Later upstream commits
 `5158adab10b6dcfea9370782043392f80fa0643c`,
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
 `da8c7b05f9ef7898cfb7494989df8a533b947bb9`, and
