@@ -7,7 +7,7 @@ public import Foundation
 /// `LocalLinuxSession` conforms to this protocol in the iSH build. Keeping the
 /// lane on this seam lets package tests exercise framing and lifecycle
 /// behaviour without loading the arm64-only iSH binary target.
-public protocol LocalLinuxOutputSource: AnyObject, Sendable {
+public nonisolated protocol LocalLinuxOutputSource: AnyObject, Sendable {
     /// A single-consumer byte stream owned by the source. The scrollback ring
     /// installs one consumer and fans out bounded subscriptions to lanes.
     var output: AsyncStream<Data> { get }
