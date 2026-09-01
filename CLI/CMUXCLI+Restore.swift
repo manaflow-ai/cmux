@@ -476,8 +476,9 @@ extension CMUXCLI {
             )
         }
         let legacyCommand = object["legacy_command"] as? String
-        let legacyForkCommand = (object["fork_command"] as? String)
-            ?? (object["legacy_fork_command"] as? String)
+        let legacyForkCommand = [object["fork_command"], object["legacy_fork_command"]]
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
         let launchCommand: AgentLaunchCommand?
         do {
             launchCommand = try restoreLaunchCommand(

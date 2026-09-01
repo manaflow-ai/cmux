@@ -213,6 +213,7 @@ extension Workspace {
         // command directly, as the split/new-tab mirror paths do.
         let canReachLocalForkVerb = remoteConfiguration.relayPort != nil
             && remoteConfiguration.localSocketPath != nil
+            && remoteConfiguration.relayToken?.isEmpty == false
         guard let startupInput = snapshot.forkStartupInput(
             useLocalForkVerb: canReachLocalForkVerb,
             allowLauncherScript: false,
