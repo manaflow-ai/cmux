@@ -1575,6 +1575,9 @@
       "metaTitle": "Dnevnik promjena",
       "versionTitle": "cmux {version} · Dnevnik promjena",
       "releaseNavLabel": "Izdanja oko cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Kada postojeća konfiguracija režima lozinke nema lozinku, sigurna lozinka za socket generiše se jednom kako bi ugrađena CLI automatizacija nastavila raditi nakon uključivanja obavezne provjere ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Dodano",
         "changed": "Promijenjeno",

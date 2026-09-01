@@ -1574,6 +1574,9 @@
       "metaTitle": "Ændringslog",
       "versionTitle": "cmux {version} · Ændringslog",
       "releaseNavLabel": "Udgivelser omkring cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Når en eksisterende konfiguration i adgangskodetilstand mangler en adgangskode, genereres en sikker socket-adgangskode én gang, så den medfølgende CLI-automatisering fortsat virker efter håndhævelsen ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Tilføjet",
         "changed": "Ændret",

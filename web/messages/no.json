@@ -1574,6 +1574,9 @@
       "metaTitle": "Endringslogg",
       "versionTitle": "cmux {version} · Endringslogg",
       "releaseNavLabel": "Utgivelser rundt cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Når en eksisterende konfigurasjon i passordmodus mangler passord, genereres et sikkert socket-passord én gang, slik at den medfølgende CLI-automatiseringen fortsetter å virke etter at autentisering håndheves ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Lagt til",
         "changed": "Endret",

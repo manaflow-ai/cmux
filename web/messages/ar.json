@@ -1574,6 +1574,9 @@
       "metaTitle": "سجل التغييرات",
       "versionTitle": "cmux {version} · سجل التغييرات",
       "releaseNavLabel": "الإصدارات القريبة من cmux {version}",
+      "items": {
+        "socketPasswordMigration": "عندما لا تحتوي تهيئة حالية لوضع كلمة المرور على كلمة مرور، يتم إنشاء كلمة مرور آمنة للمقبس مرة واحدة لكي تستمر أتمتة CLI المضمّنة في العمل بعد فرض المصادقة ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "تمت الإضافة",
         "changed": "تم التغيير",

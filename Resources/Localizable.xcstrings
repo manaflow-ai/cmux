@@ -100599,6 +100599,40 @@
         }
       }
     },
+    "dialog.socketPasswordMigrationFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn’t create the password required by password mode. Set automation.socketPassword in your cmux configuration, then reload the configuration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードモードに必要なパスワードを cmux で作成できませんでした。cmux の設定で automation.socketPassword を設定してから、設定を再読み込みしてください。"
+          }
+        }
+      }
+    },
+    "dialog.socketPasswordMigrationFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Create Socket Password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケットパスワードを作成できませんでした"
+          }
+        }
+      }
+    },
     "dialog.sshURL.blocked.ok": {
       "extractionState": "manual",
       "localizations": {

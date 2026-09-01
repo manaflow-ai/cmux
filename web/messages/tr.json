@@ -1574,6 +1574,9 @@
       "metaTitle": "Değişiklik günlüğü",
       "versionTitle": "cmux {version} · Değişiklik günlüğü",
       "releaseNavLabel": "cmux {version} civarındaki sürümler",
+      "items": {
+        "socketPasswordMigration": "Mevcut bir parola modu yapılandırmasında parola yoksa güvenli bir soket parolası bir kez oluşturulur; böylece kimlik doğrulama zorunlu kılındıktan sonra paketle gelen CLI otomasyonu çalışmaya devam eder ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Eklendi",
         "changed": "Değiştirildi",

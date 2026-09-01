@@ -54,6 +54,9 @@ export default async function ChangelogPage({
     removed: t("sections.removed"),
     contributors: t("sections.contributors"),
   };
+  const itemTranslations = {
+    socketPasswordMigration: t("items.socketPasswordMigration"),
+  };
 
   return (
     <div className="w-full max-w-[640px] min-w-0">
@@ -70,6 +73,7 @@ export default async function ChangelogPage({
             locale={locale}
             media={changelogMedia[release.version]}
             sectionLabels={sectionLabels}
+            itemTranslations={itemTranslations}
             versionHref={localizedChangelogPath(locale, release.version)}
             first={index === 0}
           />

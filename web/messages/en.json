@@ -2594,6 +2594,9 @@
       "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
       "versionTitle": "cmux {version} · Changelog",
       "releaseNavLabel": "Releases near cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Generate a secure socket password once when an existing password-mode configuration has no password, so bundled CLI automation continues working after enforcement ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Added",
         "changed": "Changed",

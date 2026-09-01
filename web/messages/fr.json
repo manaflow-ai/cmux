@@ -1577,6 +1577,9 @@
       "metaTitle": "Journal des modifications",
       "versionTitle": "cmux {version} · Journal des modifications",
       "releaseNavLabel": "Versions proches de cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Lorsqu’une configuration existante en mode mot de passe n’a aucun mot de passe, un mot de passe de socket sécurisé est généré une seule fois afin que l’automatisation de la CLI intégrée continue de fonctionner après l’activation du contrôle ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Ajouts",
         "changed": "Modifications",

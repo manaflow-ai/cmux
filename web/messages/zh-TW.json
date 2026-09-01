@@ -1574,6 +1574,9 @@
       "metaTitle": "更新日誌",
       "versionTitle": "cmux {version} · 更新日誌",
       "releaseNavLabel": "cmux {version} 附近的版本",
+      "items": {
+        "socketPasswordMigration": "當現有密碼模式設定沒有密碼時，一次性產生安全的通訊端密碼，讓內建 CLI 自動化在強制驗證後仍能繼續運作 ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "新增",
         "changed": "變更",

@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## [0.64.22] - 2026-08-03
 
 ### Fixed
+- Generate a secure socket password once when an existing password-mode configuration has no password, so bundled CLI automation continues working after enforcement ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))
 - Fix a crash seconds after launch on Intel Macs; cmux is now the only process-wide crash handler, and embedded GhosttyKit no longer links Ghostty's native Sentry initializer ([#9436](https://github.com/manaflow-ai/cmux/pull/9436))
 - Fix `cmux ssh <host>` failing immediately with a shell syntax error from the generated startup script ([#9425](https://github.com/manaflow-ai/cmux/pull/9425)) -- thanks @KousukeUchiyama for the report!
 - Clear Dock notifications when you focus the pane that raised them ([#9418](https://github.com/manaflow-ai/cmux/pull/9418))

@@ -1574,6 +1574,9 @@
       "metaTitle": "Änderungsprotokoll",
       "versionTitle": "cmux {version} · Änderungsprotokoll",
       "releaseNavLabel": "Versionen rund um cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Wenn eine vorhandene Konfiguration im Passwortmodus kein Passwort enthält, wird einmalig ein sicheres Socket-Passwort erzeugt, damit die mitgelieferte CLI-Automatisierung auch nach Aktivierung der Erzwingung weiter funktioniert ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Hinzugefügt",
         "changed": "Geändert",

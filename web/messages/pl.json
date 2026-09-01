@@ -1576,6 +1576,9 @@
       "metaTitle": "Historia zmian",
       "versionTitle": "cmux {version} · Historia zmian",
       "releaseNavLabel": "Wydania w pobliżu cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Gdy istniejąca konfiguracja trybu hasła nie ma hasła, jednorazowo generowane jest bezpieczne hasło gniazda, aby dołączona automatyzacja CLI nadal działała po włączeniu wymuszania uwierzytelniania ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Dodano",
         "changed": "Zmieniono",

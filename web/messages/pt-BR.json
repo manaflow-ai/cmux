@@ -1574,6 +1574,9 @@
       "metaTitle": "Registro de alterações",
       "versionTitle": "cmux {version} · Registro de alterações",
       "releaseNavLabel": "Versões próximas do cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Quando uma configuração existente no modo de senha não tem senha, uma senha de socket segura é gerada uma única vez para que a automação da CLI incluída continue funcionando após a autenticação passar a ser exigida ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Adicionado",
         "changed": "Alterado",

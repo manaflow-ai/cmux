@@ -1574,6 +1574,9 @@
       "metaTitle": "Журнал изменений",
       "versionTitle": "cmux {version} · Журнал изменений",
       "releaseNavLabel": "Версии рядом с cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Если в существующей конфигурации режима пароля нет пароля, безопасный пароль сокета создаётся один раз, чтобы встроенная автоматизация CLI продолжала работать после включения обязательной аутентификации ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Добавлено",
         "changed": "Изменено",

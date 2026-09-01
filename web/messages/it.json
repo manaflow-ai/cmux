@@ -1574,6 +1574,9 @@
       "metaTitle": "Registro modifiche",
       "versionTitle": "cmux {version} · Registro modifiche",
       "releaseNavLabel": "Versioni vicine a cmux {version}",
+      "items": {
+        "socketPasswordMigration": "Quando una configurazione esistente in modalità password non contiene una password, viene generata una sola volta una password sicura per il socket, così l’automazione della CLI integrata continua a funzionare dopo l’attivazione dell’autenticazione obbligatoria ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "Aggiunte",
         "changed": "Modifiche",

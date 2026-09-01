@@ -1574,6 +1574,9 @@
       "metaTitle": "변경 내역",
       "versionTitle": "cmux {version} · 변경 내역",
       "releaseNavLabel": "cmux {version} 전후 릴리스",
+      "items": {
+        "socketPasswordMigration": "기존 비밀번호 모드 구성에 비밀번호가 없으면 안전한 소켓 비밀번호를 한 번 생성하여 인증이 적용된 뒤에도 번들 CLI 자동화가 계속 작동하도록 했습니다 ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "추가",
         "changed": "변경",

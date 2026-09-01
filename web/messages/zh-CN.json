@@ -1575,6 +1575,9 @@
       "metaTitle": "更新日志",
       "versionTitle": "cmux {version} · 更新日志",
       "releaseNavLabel": "cmux {version} 附近的版本",
+      "items": {
+        "socketPasswordMigration": "当现有密码模式配置没有密码时，一次性生成安全的套接字密码，使内置 CLI 自动化在强制认证后仍能继续工作 ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "新增",
         "changed": "更改",

@@ -1123,6 +1123,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    // A failed password migration is actionable to the user, but socket
+    // configuration can be reconciled several times before the first window is
+    // visible. Keep the warning pending until a window can host it, then show it
+    // once for this launch so repeated reconciliations do not stack alerts.
+    var socketPasswordMigrationWarningPending = false
+    var didPresentSocketPasswordMigrationWarning = false
     /// Per-app recoverable routing state; owned explicitly so test app delegates
     /// and concurrent tagged instances never share ambient lifecycle state.
     let mainWindowRouteLedger = MainWindowRouteLedger()
@@ -2016,6 +2022,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
         }
+        presentSocketPasswordMigrationWarningIfPossible()
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
@@ -5389,6 +5396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
+        presentSocketPasswordMigrationWarningIfPossible(preferredWindow: window)
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
     }
@@ -10134,6 +10142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 respectActivationSuppression: false
             )
         }
+        presentSocketPasswordMigrationWarningIfPossible(preferredWindow: window)
         if shouldTemporarilyDisallowFullScreenTiling {
             let clearFullScreenTilingOptOut: () -> Void = { [weak window] in
                 guard let window else { return }

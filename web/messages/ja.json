@@ -2455,6 +2455,9 @@
       "metaTitle": "変更履歴",
       "versionTitle": "cmux {version} · 変更履歴",
       "releaseNavLabel": "cmux {version} 付近のリリース",
+      "items": {
+        "socketPasswordMigration": "既存のパスワードモード設定にパスワードがない場合、安全なソケットパスワードを一度だけ生成し、認証の強制後も同梱 CLI の自動化が動作し続けるようにしました ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))"
+      },
       "sections": {
         "added": "追加",
         "changed": "変更",
