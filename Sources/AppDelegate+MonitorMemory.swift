@@ -68,6 +68,32 @@ extension AppDelegate {
         )
     }
 
+    /// Returns a persistence-safe snapshot of `frame`, excluding the tight
+    /// corner-parking positions used by external tiling window managers.
+    /// Omitting those coordinates preserves an older useful fallback (or lets
+    /// normal default placement run) when cmux later launches without the WM.
+    nonisolated static func persistableWindowFrameSnapshot(
+        for frame: CGRect,
+        displayFrames: [CGRect]
+    ) -> SessionRectSnapshot? {
+        guard !MainWindowVisibleFrameFitCore().isLikelyWindowManagerParkedFrame(
+            frame: frame,
+            displayFrames: displayFrames
+        ) else { return nil }
+        return SessionRectSnapshot(frame)
+    }
+
+    func persistableWindowGeometry(
+        for window: NSWindow?
+    ) -> (frame: SessionRectSnapshot, display: SessionDisplaySnapshot?)? {
+        guard let window,
+              let frame = Self.persistableWindowFrameSnapshot(
+                  for: window.frame,
+                  displayFrames: currentDisplayGeometries().available.map(\.frame)
+              ) else { return nil }
+        return (frame, displaySnapshot(for: window))
+    }
+
     /// Consumes the current display-change notification state: first restores
     /// each window's remembered frame for the now-connected configuration
     /// (issue #2135), then re-clamps any window whose titlebar is still
@@ -325,10 +351,10 @@ extension AppDelegate {
         // window manager's intentional corner-parking position. The live
         // reconcile path leaves that position untouched, but persistence must
         // still retain the last useful frame for launches without the WM.
-        guard !MainWindowVisibleFrameFitCore().isLikelyWindowManagerParkedFrame(
-            frame: frame,
+        guard Self.persistableWindowFrameSnapshot(
+            for: frame,
             displayFrames: displays.available.map(\.frame)
-        ) else {
+        ) != nil else {
             logCaptureSkipped(window, reason: reason, guardName: "windowManagerParking")
             return
         }

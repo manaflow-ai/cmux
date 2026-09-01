@@ -78,6 +78,21 @@ struct MainWindowVisibleFrameFitCoreTests {
         ) == nil)
     }
 
+    @Test func aeroSpaceCornerParkingIsExcludedFromPersistenceFallbacks() throws {
+        let parked = CGRect(x: 1_511, y: -909, width: 1_506, height: 941)
+        let visible = CGRect(x: 200, y: 120, width: 900, height: 600)
+
+        #expect(AppDelegate.persistableWindowFrameSnapshot(
+            for: parked,
+            displayFrames: [Self.builtInDisplay.frame]
+        ) == nil)
+        let persisted = try #require(AppDelegate.persistableWindowFrameSnapshot(
+            for: visible,
+            displayFrames: [Self.builtInDisplay.frame]
+        ))
+        #expect(persisted.cgRect == visible)
+    }
+
     @Test func oversizedFrameIsShrunkToOnlyRemainingScreen() throws {
         let oversized = CGRect(x: -100, y: -80, width: 3_000, height: 2_000)
 
