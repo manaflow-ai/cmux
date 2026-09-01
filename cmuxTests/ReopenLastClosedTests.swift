@@ -298,8 +298,71 @@ struct ReopenLastClosedTests {
         #expect(workspaceTrimmed.first?.closedAt == Date(timeIntervalSince1970: 2))
     }
 
+    /// Reinsertion protects the exact position even when malformed history repeats its ID.
+    @Test
+    func protectedInsertionUsesItsPositionWhenRecordIDsAreDuplicated() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(workspaceSnapshot.panels.first)
+        let duplicateID = UUID()
+
+        let totalStore = ClosedItemHistoryStore(capacity: 2, loadPersisted: false)
+        totalStore.push(panelRecord(
+            id: duplicateID,
+            title: "Existing Duplicate",
+            closedAt: 2,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        totalStore.push(panelRecord(
+            title: "Newest",
+            closedAt: 3,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        totalStore.insert(panelRecord(
+            id: duplicateID,
+            title: "Protected Insertion",
+            closedAt: 1,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ), at: 2)
+        #expect(totalStore.menuSnapshot().items.map(\.title) == ["Newest", "Protected Insertion"])
+
+        let workspaceStore = ClosedItemHistoryStore(
+            workspaceCapacity: 2,
+            loadPersisted: false
+        )
+        workspaceStore.push(workspaceRecord(
+            id: duplicateID,
+            title: "Existing Workspace Duplicate",
+            closedAt: 2,
+            workspaceIndex: 0,
+            snapshot: workspaceSnapshot
+        ))
+        workspaceStore.push(workspaceRecord(
+            title: "Newest Workspace",
+            closedAt: 3,
+            workspaceIndex: 1,
+            snapshot: workspaceSnapshot
+        ))
+        workspaceStore.insert(workspaceRecord(
+            id: duplicateID,
+            title: "Protected Workspace Insertion",
+            closedAt: 1,
+            workspaceIndex: 2,
+            snapshot: workspaceSnapshot
+        ), at: 2)
+        #expect(workspaceStore.menuSnapshot().items.map(\.title) == [
+            "Newest Workspace",
+            "Protected Workspace Insertion",
+        ])
+    }
+
     /// Builds a panel history fixture with a deterministic close timestamp.
     private func panelRecord(
+        id: UUID = UUID(),
         title: String,
         closedAt: TimeInterval,
         workspace: Workspace,
@@ -308,11 +371,34 @@ struct ReopenLastClosedTests {
         var snapshot = snapshot
         snapshot.customTitle = title
         return ClosedItemHistoryRecord(
+            id: id,
             closedAt: Date(timeIntervalSince1970: closedAt),
             entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: workspace.id,
                 paneId: UUID(),
                 tabIndex: 0,
+                snapshot: snapshot
+            ))
+        )
+    }
+
+    /// Builds a workspace history fixture with a deterministic close timestamp.
+    private func workspaceRecord(
+        id: UUID = UUID(),
+        title: String,
+        closedAt: TimeInterval,
+        workspaceIndex: Int,
+        snapshot: SessionWorkspaceSnapshot
+    ) -> ClosedItemHistoryRecord {
+        var snapshot = snapshot
+        snapshot.customTitle = title
+        return ClosedItemHistoryRecord(
+            id: id,
+            closedAt: Date(timeIntervalSince1970: closedAt),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: UUID(),
+                windowId: nil,
+                workspaceIndex: workspaceIndex,
                 snapshot: snapshot
             ))
         )

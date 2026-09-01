@@ -19,12 +19,21 @@ nonisolated struct ClosedItemHistoryCapacityPolicy: Sendable {
     /// Returns records that survive both bounds while preserving recency order.
     func trimming(
         _ records: [ClosedItemHistoryRecord],
-        preserving protectedRecordId: UUID? = nil
+        preservingRecordAt protectedRecordIndex: Int? = nil
     ) -> [ClosedItemHistoryRecord] {
         var result = records
+        var protectedRecordIndex = protectedRecordIndex.flatMap {
+            records.indices.contains($0) ? $0 : nil
+        }
         let previousCount = result.count
-        trimTotalCapacity(in: &result, preserving: protectedRecordId)
-        trimWorkspaceCapacity(in: &result, preserving: protectedRecordId)
+        trimTotalCapacity(
+            in: &result,
+            preservingRecordAt: &protectedRecordIndex
+        )
+        trimWorkspaceCapacity(
+            in: &result,
+            preservingRecordAt: protectedRecordIndex
+        )
         if result.count != previousCount {
             // The eviction rules use closedAt as the recency source of truth.
             // Keep the retained array in that same order because menuSnapshot()
@@ -61,23 +70,32 @@ nonisolated struct ClosedItemHistoryCapacityPolicy: Sendable {
     /// Removes the oldest records until the total bound is satisfied.
     private func trimTotalCapacity(
         in records: inout [ClosedItemHistoryRecord],
-        preserving protectedRecordId: UUID?
+        preservingRecordAt protectedRecordIndex: inout Int?
     ) {
         guard let totalCapacity, records.count > totalCapacity else { return }
         let retainedIndexes = retainedNewestRecordIndexes(
             in: records,
             capacity: totalCapacity,
-            preserving: protectedRecordId
+            preservingRecordAt: protectedRecordIndex
         ) { _ in true }
-        records = records.enumerated()
-            .filter { retainedIndexes.contains($0.offset) }
-            .map(\.element)
+        var retainedRecords: [ClosedItemHistoryRecord] = []
+        retainedRecords.reserveCapacity(retainedIndexes.count)
+        var retainedProtectedRecordIndex: Int?
+        for (recordIndex, record) in records.enumerated() {
+            guard retainedIndexes.contains(recordIndex) else { continue }
+            if let protectedRecordIndex, recordIndex == protectedRecordIndex {
+                retainedProtectedRecordIndex = retainedRecords.count
+            }
+            retainedRecords.append(record)
+        }
+        records = retainedRecords
+        protectedRecordIndex = retainedProtectedRecordIndex
     }
 
     /// Removes the oldest workspace records until their sub-bound is satisfied.
     private func trimWorkspaceCapacity(
         in records: inout [ClosedItemHistoryRecord],
-        preserving protectedRecordId: UUID?
+        preservingRecordAt protectedRecordIndex: Int?
     ) {
         guard let workspaceCapacity else { return }
         let workspaceCount = records.reduce(into: 0) { count, record in
@@ -90,7 +108,7 @@ nonisolated struct ClosedItemHistoryCapacityPolicy: Sendable {
         let retainedWorkspaceIndexes = retainedNewestRecordIndexes(
             in: records,
             capacity: workspaceCapacity,
-            preserving: protectedRecordId
+            preservingRecordAt: protectedRecordIndex
         ) { record in
             if case .workspace = record.entry {
                 return true
@@ -109,14 +127,18 @@ nonisolated struct ClosedItemHistoryCapacityPolicy: Sendable {
     private func retainedNewestRecordIndexes(
         in records: [ClosedItemHistoryRecord],
         capacity: Int,
-        preserving protectedRecordId: UUID?,
+        preservingRecordAt protectedRecordIndex: Int?,
         matching predicate: (ClosedItemHistoryRecord) -> Bool
     ) -> Set<Int> {
         guard capacity > 0 else { return [] }
 
-        let protectedRecordIndex = records.enumerated().first { index, record in
-            record.id == protectedRecordId && predicate(record)
-        }?.offset
+        let protectedRecordIndex = protectedRecordIndex.flatMap { recordIndex -> Int? in
+            guard records.indices.contains(recordIndex),
+                  predicate(records[recordIndex]) else {
+                return nil
+            }
+            return recordIndex
+        }
         let selectionCapacity = capacity - (protectedRecordIndex == nil ? 0 : 1)
         var heap: [RecencyKey] = []
         heap.reserveCapacity(selectionCapacity)

@@ -264,8 +264,14 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
-        records.insert(record, at: min(max(0, index), records.count))
-        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) { records = capacityPolicy.trimming(records, preserving: record.id) }
+        let insertionIndex = min(max(0, index), records.count)
+        records.insert(record, at: insertionIndex)
+        if capacityPolicy.shouldTrim(afterInserting: record, totalCount: records.count) {
+            records = capacityPolicy.trimming(
+                records,
+                preservingRecordAt: insertionIndex
+            )
+        }
         revision &+= 1
         persistRecords()
     }
