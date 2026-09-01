@@ -269,7 +269,8 @@ struct TerminalColorSchemeProtocolTests {
                 ? "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(outputURL.path)) \(shellSingleQuoted(commandURL.path))"
                 : nil,
             ioMode: ioMode,
-            manualInputHandler: manualInputHandler
+            manualInputHandler: manualInputHandler,
+            dependencies: protocolTestRuntimeDependencies()
         )
         surfaceForCleanup = surface
         let hostedView = surface.hostedView
@@ -376,5 +377,36 @@ struct TerminalColorSchemeProtocolTests {
 
     private func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    private func protocolTestRuntimeDependencies() -> TerminalSurfaceRuntimeDependencies {
+        let live = GhosttyApp.terminalSurfaceRuntimeDependencies
+        let filesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory:
+                live.runtimeFilesystem.agentCommandShimTemporaryDirectory,
+            installAgentCommandShims: { _, _, _ in nil },
+            isExecutableFile: live.runtimeFilesystem.isExecutableFile
+        )
+        return TerminalSurfaceRuntimeDependencies(
+            registry: live.registry,
+            engine: live.engine,
+            viewProvider: live.viewProvider,
+            spawnPolicy: live.spawnPolicy,
+            byteTee: live.byteTee,
+            rendererRealization: live.rendererRealization,
+            hibernationRecorder: live.hibernationRecorder,
+            runtimeTeardown: live.runtimeTeardown,
+            restoreSpawnScheduler: live.restoreSpawnScheduler,
+            runtimeFilesystem: filesystem,
+            agentCommandShimInstallDeadline: .zero,
+            agentCommandShimInstallDeadlineClock:
+                live.agentCommandShimInstallDeadlineClock,
+            sessionPortBase: live.sessionPortBase,
+            sessionPortRangeSize: live.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey:
+                live.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent:
+                live.globalFontMagnificationPercent
+        )
     }
 }
