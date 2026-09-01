@@ -10,8 +10,19 @@ on:
   pull_request_review:
     types: [submitted]
 
+# Do not inherit repository-level token scopes. The job grants only the
+# read permissions and OIDC exchange it needs.
+permissions: {}
+
+concurrency:
+  # Deduplicate webhook retries by event ID while keeping separate user
+  # requests independent. Issue events use the unique run ID as a fallback.
+  group: claude-${{ github.repository }}-${{ github.event.comment.id || github.event.review.id || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   claude:
+    name: Claude request
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
@@ -19,17 +30,14 @@ jobs:
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
-    # Do not coalesce requests here. GitHub keeps only one pending run in a
-    # concurrency group and would silently discard a distinct user request.
+    # The workflow-level group only deduplicates webhook retries by event ID.
     # The pinned action checks repository write access before it invokes Claude.
     permissions:
-      contents: read
-      pull-requests: read
-      issues: read
-      # The action exchanges a short-lived OIDC token for its scoped GitHub
-      # App token, even when Claude authentication uses OAuth.
-      id-token: write
-      actions: read # Required for Claude to read CI results on PRs
+      contents: read # Read the checked-out base and PR files.
+      pull-requests: read # Read PR metadata and review requests.
+      issues: read # Read issue comments and issue-trigger payloads.
+      id-token: write # Exchange a short-lived token for the scoped GitHub App token.
+      actions: read # Read CI results on pull requests.
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
