@@ -21,7 +21,16 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
-CLA_ACTION = "manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf"
+# The live main workflow may still carry one of these two reviewed action
+# commits while the policy migration is in flight. They are accepted only as
+# an exact, immutable base state. A candidate policy may use the final commit
+# below, never an older or unknown commit.
+CLA_ACTION_LEGACY_REFS = %w[
+  manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956
+  manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf
+].freeze
+CLA_ACTION_FINAL = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af".freeze
+CLA_ACTION = CLA_ACTION_FINAL
 # CLA policy jobs handle repository trust decisions and must stay on an
 # ephemeral GitHub-hosted runner. A repository variable could redirect this
 # privileged work to an untrusted self-hosted machine, so the label is an
@@ -49,7 +58,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "a312d68f40313a8b8cbc639e135281f2c89b1633ce78c0
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "fb079b0def2f9067e49f24e7bccb334365e598b5f52673986dc0b08c72351d54"
+EXPECTED_GUARD_SCRIPT_DIGEST = "7e45761a9d37008e64547610ea53a68842a293f9b0d63db0657b9cffdc1152bd"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -95,7 +104,8 @@ RESULT_ENV = {
   "GATE_RESULT" => "${{ needs.CLACommentGate.result }}",
   "ADMITTED" => "${{ needs.CLACommentGate.outputs.admitted || '' }}",
   "SIGNER_AUTHORIZED" => "${{ needs.CLACommentGate.outputs.signer_authorized || '' }}",
-  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}"
+  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}",
+  "CLA_PASSED" => "${{ needs.CLALedgerWriter.outputs.cla_passed || '' }}"
 }.freeze
 CLA_COMMENT_BINDING_OUTPUTS = {
   "comment_id" => "${{ steps.signer_preflight.outputs.comment_id }}",
@@ -109,6 +119,10 @@ CLA_COMMENT_BINDING_INPUTS = {
 }.freeze
 COMPATIBILITY_ENV = {
   "RESULT" => "${{ needs.CLAAssistant.result }}"
+}.freeze
+CLA_RERUN_CONCURRENCY = {
+  "group" => "cla-rerun-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}",
+  "cancel-in-progress" => false
 }.freeze
 RERUN_ENV = {
   "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION,
@@ -662,6 +676,45 @@ end
 def legacy_v2_base?(base_workflow_digest:, base_script_digest:)
   base_workflow_digest == LEGACY_CLA_WORKFLOW_DIGEST &&
     base_script_digest == LEGACY_CLA_RERUN_DIGEST
+end
+
+def cla_action_reference(raw, name)
+  document = parse_workflow(raw)
+  references = []
+  walk(document) do |key, value|
+    next unless key == "uses" && value.is_a?(String)
+    next unless value.start_with?("manaflow-ai/cla-github-action@")
+
+    references << value
+  end
+  references = references.uniq
+  fail!("#{name} must invoke exactly one maintained CLA action revision") unless references.length == 1
+  references.first
+end
+
+def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_digest:, base_script_digest:, policy_changed:)
+  fail!("base CLA action reference is not a reviewed immutable revision") unless
+    CLA_ACTION_LEGACY_REFS.include?(base_ref) || base_ref == CLA_ACTION_FINAL
+  fail!("candidate CLA action reference is not the maintained final revision") unless
+    candidate_ref == CLA_ACTION_FINAL || CLA_ACTION_LEGACY_REFS.include?(candidate_ref)
+
+  legacy_base = CLA_ACTION_LEGACY_REFS.include?(base_ref) &&
+    legacy_v2_base?(
+      base_workflow_digest: base_workflow_digest,
+      base_script_digest: base_script_digest
+    )
+  if policy_changed
+    if CLA_ACTION_LEGACY_REFS.include?(base_ref)
+      fail!("legacy CLA action base is not the exact reviewed workflow/helper pair") unless legacy_base
+      fail!("legacy CLA action must migrate directly to the final revision") unless candidate_ref == CLA_ACTION_FINAL
+    end
+    fail!("CLA action may not downgrade or change outside the reviewed transition") unless candidate_ref == CLA_ACTION_FINAL
+  else
+    fail!("legacy CLA action no-op is not the exact reviewed base state") if
+      CLA_ACTION_LEGACY_REFS.include?(base_ref) && !legacy_base
+    fail!("CLA action changed without a policy change") unless candidate_ref == base_ref
+  end
+  true
 end
 
 def run_action_transition_regression_matrix!
@@ -1840,7 +1893,7 @@ def validate_workflow(raw)
     "CLAAssistant" => %w[name needs if runs-on timeout-minutes permissions steps],
     "CLALedgerWriter" => %w[name needs if runs-on timeout-minutes concurrency permissions outputs steps],
     "CLACompatibility" => %w[name needs if runs-on timeout-minutes permissions steps],
-    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes permissions steps],
+    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes concurrency permissions steps],
     "LockMergedPullRequest" => %w[name if runs-on timeout-minutes concurrency permissions steps]
   }
   [gate, assistant, writer, compatibility, rerun, lock].each_with_index do |value, index|
@@ -1851,6 +1904,8 @@ def validate_workflow(raw)
     assert_cla_runner(value["runs-on"], names[index])
     assert_hosted_runner_job_steps(value, names[index])
   end
+
+  fail!("CLAAssistant must expose the stable v3 check name") unless assistant["name"] == "CLA Assistant v3"
 
   fail!("CLACommentGate must use read-only permissions") unless
     gate["permissions"] == { "contents" => "read", "issues" => "read", "pull-requests" => "read" }
@@ -1865,7 +1920,8 @@ def validate_workflow(raw)
     }.merge(CLA_COMMENT_BINDING_OUTPUTS)
   fail!("CLALedgerWriter outputs are not the reviewed contract") unless
     writer["outputs"] == {
-      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}"
+      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}",
+      "cla_passed" => "${{ steps.cla_action.outputs.cla_passed }}"
     }
   fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
   fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
@@ -1928,6 +1984,8 @@ def validate_workflow(raw)
   assert_exact_environment(compatibility_steps[1], COMPATIBILITY_ENV, "CLACompatibility result step")
 
   rerun_steps = steps(rerun, "RerunFailedCLA")
+  fail!("RerunFailedCLA concurrency is not the reviewed per-PR contract") unless
+    rerun["concurrency"] == CLA_RERUN_CONCURRENCY
   fail!("RerunFailedCLA must contain a runner guard, checkout, and guard step") unless rerun_steps.length == 3
   assert_step_keys(rerun_steps[1], "RerunFailedCLA checkout step", %w[name if uses with])
   assert_hosted_runner_step(rerun_steps[1], "RerunFailedCLA checkout")
@@ -1979,7 +2037,7 @@ def validate_workflow(raw)
     [gate["if"], assistant["if"], compatibility["if"], writer_condition],
     admission_run
   )
-  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?:\n\s*fi)/m]
+  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?=\n\s*(?:elif|fi))/m]
   fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
   fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
   preflight = step_using_with(gate, CLA_ACTION, "mode", "signer-preflight", "CLACommentGate")
@@ -2193,6 +2251,13 @@ def validate_guard_script(raw)
     "ready_for_review",
     "collect_latest_trusted_review!",
     "def workflow_digest",
+    "CLA_ACTION_LEGACY_REFS",
+    "CLA_ACTION_FINAL",
+    "def cla_action_reference",
+    "def assert_cla_action_transition!",
+    "run_action_transition_regression_matrix!",
+    "CLA_RERUN_CONCURRENCY",
+    "CLA_PASSED",
     "Digest::SHA256.hexdigest(raw)",
     "literal on trigger key",
     "def legacy_v2_base?",
@@ -2336,6 +2401,17 @@ begin
   base_script = fetch_file(repository, base_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
   head_script = fetch_file(repository, head_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
   policy_changed = base_workflow != head_workflow || base_script != head_script
+  base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
+  base_script_digest = Digest::SHA256.hexdigest(base_script.to_s)
+  base_action_ref = cla_action_reference(base_workflow, "base CLA workflow")
+  head_action_ref = cla_action_reference(head_workflow, "proposed CLA workflow")
+  assert_cla_action_transition!(
+    base_ref: base_action_ref,
+    candidate_ref: head_action_ref,
+    base_workflow_digest: base_workflow_digest,
+    base_script_digest: base_script_digest,
+    policy_changed: policy_changed
+  )
   document_changed = Digest::SHA256.hexdigest(base_cla) != Digest::SHA256.hexdigest(head_cla)
   if policy_changed
     fail!("CLA workflow must use the reviewed document version") unless
@@ -2373,14 +2449,14 @@ begin
     fail!("the pull-request revision deletes the rerun helper used by the base workflow")
   end
   if base_workflow == head_workflow && base_script != head_script &&
-      Digest::SHA256.hexdigest(base_workflow.to_s) == LEGACY_CLA_WORKFLOW_DIGEST &&
-      Digest::SHA256.hexdigest(base_script.to_s) == LEGACY_CLA_RERUN_DIGEST
+      base_workflow_digest == LEGACY_CLA_WORKFLOW_DIGEST &&
+      base_script_digest == LEGACY_CLA_RERUN_DIGEST
     fail!("the legacy v2 CLA workflow must migrate to v3 before its helper changes")
   end
   if base_workflow == head_workflow &&
       !legacy_v2_base?(
-        base_workflow_digest: Digest::SHA256.hexdigest(base_workflow),
-        base_script_digest: Digest::SHA256.hexdigest(base_script.to_s)
+        base_workflow_digest: base_workflow_digest,
+        base_script_digest: base_script_digest
       )
     # A guard-only change still has to prove that the policy already running
     # on main is a reviewed v3 policy. The exact legacy v2 pair is the one
@@ -2391,8 +2467,6 @@ begin
   if base_workflow != head_workflow
     fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
     base_document = parse_workflow(base_workflow)
-    base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
-    base_script_digest = Digest::SHA256.hexdigest(base_script.to_s)
     if base_document["name"] == "CLA Assistant v2" && !legacy_v2_base?(
       base_workflow_digest: base_workflow_digest,
       base_script_digest: base_script_digest
