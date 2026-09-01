@@ -12,26 +12,23 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `c1d6d8769`, the head of the
-renderer-state recovery branch. It hardens the cursor and preedit read paths
+The submodule pinned by this branch is the fork-main merge
+`d01bf5f6f5cf6394`, which combines the renderer-state recovery branch with
+Ghostty fork `main` (`8bacdbb9e`). It hardens the cursor and preedit read paths
 against partially built rows, forces a complete rebuild after an interrupted
-`RenderState` update, and resets the periodic terminal-state cleanup counter.
-The pin includes the prior fork changes below, including tokened iOS render
-disposition at `3da10da73`, VT formatter cursor restoration at `f76c132e5`,
-VT stream-boundary visibility at `9513174f2`, and Hangul canonical font
-resolution at `3fbdd078d`, plus the fractional pixel-scroll renderer changes
-at `39ade10b6` and `5045df3f2`.
+`RenderState` update, and resets the periodic terminal-state cleanup counter,
+while retaining mainline's render-top-inset/overscan API. The merge resolution
+keeps the recovery bounds checks and applies the upstream top-overscan row
+offset before indexing render data. The pin includes the prior fork changes
+below, including tokened iOS render disposition at `3da10da73`, VT formatter
+cursor restoration at `f76c132e5`, VT stream-boundary visibility at
+`9513174f2`, Hangul canonical font resolution at `3fbdd078d`, and the
+fractional pixel-scroll renderer changes at `39ade10b6` and `5045df3f2`.
 
-The parent repository has been synchronized with cmux `main` while retaining
-this topic pin: replacing it with mainline's `466f85867` compatibility pin
-would drop the renderer-state recovery in this PR. The `466f85867` artifact
-remains checksum-pinned for the mainline pin. After Ghostty PR #208 lands,
-rebase this branch onto the fork-main merge and publish a new artifact before
-changing the parent pointer.
-
-The Fish SSH feature-condition fix (`fd13a3fc2`) is included in that
-mainline-compatible pin, but is not yet in `c1d6d8769`; keep the distinction
-until the combined fork-main artifact is rebuilt.
+The parent repository is synchronized with the current cmux `main` while
+retaining this combined fork pin. Ghostty PR #208 is still open; once it lands,
+the merge can be replaced by the upstream result after revalidating the
+renderer recovery and publishing a matching artifact.
 
 ### Renderer state recovery after interrupted updates
 
@@ -42,10 +39,13 @@ until the combined fork-main artifact is rebuilt.
 - Commits:
   - `0ce0157de` (test: reproduce incomplete render state row)
   - `c1d6d8769` (fix: recover incomplete renderer state updates)
+  - `d01bf5f6f` (merge Ghostty `main`, preserving renderer recovery)
 - GhosttyKit artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c1d6d8769e013fcb9d253b000889bc7d7a4196bf-crashsubdir-cmux-crash-sentry-off-v1
+  - The `d01bf5f6` artifact is published under the current `noi18n-v2` build
+    flavor; its release URL and checksum are recorded below once the remote
+    GhosttyKit build completes.
   - `GhosttyKit.xcframework.tar.gz` SHA-256:
-    `0ae4eda6f8237253a5ec8b6c483f8143b642a8da427a701efe2fef1ed594c947`
+    pending remote build
 - Files:
   - `src/terminal/render.zig`
   - `src/renderer/generic.zig`
@@ -61,7 +61,8 @@ until the combined fork-main artifact is rebuilt.
     long-lived surface does not rebuild on every subsequent frame.
 - Conflict note:
   - Preserve the incomplete-update marker and the bounds checks when merging
-    upstream RenderState changes. Do not move the recovery branch under an
+    upstream RenderState changes. Apply any top-overscan row offset before
+    cursor or preedit indexing, and do not move the recovery branch under an
     `assert`; ReleaseFast can optimize that branch away.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
@@ -1225,9 +1226,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   `ssh`.
 - `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
   shell-integration feature; it is no longer used to reconstruct a CLI filename.
-- The mainline-compatible `466f85867` pin's Fish integration uses a nested
-  feature check so Fish's `and`/`or` command-list precedence cannot suppress
-  the wrapper when only one SSH feature is enabled.
+- The fork-main merge's Fish integration uses a nested feature check so Fish's
+  `and`/`or` command-list precedence cannot suppress the wrapper when only one
+  SSH feature is enabled.
 - Conflict note: future upstream merges must preserve the distinction between
   the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
   (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration,
