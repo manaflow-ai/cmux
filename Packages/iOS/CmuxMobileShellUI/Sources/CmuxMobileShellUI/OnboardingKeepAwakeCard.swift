@@ -16,7 +16,7 @@ struct OnboardingKeepAwakeCard: View {
         HStack(spacing: density.keepAwakeRowSpacing) {
             Image(systemName: "cup.and.saucer.fill")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.secondary)
                 .frame(width: density.keepAwakeIconWidth)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
