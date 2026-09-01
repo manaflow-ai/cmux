@@ -594,4 +594,29 @@ mod tests {
         );
         assert_eq!(cache.order, vec![5, 4]);
     }
+
+    #[test]
+    fn tabs_view_does_not_build_agent_order_cache() {
+        let tree = tree();
+        let agents = vec![AgentInfo {
+            surface: 4,
+            state: "working".into(),
+            source: "detected".into(),
+            session: None,
+            agent: Some("codex".into()),
+            updated_at_ms: 1,
+        }];
+        let mut cache = AgentOrderCache::default();
+
+        let _ = rows_cached(
+            &spec(vec![SidebarResourceKind::Tabs]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+            &mut cache,
+        );
+
+        assert!(cache.key.is_none());
+    }
 }
