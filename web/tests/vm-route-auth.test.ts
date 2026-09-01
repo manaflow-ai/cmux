@@ -770,7 +770,44 @@ describe("VM REST auth", () => {
       error: "vm_create_credits_insufficient",
       amount: 1,
       details: { amount: 1 },
+      message: "This team has no Cloud VM create credits left.",
     });
+  });
+
+  test("credit exhaustion on user-scoped billing names the account, not a team", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+    rejectRunVmWorkflowWith(
+      new VmCreateCreditsInsufficientError({
+        itemId: "cmux-vm-create-credit",
+        billingCustomerId: "user-1",
+        amount: 1,
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-credits-user", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_create_credits_insufficient",
+      amount: 1,
+      message: "Your account has no Cloud VM create credits left.",
+    });
+    expect(payload.message).not.toContain("team");
+    expect(payload.action).not.toContain("team");
   });
 
   test("uses the native client's requested Stack team for billing", async () => {
