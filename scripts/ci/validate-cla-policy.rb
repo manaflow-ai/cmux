@@ -24,6 +24,8 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # secret reference, action input, or permission while retaining the fragments
 # checked below. Policy changes require a separate, reviewed update to this
 # base-controlled guard, followed by the workflow change.
+# This matches the parsed workflow already merged on main. It differs from the
+# previous base value because this control-plane update follows that merge.
 EXPECTED_WORKFLOW_DIGEST = "f458101f6f17bc28381f2ee4f063d9b4333fa2cf7c7bec18b0a656a3311d9033"
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "cb08e6837d8065897016f12cf30c85e0153fc5c3c2d9ca1e6b409f4237541bc4"
