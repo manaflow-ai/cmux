@@ -279,6 +279,7 @@ struct CloudTreeNativeDragOwnershipTests {
         closeTerminal: { _ in },
         closeWorkspace: { _, _ in },
         renameWorkspace: { _, _ in },
+        renameTerminal: { _ in },
         selectLocalWorkspace: { _ in },
         copyToPasteboard: { _ in },
         refresh: {}

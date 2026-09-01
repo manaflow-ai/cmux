@@ -228,12 +228,11 @@ enum CloudWorkspaceRenameWriteThrough {
         let enqueue = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
         guard let enqueue,
               let provider = SurfaceCatalog.shared.provider(for: resource.machine) else { return }
-        enqueue.enqueueCloudRename(key: key) { [weak workspace, weak enqueue] in
+        enqueue.enqueueCloudRename(key: key) { [weak workspace] in
             do { try await provider.renameTerminal(resource.id, name: name) }
             catch {
                 guard let workspace,
-                      workspace.panelCustomTitles[panelID] == expectedTitle,
-                      let enqueue else { return }
+                      workspace.panelCustomTitles[panelID] == expectedTitle else { return }
                 _ = workspace.setPanelCustomTitle(
                     panelId: panelID,
                     title: previousCustomTitle,
