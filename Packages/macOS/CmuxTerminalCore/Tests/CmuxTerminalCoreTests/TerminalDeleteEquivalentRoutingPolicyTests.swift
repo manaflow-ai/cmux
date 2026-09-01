@@ -36,6 +36,12 @@ struct TerminalDeleteEquivalentRoutingPolicyTests {
             modifiers: [.command, .control]
         ))
         #expect(!terminalDeleteEquivalentShouldDispatch(
+            keyCode: 51,
+            firstResponderIsTerminal: true,
+            modifiers: [.command],
+            optionModifier: true
+        ))
+        #expect(!terminalDeleteEquivalentShouldDispatch(
             keyCode: 36,
             firstResponderIsTerminal: true,
             modifiers: [.command]
