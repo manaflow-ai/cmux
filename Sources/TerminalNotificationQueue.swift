@@ -691,11 +691,11 @@ final class TerminalMutationBus: @unchecked Sendable {
         episodeCorrelationKey: String?
     ) {
         lock.lock()
-        approvalCorrelationAliases.removeAll { key, value in
+        approvalCorrelationAliases.removeAll(where: { key, value in
             if let surfaceID, key.surfaceID != surfaceID { return false }
             if let episodeCorrelationKey, value != episodeCorrelationKey { return false }
             return true
-        }
+        })
         lock.unlock()
     }
 
@@ -704,7 +704,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         let surfaceIDs = Set(approvalWorkspaceBySurface.compactMap { surfaceID, ownerID in
             ownerID == workspaceID ? surfaceID : nil
         })
-        approvalCorrelationAliases.removeAll { key, _ in surfaceIDs.contains(key.surfaceID) }
+        approvalCorrelationAliases.removeAll(where: { key, _ in surfaceIDs.contains(key.surfaceID) })
         lock.unlock()
     }
 
