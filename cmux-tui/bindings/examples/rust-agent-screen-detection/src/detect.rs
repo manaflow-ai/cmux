@@ -1326,9 +1326,10 @@ mod tests {
         assert!(!tracker.metadata_is_fresh("term_a", Some(42)));
         assert!(tracker.metadata_is_fresh("term_a", Some(43)));
 
-        // An older daemon has no revision. Keep its metadata usable because
-        // the plugin cannot prove that it predates the identity edge.
-        assert!(tracker.metadata_is_fresh("term_a", None));
+        // Once this terminal has supplied a generation anchor, a missing
+        // revision cannot prove that retained metadata belongs to the new
+        // process. Fail closed until the host reports a newer revision.
+        assert!(!tracker.metadata_is_fresh("term_a", None));
 
         // If the catalog omitted the revision on a first acquisition, a later
         // revision does not change the first-acquisition policy. The evidence
