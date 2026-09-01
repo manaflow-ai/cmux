@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxSettings
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -473,6 +474,84 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
 
         let envLine = try String(contentsOf: envCapture, encoding: .utf8)
         XCTAssertEqual(envLine, "unset")
+    }
+
+    func testPolicyHookOmittingSoundContextInheritsIt() async throws {
+        let context = try XCTUnwrap(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)
+        )
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Done",
+            subtitle: "",
+            body: "Finished",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            soundContext: context
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "inherit-context",
+            command: #"printf '{"effects":{"desktop":false}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let result = await evaluate(request: request, hooks: [hook])
+        XCTAssertEqual(try result.get().context.soundContext, context)
+    }
+
+    func testPolicyHookCannotInjectMismatchedSoundContext() async throws {
+        let context = try XCTUnwrap(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .turnDone)
+        )
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Done",
+            subtitle: "",
+            body: "Finished",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            soundContext: context
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "mismatched-context",
+            command: #"printf '{"context":{"soundContext":{"agentID":"codex","alertType":"errorStalled"}}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let result = await evaluate(request: request, hooks: [hook])
+        XCTAssertEqual(try result.get().context.soundContext, context)
+    }
+
+    func testPolicyHookCanExplicitlyClearSoundContext() async throws {
+        let context = try XCTUnwrap(
+            NotificationSoundOverrideContext(agentID: "claude", alertType: .errorStalled)
+        )
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Error",
+            subtitle: "",
+            body: "Failed",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            soundContext: context
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "clear-context",
+            command: #"printf '{"context":{"soundContext":null}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+        let result = await evaluate(request: request, hooks: [hook])
+        XCTAssertNil(try result.get().context.soundContext)
     }
 }
 
@@ -1053,7 +1132,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
     }
 
-    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
+    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1072,10 +1151,11 @@ final class NotificationDockBadgeTests: XCTestCase {
         defer {
             try? FileManager.default.removeItem(at: stagingDirectory)
         }
-        XCTAssertNotNil(NotificationSoundSettings.sound(
+        let sound = await NotificationSoundSettings.sound(
             defaults: defaults,
             systemSoundStagingDirectory: stagingDirectory
-        ))
+        )
+        XCTAssertNotNil(sound)
         let stagedSoundURL = stagingDirectory.appendingPathComponent(
             NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping"),
             isDirectory: false
@@ -1083,7 +1163,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: stagedSoundURL.path))
     }
 
-    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
+    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1095,11 +1175,13 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         defaults.set("none", forKey: NotificationSoundSettings.key)
         XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
-        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+        let silentSound = await NotificationSoundSettings.sound(defaults: defaults)
+        XCTAssertNil(silentSound)
 
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
-        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+        let missingCustomSound = await NotificationSoundSettings.sound(defaults: defaults)
+        XCTAssertNil(missingCustomSound)
     }
 
     func testNotificationCustomFileURLExpandsTildePath() {
@@ -1140,7 +1222,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
     }
 
-    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() {
+    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1179,9 +1261,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
 
-        _ = NotificationSoundSettings.sound(defaults: defaults)
+        _ = await NotificationSoundSettings.sound(defaults: defaults)
 
-        guard let stagedName = NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
+        guard let stagedName = await NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
             XCTFail("Expected staged custom sound name")
             return
         }
@@ -1229,7 +1311,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(stagedA.hasSuffix(".caf"))
     }
 
-    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() {
+    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1267,7 +1349,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
 
-        let prepareResult = NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
+        let prepareResult = await NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
         let stagedName: String
         switch prepareResult {
         case .success(let name):
@@ -1288,7 +1370,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: metadataURL.path))
     }
 
-    func testNotificationCustomSoundReturnsNilWhenPreparationFails() {
+    func testNotificationCustomSoundReturnsNilWhenPreparationFails() async {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1319,15 +1401,16 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
         defaults.set(invalidSourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
 
-        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+        let invalidSound = await NotificationSoundSettings.sound(defaults: defaults)
+        XCTAssertNil(invalidSound)
     }
 
-    func testNotificationCustomPreparationReportsMissingFile() {
+    func testNotificationCustomPreparationReportsMissingFile() async {
         let missingPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-missing-\(UUID().uuidString).wav", isDirectory: false)
             .path
 
-        let result = NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
+        let result = await NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
         switch result {
         case .success:
             XCTFail("Expected missing file failure")
