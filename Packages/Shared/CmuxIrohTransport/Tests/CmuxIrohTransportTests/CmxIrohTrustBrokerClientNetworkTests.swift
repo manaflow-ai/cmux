@@ -43,6 +43,58 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func rateLimitSourceUsesOnlyCanonicalValues() async throws {
+        let cases = [
+            (
+                #"{"error":"rate_limited","source":"ingress_ip"}"#,
+                "rate_limited:ingress_ip"
+            ),
+            (
+                #"{"error":"rate_limited","source":"device_budget"}"#,
+                "rate_limited:device_budget"
+            ),
+            (
+                #"{"error":"rate_limited","source":"account_budget"}"#,
+                "rate_limited:account_budget"
+            ),
+            (
+                #"{"error":"rate_limited","source":"auth_provider"}"#,
+                "rate_limited:auth_provider"
+            ),
+            (
+                #"{"error":"rate_limited","source":"attacker\nforged"}"#,
+                "rate_limited"
+            ),
+            (
+                #"{"error":"rate_limited","source":42}"#,
+                "rate_limited"
+            ),
+            (
+                #"{"error":"rate_limited","source":{"layer":"ingress_ip"}}"#,
+                "rate_limited"
+            ),
+        ]
+
+        for (body, expectedCode) in cases {
+            let transport = RecordingBrokerTransport(responses: [
+                .json(
+                    status: 429,
+                    body: body,
+                    headers: ["Retry-After": "60"]
+                ),
+            ])
+            let client = try makeNetworkClient(transport: transport)
+
+            await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
+                code: expectedCode,
+                retryAfterSeconds: 60
+            )) {
+                _ = try await client.discover()
+            }
+        }
+    }
+
+    @Test
     func rateLimitSuppressesConcurrentSameRouteRequestsWithoutBlockingOtherRoutes() async throws {
         let transport = RouteRecordingBrokerTransport(responsesByPath: [
             "/api/devices/iroh": [
@@ -114,7 +166,7 @@ extension CmxIrohTrustBrokerClientTests {
         try await client.revoke(bindingID: "binding-1")
 
         await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
-            code: "rate_limited",
+            code: "cooldown:rate_limited",
             retryAfterSeconds: 600
         )) {
             _ = try await client.discover()
@@ -177,7 +229,7 @@ extension CmxIrohTrustBrokerClientTests {
             clientNamespace: "legacy",
             transport: transport
         )
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             _ = try await client.discover()
         }
         #expect(await transport.requests().isEmpty)
@@ -203,7 +255,13 @@ extension CmxIrohTrustBrokerClientTests {
         )
         let client = try makeNetworkClient(transport: transport)
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        let expected = CmxIrohTrustBrokerClientError.connectivity(
+            CmxIrohBrokerConnectivityCause(
+                urlErrorCode: URLError.Code.notConnectedToInternet.rawValue
+            )
+        )
+        #expect(String(describing: expected) == "connectivity(notConnectedToInternet(-1009))")
+        await #expect(throws: expected) {
             _ = try await client.discover()
         }
     }
