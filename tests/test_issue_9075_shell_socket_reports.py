@@ -7,7 +7,6 @@ import os
 import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -215,88 +214,6 @@ def assert_tmux_does_not_publish_capability(
         )
 
 
-def run_prompt_command_export_regression() -> None:
-    """Run the Bash 3.2/newer prompt-export regression on macOS CI."""
-
-    if sys.platform != "darwin":
-        return
-
-    system_bash = Path("/bin/bash").resolve()
-    newer_candidates = [
-        os.environ.get("CMUX_BASH_NEW_BIN"),
-        "/opt/homebrew/bin/bash",
-        "/usr/local/bin/bash",
-        shutil.which("bash"),
-    ]
-
-    def find_newer_bash() -> Optional[Path]:
-        for raw_candidate in newer_candidates:
-            if not raw_candidate:
-                continue
-            candidate = Path(raw_candidate)
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                resolved = candidate.resolve()
-                if resolved != system_bash:
-                    return resolved
-        return None
-
-    newer_bash = find_newer_bash()
-    if newer_bash is None and os.environ.get("GITHUB_ACTIONS") == "true":
-        brew_environment = dict(os.environ)
-        brew_environment["HOMEBREW_NO_AUTO_UPDATE"] = "1"
-        formula = subprocess.run(
-            ["brew", "list", "--formula", "bash"],
-            env=brew_environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=30,
-        )
-        if formula.returncode != 0:
-            subprocess.run(
-                ["brew", "install", "bash"],
-                env=brew_environment,
-                check=True,
-                timeout=120,
-            )
-        brew_prefix = subprocess.run(
-            ["brew", "--prefix", "bash"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        ).stdout.strip()
-        if brew_prefix:
-            newer_candidates.append(str(Path(brew_prefix) / "bin" / "bash"))
-        newer_bash = find_newer_bash()
-
-    if newer_bash is None:
-        raise RuntimeError(
-            "Bash prompt export regression requires /bin/bash 3.2 and a distinct "
-            "newer Bash executable"
-        )
-
-    regression = ROOT / "tests" / "test_issue_11257_prompt_command_export.py"
-    environment = dict(os.environ)
-    environment["CMUX_BASH_32_BIN"] = str(system_bash)
-    environment["CMUX_BASH_NEW_BIN"] = str(newer_bash)
-    result = subprocess.run(
-        [sys.executable, str(regression)],
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=90,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            "Bash PROMPT_COMMAND export regression failed\n"
-            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-        )
-    if result.stdout:
-        print(result.stdout.strip())
-
-
 def main() -> int:
     if not os.path.exists("/usr/bin/nc"):
         print("SKIP: macOS /usr/bin/nc is required")
@@ -333,7 +250,6 @@ def main() -> int:
                 path_prefix=shadow_directory,
             )
 
-    run_prompt_command_export_regression()
     tested_shells = ", ".join(case[0] for case in shell_cases())
     print(
         "PASS: detached shell reports present the inherited socket capability "
