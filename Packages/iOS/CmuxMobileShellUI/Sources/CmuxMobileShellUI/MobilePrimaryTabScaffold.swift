@@ -19,6 +19,11 @@ struct MobilePrimaryTabScaffold<
     let notifications: Notifications
     let workspaceSearch: WorkspaceSearch
     let notificationSearch: NotificationSearch
+    /// The measured split-view sidebar width. iPad uses this to keep the
+    /// primary controls in the same bottom column as the sidebar instead of
+    /// centering them in the empty terminal canvas.
+    let iPadSidebarWidth: CGFloat
+    let iPadSidebarVisible: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -27,6 +32,8 @@ struct MobilePrimaryTabScaffold<
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
         taskComposerAction: (() -> Void)? = nil,
+        iPadSidebarWidth: CGFloat = 0,
+        iPadSidebarVisible: Bool = false,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
@@ -36,6 +43,8 @@ struct MobilePrimaryTabScaffold<
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
         self.taskComposerAction = taskComposerAction
+        self.iPadSidebarWidth = iPadSidebarWidth
+        self.iPadSidebarVisible = iPadSidebarVisible
         self.workspaces = workspaces()
         self.notifications = notifications()
         self.workspaceSearch = workspaceSearch()
@@ -54,6 +63,8 @@ struct MobilePrimaryTabScaffold<
                     selection: selection,
                     notificationUnreadCount: notificationUnreadCount,
                     taskComposerAction: taskComposerAction,
+                    sidebarWidth: iPadSidebarWidth,
+                    sidebarVisible: iPadSidebarVisible,
                     select: selectTab,
                     beginSearch: {
                         let scope = selection.searchScope ?? searchCoordinator.scope
@@ -267,52 +278,87 @@ private struct MobileIPadPrimaryBar: View {
     let selection: MobilePrimaryTab
     let notificationUnreadCount: Int
     let taskComposerAction: (() -> Void)?
+    let sidebarWidth: CGFloat
+    let sidebarVisible: Bool
     let select: (MobilePrimaryTab) -> Void
     let beginSearch: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            tabButton(
-                .workspaces,
-                title: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                systemImage: "rectangle.stack"
-            )
-            tabButton(
-                .notifications,
-                title: L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
-                systemImage: "bell",
-                badge: notificationUnreadCount
-            )
+        GeometryReader { geometry in
+            let columnWidth = sidebarVisible
+                ? min(max(sidebarWidth, 0), geometry.size.width)
+                : 0
 
-            Spacer(minLength: 12)
-
-            Button(action: beginSearch) {
-                Label(
-                    L10n.string("mobile.tabs.search", defaultValue: "Search"),
-                    systemImage: "magnifyingglass"
+            HStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    primaryButton(.workspaces)
+                    primaryButton(.notifications)
+                    if sidebarVisible, selection == .workspaces, let taskComposerAction {
+                        taskComposerButton(taskComposerAction)
+                    }
+                }
+                .padding(.leading, 20)
+                .padding(.trailing, sidebarVisible ? 12 : 20)
+                .frame(
+                    width: sidebarVisible
+                        ? min(geometry.size.width, max(columnWidth, 280))
+                        : nil,
+                    alignment: .leading
                 )
-                .labelStyle(.titleAndIcon)
-                .frame(minWidth: 88)
+
+                if sidebarVisible {
+                    Divider()
+                        .frame(height: 32)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    searchButton
+                    if !sidebarVisible, selection == .workspaces, let taskComposerAction {
+                        taskComposerButton(taskComposerAction)
+                    }
+                }
+                .padding(.leading, sidebarVisible ? 12 : 0)
+                .padding(.trailing, 20)
             }
-            .accessibilityIdentifier("MobilePrimaryTabSearch")
-            .buttonStyle(.bordered)
-
-            if selection == .workspaces, let taskComposerAction {
-                TaskComposerButton(
-                    action: taskComposerAction,
-                    diameter: 56
-                )
-                .accessibilityLabel(
-                    L10n.string("mobile.taskComposer.newTask", defaultValue: "New Task")
-                )
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .frame(maxWidth: 760)
-        .frame(maxWidth: .infinity)
+        .frame(minHeight: 64)
+        .padding(.vertical, 4)
         .background(.bar)
         .accessibilityIdentifier("MobilePrimaryTabBar")
+    }
+
+    private func primaryButton(_ tab: MobilePrimaryTab) -> some View {
+        tabButton(
+            tab,
+            title: tab == .workspaces
+                ? L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces")
+                : L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
+            systemImage: tab == .workspaces ? "rectangle.stack" : "bell",
+            badge: tab == .notifications ? notificationUnreadCount : 0
+        )
+    }
+
+    private var searchButton: some View {
+        Button(action: beginSearch) {
+            Label(
+                L10n.string("mobile.tabs.search", defaultValue: "Search"),
+                systemImage: "magnifyingglass"
+            )
+            .labelStyle(.titleAndIcon)
+            .frame(minWidth: 88)
+        }
+        .accessibilityIdentifier("MobilePrimaryTabSearch")
+        .buttonStyle(.bordered)
+    }
+
+    private func taskComposerButton(_ action: @escaping () -> Void) -> some View {
+        TaskComposerButton(action: action, diameter: 56)
+            .accessibilityLabel(
+                L10n.string("mobile.taskComposer.newTask", defaultValue: "New Task")
+            )
     }
 
     @ViewBuilder
