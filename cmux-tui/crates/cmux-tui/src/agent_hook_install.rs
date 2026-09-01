@@ -754,6 +754,30 @@ impl HermesReapState {
             let _ = child.wait();
         }
     }
+
+    fn handoff_reap(&self) {
+        #[cfg(unix)]
+        let child_exit =
+            self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take();
+        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+
+        #[cfg(unix)]
+        if let Some(child_exit) = child_exit {
+            // The exit observer already owns the child's PID wait path. It
+            // can block in waitpid without extending this timeout caller.
+            child_exit.reap();
+            drop(child);
+            return;
+        }
+
+        // This is only a defensive path. Unix commands install an exit
+        // observer before reaching the timeout branch. On Windows, closing
+        // the process handle after a nonblocking probe leaves termination to
+        // the kernel without making the timeout caller wait.
+        if let Some(mut child) = child {
+            let _ = child.try_wait();
+        }
+    }
 }
 
 fn spawn_hermes_reaper(state: Arc<HermesReapState>) -> io::Result<()> {
@@ -930,9 +954,10 @@ fn run_hermes_command_with_timeout(
         #[cfg(not(unix))]
         let reap_state = Arc::new(HermesReapState::new(child));
         if spawn_hermes_reaper(Arc::clone(&reap_state)).is_err() {
-            // Keep an owner in this scope when the OS cannot create the
-            // detached reaper. Child::drop does not wait on Unix.
-            reap_state.reap();
+            // Keep the already-running Unix observer as the owner when the
+            // OS cannot create the detached reaper. The handoff is
+            // nonblocking, so thread exhaustion cannot extend the deadline.
+            reap_state.handoff_reap();
         }
     }
     let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))?;
@@ -2261,19 +2286,72 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(2));
 
         let pid = fs::read_to_string(pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
-        let mut status = 0;
-        // SAFETY: `pid` was written by the direct child started above, and no
-        // other test thread can own or reap that child.
-        let waited = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
-        assert_eq!(
-            waited, -1,
-            "Hermes child was not reaped before timeout returned (waitpid={waited})"
+        let reap_deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let mut status = 0;
+            // SAFETY: `pid` was written by the direct child started above, and
+            // no other test thread can own or reap that child.
+            let waited = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+            if waited < 0 {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ECHILD) {
+                    break;
+                }
+                panic!("waitpid failed while checking Hermes reaper: {error}");
+            }
+            assert_ne!(waited, pid, "the test thread reaped the Hermes child before the observer");
+            assert!(
+                Instant::now() < reap_deadline,
+                "Hermes child was not reaped after timeout returned"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_reaper_spawn_failure_does_not_wait_for_a_live_child() {
+        struct ReaperFailureGuard;
+
+        impl Drop for ReaperFailureGuard {
+            fn drop(&mut self) {
+                FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(false));
+            }
+        }
+
+        struct ChildGuard(libc::pid_t);
+
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                // SAFETY: this is the direct child created by the test.
+                unsafe {
+                    libc::kill(self.0, libc::SIGKILL);
+                    let mut status = 0;
+                    libc::waitpid(self.0, &mut status, 0);
+                }
+            }
+        }
+
+        let child = std::process::Command::new("/bin/sh").args(["-c", "sleep 30"]).spawn().unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let _child_guard = ChildGuard(pid);
+        let child_exit = UnixChildExitSignal::observe(child.id()).unwrap();
+        let state = Arc::new(HermesReapState::new(child, Some(child_exit)));
+        FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
+        let _failure_guard = ReaperFailureGuard;
+
+        let started = Instant::now();
+        assert!(spawn_hermes_reaper(Arc::clone(&state)).is_err());
+        state.handoff_reap();
+        assert!(
+            started.elapsed() < Duration::from_millis(200),
+            "reaper fallback waited for a live child"
         );
-        assert_eq!(
-            io::Error::last_os_error().raw_os_error(),
-            Some(libc::ECHILD),
-            "waitpid must report ECHILD after the timeout path reaps the child"
-        );
+
+        // The handoff deliberately leaves the live child to make the
+        // nonblocking property observable. The guard terminates it after the
+        // assertion and consumes any status the detached observer did not yet
+        // consume.
     }
 
     #[cfg(not(unix))]
