@@ -460,7 +460,9 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "input") {
-                    attachment.control.write(&data);
+                    self.inner.with_live_attachment(pty_id, &attachment, |control| {
+                        control.write(&data);
+                    });
                 }
             }
             "pty_resize" => {
@@ -474,7 +476,9 @@ impl PtyManager {
                     return;
                 };
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
-                    attachment.control.resize(cols, rows);
+                    self.inner.with_live_attachment(pty_id, &attachment, |control| {
+                        control.resize(cols, rows);
+                    });
                 }
             }
             "pty_flow" => {
@@ -484,11 +488,13 @@ impl PtyManager {
                 }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
-                    if pause {
-                        attachment.control.pause();
-                    } else {
-                        attachment.control.resume();
-                    }
+                    self.inner.with_live_attachment(pty_id, &attachment, |control| {
+                        if pause {
+                            control.pause();
+                        } else {
+                            control.resume();
+                        }
+                    });
                 }
             }
             "pty_close" => {
@@ -507,7 +513,12 @@ impl PtyManager {
     /// this after a pty_error reply to tell a fatal refusal (attachment gone,
     /// connection ends) from a non-fatal one (oversized input, stream lives).
     pub fn has_attachment(&self, pty_id: &str) -> bool {
-        self.inner.attachments.lock().expect("attach lock").contains_key(pty_id)
+        self.inner
+            .attachments
+            .lock()
+            .expect("attach lock")
+            .get(pty_id)
+            .is_some_and(|attachment| !attachment.closing.load(Ordering::SeqCst))
     }
 
     /// Live attachment count (viewers, not sessions). Diagnostics and tests.
@@ -800,9 +811,6 @@ impl Inner {
             opened.control.kill();
             return;
         }
-        let previous_gate = attachments.get(&pty_id).map(|a| Arc::clone(&a.publication_gate));
-        let _previous_publication =
-            previous_gate.as_ref().map(|gate| gate.lock().expect("attachment publication lock"));
         let previous = attachments.insert(
             pty_id.clone(),
             Attachment {
@@ -848,6 +856,7 @@ impl Inner {
         generation: u64,
         publication_gate: Arc<Mutex<()>>,
     ) -> (DataSink, ExitSink) {
+        let output_gate = Arc::clone(&publication_gate);
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
@@ -858,22 +867,17 @@ impl Inner {
                     &chunk,
                     &context,
                     generation,
-                    &publication_gate,
+                    &output_gate,
                 )
             }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
+        let exit_gate = Arc::clone(&publication_gate);
         let on_exit = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
             Arc::new(move |code: i64| {
-                inner.emit_exit_for_generation(
-                    &pty_id,
-                    code,
-                    &context,
-                    generation,
-                    &publication_gate,
-                )
+                inner.emit_exit_for_generation(&pty_id, code, &context, generation, &exit_gate)
             }) as Arc<dyn Fn(i64) + Send + Sync>
         };
         (on_data, on_exit)
@@ -894,15 +898,27 @@ impl Inner {
         {
             return;
         }
-        let attachments = self.attachments.lock().expect("attach lock");
-        let Some(current) = attachments.get(pty_id) else { return };
-        if current.generation != generation
-            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock().expect("attachment publication lock");
         {
-            return;
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
         }
-        let _publication = publication_gate.lock().expect("attachment publication lock");
-        drop(attachments);
         // Zero-byte chunks carry nothing and historically crashed the web
         // terminal's write path (D-R6-1); never put an empty frame on the wire.
         if chunk.is_empty() {
@@ -914,10 +930,11 @@ impl Inner {
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
             drop(_publication);
-            self.close_if_generation(pty_id, generation);
-            send_pty_error(
+            self.emit_error_for_generation(
                 context,
                 pty_id,
+                generation,
+                publication_gate,
                 "failed",
                 &format!(
                     "dropped: {buffered} bytes buffered toward the server (cap {})",
@@ -949,29 +966,75 @@ impl Inner {
         {
             return;
         }
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        let Some(current) = attachments.get(pty_id) else { return };
-        if current.generation != generation
-            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
-        {
-            return;
-        }
-        let _publication = publication_gate.lock().expect("attachment publication lock");
-        match attachments.get(pty_id) {
-            Some(attachment)
-                if attachment.generation == generation
-                    && Arc::ptr_eq(&attachment.publication_gate, publication_gate)
-                    && !attachment.closing.load(Ordering::SeqCst) => {}
-            _ => return,
-        }
-        attachments.remove(pty_id);
-        drop(attachments);
-        (auth.send)(json!({
+        self.emit_terminal_for_generation(pty_id, generation, publication_gate, || {
+            (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
             "code": code,
-        }));
+            }));
+        });
+    }
+
+    fn emit_error_for_generation(
+        &self,
+        context: &FrameContext,
+        pty_id: &str,
+        generation: u64,
+        publication_gate: &Arc<Mutex<()>>,
+        code: &str,
+        message: &str,
+    ) {
+        self.emit_terminal_for_generation(pty_id, generation, publication_gate, || {
+            send_pty_error(context, pty_id, code, message);
+        });
+    }
+
+    fn emit_terminal_for_generation(
+        &self,
+        pty_id: &str,
+        generation: u64,
+        publication_gate: &Arc<Mutex<()>>,
+        publish: impl FnOnce(),
+    ) {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock().expect("attachment publication lock");
+        let attachment = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            current.closing.store(true, Ordering::SeqCst);
+            current.clone()
+        };
+        // Keep the closing attachment in the map while the terminal frame is
+        // published. A same-ID open therefore cannot overtake this callback.
+        publish();
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        if attachments.get(pty_id).is_some_and(|current| {
+            current.generation == generation
+                && Arc::ptr_eq(&current.publication_gate, publication_gate)
+        }) {
+            attachments.remove(pty_id);
+        }
+        drop(attachments);
+        drop(_publication);
+        // Terminal publication retires the viewer. Killing is idempotent for
+        // an already-exited PTY and releases an overflowed or revoked one.
+        attachment.control.kill();
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -984,11 +1047,7 @@ impl Inner {
             return;
         }
         drop(opening);
-        let attachment = self.attachments.lock().expect("attach lock").remove(pty_id);
-        if let Some(attachment) = attachment {
-            attachment.closing.store(true, Ordering::SeqCst);
-            attachment.control.kill();
-        }
+        self.close_exact(pty_id, None, None);
     }
 
     fn close_if_transport(&self, pty_id: &str, transport_id: Option<&str>) {
@@ -1000,14 +1059,17 @@ impl Inner {
             return;
         }
         drop(opening);
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        let Some(attachment) = attachments.get(pty_id) else { return };
-        if attachment.transport_id.as_deref() != transport_id {
+        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+        else {
             return;
+        };
+        if attachment.transport_id.as_deref() == transport_id {
+            self.close_exact(
+                pty_id,
+                Some(attachment.generation),
+                Some(&attachment.publication_gate),
+            );
         }
-        let attachment = attachments.remove(pty_id).expect("attachment still present");
-        attachment.closing.store(true, Ordering::SeqCst);
-        attachment.control.kill();
     }
 
     /// Frame-level transport fence. Unknown ids retain the protocol's silent
@@ -1040,6 +1102,26 @@ impl Inner {
         self.authorize_snapshot_for_generation(pty_id, auth, context, action, 0)
     }
 
+    fn with_live_attachment(
+        &self,
+        pty_id: &str,
+        attachment: &Attachment,
+        operation: impl FnOnce(&dyn PtyControl),
+    ) {
+        let _publication = attachment.publication_gate.lock().expect("attachment publication lock");
+        {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != attachment.generation
+                || !Arc::ptr_eq(&current.publication_gate, &attachment.publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+        }
+        operation(attachment.control.as_ref());
+    }
+
     fn authorize_snapshot_for_generation(
         &self,
         pty_id: &str,
@@ -1062,14 +1144,11 @@ impl Inner {
         if allowed {
             Some(attachment)
         } else {
-            if generation == 0 {
-                self.close(pty_id);
-            } else {
-                self.close_if_generation(pty_id, generation);
-            }
-            send_pty_error(
+            self.emit_error_for_generation(
                 context,
                 pty_id,
+                attachment.generation,
+                &attachment.publication_gate,
                 "trust_revoked",
                 &format!("PTY {action} refused after trust change"),
             );
@@ -1079,27 +1158,61 @@ impl Inner {
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
         let auth = Self::auth_snapshot(context);
-        if self.authorize_snapshot_for_generation(pty_id, &auth, context, "close", 0).is_none() {
+        let Some(attachment) =
+            self.authorize_snapshot_for_generation(pty_id, &auth, context, "close", 0)
+        else {
+            // A close may race the asynchronous open before its attachment
+            // is published. The transport fence ran at frame dispatch, so
+            // this exact owner can cancel the pending reservation now.
+            self.close_if_transport(pty_id, context.transport_id.as_deref());
             return;
-        }
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        let Some(attachment) = attachments.get(pty_id) else { return };
+        };
         if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
             return;
         }
-        let attachment = attachments.remove(pty_id).expect("attachment still present");
-        attachment.closing.store(true, Ordering::SeqCst);
-        attachment.control.kill();
+        self.close_exact(pty_id, Some(attachment.generation), Some(&attachment.publication_gate));
     }
 
     fn close_if_generation(&self, pty_id: &str, generation: u64) {
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        let Some(attachment) = attachments.get(pty_id) else { return };
-        if attachment.generation != generation {
+        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+        else {
             return;
+        };
+        if attachment.generation == generation {
+            self.close_exact(pty_id, Some(generation), Some(&attachment.publication_gate));
         }
-        let attachment = attachments.remove(pty_id).expect("attachment still present");
-        attachment.closing.store(true, Ordering::SeqCst);
+    }
+
+    fn close_exact(
+        &self,
+        pty_id: &str,
+        generation: Option<u64>,
+        publication_gate: Option<&Arc<Mutex<()>>>,
+    ) {
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || publication_gate
+                    .is_some_and(|expected| !Arc::ptr_eq(&current.publication_gate, expected))
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock().expect("attachment publication lock");
+        let attachment = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if generation.is_some_and(|expected| current.generation != expected)
+                || !Arc::ptr_eq(&current.publication_gate, &gate)
+            {
+                return;
+            }
+            let attachment = attachments.remove(pty_id).expect("attachment still present");
+            attachment.closing.store(true, Ordering::SeqCst);
+            attachment
+        };
         attachment.control.kill();
     }
 }
@@ -2038,12 +2151,14 @@ impl Inner {
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
         let stream_for_exit = Arc::clone(&stream);
+        let exit_gate = Arc::clone(&publication_gate);
         let on_exit: ExitSink = Arc::new(move |code| {
             if stream_for_exit.overflowed() {
-                relay.close_if_generation(&pty_id_for_exit, generation);
-                send_pty_error(
+                relay.emit_error_for_generation(
                     &context_for_exit,
                     &pty_id_for_exit,
+                    generation,
+                    &exit_gate,
                     "overflow",
                     "pty output backlog overflowed; reattach to continue receiving output",
                 );
@@ -2053,7 +2168,7 @@ impl Inner {
                     code,
                     &context_for_exit,
                     generation,
-                    &publication_gate,
+                    &exit_gate,
                 );
             }
         });

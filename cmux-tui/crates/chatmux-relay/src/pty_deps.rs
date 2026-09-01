@@ -15,7 +15,7 @@ use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -704,7 +704,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let cmux_pty::SpawnedPty { mut master, child } = spawned;
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
-    let (writer_tx, writer_rx) = mpsc::sync_channel(PTY_WRITE_QUEUE_ITEMS);
+    let (writer_tx, writer_rx) = mpsc::sync_channel::<Vec<u8>>(PTY_WRITE_QUEUE_ITEMS);
     let writer_bytes = Arc::new(AtomicU64::new(0));
     let writer_bytes_for_thread = Arc::clone(&writer_bytes);
     std::thread::spawn(move || {
@@ -720,7 +720,10 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     });
     let killer = child_cleanup.child().clone_killer();
     let pid = child_cleanup.child().process_id().unwrap_or(0) as libc::pid_t;
-    let process_group = master.process_group_leader().unwrap_or(pid);
+    // cmux-pty starts the child in its own session. Keep the child PID as the
+    // stable process-group target; the foreground group can change when an
+    // interactive job takes control of the terminal.
+    let process_group = pid;
     let lifecycle = ChildLifecycle::new();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
@@ -756,8 +759,11 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
             // racing a PID that the eventual wait may release.
             let _ = child.kill();
         }
-        let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+        // Fence all late control cleanup before entering wait. Once wait
+        // starts, the child may be reaped and its PID reused, so no later
+        // callback may signal the old process group.
         wait_lifecycle.mark_exited_before_reap();
+        let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
         exit_completion.child_exited(code);
     });
 
@@ -829,7 +835,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             let stdin_bytes = Arc::new(AtomicU64::new(0));
             let (stdin_tx, stdin_for_control) = match stdin {
                 Some(mut stdin) => {
-                    let (tx, rx) = mpsc::sync_channel(PTY_WRITE_QUEUE_ITEMS);
+                    let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(PTY_WRITE_QUEUE_ITEMS);
                     let stdin_bytes_for_thread = Arc::clone(&stdin_bytes);
                     std::thread::spawn(move || {
                         while let Ok(data) = rx.recv() {
