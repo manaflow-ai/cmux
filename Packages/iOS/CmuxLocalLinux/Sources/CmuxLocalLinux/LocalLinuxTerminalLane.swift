@@ -270,6 +270,11 @@ public actor LocalLinuxScrollbackRing {
     private var sourceIdentity: ObjectIdentifier?
     private var pumpTask: Task<Void, Never>?
     private var pumpGeneration: UUID?
+    /// Set once the bound source has finished. A ring cannot bind a new
+    /// source, and a later subscription to the same ended source must receive
+    /// a finished live stream instead of waiting forever for a pump that will
+    /// never restart.
+    private var pumpFinished = false
     private var frameByteLimit = LocalLinuxTerminalLane.maximumOutputByteCount
     private var subscribers: [UUID: Subscriber] = [:]
 
@@ -334,6 +339,12 @@ public actor LocalLinuxScrollbackRing {
             Task { await self?.removeSubscriber(id: id) }
         }
         subscribers[id] = Subscriber(continuation: streamAndContinuation.continuation)
+        if pumpFinished {
+            // `finishPump` already ended all subscribers that were attached at
+            // EOF. Finish this late subscriber too, while preserving the
+            // replay frame returned above.
+            streamAndContinuation.continuation.finish()
+        }
         return Subscription(id: id, replay: replay, updates: streamAndContinuation.stream)
     }
 
@@ -411,6 +422,7 @@ public actor LocalLinuxScrollbackRing {
         guard pumpGeneration == generation else { return }
         pumpTask = nil
         pumpGeneration = nil
+        pumpFinished = true
         // Keep the source binding after EOF. This ring belongs to one pty, and
         // accepting a different source would splice a new process's bytes
         // into the old sequence history. A new session must create a new ring;

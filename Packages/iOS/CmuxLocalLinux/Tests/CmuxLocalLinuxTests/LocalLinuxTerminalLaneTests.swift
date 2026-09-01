@@ -337,6 +337,31 @@ struct LocalLinuxTerminalLaneTests {
         await originalLane.close()
         await replacementLane.close()
     }
+
+    @Test("a same-source lane attached after EOF receives a finished live stream")
+    func sameSourceReattachAfterEOFDoesNotHang() async throws {
+        let ring = LocalLinuxScrollbackRing()
+        let source = TestLocalLinuxOutputSource()
+        let firstLane = LocalLinuxTerminalLane(source: source, ring: ring, cursor: nil)
+
+        _ = try #require(try await firstLane.receiveOutput())
+        await source.emit(Data("done".utf8))
+        _ = try #require(try await firstLane.receiveOutput())
+        await source.finishOutput()
+        #expect(try await firstLane.receiveOutput() == nil)
+
+        let secondLane = LocalLinuxTerminalLane(source: source, ring: ring, cursor: nil)
+        let replay = try #require(try await secondLane.receiveOutput())
+        #expect(replay.kind == .replay)
+        #expect(replay.bytes == Data("done".utf8))
+
+        let pending = Task { () -> MobileTerminalLaneOutputFrame? in
+            try? await secondLane.receiveOutput()
+        }
+        #expect(await pending.value == nil)
+        await firstLane.close()
+        await secondLane.close()
+    }
 }
 
 private enum LaneReceiveOutcome: Sendable {
