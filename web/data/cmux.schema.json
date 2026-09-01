@@ -621,7 +621,7 @@
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.autoRetryAgentSessions",
-          "description": "Automatically retry transient in-session API failures when a managed Claude Code or Codex pane returns to an idle prompt. Retries are bounded with exponential backoff; safeguard, quota, authentication, normal completion, and explicit interruption states are never retried."
+          "description": "Automatically retry transient in-session API or transport failures when a managed Claude Code or Codex pane returns to an idle prompt. Retries are bounded with exponential backoff; safeguard, quota, authentication, normal completion, and explicit interruption states are never retried."
         },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",

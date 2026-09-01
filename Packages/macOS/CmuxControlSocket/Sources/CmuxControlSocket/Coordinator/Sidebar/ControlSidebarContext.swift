@@ -404,21 +404,17 @@ public extension ControlSidebarContext {
         )
     }
 
-    /// Bridges legacy callers to the evidence-aware lifecycle seam.
+    /// Legacy callers must be routed by a concrete conformer. Keeping this
+    /// default as an explicit precondition prevents an accidental recursive
+    /// fallback when a conformer forgets to implement either scheduling seam.
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?
     ) {
-        controlSidebarScheduleAgentLifecycle(
-            target: target,
-            key: key,
-            lifecycleRawValue: lifecycleRawValue,
-            panelID: panelID,
-            promptBoundary: false,
-            normalCompletion: false,
-            hookFailureEvidence: false
+        preconditionFailure(
+            "ControlSidebarContext must implement controlSidebarScheduleAgentLifecycle"
         )
     }
 }

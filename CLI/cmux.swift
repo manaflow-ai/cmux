@@ -8486,8 +8486,17 @@ struct CMUXCLI {
         return .refs
     }
 
-    func sendV1Command(_ command: String, client: SocketClient) throws -> String {
-        let response = try client.send(command: command)
+    func sendV1Command(
+        _ command: String,
+        client: SocketClient,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
+    ) throws -> String {
+        let response = try client.send(
+            command: command,
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
         }
@@ -28538,7 +28547,9 @@ struct CMUXCLI {
         hookFailureEvidence: Bool = false,
         sessionID: String? = nil,
         turnID: String? = nil,
-        terminalLifecycleID: UUID? = nil
+        terminalLifecycleID: UUID? = nil,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil
     ) {
         guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
@@ -28557,7 +28568,9 @@ struct CMUXCLI {
                 .map { " --turn-id=\(socketQuote($0))" } ?? ""
             _ = try sendV1Command(
                 "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(boundaryOption)\(completionOption)\(failureOption)\(terminalLifecycleOption)\(sessionOption)\(turnOption)",
-                client: client
+                client: client,
+                responseTimeout: responseTimeout,
+                deadline: deadline
             )
         } catch {
             cliWriteStderr("Warning: failed to set agent lifecycle\n")
@@ -36524,7 +36537,9 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionID: sessionId,
-                    turnID: input.turnId
+                    turnID: input.turnId,
+                    responseTimeout: cursorShellNeedsApproval ? cursorCriticalTimeout() : nil,
+                    deadline: cursorShellDeadline
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
@@ -36548,7 +36563,9 @@ export default CMUXSessionRestore;
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionID: sessionId,
-                    turnID: input.turnId
+                    turnID: input.turnId,
+                    responseTimeout: cursorShellNeedsApproval ? cursorCriticalTimeout() : nil,
+                    deadline: cursorShellDeadline
                 )
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
@@ -36567,7 +36584,9 @@ export default CMUXSessionRestore;
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         sessionID: sessionId,
-                        turnID: input.turnId
+                        turnID: input.turnId,
+                        responseTimeout: cursorShellNeedsApproval ? cursorCriticalTimeout() : nil,
+                        deadline: cursorShellDeadline
                     )
                 }
                 setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)

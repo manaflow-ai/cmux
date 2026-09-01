@@ -32,12 +32,26 @@ extension AgentStallSupervisor {
     }
 
     func clearStatusEverywhere(panelID: UUID) {
-        let key = AgentStallPresentation.statusKey(panelID)
+        clearStatusEverywhere(panelIDs: [panelID])
+    }
+
+    /// Clears a batch of panel-scoped statuses with one workspace/dock
+    /// traversal. Retry-setting changes can cancel several panels at once.
+    func clearStatusEverywhere(panelIDs: Set<UUID>) {
+        guard !panelIDs.isEmpty else { return }
+        let keys = Set(panelIDs.map(AgentStallPresentation.statusKey))
         for workspace in app?.openWorkspacesForPetCensus() ?? [] {
-            workspace.statusEntries.removeValue(forKey: key)
+            for key in keys {
+                workspace.statusEntries.removeValue(forKey: key)
+            }
         }
         for dock in DockSplitStore.liveStores {
-            dock.clearAgentRuntimeStatusEntry(key: key, panelId: panelID)
+            for panelID in panelIDs {
+                dock.clearAgentRuntimeStatusEntry(
+                    key: AgentStallPresentation.statusKey(panelID),
+                    panelId: panelID
+                )
+            }
         }
     }
 }

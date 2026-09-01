@@ -132,7 +132,7 @@ Retry Stalled Agent Sessions**, or in `~/.config/cmux/cmux.json`:
 }
 ```
 
-Retries stay in the same session and use bounded 1, 2, and 4 second backoff.
+Retries stay in the same session and use a bounded backoff of 1, 2, and 4 seconds.
 Provider safeguards, exhausted credits or quota, expired authentication,
 normal completion, unknown output, and explicit user interruption are never
 retried. Human-required stalls appear as a sidebar status and a notification

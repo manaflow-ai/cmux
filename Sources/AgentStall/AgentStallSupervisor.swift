@@ -583,13 +583,18 @@ final class AgentStallSupervisor {
     }
 
     private func cancelScheduledRetries(reason: String) {
-        let panelIDs = statesByPanelID.compactMap { panelID, state in
+        let panelIDs = Set(statesByPanelID.compactMap { panelID, state in
             state.phase == .retryWaiting || state.phase == .retrying
                 ? panelID
                 : nil
-        }
+        })
+        guard !panelIDs.isEmpty else { return }
         for panelID in panelIDs {
-            cancel(panelID: panelID, reason: reason)
+            // Defer status projection until every state is removed so one
+            // owner traversal clears the whole batch instead of scanning all
+            // workspaces and docks once per panel.
+            cancel(panelID: panelID, reason: reason, clearStatus: false)
         }
+        clearStatusEverywhere(panelIDs: panelIDs)
     }
 }

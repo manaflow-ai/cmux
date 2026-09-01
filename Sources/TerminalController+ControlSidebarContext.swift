@@ -241,6 +241,26 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
+    /// Preserves the pre-evidence lifecycle entry point for older callers while
+    /// keeping one concrete scheduling witness on the app conformer.
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?
+    ) {
+        controlSidebarScheduleAgentLifecycle(
+            target: target,
+            key: key,
+            lifecycleRawValue: lifecycleRawValue,
+            panelID: panelID,
+            promptBoundary: false,
+            normalCompletion: false,
+            hookFailureEvidence: false,
+            identity: nil
+        )
+    }
+
     @MainActor
     private func controlSidebarAgentLifecycleIsAdmissible(
         owner: ControlSidebarPanelOwner,

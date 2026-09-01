@@ -219,7 +219,7 @@ struct AgentStallClassifierTests {
         }
     }
 
-    @Test("classifies standalone 429 and 5xx provider status banners")
+    @Test("classifies standalone 429 and corroborated 5xx provider status banners")
     func standaloneProviderStatusBanners() throws {
         let rateLimit = try #require(classifier.classify(
             provider: "codex",
@@ -227,9 +227,15 @@ struct AgentStallClassifierTests {
         ))
         #expect(rateLimit.cause == .rateLimit)
 
-        let serverError = try #require(classifier.classify(
+        #expect(classifier.classify(
             provider: "claude",
             output: "503 Service Unavailable"
+        ) == nil)
+
+        let serverError = try #require(classifier.classify(
+            provider: "claude",
+            output: "503 Service Unavailable",
+            hasStructuredEvidence: true
         ))
         #expect(serverError.cause == .transientTransport)
     }
@@ -340,7 +346,8 @@ struct AgentStallClassifierTests {
     func ansiTransportError() throws {
         let result = try #require(classifier.classify(
             provider: "openai",
-            output: "\u{001B}[31mHTTP 503\u{001B}[0m service unavailable"
+            output: "\u{001B}[31mHTTP 503\u{001B}[0m service unavailable",
+            hasStructuredEvidence: true
         ))
 
         #expect(result.cause == .overload || result.cause == .transientTransport)

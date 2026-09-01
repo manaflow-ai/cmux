@@ -381,10 +381,20 @@ extension AgentStallClassifier {
                 "(?m)^\\s*(?:(?:api|http|request|response)\\s+)?(?:error|failure|failed)\\s*[:：=-]\\s*(?:http\\s*)?5[0-9]{2}\\b[^\\n]*$",
                 "(?m)^\\s*(?:(?:api|http|request|response)\\s+)?(?:error|status|response)\\s*[:：=-]\\s*(?:http\\s*)?5[0-9]{2}(?:\\s+(?:internal server error|bad gateway|service unavailable|gateway timeout|server overloaded))?[.!]?\\s*$",
                 "(?m)^\\s*(?:(?:api|http|request|response|provider)\\s+)?(?:error|failure|failed)\\s*\\(\\s*(?:status|http)\\s*[:=]?\\s*5[0-9]{2}\\b[^)]*\\)(?:\\s*[:：=-]\\s*)?[^\\n]*$",
+            ],
+            retryActionID: "replayLastPrompt",
+            suggestedActionID: "retryAutomatically"
+        ),
+        AgentStallPattern(
+            identifier: "provider.transport.status.standalone",
+            providers: ["claude", "codex"],
+            cause: .transientTransport,
+            regularExpressions: [
                 "(?m)^\\s*http\\s+5[0-9]{2}\\s+(?:internal server error|bad gateway|service unavailable|gateway timeout|server overloaded)\\b[^\\n]*$",
                 "(?m)^\\s*5[0-9]{2}\\s+(?:internal server error|bad gateway|service unavailable|gateway timeout)\\b[^\\n]*$",
             ],
             retryActionID: "replayLastPrompt",
+            requiresStructuredEvidence: true,
             suggestedActionID: "retryAutomatically"
         ),
     ]
