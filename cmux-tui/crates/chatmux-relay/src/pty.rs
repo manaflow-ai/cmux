@@ -559,6 +559,10 @@ fn remove_cached_shell_if_same_without_viewers(
     session: &str,
     target: &Arc<ShellSession>,
 ) -> bool {
+    let mut shells = inner.shell_sessions.lock().expect("shell lock");
+    if !shells.get(session).is_some_and(|cached| Arc::ptr_eq(cached, target)) {
+        return false;
+    }
     // Serialize with viewer start. A concurrent opener may have cloned this
     // session but cannot publish its viewer while this dispatch lock is held.
     let _dispatch = target.dispatch_lock.lock().expect("shell dispatch lock");
@@ -567,13 +571,19 @@ fn remove_cached_shell_if_same_without_viewers(
     {
         return false;
     }
-    let mut shells = inner.shell_sessions.lock().expect("shell lock");
-    if shells.get(session).is_some_and(|cached| Arc::ptr_eq(cached, target)) {
-        shells.remove(session);
-        true
-    } else {
-        false
+    shells.remove(session);
+    true
+}
+
+fn reserve_cached_shell(inner: &Inner, session: &str) -> Option<Arc<ShellSession>> {
+    let shells = inner.shell_sessions.lock().expect("shell lock");
+    let existing = shells.get(session).cloned()?;
+    let _dispatch = existing.dispatch_lock.lock().expect("shell dispatch lock");
+    if !existing.inner.lock().expect("shell inner lock").alive {
+        return None;
     }
+    existing.pending_viewers.fetch_add(1, Ordering::AcqRel);
+    Some(existing)
 }
 
 impl Drop for ShellStartReservation {
@@ -2420,7 +2430,7 @@ impl Inner {
         if roots_scoped {
             let control = tokio::select! {
                 biased;
-                _ = cancellation.cancelled() => {
+            _ = cancellation.token().cancelled() => {
                     return Err("terminal open cancelled".to_owned());
                 }
                 result = self.deps.connect_control(&ensured.socket_path, cancellation.token()) => {
@@ -2563,15 +2573,12 @@ impl Inner {
         let mut created = false;
         let pending_viewer = Arc::new(AtomicBool::new(false));
         let shell_session = loop {
-            if let Some(existing) =
-                self.shell_sessions.lock().expect("shell lock").get(session).cloned()
-            {
+            if let Some(existing) = reserve_cached_shell(&self, session) {
                 if context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
                     || server_roots.is_some_and(|r| !r.is_empty())
                 {
                     return Err("cannot reattach existing shell under scoped roots".to_owned());
                 }
-                existing.pending_viewers.fetch_add(1, Ordering::AcqRel);
                 pending_viewer.store(true, Ordering::Release);
                 existing.control.resize(cols, rows);
                 break existing;
