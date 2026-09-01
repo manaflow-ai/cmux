@@ -10035,7 +10035,7 @@ impl Mux {
                     updated_at_ms: agent.updated_at_ms,
                 });
             }
-            if origin == AgentReportOrigin::Direct {
+            if origin == AgentReportOrigin::Direct && !socket_report_ignored {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
