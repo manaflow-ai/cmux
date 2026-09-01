@@ -188,6 +188,10 @@ describe("attached terminal sizing", () => {
       expect(handler(event)).toBe(false);
       expect(event.defaultPrevented).toBe(true);
       await waitFor(() => expect(client.send).toHaveBeenCalledWith(7n, { text }));
+      for (const type of ["keypress", "keyup"] as const) {
+        const followup = new KeyboardEvent(type, { key, metaKey: true });
+        expect(handler(followup)).toBe(false);
+      }
     }
 
     const copy = new KeyboardEvent("keydown", {

@@ -63,11 +63,15 @@ export function useAttachedTerminal({
     // macOS. Forward only the editing subset that the render-mode terminal
     // handles, keeping Cmd-C/V/W and other browser shortcuts untouched.
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown" || !event.metaKey) return true;
+      if (!event.metaKey) return true;
       const action = encodeTerminalKey(event);
       if (action?.kind !== "text") return true;
-      event.preventDefault();
-      void client.send(surface, { text: action.text }).catch(onError);
+      if (event.type === "keydown") {
+        event.preventDefault();
+        void client.send(surface, { text: action.text }).catch(onError);
+      }
+      // A keydown can also produce keypress and keyup events. Keep xterm from
+      // translating those same editing chords a second time.
       return false;
     });
     const webgl = tryLoadWebglRenderer(terminal);
