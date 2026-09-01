@@ -1,5 +1,5 @@
-import CmuxTerminalCore
-import Foundation
+public import CmuxTerminalCore
+public import Foundation
 
 /// Identifies one addressed prompt and records its immediate admission result.
 public struct AgentPromptSubmissionReceipt: Equatable, Sendable {
