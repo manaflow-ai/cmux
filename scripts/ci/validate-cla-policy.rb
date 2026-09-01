@@ -18,7 +18,7 @@ class PolicyError < StandardError; end
 SHA = /\A[0-9a-f]{40}\z/
 REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
-CLA_ACTION = "manaflow-ai/cla-github-action@0502e16018c7c71dc7647e0d41d056a11903941a"
+CLA_ACTION = "manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1"
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its exact bytes are compared with the trusted base revision, so a
 # policy change requires trusted review without a fragile follow-up hash bump.
@@ -27,7 +27,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634
 # EXPECTED_WORKFLOW_DIGEST is retained as a compatibility marker for the
 # immutable validator in the current base revision. Policy validation now
 # hashes the candidate workflow bytes after lexical YAML validation.
-EXPECTED_GUARD_SCRIPT_DIGEST = "954eb2ab3a6814c4c722cfa3efc1b36d4dd93a4ca6bcc93e4eff9839d7e0e941"
+EXPECTED_GUARD_SCRIPT_DIGEST = "5a786b4c997428071e9d9ea4675cdacb88b96c0ebbb943792c80d5f47b197321"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
