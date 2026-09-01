@@ -171,7 +171,10 @@ class TargetScaleCliTests(unittest.TestCase):
         self.output_dir = Path(self._tmp.name)
 
     def test_self_test_cli_passes(self) -> None:
-        self.assertEqual(runner.main(["--self-test", "--output", str(self.output_dir / "self-test.json")]), 0)
+        output = self.output_dir / "self-test.json"
+        self.assertEqual(runner.main(["--self-test", "--output", str(output)]), 0)
+        self.assertFalse(output.exists(), "self-test must not replace the benchmark artifact")
+        self.assertTrue((self.output_dir / "self-test.self-test.json").is_file())
 
     def test_real_run_requires_tag(self) -> None:
         self.assertEqual(
@@ -300,6 +303,12 @@ class TargetScaleFixtureTests(unittest.TestCase):
         with self.assertRaises(runner.BenchmarkError):
             fixture.socket_owner_pid()
 
+    def test_default_app_path_is_shared_with_metadata(self) -> None:
+        args = runner._build_parser().parse_args(["--tag", "Perf.123"])
+        expected = runner.default_app_path_for_tag(args.tag)
+        self.assertEqual(runner.TargetScaleRunner(args).default_app_path(), expected)
+        self.assertEqual(runner._metadata(args)["app_path"], str(expected))
+
     def test_child_cleanup_escalates_after_term_grace(self) -> None:
         with mock.patch.object(runner, "_wait_for_pids", side_effect=[{123}, set()]) as wait_for_pids:
             with mock.patch.object(runner.os, "kill") as kill:
@@ -317,6 +326,13 @@ class TargetScaleFixtureTests(unittest.TestCase):
         self.assertIn("scripts/ci/cleanup-target-scale.sh", workflow)
         cleanup = (ROOT / "scripts" / "ci" / "cleanup-target-scale.sh").read_text(encoding="utf-8")
         self.assertIn("cmuxd-dev-${tag}.sock", cleanup)
+
+    def test_activation_workflow_uses_shared_tagged_cleanup(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "perf-activation.yml").read_text(encoding="utf-8")
+        cleanup_start = workflow.index("      - name: Cleanup tagged app")
+        cleanup = workflow[cleanup_start : cleanup_start + 260]
+        self.assertIn("./scripts/ci/cleanup-target-scale.sh \"$PERF_TAG\"", cleanup)
+        self.assertNotIn('pkill -f "cmux DEV ${PERF_TAG}', cleanup)
 
     def test_console_home_helper_preserves_spaces(self) -> None:
         helper = ROOT / "scripts" / "ci" / "console-home.sh"
@@ -356,11 +372,18 @@ class TargetScaleCleanupTests(unittest.TestCase):
             cmuxd_socket.parent.mkdir(parents=True)
             cmuxd_socket.touch()
 
-            (fake_bin / "pgrep").write_text("#!/bin/sh\nprintf '123\\n'\n", encoding="utf-8")
+            (fake_bin / "ps").write_text(
+                "#!/bin/sh\n"
+                "case \" $* \" in\n"
+                "  *' -o user= -p '* ) printf 'console\\n' ;;\n"
+                "  * ) printf '123 cmux DEV %s.app/Contents/MacOS/cmux DEV\\n' \"$CMUX_TEST_TAG\"; printf '456 cmuxd-dev-%s.sock\\n' \"$CMUX_TEST_TAG\"; printf '789 cmux DEV perfX123.app/Contents/MacOS/cmux DEV\\n' ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
             (fake_bin / "lsof").write_text("#!/bin/sh\nprintf '456\\n'\n", encoding="utf-8")
             (fake_bin / "date").write_text(
                 "#!/bin/sh\n"
-                "if [ -e \"$CMUX_TEST_DATE_STATE\" ]; then printf '106\\n'; else printf '100\\n'; : > \"$CMUX_TEST_DATE_STATE\"; fi\n",
+                "printf '100\\n'\n",
                 encoding="utf-8",
             )
             bash_env.write_text(
@@ -381,7 +404,8 @@ class TargetScaleCleanupTests(unittest.TestCase):
                     "HOME": str(home),
                     "PATH": f"{fake_bin}:{os.environ['PATH']}",
                     "CMUX_TEST_SIGNAL_LOG": str(log),
-                    "CMUX_TEST_DATE_STATE": str(root / "date-state"),
+                    "CMUX_TEST_TAG": tag,
+                    "CMUX_CLEANUP_TERM_GRACE_SECONDS": "0",
                     "BASH_ENV": str(bash_env),
                 },
                 text=True,
@@ -395,6 +419,114 @@ class TargetScaleCleanupTests(unittest.TestCase):
             self.assertIn("-TERM 123", signals)
             self.assertIn("-TERM 456", signals)
             self.assertIn("-KILL 123", signals)
+
+    def test_cleanup_revalidates_tag_before_kill_and_uses_literal_matching(self) -> None:
+        script = ROOT / "scripts" / "ci" / "cleanup-target-scale.sh"
+        tag = "test.cleanup"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            log = root / "signals.log"
+            state = root / "ps-state"
+            bash_env = root / "bash-env"
+            (fake_bin / "ps").write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = '-o' ] && [ \"$2\" = 'user=' ]; then printf 'runner\\n'; exit 0; fi\n"
+                "if [ ! -e \"$CMUX_TEST_PS_STATE\" ]; then\n"
+                "  printf '123 cmux DEV %s.app/Contents/MacOS/cmux DEV\\n' \"$CMUX_TEST_TAG\"\n"
+                "  : > \"$CMUX_TEST_PS_STATE\"\n"
+                "else\n"
+                "  printf '123 unrelated-reused-process\\n'\n"
+                "fi\n",
+                encoding="utf-8",
+            )
+            (fake_bin / "lsof").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (fake_bin / "date").write_text("#!/bin/sh\nprintf '100\\n'\n", encoding="utf-8")
+            bash_env.write_text(
+                "kill() { printf '%s %s\\n' \"$1\" \"$2\" >> \"$CMUX_TEST_SIGNAL_LOG\"; return 0; }\n",
+                encoding="utf-8",
+            )
+            for command in fake_bin.iterdir():
+                command.chmod(0o755)
+            result = subprocess.run(
+                ["bash", str(script), tag],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "HOME": str(root / "home"),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "CMUX_TEST_TAG": tag,
+                    "CMUX_TEST_PS_STATE": str(state),
+                    "CMUX_TEST_SIGNAL_LOG": str(log),
+                    "CMUX_CLEANUP_TERM_GRACE_SECONDS": "0",
+                    "BASH_ENV": str(bash_env),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            signals = log.read_text(encoding="utf-8")
+            self.assertIn("-TERM 123", signals)
+            self.assertNotIn("-KILL 123", signals)
+
+    def test_cleanup_elevates_when_console_user_owns_processes(self) -> None:
+        script = ROOT / "scripts" / "ci" / "cleanup-target-scale.sh"
+        tag = "test-cleanup-permissions"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            log = root / "signals.log"
+            sudo_log = root / "sudo.log"
+            bash_env = root / "bash-env"
+            (fake_bin / "ps").write_text(
+                "#!/bin/sh\n"
+                "case \" $* \" in\n"
+                "  *' -o user= -p '* ) printf 'console\\n' ;;\n"
+                "  * ) printf '123 cmux DEV %s.app/Contents/MacOS/cmux DEV\\n' \"$CMUX_TEST_TAG\" ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+            (fake_bin / "lsof").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (fake_bin / "sudo").write_text(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CMUX_TEST_SUDO_LOG\"\nexit 0\n",
+                encoding="utf-8",
+            )
+            (fake_bin / "stat").write_text("#!/bin/sh\nprintf 'console\\n'\n", encoding="utf-8")
+            (fake_bin / "dscl").write_text(
+                "#!/bin/sh\nprintf 'NFSHomeDirectory: %s\\n' \"$CMUX_TEST_CONSOLE_HOME\"\n",
+                encoding="utf-8",
+            )
+            bash_env.write_text(
+                "kill() { printf '%s %s\\n' \"$1\" \"$2\" >> \"$CMUX_TEST_SIGNAL_LOG\"; return 1; }\n",
+                encoding="utf-8",
+            )
+            for command in fake_bin.iterdir():
+                command.chmod(0o755)
+            result = subprocess.run(
+                ["bash", str(script), tag],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "HOME": str(root / "runner-home"),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "CMUX_TEST_TAG": tag,
+                    "CMUX_TEST_SIGNAL_LOG": str(log),
+                    "CMUX_TEST_SUDO_LOG": str(sudo_log),
+                    "CMUX_TEST_CONSOLE_HOME": str(root / "console home"),
+                    "CMUX_CLEANUP_TERM_GRACE_SECONDS": "0",
+                    "BASH_ENV": str(bash_env),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            sudo_calls = sudo_log.read_text(encoding="utf-8")
+            self.assertIn("-u console", sudo_calls)
+            self.assertIn("/bin/kill -TERM 123", sudo_calls)
 
 
 class TargetScaleArtifactTests(unittest.TestCase):
