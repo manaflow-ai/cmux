@@ -602,8 +602,9 @@ impl PtyManager {
                 if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
                     return;
                 }
-                let _ = self.inner.authorize_snapshot(pty_id, &auth, context, "close");
-                self.inner.close(pty_id);
+                if self.inner.authorize_snapshot(pty_id, &auth, context, "close").is_some() {
+                    self.inner.close(pty_id);
+                }
             }
             "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
             _ => {}
