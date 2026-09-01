@@ -116,6 +116,12 @@ public final class LocalLinuxComputerController {
     /// generation alone is not enough when a stale task finishes during a
     /// later retry.
     @ObservationIgnored private var startTaskID: UUID?
+    /// Completion fence for sessions released by synchronous lifecycle
+    /// callbacks. The fence is intentionally retained after ownership is
+    /// cleared, so a retry cannot open a new C pty while the old hangup is
+    /// still settling on its detached worker.
+    @ObservationIgnored private var closeBarrier: Task<Void, Never>?
+    @ObservationIgnored private var closeBarrierID: UUID?
     @ObservationIgnored private var inputWorker: Task<Void, Never>?
     @ObservationIgnored private var inputWorkerID: UUID?
     @ObservationIgnored private var inputQueue: [Data] = []
@@ -163,22 +169,47 @@ public final class LocalLinuxComputerController {
         // task suspends the main actor, so UI event handling remains
         // responsive while the old worker settles.
         await waitForCancelledStartup()
+        // A cancelled or failed lifecycle may also have released a session
+        // whose C hangup is still running on a detached worker. Do not begin
+        // another open until that completion fence has settled.
+        await waitForSessionCloseBarrier()
 
         if state == .failed {
             return false
         }
 
-        if let session {
+        // `session.isEnded` suspends the MainActor. Teardown can replace or
+        // clear the session while that actor hop is suspended, so revalidate
+        // both identity and generation before touching the controller state.
+        // Looping also handles a replacement that was installed before this
+        // continuation resumed, avoiding a second competing pty.
+        while let candidate = session {
+            let observedGeneration = lifecycleGeneration
+            let ended = await candidate.isEnded
+            guard observedGeneration == lifecycleGeneration,
+                  self.session === candidate else {
+                continue
+            }
+
             // A natural process exit finishes the session's output stream but
             // leaves the actor object retained by the controller. Clear that
             // ended attachment before deciding whether a new boot is needed.
-            if await session.isEnded {
-                sessionDidEnd(session)
-            } else {
-                resize(columns: columns, rows: rows)
-                state = .running
-                return true
+            if ended {
+                sessionDidEnd(candidate)
+                continue
             }
+
+            resize(columns: columns, rows: rows)
+            state = .running
+            return true
+        }
+
+        // A teardown may have scheduled a close while the session check was
+        // suspended. Await its detached C fence before opening a replacement.
+        await waitForSessionCloseBarrier()
+
+        if state == .failed {
+            return false
         }
 
         let generation = lifecycleGeneration
@@ -212,7 +243,7 @@ public final class LocalLinuxComputerController {
             )
             guard let self else {
                 if case let .success(session) = result {
-                    session.closeSynchronously()
+                    await session.hangup()
                 }
                 return false
             }
@@ -266,9 +297,44 @@ public final class LocalLinuxComputerController {
         }
     }
 
+    /// Starts a nonblocking close and chains it behind any earlier close.
+    ///
+    /// `terminate()` and renderer/input failure callbacks are synchronous
+    /// MainActor methods. They cannot await the C bridge directly, but they
+    /// still must leave a completion token for the next startup. Chaining
+    /// keeps every released session alive until its own hangup has settled and
+    /// gives `startIfNeeded()` one fence to await.
+    private func scheduleSessionClose(_ candidate: LocalLinuxSession?) {
+        guard let candidate else { return }
+        let previous = closeBarrier
+        let barrierID = UUID()
+        let task = Task.detached(priority: .utility) {
+            if let previous {
+                await previous.value
+            }
+            await candidate.hangup()
+        }
+        closeBarrier = task
+        closeBarrierID = barrierID
+    }
+
+    /// Waits for all session closes scheduled by an earlier lifecycle
+    /// generation. MainActor reentrancy can install another barrier while the
+    /// current one is suspended, so clear metadata only when its identity is
+    /// still current.
+    private func waitForSessionCloseBarrier() async {
+        while let barrier = closeBarrier {
+            let barrierID = closeBarrierID
+            await barrier.value
+            guard closeBarrierID == barrierID else { continue }
+            closeBarrier = nil
+            closeBarrierID = nil
+        }
+    }
+
     /// Runs the blocking iSH boot and pty creation off the main actor. The
     /// cancellation handler forwards controller teardown to the worker, and a
-    /// session opened in the cancellation race is synchronously fenced before
+    /// session opened in the cancellation race is asynchronously fenced before
     /// this helper returns.
 #if compiler(>=6.2)
     @concurrent
@@ -290,7 +356,7 @@ public final class LocalLinuxComputerController {
                     rows: rows
                 )
                 guard !Task.isCancelled else {
-                    session.closeSynchronously()
+                    await session.hangup()
                     return LocalLinuxBootResult.cancelled
                 }
                 return LocalLinuxBootResult.success(session)
@@ -436,9 +502,9 @@ public final class LocalLinuxComputerController {
         inputQueueByteCount = 0
         resizeTask?.cancel()
         resizeTask = nil
-        pendingSession?.closeSynchronously()
+        scheduleSessionClose(pendingSession)
         pendingSession = nil
-        session?.closeSynchronously()
+        scheduleSessionClose(session)
         session = nil
         ring = nil
         pendingGrid = nil
@@ -453,11 +519,12 @@ public final class LocalLinuxComputerController {
     public func sessionDidEnd(_ endedSession: LocalLinuxSession) {
         guard let session, session === endedSession else { return }
         // Natural EOF and ingress overflow can both race a replacement boot.
-        // Fence the exact handle synchronously before clearing ownership. The
-        // C bridge hangup is idempotent, and this prevents a deferred overflow
-        // cleanup from surviving into the next shell.
+        // Start a completion fence for the exact handle before clearing
+        // ownership. The C bridge hangup is idempotent, and the next startup
+        // awaits the fence so deferred cleanup cannot survive into a new
+        // shell.
         acceptsInput = false
-        endedSession.closeSynchronously()
+        scheduleSessionClose(endedSession)
         lifecycleGeneration &+= 1
         startTask?.cancel()
         inputWorker?.cancel()
@@ -482,7 +549,7 @@ public final class LocalLinuxComputerController {
     ) async -> Bool {
         guard generation == lifecycleGeneration else {
             if case let .success(session) = result {
-                session.closeSynchronously()
+                await session.hangup()
             }
             return false
         }
@@ -510,7 +577,7 @@ public final class LocalLinuxComputerController {
                 }
             }
             guard generation == lifecycleGeneration else {
-                session.closeSynchronously()
+                await session.hangup()
                 return false
             }
             let newRing = LocalLinuxScrollbackRing()
@@ -521,7 +588,7 @@ public final class LocalLinuxComputerController {
                 // or no Ghostty view is mounted.
                 try await newRing.start(source: session)
             } catch {
-                session.closeSynchronously()
+                await session.hangup()
                 guard generation == lifecycleGeneration else { return false }
                 acceptsInput = false
                 pendingInput.removeAll(keepingCapacity: false)
@@ -539,7 +606,7 @@ public final class LocalLinuxComputerController {
             // openSession. Do not publish an already-ended handle as running,
             // or a first input callback could target a dead pty.
             guard !(await session.isEnded) else {
-                session.closeSynchronously()
+                await session.hangup()
                 guard generation == lifecycleGeneration else { return false }
                 lifecycleGeneration &+= 1
                 acceptsInput = false
@@ -548,10 +615,19 @@ public final class LocalLinuxComputerController {
                 retryableFailure = false
                 return false
             }
+            // `isEnded` is actor-isolated and can suspend this MainActor
+            // continuation. A concurrent attachment must not replace the
+            // controller's session while this candidate is being inspected.
+            guard generation == lifecycleGeneration,
+                  pendingSession === session,
+                  self.session == nil else {
+                await session.hangup()
+                return false
+            }
             // `start(source:)` crosses the ring actor. Teardown can win while
             // it is suspended, so revalidate ownership before installing.
             guard generation == lifecycleGeneration else {
-                session.closeSynchronously()
+                await session.hangup()
                 return false
             }
             self.session = session
@@ -720,9 +796,9 @@ public final class LocalLinuxComputerController {
         resizeTask?.cancel()
         resizeTask = nil
         acceptsInput = false
-        pendingSession?.closeSynchronously()
+        scheduleSessionClose(pendingSession)
         pendingSession = nil
-        session?.closeSynchronously()
+        scheduleSessionClose(session)
         session = nil
         ring = nil
         inputQueue.removeAll(keepingCapacity: false)
@@ -750,7 +826,7 @@ public final class LocalLinuxComputerController {
         resizeTask?.cancel()
         resizeTask = nil
         let failedSession = session
-        failedSession?.closeSynchronously()
+        scheduleSessionClose(failedSession)
         session = nil
         ring = nil
         inputQueue.removeAll(keepingCapacity: false)
