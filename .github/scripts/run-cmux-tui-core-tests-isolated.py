@@ -96,6 +96,10 @@ def partition_tests(all_tests: list[str], ignored_tests: list[str]) -> tuple[lis
         )
     ignored = [test_name for test_name in all_tests if test_name in ignored_test_set]
     runnable = [test_name for test_name in all_tests if test_name not in ignored_test_set]
+    if all_tests and not runnable:
+        raise ValueError(
+            f"all listed tests are ignored ({len(ignored)}); refusing an ignored-only run"
+        )
     return runnable, ignored
 
 
