@@ -758,6 +758,21 @@ impl Inner {
             }
         };
 
+        // Re-read authority after slow daemon/PTY work. A trust downgrade can
+        // arrive while OPEN is pending, so the original frame context is not
+        // sufficient to admit the attachment.
+        let live_auth = Self::auth_snapshot(context);
+        if live_auth.trust.is_empty()
+            || (live_auth.trust == "observe"
+                && (live_auth.owner_user_id.is_none()
+                    || Some(actor) != live_auth.owner_user_id.as_deref()))
+        {
+            opened.closing.store(true, Ordering::SeqCst);
+            opened.control.kill();
+            fail("trust_revoked", "terminal trust changed while opening");
+            return;
+        }
+
         // Keep the opening reservation held until the attachment is installed.
         // `close` takes this lock first, so it cannot observe a gap between
         // removing the opening marker and inserting the attachment.

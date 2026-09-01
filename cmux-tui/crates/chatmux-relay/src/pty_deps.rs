@@ -36,6 +36,16 @@ const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
 const PIPE_READ_POLL_MS: i32 = 100;
 const PTY_WRITE_QUEUE_ITEMS: usize = 256;
+const PTY_WRITE_QUEUE_BYTES: u64 = 1_048_576;
+
+fn reserve_write_bytes(queued: &AtomicU64, len: usize) -> bool {
+    let len = len as u64;
+    queued
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current.checked_add(len).filter(|total| *total <= PTY_WRITE_QUEUE_BYTES)
+        })
+        .is_ok()
+}
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -506,6 +516,7 @@ impl ChildLifecycle {
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer_tx: mpsc::SyncSender<Vec<u8>>,
+    writer_bytes: Arc<AtomicU64>,
     killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
     lifecycle: Arc<ChildLifecycle>,
 }
@@ -525,7 +536,12 @@ impl Drop for MasterControl {
 
 impl PtyControl for MasterControl {
     fn write(&self, data: &[u8]) {
-        let _ = self.writer_tx.try_send(data.to_vec());
+        if !reserve_write_bytes(&self.writer_bytes, data.len()) {
+            return;
+        }
+        if self.writer_tx.try_send(data.to_vec()).is_err() {
+            self.writer_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
+        }
     }
     fn resize(&self, cols: u16, rows: u16) {
         if let Ok(master) = self.master.lock() {
@@ -560,6 +576,7 @@ enum PipeChildCommand {
 struct PipeControl {
     stdin: Mutex<Option<std::process::ChildStdin>>,
     stdin_tx: Option<mpsc::SyncSender<Vec<u8>>>,
+    stdin_bytes: Arc<AtomicU64>,
     command_tx: mpsc::Sender<PipeChildCommand>,
     kill_requested: AtomicBool,
 }
@@ -567,7 +584,11 @@ struct PipeControl {
 impl PtyControl for PipeControl {
     fn write(&self, data: &[u8]) {
         if let Some(stdin_tx) = &self.stdin_tx {
-            let _ = stdin_tx.try_send(data.to_vec());
+            if reserve_write_bytes(&self.stdin_bytes, data.len())
+                && stdin_tx.try_send(data.to_vec()).is_err()
+            {
+                self.stdin_bytes.fetch_sub(data.len() as u64, Ordering::AcqRel);
+            }
             return;
         }
         if let Ok(mut guard) = self.stdin.lock()
@@ -648,12 +669,17 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
     let (writer_tx, writer_rx) = mpsc::sync_channel(PTY_WRITE_QUEUE_ITEMS);
+    let writer_bytes = Arc::new(AtomicU64::new(0));
+    let writer_bytes_for_thread = Arc::clone(&writer_bytes);
     std::thread::spawn(move || {
         let mut writer = writer;
         while let Ok(data) = writer_rx.recv() {
+            let len = data.len() as u64;
             if writer.write_all(&data).is_err() || writer.flush().is_err() {
+                writer_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
                 break;
             }
+            writer_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
         }
     });
     let killer = child_cleanup.child().clone_killer();
@@ -661,6 +687,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer_tx,
+        writer_bytes,
         killer: Mutex::new(killer),
         lifecycle: Arc::clone(&lifecycle),
     });
@@ -760,14 +787,19 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     match command.spawn() {
         Ok(mut child) => {
             let stdin = child.stdin.take();
+            let stdin_bytes = Arc::new(AtomicU64::new(0));
             let (stdin_tx, stdin_for_control) = match stdin {
                 Some(mut stdin) => {
                     let (tx, rx) = mpsc::sync_channel(PTY_WRITE_QUEUE_ITEMS);
+                    let stdin_bytes_for_thread = Arc::clone(&stdin_bytes);
                     std::thread::spawn(move || {
                         while let Ok(data) = rx.recv() {
+                            let len = data.len() as u64;
                             if stdin.write_all(&data).is_err() || stdin.flush().is_err() {
+                                stdin_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
                                 break;
                             }
+                            stdin_bytes_for_thread.fetch_sub(len, Ordering::AcqRel);
                         }
                     });
                     (Some(tx), None)
@@ -779,6 +811,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             let control = Arc::new(PipeControl {
                 stdin: Mutex::new(stdin_for_control),
                 stdin_tx,
+                stdin_bytes,
                 command_tx: command_tx.clone(),
                 kill_requested: AtomicBool::new(false),
             });
@@ -1289,6 +1322,7 @@ mod tests {
         let control = PipeControl {
             stdin: Mutex::new(None),
             stdin_tx: None,
+            stdin_bytes: Arc::new(AtomicU64::new(0)),
             command_tx,
             kill_requested: AtomicBool::new(false),
         };
@@ -1318,6 +1352,7 @@ mod tests {
             let control = PipeControl {
                 stdin: Mutex::new(None),
                 stdin_tx: None,
+                stdin_bytes: Arc::new(AtomicU64::new(0)),
                 command_tx,
                 kill_requested: AtomicBool::new(false),
             };
