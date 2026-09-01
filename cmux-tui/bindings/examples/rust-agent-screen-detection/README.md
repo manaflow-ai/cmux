@@ -20,10 +20,11 @@ plugin manager expects `cmux-plugin.toml` at the root of the repository that it
 clones, so the parent cmux repository is not a valid install URL for this
 example.
 
-The plugin uses the public Rust SDK. The manifest pins the matching `cmux-sdk`
-release and uses a path override only while this reference lives in the cmux
-source tree, so copying the directory to its own repository does not require a
-manifest edit. It registers a namespaced journal
+The plugin uses the public Rust SDK. This source-tree reference pins the
+matching `cmux-sdk` release as its contract and uses a path dependency while
+that SDK is unreleased in this checkout. A standalone plugin repository must
+either keep a matching SDK checkout at the same relative path or remove the
+`path` field after the SDK release is available. It registers a namespaced journal
 producer, reads terminal process metadata and viewport text, and appends
 `cmux.agent-plugin.v1` events. A different implementation can use Python,
 another language, or a different ruleset without a cmux core change.

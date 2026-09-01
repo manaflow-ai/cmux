@@ -18,6 +18,7 @@ serde_json = "1"
 toml = "0.8"
 
 # This reference package is intentionally independent from the cmux-tui
-# workspace. The version constraint keeps a copied package on the matching
-# released SDK, while the path keeps this in-tree example buildable.
+# workspace. The version is the public SDK contract. The path resolves the
+# unreleased SDK in this source tree; a standalone checkout must keep a matching
+# SDK checkout at this path or remove `path` after the SDK release.
 [workspace]
