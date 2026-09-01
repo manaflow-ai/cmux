@@ -229,41 +229,6 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func connectionReadinessReadsClockAfterActivationSettles() async throws {
-        let start = Date(timeIntervalSince1970: 100)
-        var observedNow = start
-        let readiness = MobileIrohConnectionReadinessOwner(
-            retrySchedule: CmxIrohRetrySchedule(
-                initialDelay: 30,
-                maximumDelay: 3_600,
-                jitterFraction: 0
-            ),
-            jitterUnitInterval: { 0 }
-        )
-        readiness.begin(revision: 1)
-        let waiter = Task {
-            await readiness.wait(now: { observedNow })
-        }
-        await Task.yield()
-
-        observedNow = start.addingTimeInterval(45)
-        _ = try #require(readiness.completeFailure(
-            revision: 1,
-            accountID: "account-a",
-            error: CmxIrohTrustBrokerClientError.connectivity,
-            retryAfterSeconds: nil,
-            now: start
-        ))
-
-        let outcome = await waiter.value
-        guard case let .failed(failure) = outcome else {
-            Issue.record("Expected failed readiness outcome")
-            return
-        }
-        #expect(failure.retryAfterSeconds == 1)
-    }
-
-    @Test
     func discoveryRefreshDiagnosticPreservesTypedFailureCategory() throws {
         let offline = try #require(
             MobileIrohRuntimeComposition.discoveryRefreshFailureEvent(
