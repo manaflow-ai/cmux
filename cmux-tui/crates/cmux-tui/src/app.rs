@@ -586,7 +586,6 @@ impl FrontendJournalQueue {
 struct FrontendJournalWorker {
     queue: Option<Arc<FrontendJournalQueue>>,
     worker: Option<JoinHandle<()>>,
-    reaper: Option<JoinHandle<()>>,
 }
 
 impl FrontendJournalWorker {
@@ -8336,6 +8335,7 @@ struct MachineActionWorker {
     stop: Arc<AtomicBool>,
     cancellation: EventCancellation,
     worker: Option<JoinHandle<()>>,
+    reaper: Option<JoinHandle<()>>,
 }
 
 #[derive(Debug)]
