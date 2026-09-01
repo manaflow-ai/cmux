@@ -87,6 +87,10 @@ public actor IrxControlPlaneClient {
     private let cursorCache: IrxDiskCache<IrxControlPlaneCursor>
     private var loop: Task<Void, Never>?
     private var socket: URLSessionWebSocketTask?
+    /// Generation of the one control-plane loop. A cancelled URLSession task
+    /// may linger inside an awaited receive, so a new kick must invalidate the
+    /// old loop before starting its replacement.
+    private var loopGeneration: UInt64 = 0
     private var backoff: Duration = .seconds(1)
     /// Highest revision acknowledged on the CURRENT socket; duplicate acks
     /// (a directory frame that also fanned hint updates) collapse here.
@@ -206,11 +210,14 @@ public actor IrxControlPlaneClient {
 
     public func start() {
         guard loop == nil else { return }
-        loop = Task { await self.run() }
+        loopGeneration &+= 1
+        let generation = loopGeneration
+        loop = Task { await self.run(generation: generation) }
         journal.record("control-plane", "started")
     }
 
     public func stop() {
+        loopGeneration &+= 1
         loop?.cancel()
         loop = nil
         socket?.cancel(with: .goingAway, reason: nil)
@@ -221,20 +228,22 @@ public actor IrxControlPlaneClient {
     /// Foreground reset: reconnect NOW with a fresh token instead of waiting
     /// out whatever backoff a background suspension left behind.
     public func kick() {
+        loopGeneration &+= 1
+        let generation = loopGeneration
         loop?.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         backoff = .seconds(1)
-        loop = Task { await self.run() }
+        loop = Task { await self.run(generation: generation) }
         journal.record("control-plane", "kicked")
     }
 
     // MARK: - Connection loop
 
-    private func run() async {
-        while !Task.isCancelled {
+    private func run(generation: UInt64) async {
+        while !Task.isCancelled && generation == loopGeneration {
             do {
-                try await connectAndServe()
+                try await connectAndServe(generation: generation)
             } catch is CancellationError {
                 return
             } catch {
@@ -243,7 +252,7 @@ public actor IrxControlPlaneClient {
                     ["error": String(describing: error)]
                 )
             }
-            if Task.isCancelled { return }
+            if Task.isCancelled || generation != loopGeneration { return }
             let jitter = Duration.milliseconds(Int.random(in: 0...500))
             let delay = backoff + jitter
             backoff = min(backoff * 2, Self.maxBackoff)
@@ -255,9 +264,12 @@ public actor IrxControlPlaneClient {
         }
     }
 
-    private func connectAndServe() async throws {
+    private func connectAndServe(generation: UInt64) async throws {
         guard let tokens = try await tokenPair() else {
             throw IrxConnectionError.closed(nil)
+        }
+        guard generation == loopGeneration, !Task.isCancelled else {
+            throw CancellationError()
         }
         var request = URLRequest(url: configuration.socketURL)
         request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
@@ -290,19 +302,21 @@ public actor IrxControlPlaneClient {
             ["have_rev": cursorCache.load()?.haveRev.map(String.init) ?? "-"]
         )
 
-        while !Task.isCancelled {
+        while !Task.isCancelled && generation == loopGeneration {
             let message = try await receive(from: task)
+            guard generation == loopGeneration else { return }
             let data: Data
             switch message {
             case .string(let text): data = Data(text.utf8)
             case .data(let raw): data = raw
             @unknown default: continue
             }
-            await route(data)
+            await route(data, generation: generation)
         }
     }
 
-    private func route(_ data: Data) async {
+    private func route(_ data: Data, generation: UInt64) async {
+        guard generation == loopGeneration, !Task.isCancelled else { return }
         guard let probe = try? Self.decoder.decode(TypeProbe.self, from: data) else {
             journal.record("control-plane", "frame-unparseable")
             return

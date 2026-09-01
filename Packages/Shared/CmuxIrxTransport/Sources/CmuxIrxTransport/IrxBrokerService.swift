@@ -92,9 +92,11 @@ public actor IrxBrokerService {
         public var identityGeneration: Int
         /// The signed-in account. With it, Release builds keep the broker
         /// caches in the Keychain (`com.cmuxterm.irx.cache.v1`, account
-        /// `<kind>|<accountID>|<backendHost>`) with a one-way migration off
-        /// the legacy JSON files; without it (and in every DEBUG build) the
-        /// files remain the store, byte-identical to before.
+        /// `<kind>|<accountID>|<backendHost>`). Scoped Release caches never
+        /// import unscoped legacy JSON files because those snapshots have no
+        /// account/backend owner; a fresh authenticated registration or mint
+        /// repopulates the scoped item. Without a scope (and in every DEBUG
+        /// build), the files remain the temporary store.
         public var accountID: String?
         /// The app's Keychain access group (iOS); nil on macOS.
         public var keychainAccessGroup: String?
@@ -506,28 +508,44 @@ public actor IrxBrokerService {
             )
             return nil
         }
-        let cachedMax = cachedRelayCredentials().map(\.expiresAt).max() ?? .distantPast
-        guard let pushedMax = pushed.map(\.expiresAt).max(), pushedMax > cachedMax
-        else {
+        let cachedSnapshot = credentialCache.load().flatMap { snapshot in
+            snapshot.endpointIDHex == identity.endpointIDHex ? snapshot : nil
+        }
+        var mergedByRelay = Dictionary(
+            uniqueKeysWithValues: (cachedSnapshot?.credentials ?? []).map {
+                ($0.relayURL, $0)
+            })
+        var accepted: [IrxRelayCredential] = []
+        for credential in pushed {
+            guard
+                mergedByRelay[credential.relayURL].map({
+                    credential.expiresAt > $0.expiresAt
+                }) ?? true
+            else { continue }
+            mergedByRelay[credential.relayURL] = credential
+            accepted.append(credential)
+        }
+        guard !accepted.isEmpty else {
             journal.record(
                 "broker", "pushed-credentials-rejected", ["reason": "stale"]
             )
             return nil
         }
+        let pushedMax = accepted.map(\.expiresAt).max() ?? .distantPast
         credentialCache.save(
             IrxRelayCredentialSnapshot(
-                credentials: pushed,
+                credentials: mergedByRelay.values.sorted { $0.relayURL < $1.relayURL },
                 mintedAt: Date(),
                 endpointIDHex: identity.endpointIDHex
             ))
         journal.record(
             "broker", "relay-passes-pushed",
             [
-                "relays": pushed.map(\.relayURL).joined(separator: ","),
+                "relays": accepted.map(\.relayURL).joined(separator: ","),
                 "expires_at": ISO8601DateFormatter().string(from: pushedMax),
             ]
         )
-        return pushed
+        return accepted
     }
 
     /// One immediate retry for the connection-reuse failure class.

@@ -157,10 +157,10 @@ public struct IrxBrokerCacheScope: Sendable, Equatable {
 enum IrxBrokerCacheFactory {
     /// DEBUG: the byte-identical JSON file (dev tooling reads the state dir).
     /// Release: keychain-backed when the signed-in account scope is known.
-    /// Unscoped legacy files are deliberately discarded instead of imported:
-    /// their old format has no account/backend owner, so migration could hand
-    /// one account another account's binding or credentials. Before identity
-    /// is known, the file remains the temporary store.
+    /// Unscoped legacy files are retained but never imported: their old format
+    /// has no account/backend owner, so migration could hand one account
+    /// another account's binding or credentials. Before identity is known, the
+    /// file remains the temporary store.
     static func make<Value: Codable & Sendable>(
         kind: String,
         fileURL: URL,
