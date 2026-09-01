@@ -2963,13 +2963,7 @@ impl Surface {
                 cwd: snapshot
                     .cwd
                     .as_deref()
-                    .and_then(|cwd| {
-                        if protocol_version >= crate::terminal_host_protocol::PROTOCOL_VERSION {
-                            platform::terminal_pwd_to_local_path(cwd)
-                        } else {
-                            platform::spawn_cwd_to_local_path(cwd)
-                        }
-                    })
+                    .and_then(platform::terminal_pwd_to_local_path)
                     .map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
@@ -5245,7 +5239,10 @@ impl Surface {
             Surface::Pty(pty) => {
                 #[cfg(unix)]
                 {
-                    matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_))
+                    matches!(
+                        &*pty.runtime.lock().unwrap(),
+                        PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
+                    )
                 }
                 #[cfg(not(unix))]
                 {
