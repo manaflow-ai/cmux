@@ -48,6 +48,13 @@
     "description": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, dzielone panele i socket API.",
     "ogDescription": "Darmowy i otwartoźródłowy terminal dla macOS dla agentów kodowania AI. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Zweryfikuj e-mail, aby kontynuować",
+    "emailUnverifiedBody": "Zaloguj się metodą używaną pierwotnie, a następnie zweryfikuj e-mail przed użyciem tej metody logowania.",
+    "genericTitle": "Nie udało się zalogować",
+    "genericBody": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
+    "backToSignIn": "Wróć do logowania"
+  },
   "common": {
     "downloadForMac": "Pobierz na Mac",
     "viewOnGitHub": "Zobacz na GitHub",

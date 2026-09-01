@@ -901,3 +901,46 @@ struct CloudTreeMachineInlineFactTests {
         #expect(CloudTreeMachineRowContent.inlineFact(snapshot(stats: nil), style: .compact) == nil)
     }
 }
+
+/// Pins the mapping from Cloud VM list failures to the machines pane's empty
+/// state. A server-rejected session (401) must route to re-auth and a plan
+/// gate (402) to the Pro upsell — neither may fall back to the retry-first
+/// "Cloud is unreachable" copy that misled the nightly's 401 storm.
+@Suite("Cloud machines list problem classification")
+struct MachinesPanelListProblemTests {
+    @Test("A server-rejected session (401) routes to a fresh sign-in")
+    func rejectedSessionRoutesToReauth() {
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(
+                .httpStatus(401, #"{"error":"unauthorized"}"#)
+            ) == .sessionRejected
+        )
+    }
+
+    @Test("A plan gate (402) routes to the Pro upsell")
+    func planGateRoutesToPro() {
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(
+                .httpStatus(402, #"{"error":"vm_requires_pro"}"#)
+            ) == .requiresPro
+        )
+    }
+
+    @Test("Transient-shaped failures keep the retry-first unreachable state")
+    func transientFailuresStayUnreachable() {
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(.httpStatus(503, "{}")) == .unreachable
+        )
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(
+                .backendUnreachable(url: "https://cmux.com", detail: "offline")
+            ) == .unreachable
+        )
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(.sessionRefreshFailed) == .unreachable
+        )
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .unreachable
+        )
+    }
+}

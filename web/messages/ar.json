@@ -48,6 +48,13 @@
     "description": "محطة طرفية أصلية لنظام macOS مجانية ومفتوحة المصدر مبنية على Ghostty. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI. علامات تبويب عمودية، وحلقات إشعارات، وأجزاء مقسمة، وواجهة برمجة مقابس.",
     "ogDescription": "محطة طرفية لنظام macOS مجانية ومفتوحة المصدر لوكلاء البرمجة بالذكاء الاصطناعي. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI."
   },
+  "authError": {
+    "emailUnverifiedTitle": "تحقّق من بريدك الإلكتروني للمتابعة",
+    "emailUnverifiedBody": "سجّل الدخول بالطريقة التي استخدمتها أول مرة، ثم تحقّق من بريدك الإلكتروني قبل استخدام طريقة تسجيل الدخول هذه.",
+    "genericTitle": "تعذّر إكمال تسجيل الدخول",
+    "genericBody": "يرجى المحاولة مرة أخرى. إذا استمرت المشكلة، فتواصل مع الدعم.",
+    "backToSignIn": "العودة إلى تسجيل الدخول"
+  },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
     "viewOnGitHub": "عرض على GitHub",

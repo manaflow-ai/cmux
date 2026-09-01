@@ -48,6 +48,13 @@
     "description": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",
     "ogDescription": "AI kodlama ajanları için ücretsiz ve açık kaynaklı macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Devam etmek için e-postanızı doğrulayın",
+    "emailUnverifiedBody": "Önce kullandığınız yöntemle giriş yapın, ardından bu giriş yöntemini kullanmadan önce e-postanızı doğrulayın.",
+    "genericTitle": "Giriş tamamlanamadı",
+    "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
+    "backToSignIn": "Girişe dön"
+  },
   "common": {
     "downloadForMac": "Mac için İndir",
     "viewOnGitHub": "GitHub'da Görüntüle",
