@@ -58,7 +58,7 @@ Machine workspaces, terminals, and panes (everything the Cloud sidebar does):
 
 ```
 cmux vm workspace new <id> [--name <n>]     # create a workspace on the machine (its ⌘N) and open it here
-cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]
+cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]   # an empty workspace opens nothing (opened=0); --tabs and a side are exclusive
 cmux vm workspace rename <id> <ws> <name>
 cmux vm workspace close <id> <ws>           # keep terminals: they detach into the Terminals pool
 cmux vm workspace rm <id> <ws>              # delete the workspace AND kill every terminal in it
@@ -68,7 +68,7 @@ cmux surface open <machine>/<kind>/<key> [--new] [--pane <p> --left|--right|--up
 cmux surface new-terminal --machine <id> [--remote-workspace <ws>] [--cwd <dir>] [-- <cmd...>]
 ```
 
-A pane showing a machine surface is an ordinary local cmux pane: move, split, reorder, or close it with the local workspace/pane commands (`cmux --help`), and closing a pane never kills the machine's terminal. Workspace (`ws_…`) and terminal (`term_…`) ids come from `cmux vm tree`.
+A pane showing a machine surface is an ordinary local cmux pane: move, split, reorder, or close it with the local workspace/pane commands (`cmux --help`), and closing a pane never kills the machine's terminal. Workspace (`ws_…`) and terminal (`term_…`) ids come from `cmux vm tree`; `cmux vm tree --refresh` re-reads the fleet and every machine (a machine you just created shows up at once). A `--workspace`/`--pane` that names nothing is an error, never a silent open somewhere else.
 
 Run commands:
 
