@@ -78,6 +78,34 @@ describe("model usage observation", () => {
     });
   });
 
+  test("reports a provider stream that fails mid-response and propagates the error", async () => {
+    const failure = new Error("upstream reset");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"model":"claude-sonnet-5"}\n\n'));
+      },
+      pull(controller) {
+        controller.error(failure);
+      },
+    });
+    const reported: unknown[] = [];
+    let completed = false;
+    const observed = observeModelUsage(
+      body,
+      () => {
+        completed = true;
+      },
+      (error) => reported.push(error),
+    );
+    const reader = observed!.getReader();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    await expect(reader.read()).rejects.toBe(failure);
+    expect(reported).toEqual([failure]);
+    // A broken stream never yields a usage record.
+    expect(completed).toBe(false);
+  });
+
   test("yields nothing when neither side of the stream completes the counts", () => {
     expect(__test.usageFromStream("", '{"usage":{"output_tokens":9}}')).toBeNull();
     expect(__test.usageFromStream('{"usage":{"input_tokens":9}}', "no usage here")).toBeNull();

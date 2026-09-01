@@ -24,6 +24,7 @@ const MAX_TAIL_CHARS = 256 * 1024;
 export function observeModelUsage(
   body: ReadableStream<Uint8Array> | null,
   onComplete: (usage: ModelUsage | null) => void,
+  onError?: (error: unknown) => void,
 ): ReadableStream<Uint8Array> | null {
   if (!body) {
     onComplete(null);
@@ -33,7 +34,8 @@ export function observeModelUsage(
   let head = "";
   let tail = "";
   let model: string | undefined;
-  return body.pipeThrough(
+  const source = onError ? reportingSource(body, onError) : body;
+  return source.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         controller.enqueue(chunk);
@@ -51,6 +53,33 @@ export function observeModelUsage(
       },
     }),
   );
+}
+
+/**
+ * A provider stream that fails mid-response errors the client's stream (the
+ * route handler has long since returned), so the failure would otherwise be
+ * invisible to observability. Surface it once, then propagate unchanged.
+ */
+function reportingSource(
+  body: ReadableStream<Uint8Array>,
+  onError: (error: unknown) => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { value, done } = await reader.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch (error) {
+        onError(error);
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
 }
 
 type UsageCounts = {

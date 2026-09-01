@@ -360,9 +360,15 @@ async function proxyClaudeRequestWith(
   if (target === "count_tokens") {
     return new Response(upstream.body, { status, headers: responseHeaders });
   }
-  const observedBody = observeModelUsage(upstream.body, (usage) => {
-    captureModelUsage(identity.teamId, usage);
-  });
+  const observedBody = observeModelUsage(
+    upstream.body,
+    (usage) => captureModelUsage(identity.teamId, usage),
+    (error) =>
+      reportCoderouterFailure("upstream_transport", error, {
+        provider: "claude",
+        stage: "response_stream",
+      }),
+  );
   return new Response(observedBody, { status, headers: responseHeaders });
 }
 

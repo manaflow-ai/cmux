@@ -295,9 +295,15 @@ async function proxyCodexRequestWith(
     outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
     responseStreamed: upstream.body !== null,
   });
-  const observedBody = observeModelUsage(upstream.body, (usage) => {
-    captureModelUsage(identity.teamId, usage);
-  });
+  const observedBody = observeModelUsage(
+    upstream.body,
+    (usage) => captureModelUsage(identity.teamId, usage),
+    (error) =>
+      reportCoderouterFailure("upstream_transport", error, {
+        provider: "codex",
+        stage: "response_stream",
+      }),
+  );
   return new Response(observedBody, {
     status: upstream.status,
     headers: responseHeaders,
