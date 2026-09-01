@@ -561,7 +561,7 @@ public struct AppSection: View {
 
             SettingsCardRow(
                 configurationReview: .json("fileEditor.currentLineHighlight"),
-                String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line"),
+                String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line Highlight"),
                 subtitle: String(localized: "settings.app.fileEditorCurrentLineHighlight.subtitle", defaultValue: "Highlight the line that contains the caret when nothing is selected.")
             ) {
                 Toggle("", isOn: Binding(get: { fileEditorCurrentLineHighlight.current }, set: { fileEditorCurrentLineHighlight.set($0) }))
@@ -586,6 +586,9 @@ public struct AppSection: View {
                     Text("\(fileEditorTabWidth.current)")
                         .monospacedDigit()
                 }
+                .accessibilityLabel(
+                    String(localized: "settings.app.fileEditorTabWidth", defaultValue: "File Editor Tab Width")
+                )
                 .accessibilityIdentifier("SettingsFileEditorTabWidthStepper")
             }
             SettingsCardDivider()

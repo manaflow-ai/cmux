@@ -165583,10 +165583,52 @@
     "settings.app.fileEditorWordWrap": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التفاف الكلمات في محرر الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prelamanje riječi u uređivaču datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orddeling i fileditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilenumbruch im Dateieditor"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "File Editor Word Wrap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajuste de línea del editor de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour à la ligne de l’éditeur de fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A capo automatico nell’editor di file"
           }
         },
         "ja": {
@@ -165594,22 +165636,196 @@
             "state": "translated",
             "value": "ファイルエディタの行折り返し"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបំបែកពាក្យក្នុងកម្មវិធីកែឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 자동 줄 바꿈"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekstbryting i fileditor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawijanie wierszy w edytorze plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quebra de linha do editor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенос строк в редакторе файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตัดคำในตัวแก้ไขไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya düzenleyicide kelime kaydırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенесення рядків у редакторі файлів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器自动换行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器自動換行"
+          }
         }
       }
     },
     "settings.app.fileEditorWordWrap.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لف الأسطر الطويلة عند الحافة اليمنى للمحرر بدلًا من التمرير أفقيًا. ينطبق على محرر الملفات النصية العادية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prelamaj duge redove na desnoj ivici uređivača umjesto vodoravnog pomicanja. Primjenjuje se na uređivač običnog teksta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombryd lange linjer ved editorens højre kant i stedet for vandret rulning. Gælder den almindelige fileditor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bricht lange Zeilen am rechten Rand des Editors um, statt horizontal zu scrollen. Gilt für den Klartext-Dateieditor."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Wrap long lines at the editor's right edge instead of scrolling horizontally. Applies to the plain-text file editor."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajusta las líneas largas al borde derecho del editor en lugar de desplazarlas horizontalmente. Se aplica al editor de archivos de texto sin formato."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retourne les longues lignes au bord droit de l’éditeur au lieu de faire défiler horizontalement. S’applique à l’éditeur de fichiers en texte brut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manda a capo le righe lunghe sul bordo destro dell’editor invece di scorrere orizzontalmente. Si applica all’editor di file di testo semplice."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "長い行を横スクロールせずにエディタの右端で折り返します。プレーンテキストのファイルエディタに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកជួរវែងនៅគែមស្តាំរបស់កម្មវិធីកែសម្រួល ជំនួសឱ្យការរមូរផ្ដេក។ អនុវត្តចំពោះកម្មវិធីកែឯកសារអត្ថបទធម្មតា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가로로 스크롤하는 대신 편집기 오른쪽 가장자리에서 긴 줄을 자동으로 줄바꿈합니다. 일반 텍스트 파일 편집기에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bryt lange linjer ved høyre kant i stedet for å rulle vannrett. Gjelder teksteditoren for ren tekst."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawija długie wiersze przy prawej krawędzi edytora zamiast przewijać poziomo. Dotyczy edytora zwykłego tekstu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quebra linhas longas na borda direita do editor em vez de rolar horizontalmente. Aplica-se ao editor de arquivos de texto simples."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносит длинные строки у правого края редактора вместо горизонтальной прокрутки. Применяется к редактору обычного текста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัดบรรทัดยาวที่ขอบขวาของตัวแก้ไขแทนการเลื่อนแนวนอน ใช้กับตัวแก้ไขไฟล์ข้อความธรรมดา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun satırları yatay kaydırmak yerine düzenleyicinin sağ kenarında kaydırır. Düz metin dosyası düzenleyicisine uygulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносить довгі рядки біля правого краю редактора замість горизонтального прокручування. Застосовується до редактора звичайного тексту."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在编辑器右边缘换行显示长行，而不是水平滚动。适用于纯文本文件编辑器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在編輯器右緣換行顯示長行，而非水平捲動。適用於純文字檔案編輯器。"
           }
         }
       }
@@ -200074,16 +200290,124 @@
     "settings.search.alias.setting.app.file-editor-word-wrap": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap التفاف الكلمات محرر الملفات إعادة التدفق الأسطر النص التمرير الأفقي المعاينة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap uređivač datoteka prelamanje riječi meko prelamanje ponovno slaganje redovi tekst vodoravno pomicanje pregled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap fileditor orddeling blød ombrydning omflow linjer tekst vandret rulning forhåndsvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap dateieditor zeilenumbruch weicher umbruch reflow zeilen text horizontales scrollen vorschau"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap editor de archivos ajuste de línea ajuste suave redistribuir líneas texto desplazamiento horizontal vista previa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap éditeur de fichiers retour à la ligne retour souple reflow lignes texte défilement horizontal aperçu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap editor di file a capo automatico a capo morbido riflusso righe testo scorrimento orizzontale anteprima"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "fileEditor.wordWrap ファイル エディタ 行折り返し ワードラップ 折り返し 改行 テキスト 横スクロール プレビュー"
+            "value": "fileEditor.wordWrap ファイル エディタ 行折り返し ソフトラップ リフロー 行 テキスト 横スクロール プレビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap កម្មវិធីកែឯកសារ បំបែកពាក្យ បំបែកទន់ រៀបចំឡើងវិញ ជួរ អត្ថបទ រមូរផ្ដេក មើលជាមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap 파일 편집기 자동 줄 바꿈 소프트 랩 리플로 행 텍스트 가로 스크롤 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap fileditor tekstbryting myk bryting flyt linjer tekst vannrett rulling forhåndsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap edytor plików zawijanie wierszy miękkie zawijanie przepływ wiersze tekst przewijanie poziome podgląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap editor de arquivos quebra de linha quebra suave refluidez linhas texto rolagem horizontal visualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap редактор файлов перенос строк мягкий перенос переразметка строки текст горизонтальная прокрутка предпросмотр"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap ตัวแก้ไขไฟล์ การตัดคำ การตัดบรรทัดแบบนุ่ม จัดเรียงบรรทัด ข้อความ เลื่อนแนวนอน แสดงตัวอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap dosya düzenleyici kelime kaydırma yumuşak kaydırma yeniden akış satırlar metin yatay kaydırma önizleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap редактор файлів перенесення рядків м’яке перенесення переформатування рядки текст горизонтальне прокручування попередній перегляд"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap 文件编辑器 自动换行 软换行 重排 行 文本 横向滚动 预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileEditor.wordWrap 檔案編輯器 自動換行 軟換行 重排 行 文字 水平捲動 預覽"
           }
         }
       }
@@ -277031,106 +277355,754 @@
           }
         }
       }
-    }
-  },
-  "settings.search.fileEditor.wordWrap": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "file editor word wrap soft wrap reflow lines text horizontal scroll preview"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ファイルエディタ 行折り返し ソフトラップ リフロー 行 テキスト 横スクロール プレビュー"
+    },
+    "settings.search.fileEditor.wordWrap": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محرر الملفات التفاف الكلمات إعادة التدفق الأسطر النص التمرير الأفقي المعاينة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uređivač datoteka prelamanje riječi meko prelamanje ponovno slaganje redovi tekst vodoravno pomicanje pregled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileditor orddeling blød ombrydning omflow linjer tekst vandret rulning forhåndsvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dateieditor zeilenumbruch weicher umbruch reflow zeilen text horizontales scrollen vorschau"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "file editor word wrap soft wrap reflow lines text horizontal scroll preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de archivos ajuste de línea ajuste suave redistribuir líneas texto desplazamiento horizontal vista previa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "éditeur de fichiers retour à la ligne retour souple reflow lignes texte défilement horizontal aperçu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor di file a capo automatico a capo morbido riflusso righe testo scorrimento orizzontale anteprima"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエディタ 行の折り返し ソフトラップ リフロー 行 テキスト 横スクロール プレビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីកែឯកសារ បំបែកពាក្យ បំបែកទន់ រៀបចំឡើងវិញ ជួរ អត្ថបទ រមូរផ្ដេក មើលជាមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 편집기 자동 줄 바꿈 소프트 랩 리플로 행 텍스트 가로 스크롤 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fileditor tekstbryting myk bryting flyt linjer tekst vannrett rulling forhåndsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "edytor plików zawijanie wierszy miękkie zawijanie przepływ wiersze tekst przewijanie poziome podgląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "editor de arquivos quebra de linha quebra suave refluidez linhas texto rolagem horizontal visualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлов перенос строк мягкий перенос переразметка строки текст горизонтальная прокрутка предпросмотр"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวแก้ไขไฟล์ การตัดคำ การตัดบรรทัดแบบนุ่ม จัดเรียงบรรทัด ข้อความ เลื่อนแนวนอน แสดงตัวอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dosya düzenleyici kelime kaydırma yumuşak kaydırma yeniden akış satırlar metin yatay kaydırma önizleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "редактор файлів перенесення рядків м’яке перенесення переформатування рядки текст горизонтальне прокручування попередній перегляд"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件编辑器 自动换行 软换行 重排 行 文本 横向滚动 预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案編輯器 自動換行 軟換行 重排 行 文字 水平捲動 預覽"
+          }
         }
       }
-    }
-  },
-  "settings.search.fileEditor.syntaxHighlighting": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "syntax highlight colors tokens code"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "構文ハイライト 色 トークン コード"
+    },
+    "settings.search.fileEditor.syntaxHighlighting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمييز بناء الجملة ألوان الرموز البرمجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "isticanje sintakse boje tokeni kod"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "syntaksfremhævning farver tokens kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "syntaxhervorhebung farben token code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "syntax highlight colors tokens code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "resaltado de sintaxis colores tokens código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "coloration syntaxique couleurs jetons code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "evidenziazione sintassi colori token codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構文ハイライト 色 トークン コード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្លិចវាក្យសម្ព័ន្ធ ពណ៌ ថូខិន កូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구문 강조 색상 토큰 코드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "syntaksutheving farger token kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podświetlanie składni kolory tokeny kod"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "realce de sintaxe cores tokens código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "подсветка синтаксиса цвета токены код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เน้นไวยากรณ์ สี โทเค็น โค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sözdizimi vurgulama renkler jetonlar kod"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "підсвічування синтаксису кольори токени код"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语法高亮 颜色 标记 代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語法醒目提示 顏色 標記 程式碼"
+          }
         }
       }
-    }
-  },
-  "settings.search.fileEditor.lineNumbers": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "gutter line numbers"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ガター 行番号"
+    },
+    "settings.search.fileEditor.lineNumbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هامش أرقام الأسطر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "žlijeb brojevi redova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gutter linjenumre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gutter zeilennummern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gutter line numbers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "margen números de línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gouttière numéros de ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gutter numeri di riga"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガター 行番号"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរលេខជួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여백 줄 번호"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gutter linjenumre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rynienka numery wierszy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "calha números de linha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "поле номера строк"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบ เลขบรรทัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oluk satır numaraları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "жолоб номери рядків"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行号槽 行号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行號欄 行號"
+          }
         }
       }
-    }
-  },
-  "settings.search.fileEditor.indentGuides": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "indent guides columns"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "インデント ガイド 列"
+    },
+    "settings.search.fileEditor.indentGuides": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدلة المسافة البادئة أعمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vodiči uvlačenja stupci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "indrykningsguider kolonner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "einzug hilfslinien spalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "indent guides columns"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "guías de sangría columnas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "guides indentation colonnes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "guide indentazione colonne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インデント ガイド 列"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្សែណែនាំការចូលបន្ទាត់ ជួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "들여쓰기 안내선 열"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "innrykksguider kolonner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prowadnice wcięć kolumny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "guias de recuo colunas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "направляющие отступа столбцы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นนำการเยื้อง คอลัมน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "girinti kılavuzları sütunlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "напрямні відступу стовпці"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩进参考线 列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮排參考線 欄"
+          }
         }
       }
-    }
-  },
-  "settings.search.fileEditor.currentLineHighlight": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "current line caret"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "現在の行 キャレット"
+    },
+    "settings.search.fileEditor.currentLineHighlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطر الحالي المؤشر تمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "trenutni red karet isticanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aktuel linje indsætningspunkt fremhævning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aktuelle zeile einfügemarke hervorhebung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current line caret highlight"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "línea actual cursor resaltado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ligne active curseur surbrillance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "riga corrente cursore evidenziazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の行 キャレット ハイライト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរបច្ចុប្បន្ន សញ្ញា បន្លិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 줄 캐럿 강조"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gjeldende linje innsettingspunkt utheving"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bieżący wiersz karetka podświetlenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "linha atual cursor realce"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "текущая строка каретка подсветка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บรรทัดปัจจุบัน แคร์เรต เน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "geçerli satır imleç vurgulama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "поточний рядок каретка підсвічування"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前行 插入点 高亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前行 插入點 醒目提示"
+          }
         }
       }
-    }
-  },
-  "settings.search.fileEditor.tabWidth": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "tab width indent columns"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "タブ幅 インデント 列"
+    },
+    "settings.search.fileEditor.tabWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض علامة التبويب المسافة البادئة الأعمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "širina taba uvlačenje stupci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tabulatorbredde indrykning kolonner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tabulatorbreite einzug spalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab width indent columns"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ancho de tabulación sangría columnas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "largeur tabulation indentation colonnes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "larghezza tabulazione indentazione colonne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ幅 インデント 列"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងផ្ទាំង ចូលបន្ទាត់ ជួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 너비 들여쓰기 열"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tabulatorbredde innrykk kolonner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "szerokość tabulacji wcięcia kolumny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "largura da tabulação recuo colunas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ширина табуляции отступ столбцы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความกว้างแท็บ เยื้อง คอลัมน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekme genişliği girinti sütunlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ширина табуляції відступ стовпці"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制表符宽度 缩进 列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定位點寬度 縮排 欄"
+          }
         }
       }
     }

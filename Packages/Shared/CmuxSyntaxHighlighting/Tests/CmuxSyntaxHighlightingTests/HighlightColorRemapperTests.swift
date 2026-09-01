@@ -30,7 +30,7 @@ struct HighlightColorRemapperTests {
             at: 0,
             effectiveRange: nil
         )
-        let hex = try #require(HighlightColorRemapper.hexKey(from: color as Any))
+        let hex = try #require(HighlightColorRemapper(theme: .dark).hexKey(from: color as Any))
         #expect(hex == "0091FF")
 #else
         Issue.record("Remapper tests require AppKit")
@@ -59,7 +59,7 @@ struct HighlightColorRemapperTests {
             at: 0,
             effectiveRange: nil
         )
-        let hex = try #require(HighlightColorRemapper.hexKey(from: color as Any))
+        let hex = try #require(HighlightColorRemapper(theme: .light).hexKey(from: color as Any))
         #expect(hex == "006DC1")
 #else
         Issue.record("Remapper tests require AppKit")
@@ -69,14 +69,14 @@ struct HighlightColorRemapperTests {
     @Test("Hex keys retain rounding compatibility")
     func hexKeysRoundLikeThePublicFormatter() {
         #expect(
-            HighlightColorRemapper.hexKey(
+            HighlightColorRemapper(theme: .dark).hexKey(
                 red: 252.49 / 255.0,
                 green: 94.51 / 255.0,
                 blue: 162.5 / 255.0
             ) == "FC5FA3"
         )
         #expect(
-            HighlightColorRemapper.hexKey(
+            HighlightColorRemapper(theme: .dark).hexKey(
                 red: -1,
                 green: 2,
                 blue: 0
@@ -105,7 +105,7 @@ struct HighlightColorRemapperTests {
 
         let remapped = remapper.remap(source)
         let color = remapped.attribute(.foregroundColor, at: 0, effectiveRange: nil)
-        #expect(HighlightColorRemapper.hexKey(from: color as Any) == "0091FF")
+        #expect(remapper.hexKey(from: color as Any) == "0091FF")
 #else
         Issue.record("Remapper tests require AppKit")
 #endif
@@ -132,7 +132,7 @@ struct HighlightColorRemapperTests {
 
         let remapped = remapper.remap(source)
         let color = remapped.attribute(.foregroundColor, at: 0, effectiveRange: nil)
-        #expect(HighlightColorRemapper.hexKey(from: color as Any) == "FC5FA3")
+        #expect(remapper.hexKey(from: color as Any) == "FC5FA3")
 #else
         Issue.record("Remapper tests require AppKit")
 #endif
@@ -189,14 +189,14 @@ struct HighlightColorRemapperTests {
 
     private func hex(in string: NSAttributedString, at location: Int) -> String? {
         let color = string.attribute(.foregroundColor, at: location, effectiveRange: nil)
-        return HighlightColorRemapper.hexKey(from: color as Any)
+        return HighlightColorRemapper(theme: .dark).hexKey(from: color as Any)
     }
 
     private func containsHex(_ string: NSAttributedString, _ hex: String) -> Bool {
         let full = NSRange(location: 0, length: string.length)
         var found = false
         string.enumerateAttribute(.foregroundColor, in: full, options: []) { value, _, stop in
-            guard let value, HighlightColorRemapper.hexKey(from: value) == hex else { return }
+            guard let value, HighlightColorRemapper(theme: .dark).hexKey(from: value) == hex else { return }
             found = true
             stop.pointee = true
         }

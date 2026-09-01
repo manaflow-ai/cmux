@@ -812,6 +812,8 @@
 		A117FF000000000000000001 /* CmuxFeatureFlagResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A117FF000000000000000002 /* CmuxFeatureFlagResolution.swift */; };
 		A117FF000000000000000003 /* CmuxFeatureFlagSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A117FF000000000000000004 /* CmuxFeatureFlagSource.swift */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
+		D0F1A0000000000000000003 /* CmuxFilePreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F1A0000000000000000002 /* CmuxFilePreviewCore */; };
+		D0F1A0000000000000000004 /* CmuxFilePreviewCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F1A0000000000000000002 /* CmuxFilePreviewCore */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
 		CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
 		CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
@@ -1217,7 +1219,6 @@
 		C0DE49950000000000000001 /* FilePreviewKindResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */; };
 		C0DE8652000000000000000B /* FilePreviewLatestLoadCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8652000000000000000C /* FilePreviewLatestLoadCoordinator.swift */; };
 		C0DE8652000000000000000D /* FilePreviewLatestRequestState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE8652000000000000000E /* FilePreviewLatestRequestState.swift */; };
-		C01E00030000000000000001 /* FilePreviewLineIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00030000000000000002 /* FilePreviewLineIndex.swift */; };
 		C01E00050000000000000001 /* FilePreviewLineNumberGutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00050000000000000002 /* FilePreviewLineNumberGutterView.swift */; };
 		A5001447A5001447A5001447 /* FilePreviewMagnifyingPDFView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001446A5001446A5001446 /* FilePreviewMagnifyingPDFView.swift */; };
 		287C15EFC945CE9D560600E3 /* FilePreviewMediaSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D7B3C5A409C0B3EDD002CE /* FilePreviewMediaSession.swift */; };
@@ -4183,7 +4184,6 @@
 		C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewKindResolverTests.swift; sourceTree = "<group>"; };
 		C0DE8652000000000000000C /* FilePreviewLatestLoadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewLatestLoadCoordinator.swift; sourceTree = "<group>"; };
 		C0DE8652000000000000000E /* FilePreviewLatestRequestState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewLatestRequestState.swift; sourceTree = "<group>"; };
-		C01E00030000000000000002 /* FilePreviewLineIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewLineIndex.swift; sourceTree = "<group>"; };
 		C01E00050000000000000002 /* FilePreviewLineNumberGutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewLineNumberGutterView.swift; sourceTree = "<group>"; };
 		A5001446A5001446A5001446 /* FilePreviewMagnifyingPDFView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewMagnifyingPDFView.swift; sourceTree = "<group>"; };
 		64D7B3C5A409C0B3EDD002CE /* FilePreviewMediaSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewMediaSession.swift; sourceTree = "<group>"; };
@@ -5957,6 +5957,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
+				D0F1A0000000000000000003 /* CmuxFilePreviewCore in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
 				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
@@ -6049,6 +6050,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
 				A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */,
 				CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */,
+				D0F1A0000000000000000004 /* CmuxFilePreviewCore in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132114 /* CmuxIrxTransport in Frameworks */,
@@ -7733,7 +7735,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */,
 				C01E00010000000000000002 /* FilePreviewEditorSettings.swift */,
 				C01E00020000000000000002 /* TokenTheme+AppKit.swift */,
-				C01E00030000000000000002 /* FilePreviewLineIndex.swift */,
 				C01E00040000000000000002 /* FilePreviewSyntaxStyler.swift */,
 				C01E00050000000000000002 /* FilePreviewLineNumberGutterView.swift */,
 				C01E00060000000000000002 /* FilePreviewEditorChromeOverlay.swift */,
@@ -9134,6 +9135,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
+				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
 				CE57E10000000000000000A2 /* CmuxSentryScrubbing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
@@ -9251,6 +9253,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
+				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
 				A5001262 /* Bonsplit */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */,
@@ -9341,6 +9344,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */,
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
 				C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */,
+				D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
@@ -10232,7 +10236,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE86520000000000000009 /* FilePreviewImageView.swift in Sources */,
 				C0DE8652000000000000000B /* FilePreviewLatestLoadCoordinator.swift in Sources */,
 				C0DE8652000000000000000D /* FilePreviewLatestRequestState.swift in Sources */,
-					C01E00030000000000000001 /* FilePreviewLineIndex.swift in Sources */,
 					C01E00050000000000000001 /* FilePreviewLineNumberGutterView.swift in Sources */,
 				A5001447A5001447A5001447 /* FilePreviewMagnifyingPDFView.swift in Sources */,
 				287C15EFC945CE9D560600E3 /* FilePreviewMediaSession.swift in Sources */,
@@ -13056,6 +13059,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxSyntaxHighlighting;
 		};
+		D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxFilePreviewCore;
+		};
 		CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxSentryTelemetry;
@@ -13341,6 +13348,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */;
 			productName = CmuxSyntaxHighlighting;
+		};
+		D0F1A0000000000000000002 /* CmuxFilePreviewCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */;
+			productName = CmuxFilePreviewCore;
 		};
 		CE57E10000000000000000A2 /* CmuxSentryScrubbing */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -300,7 +300,7 @@ enum CommandPaletteSettingsToggleCommands {
                 commandId: commandIdPrefix + "fileEditorCurrentLineHighlight",
                 settingsKey: "fileEditor.currentLineHighlight",
                 title: {
-                    String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line")
+                    String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line Highlight")
                 },
                 sectionTitle: app,
                 keywords: ["fileEditor.currentLineHighlight", "current", "line", "caret"],

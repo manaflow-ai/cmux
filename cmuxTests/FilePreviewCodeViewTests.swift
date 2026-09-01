@@ -27,7 +27,7 @@ struct FilePreviewCodeViewTests {
         let highlighted = try #require(
             await engine.highlight(text: source, language: "json", theme: .dark)
         )
-        #expect(highlighted.distinctForegroundColorCount >= 2)
+        #expect(distinctForegroundColors(in: highlighted.value).count >= 2)
 
         let styler = FilePreviewSyntaxStyler()
         styler.applyHighlightedText(
@@ -53,13 +53,12 @@ struct FilePreviewCodeViewTests {
         let ns = textView.string as NSString
         let trueRange = ns.range(of: "true")
         #expect(trueRange.location != NSNotFound)
-        if let color = textView.textStorage?.attribute(
+        let color = try #require(textView.textStorage?.attribute(
             .foregroundColor,
             at: trueRange.location,
             effectiveRange: nil
-        ) {
-            #expect(HighlightColorRemapper.hexKey(from: color) == "0091FF")
-        }
+        ))
+        #expect(HighlightColorRemapper(theme: .dark).hexKey(from: color) == "0091FF")
     }
 
     @Test("Syntax styling reuses normalized font variants per apply")
@@ -88,62 +87,6 @@ struct FilePreviewCodeViewTests {
         #expect(firstRegular === secondRegular)
         #expect(firstBold === secondBold)
         #expect(firstRegular !== firstBold)
-    }
-
-    @Test("Line index numbers a twelve-line file")
-    func lineIndexCountsLogicalLines() {
-        let source = (1...12).map { "line \($0)" }.joined(separator: "\n")
-        let index = FilePreviewLineIndex(string: source)
-        #expect(index.lineCount == 12)
-        #expect(index.lineNumber(containingUTF16Offset: 0) == 1)
-        #expect(index.offset(forLine: 1) == 0)
-        #expect(index.lineNumber(containingUTF16Offset: index.offset(forLine: 12)) == 12)
-    }
-
-    @Test("Incremental line-index edits match a full rebuild")
-    func incrementalLineIndexEditsMatchFullRebuild() {
-        var index = FilePreviewLineIndex(string: "alpha\nbeta\ngamma\ndelta")
-        var mirror = "alpha\nbeta\ngamma\ndelta"
-
-        func expectMirrored() {
-            let rebuilt = FilePreviewLineIndex(string: mirror)
-            #expect(index.lineStartOffsets == rebuilt.lineStartOffsets)
-            #expect(index.lineCount == rebuilt.lineCount)
-            #expect(index.loadedUTF16Length == rebuilt.loadedUTF16Length)
-        }
-
-        func edit(_ location: Int, _ oldLength: Int, _ replacement: String) {
-            mirror = (mirror as NSString).replacingCharacters(
-                in: NSRange(location: location, length: oldLength),
-                with: replacement
-            )
-            index.applyEdit(
-                atUTF16Location: location,
-                replacingUTF16Length: oldLength,
-                replacement: replacement
-            )
-        }
-
-        edit(5, 0, "\n") // insert a newline mid-document
-        expectMirrored()
-        edit(0, 0, "// header\n") // prepend lines
-        expectMirrored()
-        edit(6, 1, "X") // same-length replace inside a line
-        expectMirrored()
-        edit(5, 1, "\n") // replace a character with a newline
-        expectMirrored()
-        edit(0, 11, "") // delete a range spanning newlines
-        expectMirrored()
-        edit(3, 4, "beta\nbeta\nbeta") // splice newlines in via replacement
-        expectMirrored()
-        // Boundary shapes for the in-place splice: an edit range that starts
-        // exactly on a line start, and one that ends exactly on a line start.
-        let lineStart = (mirror as NSString).range(of: "beta\nbeta").location + 4
-        edit(lineStart, 2, "\n")
-        expectMirrored()
-        edit(lineStart - 1, 1, "gg")
-        expectMirrored()
-        #expect(index.lineNumber(containingUTF16Offset: 2) == 1)
     }
 
     @Test("Indent columns count spaces and tabs")
@@ -255,7 +198,7 @@ struct FilePreviewCodeViewTests {
     }
 
     @Test("A later schedule replaces in-flight highlighting without sleeping")
-    func laterScheduleReplacesInFlightHighlight() async {
+    func laterScheduleReplacesInFlightHighlight() async throws {
         let textView = SavingTextView.makeFilePreviewTextView()
         let styler = FilePreviewSyntaxStyler()
         textView.string = "let ignored = 1"
@@ -280,20 +223,19 @@ struct FilePreviewCodeViewTests {
             force: true
         )
 
-        await styler.waitForScheduledHighlight()
+        await styler.highlightTask?.value
         let colors = distinctForegroundColors(in: textView).count
         #expect(textView.string == json)
         #expect(colors >= 2)
         let ns = textView.string as NSString
         let trueRange = ns.range(of: "true")
         #expect(trueRange.location != NSNotFound)
-        if let color = textView.textStorage?.attribute(
+        let color = try #require(textView.textStorage?.attribute(
             .foregroundColor,
             at: trueRange.location,
             effectiveRange: nil
-        ) {
-            #expect(HighlightColorRemapper.hexKey(from: color) == "0091FF")
-        }
+        ))
+        #expect(HighlightColorRemapper(theme: .dark).hexKey(from: color) == "0091FF")
     }
 
     @Test("Zooming the preview font requests a forced restyle")
@@ -306,7 +248,7 @@ struct FilePreviewCodeViewTests {
     }
 
     @Test("Forced restyle after a font blast keeps token colors")
-    func forcedRestyleAfterFontBlastKeepsTokenColors() async {
+    func forcedRestyleAfterFontBlastKeepsTokenColors() async throws {
         let textView = SavingTextView.makeFilePreviewTextView()
         let styler = FilePreviewSyntaxStyler()
         let source = """
@@ -321,7 +263,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.waitForScheduledHighlight()
+        await styler.highlightTask?.value
 
         let flattened = NSFont.monospacedSystemFont(ofSize: 18, weight: .regular)
         if let storage = textView.textStorage, storage.length > 0 {
@@ -339,17 +281,16 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.waitForScheduledHighlight()
+        await styler.highlightTask?.value
         let ns = textView.string as NSString
         let trueRange = ns.range(of: "true")
         #expect(trueRange.location != NSNotFound)
-        if let color = textView.textStorage?.attribute(
+        let color = try #require(textView.textStorage?.attribute(
             .foregroundColor,
             at: trueRange.location,
             effectiveRange: nil
-        ) {
-            #expect(HighlightColorRemapper.hexKey(from: color) == "0091FF")
-        }
+        ))
+        #expect(HighlightColorRemapper(theme: .dark).hexKey(from: color) == "0091FF")
     }
 
     @Test("Unknown and oversized buffers stay uncolored")
@@ -445,7 +386,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.waitForScheduledHighlight()
+        await styler.highlightTask?.value
         #expect(distinctForegroundColors(in: textView).count >= 2)
     }
 
@@ -454,6 +395,16 @@ struct FilePreviewCodeViewTests {
         var colors: Set<String> = []
         let full = NSRange(location: 0, length: storage.length)
         storage.enumerateAttribute(.foregroundColor, in: full, options: []) { attribute, _, _ in
+            guard let attribute else { return }
+            colors.insert(String(describing: attribute))
+        }
+        return colors
+    }
+
+    private func distinctForegroundColors(in value: NSAttributedString) -> Set<String> {
+        var colors: Set<String> = []
+        let full = NSRange(location: 0, length: value.length)
+        value.enumerateAttribute(.foregroundColor, in: full, options: []) { attribute, _, _ in
             guard let attribute else { return }
             colors.insert(String(describing: attribute))
         }

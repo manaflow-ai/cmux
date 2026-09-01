@@ -13,6 +13,8 @@ final class FilePreviewEditorChromeOverlay: NSView {
     var currentLineColor = NSColor.selectedContentBackgroundColor.withAlphaComponent(0.12)
     var indentGuideColor = NSColor.separatorColor.withAlphaComponent(0.55)
 
+    deinit {}
+
     override var isFlipped: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -55,18 +57,31 @@ final class FilePreviewEditorChromeOverlay: NSView {
     ) {
         let selected = textView.selectedRange()
         guard selected.length == 0 else { return }
-        let location = min(selected.location, max(0, (textView.string as NSString).length))
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: location)
+        let stringLength = (textView.string as NSString).length
+        let location = min(max(selected.location, 0), stringLength)
+        let glyphCount = layoutManager.numberOfGlyphs
+        // TextKit has no glyph for an empty buffer. At EOF it may return the
+        // insertion-point glyph index (the glyph count), which is not a valid
+        // argument to `lineFragmentRect(forGlyphAt:)`. Use the final real
+        // character for that case so a trailing empty line can be painted one
+        // fragment below it.
+        guard glyphCount > 0, stringLength > 0 else { return }
+        let characterIndex = location >= stringLength ? stringLength - 1 : location
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
+        guard glyphIndex >= 0, glyphIndex < glyphCount else { return }
         var lineRange = NSRange()
         let fragment = layoutManager.lineFragmentRect(
             forGlyphAt: glyphIndex,
             effectiveRange: &lineRange,
             withoutAdditionalLayout: true
         )
+        let isTrailingEmptyLine = location == stringLength
+            && stringLength > 0
+            && (textView.string as NSString).character(at: stringLength - 1) == 10
         let origin = textView.textContainerOrigin
         let band = NSRect(
             x: 0,
-            y: fragment.minY + origin.y,
+            y: fragment.minY + origin.y + (isTrailingEmptyLine ? fragment.height : 0),
             width: max(bounds.width, textView.bounds.width),
             height: max(fragment.height, textView.font?.boundingRectForFont.height ?? 16)
         )

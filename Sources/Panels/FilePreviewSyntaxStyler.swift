@@ -12,7 +12,9 @@ final class FilePreviewSyntaxStyler {
     private let catalog = LanguageCatalog()
     private let policy = HighlightPolicy()
     private let engine = HighlightrSyntaxEngine()
-    private var highlightTask: Task<Void, Never>?
+    // Internal so the test target can await the real completion signal without
+    // adding a production-only synchronization method.
+    private(set) var highlightTask: Task<Void, Never>?
     private var highlightGeneration = 0
     private var lastHighlightedContentRevision: Int?
     private var lastHighlightedLanguage: String?
@@ -32,15 +34,10 @@ final class FilePreviewSyntaxStyler {
 
     func cancel() {
         highlightTask?.cancel()
-    }
-
-    /// Waits for the task scheduled most recently at the call site.
-    ///
-    /// This is a deterministic test seam; production callers continue without
-    /// awaiting syntax work so typing never waits on highlighting.
-    func waitForScheduledHighlight() async {
-        let task = highlightTask
-        await task?.value
+        // Invalidate the completion guard as well as the task's cooperative
+        // cancellation bit. This closes the visibility/deinit race if an
+        // engine call has already crossed an actor hop.
+        highlightGeneration &+= 1
     }
 
     func schedule(

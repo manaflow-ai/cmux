@@ -1,8 +1,8 @@
 import Foundation
 @preconcurrency import Highlightr
 
-/// Bridges the Highlightr dependency to the package's testable internal seam.
-final class HighlightrThemeAdapter: HighlightrThemeApplying {
+/// Bridges the bundled Highlightr runtime to the syntax-highlighting engine.
+final class HighlightrThemeAdapter {
     private let highlightr: Highlightr
 
     /// Creates an adapter when Highlightr can initialize its JavaScript engine.

@@ -13,14 +13,4 @@ public final class HighlightedText: @unchecked Sendable {
         self.value = NSAttributedString(attributedString: value)
     }
 
-    /// Distinct foreground colors in `value`. Used by tests to prove tokens exist.
-    public var distinctForegroundColorCount: Int {
-        var colors: Set<String> = []
-        let full = NSRange(location: 0, length: value.length)
-        value.enumerateAttribute(.foregroundColor, in: full, options: []) { attribute, _, _ in
-            guard let attribute else { return }
-            colors.insert(String(describing: attribute))
-        }
-        return colors.count
-    }
 }

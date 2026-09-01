@@ -6,7 +6,16 @@ import Foundation
 /// `~/.config/cmux/cmux.json`, and the text editor. Defaults match VS Code /
 /// Cursor / Zed: highlighting, line numbers, indent guides, and current-line
 /// highlight are on.
-enum FilePreviewEditorSettings {
+struct FilePreviewEditorSettings {
+    let defaults: UserDefaults
+
+    /// Creates a settings reader backed by the supplied defaults store.
+    ///
+    /// - Parameter defaults: Defaults store used for runtime reads.
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+    }
+
     static let syntaxHighlightingKey = "fileEditor.syntaxHighlighting"
     static let lineNumbersKey = "fileEditor.lineNumbers"
     static let indentGuidesKey = "fileEditor.indentGuides"
@@ -20,16 +29,15 @@ enum FilePreviewEditorSettings {
     static let tabWidthDefault = 4
     static let tabWidthRange = 1...8
 
-    static func isEnabled(
+    func isEnabled(
         key: String,
-        default defaultValue: Bool,
-        defaults: UserDefaults = .standard
+        default defaultValue: Bool
     ) -> Bool {
         defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
     }
 
-    static func tabWidth(defaults: UserDefaults = .standard) -> Int {
-        let stored = defaults.object(forKey: tabWidthKey) as? Int ?? tabWidthDefault
-        return min(max(stored, tabWidthRange.lowerBound), tabWidthRange.upperBound)
+    var tabWidth: Int {
+        let stored = defaults.object(forKey: Self.tabWidthKey) as? Int ?? Self.tabWidthDefault
+        return min(max(stored, Self.tabWidthRange.lowerBound), Self.tabWidthRange.upperBound)
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFilePreviewCore
 import CmuxSyntaxHighlighting
 
 /// TextKit 1 line-number ruler. Draws only fragments that intersect the viewport.
@@ -86,8 +87,14 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             return
         }
         observedStorage = storage
-        lineIndex = FilePreviewLineIndex(string: textView.string)
-        needsFullRebuild = false
+        if scrollView?.rulersVisible == true {
+            lineIndex = FilePreviewLineIndex(string: textView.string)
+            needsFullRebuild = false
+        } else {
+            // Keep the index lazy while line numbers are disabled. A large
+            // hidden preview should not allocate line metadata it cannot draw.
+            needsFullRebuild = true
+        }
         updateRuleThickness(for: textView.font)
         // `queue: nil` delivers synchronously on the posting (main) thread, so
         // the index is exact before the next layout/draw pass reads it.

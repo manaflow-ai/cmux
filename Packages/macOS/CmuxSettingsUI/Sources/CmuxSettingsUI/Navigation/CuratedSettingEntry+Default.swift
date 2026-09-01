@@ -69,8 +69,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .app,
                 id: "file-editor-current-line-highlight",
-                title: String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line"),
-                synonyms: "fileEditor.currentLineHighlight " + String(localized: "settings.search.fileEditor.currentLineHighlight", defaultValue: "current line caret")
+                title: String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line Highlight"),
+                synonyms: "fileEditor.currentLineHighlight " + String(localized: "settings.search.fileEditor.currentLineHighlight", defaultValue: "current line caret highlight")
             ),
             .init(
                 section: .app,

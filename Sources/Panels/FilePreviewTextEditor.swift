@@ -47,7 +47,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     private var tabWidth = FilePreviewEditorSettings.tabWidthDefault
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(panel: panel, filePath: filePath)
+        Coordinator(
+            panel: panel,
+            filePath: filePath,
+            editorSettings: FilePreviewEditorSettings(defaults: .standard)
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -69,6 +73,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
         context.coordinator.lastAppliedContentRevision = panel.textContentRevision
+        context.coordinator.isHighlightingVisible = isVisibleInUI
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
@@ -88,18 +93,22 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             currentLineHighlight: currentLineHighlight,
             tabWidth: tabWidth
         )
-        context.coordinator.scheduleHighlight(
-            for: textView,
-            enabled: syntaxHighlighting,
-            defaultColor: themeForegroundColor,
-            force: true
-        )
+        if isVisibleInUI {
+            context.coordinator.scheduleHighlight(
+                for: textView,
+                enabled: syntaxHighlighting,
+                defaultColor: themeForegroundColor,
+                force: true
+            )
+        }
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.panel = panel
         context.coordinator.filePath = filePath
+        let becameVisible = isVisibleInUI && !context.coordinator.isHighlightingVisible
+        context.coordinator.isHighlightingVisible = isVisibleInUI
         scrollView.isHidden = !isVisibleInUI
         Self.applyTheme(
             to: scrollView,
@@ -147,12 +156,16 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             clipView.scroll(to: constrained.origin)
             scrollView.reflectScrolledClipView(clipView)
         }
-        context.coordinator.scheduleHighlight(
-            for: textView,
-            enabled: syntaxHighlighting,
-            defaultColor: themeForegroundColor,
-            force: contentChanged
-        )
+        if isVisibleInUI {
+            context.coordinator.scheduleHighlight(
+                for: textView,
+                enabled: syntaxHighlighting,
+                defaultColor: themeForegroundColor,
+                force: contentChanged || becameVisible
+            )
+        } else {
+            context.coordinator.cancelHighlight()
+        }
         Self.refreshChrome(on: scrollView, textView: textView)
     }
 
@@ -250,11 +263,22 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         var filePath: String
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
+        var isHighlightingVisible = false
         private let styler = FilePreviewSyntaxStyler()
+        private let editorSettings: FilePreviewEditorSettings
 
-        init(panel: PanelModel, filePath: String) {
+        init(
+            panel: PanelModel,
+            filePath: String,
+            editorSettings: FilePreviewEditorSettings
+        ) {
             self.panel = panel
             self.filePath = filePath
+            self.editorSettings = editorSettings
+        }
+
+        deinit {
+            styler.cancel()
         }
 
         func textDidChange(_ notification: Notification) {
@@ -262,9 +286,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
                   let textView = notification.object as? NSTextView else { return }
             panel.updateTextContent(textView.string)
             lastAppliedContentRevision = panel.textContentRevision
+            guard isHighlightingVisible else { return }
             scheduleHighlight(
                 for: textView,
-                enabled: FilePreviewEditorSettings.isEnabled(
+                enabled: editorSettings.isEnabled(
                     key: FilePreviewEditorSettings.syntaxHighlightingKey,
                     default: FilePreviewEditorSettings.syntaxHighlightingDefault
                 ),
@@ -282,12 +307,17 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             FilePreviewEditorChromeOverlay.installed(in: textView)?.needsDisplay = true
+            if let gutter = textView.enclosingScrollView?.verticalRulerView
+                as? FilePreviewLineNumberGutterView {
+                gutter.needsDisplay = true
+            }
         }
 
         func handlePreviewFontChange(in textView: NSTextView) {
+            guard isHighlightingVisible else { return }
             scheduleHighlight(
                 for: textView,
-                enabled: FilePreviewEditorSettings.isEnabled(
+                enabled: editorSettings.isEnabled(
                     key: FilePreviewEditorSettings.syntaxHighlightingKey,
                     default: FilePreviewEditorSettings.syntaxHighlightingDefault
                 ),
@@ -302,12 +332,17 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             }
         }
 
+        func cancelHighlight() {
+            styler.cancel()
+        }
+
         func scheduleHighlight(
             for textView: NSTextView,
             enabled: Bool,
             defaultColor: NSColor,
             force: Bool
         ) {
+            guard isHighlightingVisible else { return }
             styler.schedule(
                 for: textView,
                 contentRevision: panel.textContentRevision,
