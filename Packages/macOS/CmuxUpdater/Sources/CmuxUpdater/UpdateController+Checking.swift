@@ -224,8 +224,13 @@ extension UpdateController: UpdateDriverEventDelegate {
             switch model.state {
             case .downloading, .extracting, .installing, .error:
                 return
+            case .notFound:
+                // The check completed and "You're up to date" is already on screen (issue
+                // #9262). The coordinator ends the attempt when it drains this transition;
+                // replacing the visible up-to-date terminal with an install error would be false.
+                return
             case .idle, .permissionRequest, .preparingCheck, .checking, .updateAvailable,
-                    .notFound, .startingDownload:
+                    .startingDownload:
                 setInstallDidNotStartError(
                     diagnostic: "accepted install cycle finished before download (check=\(updateCheck.rawValue), error=\(error.map(driver.formatErrorForLog) ?? "none"))"
                 )
