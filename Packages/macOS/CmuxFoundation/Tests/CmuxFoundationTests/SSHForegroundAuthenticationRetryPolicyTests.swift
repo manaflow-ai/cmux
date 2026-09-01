@@ -390,9 +390,20 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         # Lower the helper shell's process ceiling only after the full fixture
-        # exists. The old recursive cleanup then receives EAGAIN on its
-        # short-lived scans while the test chain remains runnable.
-        ulimit -u 100 2>/dev/null || true
+        # exists. Keep the limit just above the live per-user count so the
+        # fixture remains runnable while the old recursive cleanup receives
+        # EAGAIN on its short-lived scans.
+        cmux_test_user_id=$(/usr/bin/id -u 2>/dev/null || true)
+        cmux_test_process_count=$(
+          /bin/ps -axo uid= 2>/dev/null |
+            /usr/bin/awk -v uid="$cmux_test_user_id" '$1 == uid { count += 1 } END { print count + 0 }'
+        ) || cmux_test_process_count=
+        case "$cmux_test_process_count" in
+          ''|*[!0-9]*) cmux_test_process_count= ;;
+        esac
+        if [ -n "$cmux_test_process_count" ]; then
+          ulimit -u "$((cmux_test_process_count + 8))" 2>/dev/null || true
+        fi
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
