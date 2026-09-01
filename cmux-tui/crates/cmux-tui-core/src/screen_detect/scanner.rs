@@ -25,9 +25,21 @@ use crate::surface::Surface;
 /// tick plus the journal fold.
 const SCAN_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Resolves a surface to its foreground process name; injectable so tests
-/// drive detection without spawning agent-named processes.
-pub(crate) type ProcessNameResolver = dyn Fn(&Surface) -> Option<String> + Send + Sync;
+/// Result of resolving a terminal's foreground process.
+///
+/// `Unknown` is distinct from `Exited`: process lookup can fail transiently
+/// while the terminal is still live. Treating that miss as an exit would emit
+/// a false Done edge and remove a valid roster entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProcessLookup {
+    Name(String),
+    Exited,
+    Unknown,
+}
+
+/// Resolves a surface to its foreground process; injectable so tests drive
+/// detection without spawning agent-named processes.
+pub(crate) type ProcessNameResolver = dyn Fn(&Surface) -> ProcessLookup + Send + Sync;
 
 pub(crate) fn start(mux: &Arc<Mux>) {
     let weak = Arc::downgrade(mux);
@@ -48,7 +60,7 @@ fn run_scanner(weak: Weak<Mux>) {
             if mux.daemon_shutdown_requested() {
                 return;
             }
-            scan(&mux, &mut tracker, manifests, Instant::now(), &foreground_process_name);
+            scan(&mux, &mut tracker, manifests, Instant::now(), &foreground_process_lookup);
         }
         // Fixed sampling cadence (the debounce clock), not a synchronization
         // substitute: nothing waits on this thread.
@@ -57,12 +69,18 @@ fn run_scanner(weak: Weak<Mux>) {
 }
 
 /// Production resolver: the foreground process-group leader's executable
-/// name for the terminal's PTY child. An exited terminal resolves to none.
-fn foreground_process_name(surface: &Surface) -> Option<String> {
+/// name for the terminal's PTY child. An exited terminal is terminal state;
+/// unavailable process metadata is a retryable lookup miss.
+fn foreground_process_lookup(surface: &Surface) -> ProcessLookup {
     if surface.terminal_exit().is_some() {
-        return None;
+        return ProcessLookup::Exited;
     }
-    crate::platform::foreground_process_name(surface.process_id()?)
+    let Some(process_id) = surface.process_id() else {
+        return ProcessLookup::Unknown;
+    };
+    crate::platform::foreground_process_name(process_id)
+        .map(ProcessLookup::Name)
+        .unwrap_or(ProcessLookup::Unknown)
 }
 
 /// One scan pass over the live terminal catalog. Pure over its inputs
@@ -88,14 +106,31 @@ pub(crate) fn scan(
         // Identity is resolved every tick: presence comes from the
         // foreground process, so a freshly launched agent is detected on
         // the next scan, never gated behind output quiescence.
-        let manifest = resolver(&surface).and_then(|name| manifests.identify(&name));
+        let lookup = resolver(&surface);
+        let manifest = match lookup {
+            ProcessLookup::Name(name) => manifests.identify(&name),
+            ProcessLookup::Exited => {
+                // Exit is a confirmed identity edge. Close a live
+                // screen-derived entry; a terminal that never emitted stays
+                // silent.
+                let _ = tracker.note_foreground_agent(terminal_id, None);
+                if let Some(emission) = tracker.record_detection(terminal_id, None) {
+                    let _ = mux.append_screen_detect_event(&emission);
+                }
+                continue;
+            }
+            ProcessLookup::Unknown => {
+                // Keep the prior identity and roster state. The next scan can
+                // retry process lookup without emitting a false Done edge.
+                continue;
+            }
+        };
         let identity_edge =
             tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
         let emission = match manifest {
             None => {
-                // Not an agent (or the agent exited). Closes a live
-                // screen-derived entry; a terminal that never emitted
-                // stays silent.
+                // A known non-agent process closes a live screen-derived
+                // entry; a terminal that never emitted stays silent.
                 tracker.record_detection(terminal_id, None)
             }
             Some(manifest) if quiesced || identity_edge => {

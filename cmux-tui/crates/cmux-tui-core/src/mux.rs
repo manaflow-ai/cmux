@@ -24069,6 +24069,7 @@ mod tests {
     #[test]
     fn screen_detect_scan_drives_the_roster_through_journal_events() {
         use crate::screen_detect::manifest::ManifestSet;
+        use crate::screen_detect::scanner::ProcessLookup;
         use crate::screen_detect::{ScreenDetectTracker, scanner};
 
         let mux = test_mux();
@@ -24079,9 +24080,10 @@ mod tests {
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
         let step = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
-        let shell = |_: &Surface| Some("zsh".to_string());
-        let codex = |_: &Surface| Some("codex".to_string());
-        let gone = |_: &Surface| None;
+        let shell = |_: &Surface| ProcessLookup::Name("zsh".to_string());
+        let codex = |_: &Surface| ProcessLookup::Name("codex".to_string());
+        let unknown = |_: &Surface| ProcessLookup::Unknown;
+        let gone = |_: &Surface| ProcessLookup::Exited;
 
         // A shell pane never enters the roster, quiesced or not.
         scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
@@ -24095,6 +24097,13 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
         assert_eq!(records[0].source, AgentSource::Detected);
+        assert_eq!(records[0].agent.as_deref(), Some("codex"));
+
+        // A transient process lookup miss must not close the detected entry.
+        scanner::scan(&mux, &mut tracker, manifests, step(550), &unknown);
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Idle);
         assert_eq!(records[0].agent.as_deref(), Some("codex"));
 
         // New output re-arms the debounce; the blocked screen lands after
@@ -24175,7 +24184,8 @@ mod tests {
         let mut tracker = ScreenDetectTracker::default();
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
-        let claude = |_: &Surface| Some("claude".to_string());
+        let claude =
+            |_: &Surface| crate::screen_detect::scanner::ProcessLookup::Name("claude".to_string());
         scanner::scan(&mux, &mut tracker, manifests, t0, &claude);
         scanner::scan(&mux, &mut tracker, manifests, t0 + Duration::from_millis(400), &claude);
         let records = mux.list_agents(Some(surface_id), None);
