@@ -22756,6 +22756,7 @@ impl App {
             // The selected endpoints are screen coordinates. If terminal
             // content changed while the button was held, copying them could
             // return unrelated text from the new generation.
+            self.reset_selection_click_sequence();
             self.replace_selection(None);
             return Ok(RenderAction::Draw);
         }
@@ -22787,6 +22788,7 @@ impl App {
         if let Some(expected) = expected_content_generation
             && self.terminal_content_generation(sel.surface) != Some(expected)
         {
+            self.reset_selection_click_sequence();
             self.replace_selection(None);
             return;
         }
@@ -22799,6 +22801,7 @@ impl App {
         if let Some(expected) = expected_content_generation
             && self.terminal_content_generation(sel.surface) != Some(expected)
         {
+            self.reset_selection_click_sequence();
             self.replace_selection(None);
             return;
         }
