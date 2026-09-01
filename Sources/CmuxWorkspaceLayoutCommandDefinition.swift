@@ -2,7 +2,7 @@ import Foundation
 
 /// The workspace-layout variant of a ``CmuxCommandDefinition`` entry.
 struct CmuxWorkspaceLayoutCommandDefinition: Codable, Hashable, Sendable {
-    var name: String
+    let name: String
     var description: String?
     var keywords: [String]?
     var restart: CmuxRestartBehavior?
@@ -15,7 +15,7 @@ struct CmuxWorkspaceLayoutCommandDefinition: Codable, Hashable, Sendable {
     var setup: String? { workspace.setup }
     var layout: CmuxLayoutNode? { workspace.layout }
 
-    init(
+    init?(
         name: String,
         description: String? = nil,
         keywords: [String]? = nil,
@@ -23,6 +23,9 @@ struct CmuxWorkspaceLayoutCommandDefinition: Codable, Hashable, Sendable {
         workspace: CmuxWorkspaceDefinition,
         confirm: Bool? = nil
     ) {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
         self.name = name
         self.description = description
         self.keywords = keywords
@@ -42,7 +45,10 @@ struct CmuxWorkspaceLayoutCommandDefinition: Codable, Hashable, Sendable {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "Command name must not be blank"
+                    debugDescription: String(
+                        localized: "config.validation.commandNameBlank",
+                        defaultValue: "Command name must not be blank"
+                    )
                 )
             )
         }
@@ -53,15 +59,31 @@ struct CmuxWorkspaceLayoutCommandDefinition: Codable, Hashable, Sendable {
         } else {
             // Older cmux.json files flatten the workspace fields directly into
             // the commands[] entry: {name, cwd, color, env, setup, layout}.
-            workspace = try CmuxWorkspaceDefinition(from: decoder)
+            workspace = try CmuxWorkspaceDefinition(
+                from: decoder,
+                layoutMode: .legacyFlattenedRoot
+            )
         }
 
-        self.name = name
-        self.description = try container.decodeIfPresent(String.self, forKey: .description)
-        self.keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
-        self.restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
-        self.workspace = workspace
-        self.confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
+        guard let definition = Self(
+            name: name,
+            description: try container.decodeIfPresent(String.self, forKey: .description),
+            keywords: try container.decodeIfPresent([String].self, forKey: .keywords),
+            restart: try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart),
+            workspace: workspace,
+            confirm: try container.decodeIfPresent(Bool.self, forKey: .confirm)
+        ) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: String(
+                        localized: "config.validation.commandNameBlank",
+                        defaultValue: "Command name must not be blank"
+                    )
+                )
+            )
+        }
+        self = definition
     }
 
     func encode(to encoder: Encoder) throws {

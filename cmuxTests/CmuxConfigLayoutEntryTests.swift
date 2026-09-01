@@ -128,8 +128,8 @@ struct CmuxConfigLayoutEntryTests {
 
         for fixture in fixtures {
             let config = try decode(fixture)
-            #expect(config.commands.isEmpty)
-            #expect(config.commandDecodingIssues.count == 1)
+            #expect(config.commands.isEmpty, Comment(rawValue: fixture))
+            #expect(config.commandDecodingIssues.count == 1, Comment(rawValue: fixture))
         }
     }
 
@@ -154,11 +154,77 @@ struct CmuxConfigLayoutEntryTests {
         #expect(issues.contains { $0.path == "commands[0].layout.split" })
     }
 
-    @Test func failureLogGateClaimsEachRevisionOnce() async {
+    @Test func typeValidatorMatchesRuntimeColorNormalization() throws {
+        let object = try JSONSerialization.jsonObject(
+            with: Data(#"{"commands":[{"name":"layout","color":"  #336699  ","layout":{"pane":{"surfaces":[{"type":"terminal"}]}}}]}"#.utf8)
+        )
+        #expect(CmuxConfigTypeValidator().issues(in: object).isEmpty)
+    }
+
+    @Test func typeValidatorRejectsLegacyOverrideNamesRuntimeDiscards() throws {
+        let suiteName = "cmux-config-validator-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(["Not A Builtin": "#336699"], forKey: "workspaceTabColor.defaultOverrides")
+        let object = try JSONSerialization.jsonObject(
+            with: Data(#"{"commands":[{"name":"layout","color":"Not A Builtin","layout":{"pane":{"surfaces":[{"type":"terminal"}]}}}]}"#.utf8)
+        )
+        let names = CmuxConfigTypeValidator.workspaceColorNames(from: defaults)
+        let issues = CmuxConfigTypeValidator(workspaceColorNames: names).issues(in: object)
+        #expect(issues.contains { $0.path == "commands[0].color" })
+    }
+
+    @Test func programmaticCommandInitializerRejectsInvalidDefinitions() {
+        #expect(CmuxCommandDefinition(name: "missing") == nil)
+        #expect(CmuxCommandDefinition(name: "blank", command: "  ") == nil)
+        #expect(CmuxCommandDefinition(name: "", command: "echo") == nil)
+        #expect(CmuxShellCommandDefinition(name: "shell", command: "") == nil)
+        #expect(
+            CmuxWorkspaceLayoutCommandDefinition(
+                name: "",
+                workspace: CmuxWorkspaceDefinition()
+            ) == nil
+        )
+    }
+
+    @Test func failureLogGateClaimsEachRevisionOnce() {
         let gate = CmuxConfigDecodeFailureLogGate()
-        #expect(await gate.claim(key: "same-revision"))
-        #expect(!(await gate.claim(key: "same-revision")))
-        #expect(await gate.claim(key: "new-revision"))
+        #expect(gate.claim(path: "/tmp/config.json", key: "same-revision"))
+        #expect(!gate.claim(path: "/tmp/config.json", key: "same-revision"))
+        #expect(gate.claim(path: "/tmp/config.json", key: "new-revision"))
+        #expect(gate.claim(path: "/tmp/other.json", key: "same-revision"))
+        #expect(!gate.claim(path: "/tmp/config.json", key: "same-revision"))
+    }
+
+    @Test func decodeCacheClaimsColdRevisionOnlyOnce() {
+        let cache = CmuxConfigDecodeCache(countLimit: 2)
+        switch cache.lookupOrClaim("revision") {
+        case .miss(let isFirstLoader):
+            #expect(isFirstLoader)
+        case .hit:
+            Issue.record("Expected the first lookup to claim the cold revision")
+        }
+        switch cache.lookupOrClaim("revision") {
+        case .miss(let isFirstLoader):
+            #expect(!isFirstLoader)
+        case .hit:
+            Issue.record("Expected the in-flight revision to remain a miss")
+        }
+        cache.finishLoading("revision", isOwner: false)
+        switch cache.lookupOrClaim("revision") {
+        case .miss(let isFirstLoader):
+            #expect(!isFirstLoader)
+        case .hit:
+            Issue.record("A follower must not release the owner's in-flight claim")
+        }
+        cache.insert(config: nil, for: "revision")
+        cache.finishLoading("revision", isOwner: true)
+        switch cache.lookupOrClaim("revision") {
+        case .hit(let entry):
+            #expect(entry.config == nil)
+        case .miss:
+            Issue.record("Expected the cached failure to be reused")
+        }
     }
 
     @Test func typeIssueDiagnosticsRemoveNewlinesAndBidiControls() {

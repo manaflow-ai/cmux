@@ -6,8 +6,8 @@ struct CmuxConfigTypeIssue: Equatable, Hashable, Sendable {
     let message: String
 
     init(path: String, message: String) {
-        self.path = Self.sanitize(path)
-        self.message = Self.sanitize(message)
+        self.path = Self.sanitizeText(path, replacingNewlines: true)
+        self.message = Self.sanitizeText(message, replacingNewlines: true)
     }
 
     var description: String {
@@ -22,8 +22,9 @@ struct CmuxConfigTypeIssue: Equatable, Hashable, Sendable {
         with additional: [CmuxConfigTypeIssue]
     ) -> [CmuxConfigTypeIssue] {
         var result = primary
+        var seen = Set(primary)
         let coveredEntries = Set(primary.compactMap(\.commandEntryPath))
-        for issue in additional where !result.contains(issue) {
+        for issue in additional where seen.insert(issue).inserted {
             if let entryPath = issue.commandEntryPath, coveredEntries.contains(entryPath) {
                 continue
             }
@@ -43,10 +44,20 @@ struct CmuxConfigTypeIssue: Equatable, Hashable, Sendable {
     /// Converts a Codable failure into a concise diagnostic suitable for the
     /// config store, Vault logs, and the no-socket config doctor.
     static func decodingMessage(for error: Error) -> String {
-        sanitize(rawDecodingMessage(for: error))
+        sanitizeText(rawDecodingMessage(for: error), replacingNewlines: true)
     }
 
     private static func rawDecodingMessage(for error: Error) -> String {
+        if let splitError = error as? CmuxSplitDecodingError {
+            switch splitError {
+            case .invalidChildCount(let count):
+                let format = String(
+                    localized: "config.validation.splitChildCount",
+                    defaultValue: "Split layout must contain exactly 2 children (found %@)"
+                )
+                return String(format: format, arguments: [String(count) as NSString])
+            }
+        }
         switch error {
         case DecodingError.typeMismatch(_, let context):
             return contextMessage(context)
@@ -77,7 +88,10 @@ struct CmuxConfigTypeIssue: Equatable, Hashable, Sendable {
         context.debugDescription.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func sanitize(_ value: String) -> String {
+    /// Removes dangerous invisible controls from configuration diagnostics.
+    /// Newlines are replaced only when a message is being rendered inline;
+    /// callers that preserve multiline text can leave them unchanged.
+    static func sanitizeText(_ value: String, replacingNewlines: Bool = false) -> String {
         var result = ""
         result.reserveCapacity(value.count)
         for scalar in value.unicodeScalars {
@@ -85,7 +99,11 @@ struct CmuxConfigTypeIssue: Equatable, Hashable, Sendable {
             case 0x200B...0x200F, 0x202A...0x202E, 0x2066...0x2069, 0xFEFF:
                 continue
             case 0x0A, 0x0D:
-                result.unicodeScalars.append(UnicodeScalar(0x20)!)
+                if replacingNewlines {
+                    result.unicodeScalars.append(UnicodeScalar(0x20)!)
+                } else {
+                    result.unicodeScalars.append(scalar)
+                }
             default:
                 result.unicodeScalars.append(scalar)
             }

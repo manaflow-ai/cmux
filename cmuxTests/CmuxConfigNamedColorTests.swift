@@ -61,21 +61,16 @@ struct CmuxConfigNamedColorTests {
 
     @MainActor
     @Test func configParseCacheInvalidatesWhenWorkspaceColorPaletteChanges() throws {
+        let defaultsSuite = "cmux-config-store-colors-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-
-        let previousPalette = UserDefaults.standard.dictionary(forKey: WorkspaceTabColorSettings.paletteKey)
-        defer {
-            if let previousPalette {
-                UserDefaults.standard.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: WorkspaceTabColorSettings.paletteKey)
-            }
-        }
 
         let configURL = root.appendingPathComponent("cmux.json")
         let json = """
@@ -91,12 +86,16 @@ struct CmuxConfigNamedColorTests {
         """
         try json.write(to: configURL, atomically: true, encoding: .utf8)
 
-        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
-        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#111111"])
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false,
+            workspaceColorDefaults: defaults
+        )
+        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#111111"], defaults: defaults)
         store.loadAll()
         #expect(store.loadedCommands.first?.workspace?.color == "#111111")
 
-        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#222222"])
+        WorkspaceTabColorSettings.persistPaletteMap(["Codex Test": "#222222"], defaults: defaults)
         store.loadAll()
         #expect(store.loadedCommands.first?.workspace?.color == "#222222")
     }

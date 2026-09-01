@@ -2,21 +2,25 @@ import Foundation
 
 /// The shell-command variant of a ``CmuxCommandDefinition`` entry.
 struct CmuxShellCommandDefinition: Codable, Hashable, Sendable {
-    var name: String
+    let name: String
     var description: String?
     var keywords: [String]?
     var restart: CmuxRestartBehavior?
-    var command: String?
+    let command: String
     var confirm: Bool?
 
-    init(
+    init?(
         name: String,
         description: String? = nil,
         keywords: [String]? = nil,
         restart: CmuxRestartBehavior? = nil,
-        command: String? = nil,
+        command: String,
         confirm: Bool? = nil
     ) {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
         self.name = name
         self.description = description
         self.keywords = keywords
@@ -36,7 +40,10 @@ struct CmuxShellCommandDefinition: Codable, Hashable, Sendable {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "Command name must not be blank"
+                    debugDescription: String(
+                        localized: "config.validation.commandNameBlank",
+                        defaultValue: "Command name must not be blank"
+                    )
                 )
             )
         }
@@ -46,16 +53,40 @@ struct CmuxShellCommandDefinition: Codable, Hashable, Sendable {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must not define a blank 'command'"
+                    debugDescription: String(
+                        format: String(
+                            localized: "config.validation.commandBlank",
+                            defaultValue: "Command '%@' must not define a blank 'command'"
+                        ),
+                        name
+                    )
                 )
             )
         }
 
-        self.name = name
-        self.description = try container.decodeIfPresent(String.self, forKey: .description)
-        self.keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
-        self.restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
-        self.command = command
-        self.confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
+        guard let definition = Self(
+            name: name,
+            description: try container.decodeIfPresent(String.self, forKey: .description),
+            keywords: try container.decodeIfPresent([String].self, forKey: .keywords),
+            restart: try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart),
+            command: command,
+            confirm: try container.decodeIfPresent(Bool.self, forKey: .confirm)
+        ) else {
+            // The guards above establish this invariant; retain a typed
+            // decoding failure if that implementation ever changes.
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: String(
+                        format: String(
+                            localized: "config.validation.commandBlank",
+                            defaultValue: "Command '%@' must not define a blank 'command'"
+                        ),
+                        name
+                    )
+                )
+            )
+        }
+        self = definition
     }
 }

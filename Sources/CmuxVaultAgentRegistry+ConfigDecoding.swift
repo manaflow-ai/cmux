@@ -18,43 +18,49 @@ extension CmuxVaultAgentRegistry {
         }
 
         let cacheKey = cache.key(path: path, data: data, fileManager: fileManager)
-        if let cached = cache.entry(for: cacheKey) {
+        let lookup = cache.lookupOrClaim(cacheKey)
+        if case .hit(let cached) = lookup {
             return cached.config
+        }
+        let isFirstLoader: Bool
+        if case .miss(let firstLoader) = lookup {
+            isFirstLoader = firstLoader
+        } else {
+            isFirstLoader = false
+        }
+        // Only the owner releases the in-flight claim. Followers may finish
+        // first, and releasing from a follower would let a third caller claim
+        // the same cold revision while the owner is still decoding.
+        defer {
+            cache.finishLoading(cacheKey, isOwner: isFirstLoader)
         }
 
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
-            var typeIssues = config.commandDecodingIssues
-            if let validatorIssues = try? CmuxConfigTypeValidator(
-                workspaceColorNames: Set(WorkspaceTabColorSettings.resolvedPaletteMap().keys)
-            ).issues(in: sanitized) {
-                typeIssues = CmuxConfigTypeIssue.merged(typeIssues, with: validatorIssues)
-            }
-            let failureMessage = typeIssues.isEmpty
-                ? nil
-                : typeIssues.map(\.description).joined(separator: "; ")
-            if let failureMessage {
+            let decoded = try CmuxConfigFile.decodeAndValidate(
+                sanitizedData: sanitized,
+                workspaceColorPalette: WorkspaceTabColorSettings.resolvedPaletteMap()
+            )
+            if isFirstLoader, let failureMessage = decoded.typeIssueMessage {
                 Self.logDecodeFailure(path: path, message: failureMessage, key: cacheKey)
             }
-            cache.insert(config: config, for: cacheKey)
-            return config
+            cache.insert(config: decoded.config, for: cacheKey)
+            return decoded.config
         } catch {
             let message = Self.decodeErrorMessage(error)
-            Self.logDecodeFailure(path: path, message: message, key: cacheKey)
+            if isFirstLoader {
+                Self.logDecodeFailure(path: path, message: message, key: cacheKey)
+            }
             cache.insert(config: nil, for: cacheKey)
             return nil
         }
     }
 
     private static func logDecodeFailure(path: String, message: String, key: String) {
-        let logger = configLogger
-        Task {
-            guard await configFailureLogGate.claim(key: key) else { return }
-            logger.fault(
-                "Failed to decode config at \(path, privacy: .private): \(message, privacy: .private)"
-            )
-        }
+        guard configFailureLogGate.claim(path: path, key: key) else { return }
+        configLogger.fault(
+            "Failed to decode config at \(path, privacy: .private(mask: .hash)): \(message, privacy: .private)"
+        )
     }
 
     private static func decodeErrorMessage(_ error: Error) -> String {
@@ -62,6 +68,7 @@ extension CmuxVaultAgentRegistry {
         if !message.isEmpty {
             return message
         }
-        return error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription
+        let fallback = error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription
+        return CmuxConfigTypeIssue.sanitizeText(fallback, replacingNewlines: true)
     }
 }

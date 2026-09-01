@@ -10,7 +10,12 @@ struct CmuxConfigTypeValidator: Sendable {
 
     init(workspaceColorNames: Set<String>? = nil) {
         let names = workspaceColorNames ?? Self.workspaceColorNames(from: .standard)
-        self.workspaceColorNames = Set(names.map { $0.lowercased() })
+        self.workspaceColorNames = Set(
+            names.compactMap {
+                let normalized = $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return normalized.isEmpty ? nil : normalized
+            }
+        )
     }
 
     static let builtInWorkspaceColorNames = [
@@ -19,32 +24,59 @@ struct CmuxConfigTypeValidator: Sendable {
     ]
 
     static func workspaceColorNames(from defaults: UserDefaults) -> Set<String> {
-        var names = Set(builtInWorkspaceColorNames)
-        if let configured = defaults.dictionary(forKey: "workspaceTabColor.colors") {
-            names.formUnion(configured.keys)
+        if let configured = defaults.dictionary(forKey: "workspaceTabColor.colors") as? [String: String] {
+            // `storedPaletteMap` replaces the built-in map, so only entries
+            // with a valid persisted hex value are available at runtime.
+            return Set(configured.compactMap { name, hex in
+                guard Self.isSixDigitHexColor(hex) else { return nil }
+                let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return normalizedName.isEmpty ? nil : normalizedName
+            })
         }
-        if let overrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") {
-            names.formUnion(overrides.keys)
+        var names = Set(builtInWorkspaceColorNames)
+        if let overrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String] {
+            // The runtime legacy resolver only accepts overrides for the
+            // built-in palette. Arbitrary keys are discarded there and must
+            // not make doctor accept a color that runtime rejects.
+            names.formUnion(overrides.compactMap { name, hex in
+                guard builtInWorkspaceColorNames.contains(name),
+                      Self.isSixDigitHexColor(hex) else { return nil }
+                return name
+            })
+        }
+        if let customColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String] {
+            var index = 1
+            var seenHexes = Set<String>()
+            for rawHex in customColors {
+                guard let normalized = normalizedHexColor(rawHex), seenHexes.insert(normalized).inserted else {
+                    continue
+                }
+                while names.contains(where: { $0.caseInsensitiveCompare("Custom \(index)") == .orderedSame }) {
+                    index += 1
+                }
+                names.insert("Custom \(index)")
+                index += 1
+            }
         }
         return names
     }
 
     func issues(in object: Any) -> [CmuxConfigTypeIssue] {
         guard let root = object as? [String: Any] else {
-            return [issue(path: "root", key: "invalidField", arguments: ["an object"])]
+            return [issue(path: "root", key: "invalidField", arguments: [phrase("object", defaultValue: "an object")])]
         }
         guard let rawCommands = root["commands"], !isNull(rawCommands) else {
             return []
         }
         guard let commands = rawCommands as? [Any] else {
-            return [issue(path: "commands", key: "invalidField", arguments: ["an array"])]
+            return [issue(path: "commands", key: "invalidField", arguments: [phrase("array", defaultValue: "an array")])]
         }
 
         var issues: [CmuxConfigTypeIssue] = []
         for (index, rawEntry) in commands.enumerated() {
             let path = "commands[\(index)]"
             guard let entry = rawEntry as? [String: Any] else {
-                issues.append(issue(path: path, key: "invalidField", arguments: ["an object"]))
+                issues.append(issue(path: path, key: "invalidField", arguments: [phrase("object", defaultValue: "an object")]))
                 continue
             }
             validateEntry(entry, path: path, issues: &issues)
@@ -64,7 +96,7 @@ struct CmuxConfigTypeValidator: Sendable {
     ) {
         guard let name = entry["name"] as? String,
               !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            issues.append(issue(path: "\(path).name", key: "invalidField", arguments: ["a non-blank string"]))
+            issues.append(issue(path: "\(path).name", key: "invalidField", arguments: [phrase("nonBlankString", defaultValue: "a non-blank string")]))
             return
         }
 
@@ -73,7 +105,7 @@ struct CmuxConfigTypeValidator: Sendable {
         if let rawCommand = entry["command"], !isNull(rawCommand) {
             guard let command = rawCommand as? String,
                   !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                issues.append(issue(path: "\(path).command", key: "invalidField", arguments: ["a non-blank string"]))
+                issues.append(issue(path: "\(path).command", key: "invalidField", arguments: [phrase("nonBlankString", defaultValue: "a non-blank string")]))
                 return
             }
             // `command` is the discriminator. A mixed entry may carry stale
@@ -84,10 +116,15 @@ struct CmuxConfigTypeValidator: Sendable {
 
         if let rawWorkspace = entry["workspace"], !isNull(rawWorkspace) {
             guard let workspace = rawWorkspace as? [String: Any] else {
-                issues.append(issue(path: "\(path).workspace", key: "invalidField", arguments: ["an object"]))
+                issues.append(issue(path: "\(path).workspace", key: "invalidField", arguments: [phrase("object", defaultValue: "an object")]))
                 return
             }
-            validateWorkspace(workspace, path: "\(path).workspace", issues: &issues)
+            validateWorkspace(
+                workspace,
+                path: "\(path).workspace",
+                layoutMode: .strict,
+                issues: &issues
+            )
             return
         }
 
@@ -99,7 +136,7 @@ struct CmuxConfigTypeValidator: Sendable {
             issues.append(issue(path: path, key: "missingDefinition", arguments: []))
             return
         }
-        validateWorkspace(entry, path: path, issues: &issues)
+        validateWorkspace(entry, path: path, layoutMode: .legacyFlattenedRoot, issues: &issues)
     }
 
     private func validateCommonFields(
@@ -108,11 +145,11 @@ struct CmuxConfigTypeValidator: Sendable {
         issues: inout [CmuxConfigTypeIssue]
     ) {
         if let value = entry["description"], !isNull(value), !(value is String) {
-            issues.append(issue(path: "\(path).description", key: "invalidField", arguments: ["a string"]))
+            issues.append(issue(path: "\(path).description", key: "invalidField", arguments: [phrase("string", defaultValue: "a string")]))
         }
         if let value = entry["keywords"], !isNull(value) {
             if !((value as? [Any])?.allSatisfy({ $0 is String }) ?? false) {
-                issues.append(issue(path: "\(path).keywords", key: "invalidField", arguments: ["an array of strings"]))
+                issues.append(issue(path: "\(path).keywords", key: "invalidField", arguments: [phrase("arrayOfStrings", defaultValue: "an array of strings")]))
             }
         }
         if let value = entry["restart"], !isNull(value) {
@@ -122,47 +159,58 @@ struct CmuxConfigTypeValidator: Sendable {
             }
         }
         if let value = entry["confirm"], !isNull(value), !(value is Bool) {
-            issues.append(issue(path: "\(path).confirm", key: "invalidField", arguments: ["a boolean"]))
+            issues.append(issue(path: "\(path).confirm", key: "invalidField", arguments: [phrase("boolean", defaultValue: "a boolean")]))
         }
     }
 
     private func validateWorkspace(
         _ workspace: [String: Any],
         path: String,
+        layoutMode: CmuxLayoutDecodingMode,
         issues: inout [CmuxConfigTypeIssue]
     ) {
         for key in ["name", "cwd", "setup"] {
             if let value = workspace[key], !isNull(value), !(value is String) {
-                issues.append(issue(path: "\(path).\(key)", key: "invalidField", arguments: ["a string"]))
+                issues.append(issue(path: "\(path).\(key)", key: "invalidField", arguments: [phrase("string", defaultValue: "a string")]))
             }
         }
         if let value = workspace["color"], !isNull(value) {
-            guard let color = value as? String,
-                  !color.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                issues.append(issue(path: "\(path).color", key: "invalidField", arguments: ["a non-blank string"]))
+            guard let color = value as? String else {
+                issues.append(issue(path: "\(path).color", key: "invalidField", arguments: [phrase("nonBlankString", defaultValue: "a non-blank string")]))
                 return
             }
-            if !isSixDigitHexColor(color), !workspaceColorNames.contains(color.lowercased()) {
+            let normalizedColor = color.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedColor.isEmpty else {
+                issues.append(issue(path: "\(path).color", key: "invalidField", arguments: [phrase("nonBlankString", defaultValue: "a non-blank string")]))
+                return
+            }
+            if !Self.isSixDigitHexColor(normalizedColor), !workspaceColorNames.contains(normalizedColor.lowercased()) {
                 issues.append(issue(path: "\(path).color", key: "invalidValue", arguments: []))
             }
         }
         if let value = workspace["env"], !isNull(value) {
             if !((value as? [String: Any])?.values.allSatisfy({ $0 is String }) ?? false) {
-                issues.append(issue(path: "\(path).env", key: "invalidField", arguments: ["an object of strings"]))
+                issues.append(issue(path: "\(path).env", key: "invalidField", arguments: [phrase("objectOfStrings", defaultValue: "an object of strings")]))
             }
         }
         if let value = workspace["layout"], !isNull(value) {
             guard let layout = value as? [String: Any] else {
-                issues.append(issue(path: "\(path).layout", key: "invalidField", arguments: ["an object"]))
+                issues.append(issue(path: "\(path).layout", key: "invalidField", arguments: [phrase("object", defaultValue: "an object")]))
                 return
             }
-            validateLayout(layout, path: "\(path).layout", issues: &issues)
+            validateLayout(
+                layout,
+                path: "\(path).layout",
+                allowsLegacySingleChildSplit: layoutMode.allowsLegacySingleChildSplit,
+                issues: &issues
+            )
         }
     }
 
     private func validateLayout(
         _ node: [String: Any],
         path: String,
+        allowsLegacySingleChildSplit: Bool,
         issues: inout [CmuxConfigTypeIssue]
     ) {
         let hasPane = node.keys.contains("pane")
@@ -174,7 +222,7 @@ struct CmuxConfigTypeValidator: Sendable {
 
         if hasPane {
             guard let rawPane = node["pane"] as? [String: Any] else {
-                issues.append(issue(path: "\(path).pane", key: "invalidField", arguments: ["an object"]))
+                issues.append(issue(path: "\(path).pane", key: "invalidField", arguments: [phrase("object", defaultValue: "an object")]))
                 return
             }
             validatePane(rawPane, path: "\(path).pane", issues: &issues)
@@ -191,27 +239,34 @@ struct CmuxConfigTypeValidator: Sendable {
             return
         }
         if let value = node["split"], !isNull(value), !isJSONNumber(value) {
-            issues.append(issue(path: "\(path).split", key: "invalidField", arguments: ["a number"]))
+            issues.append(issue(path: "\(path).split", key: "invalidField", arguments: [phrase("number", defaultValue: "a number")]))
         }
         guard let rawChildren = node["children"] as? [Any] else {
-            issues.append(issue(path: "\(path).children", key: "invalidField", arguments: ["an array"]))
+            issues.append(issue(path: "\(path).children", key: "invalidField", arguments: [phrase("array", defaultValue: "an array")]))
             return
         }
-        let allowsLegacySingleChild = !path.contains(".workspace")
-        guard rawChildren.count == 2 || (allowsLegacySingleChild && rawChildren.count == 1) else {
+        guard rawChildren.count == 2 || (allowsLegacySingleChildSplit && rawChildren.count == 1) else {
             issues.append(issue(
                 path: "\(path).children",
                 key: "invalidCount",
-                arguments: [allowsLegacySingleChild ? "1 or 2" : "2"]
+                arguments: [phrase(
+                    allowsLegacySingleChildSplit ? "oneOrTwo" : "two",
+                    defaultValue: allowsLegacySingleChildSplit ? "1 or 2" : "2"
+                )]
             ))
             return
         }
         for (index, rawChild) in rawChildren.enumerated() {
             guard let child = rawChild as? [String: Any] else {
-                issues.append(issue(path: "\(path).children[\(index)]", key: "invalidField", arguments: ["an object"]))
+                issues.append(issue(path: "\(path).children[\(index)]", key: "invalidField", arguments: [phrase("object", defaultValue: "an object")]))
                 continue
             }
-            validateLayout(child, path: "\(path).children[\(index)]", issues: &issues)
+            validateLayout(
+                child,
+                path: "\(path).children[\(index)]",
+                allowsLegacySingleChildSplit: false,
+                issues: &issues
+            )
         }
     }
 
@@ -221,17 +276,17 @@ struct CmuxConfigTypeValidator: Sendable {
         issues: inout [CmuxConfigTypeIssue]
     ) {
         guard let rawSurfaces = pane["surfaces"] as? [Any] else {
-            issues.append(issue(path: "\(path).surfaces", key: "invalidField", arguments: ["an array"]))
+            issues.append(issue(path: "\(path).surfaces", key: "invalidField", arguments: [phrase("array", defaultValue: "an array")]))
             return
         }
         guard !rawSurfaces.isEmpty else {
-            issues.append(issue(path: "\(path).surfaces", key: "invalidCount", arguments: ["at least 1"]))
+            issues.append(issue(path: "\(path).surfaces", key: "invalidCount", arguments: [phrase("atLeastOne", defaultValue: "at least 1")]))
             return
         }
         for (index, rawSurface) in rawSurfaces.enumerated() {
             let surfacePath = "\(path).surfaces[\(index)]"
             guard let surface = rawSurface as? [String: Any] else {
-                issues.append(issue(path: surfacePath, key: "invalidField", arguments: ["an object"]))
+                issues.append(issue(path: surfacePath, key: "invalidField", arguments: [phrase("object", defaultValue: "an object")]))
                 continue
             }
             guard let type = surface["type"] as? String,
@@ -241,31 +296,39 @@ struct CmuxConfigTypeValidator: Sendable {
             }
             for key in ["name", "command", "cwd", "url"] {
                 if let value = surface[key], !isNull(value), !(value is String) {
-                    issues.append(issue(path: "\(surfacePath).\(key)", key: "invalidField", arguments: ["a string"]))
+                    issues.append(issue(path: "\(surfacePath).\(key)", key: "invalidField", arguments: [phrase("string", defaultValue: "a string")]))
                 }
             }
             if let value = surface["env"], !isNull(value) {
                 guard let environment = value as? [String: Any],
                       environment.values.allSatisfy({ $0 is String }) else {
-                    issues.append(issue(path: "\(surfacePath).env", key: "invalidField", arguments: ["an object of strings"]))
+                    issues.append(issue(path: "\(surfacePath).env", key: "invalidField", arguments: [phrase("objectOfStrings", defaultValue: "an object of strings")]))
                     continue
                 }
             }
             if let value = surface["focus"], !isNull(value), !(value is Bool) {
-                issues.append(issue(path: "\(surfacePath).focus", key: "invalidField", arguments: ["a boolean"]))
+                issues.append(issue(path: "\(surfacePath).focus", key: "invalidField", arguments: [phrase("boolean", defaultValue: "a boolean")]))
             }
         }
     }
 
-    private func isSixDigitHexColor(_ value: String) -> Bool {
-        let body = value.hasPrefix("#") ? value.dropFirst() : value[...]
-        let scalars = Array(body.unicodeScalars)
+    private static func isSixDigitHexColor(_ value: String) -> Bool {
+        let body = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = body.hasPrefix("#") ? body.dropFirst() : body[...]
+        let scalars = Array(digits.unicodeScalars)
         guard scalars.count == 6 else { return false }
         return scalars.allSatisfy { scalar in
             (scalar.value >= 48 && scalar.value <= 57)
                 || (scalar.value >= 65 && scalar.value <= 70)
                 || (scalar.value >= 97 && scalar.value <= 102)
         }
+    }
+
+    private static func normalizedHexColor(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isSixDigitHexColor(trimmed) else { return nil }
+        let digits = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        return "#" + digits.uppercased()
     }
 
     private func isNull(_ value: Any?) -> Bool {
@@ -276,6 +339,35 @@ struct CmuxConfigTypeValidator: Sendable {
         guard let number = value as? NSNumber else { return false }
         let type = String(cString: number.objCType)
         return type != "c" && type != "B"
+    }
+
+    private func phrase(_ key: String, defaultValue: String) -> String {
+        switch key {
+        case "array":
+            return String(localized: "config.validation.type.array", defaultValue: "an array")
+        case "arrayOfStrings":
+            return String(localized: "config.validation.type.arrayOfStrings", defaultValue: "an array of strings")
+        case "atLeastOne":
+            return String(localized: "config.validation.type.atLeastOne", defaultValue: "at least 1")
+        case "boolean":
+            return String(localized: "config.validation.type.boolean", defaultValue: "a boolean")
+        case "nonBlankString":
+            return String(localized: "config.validation.type.nonBlankString", defaultValue: "a non-blank string")
+        case "number":
+            return String(localized: "config.validation.type.number", defaultValue: "a number")
+        case "object":
+            return String(localized: "config.validation.type.object", defaultValue: "an object")
+        case "objectOfStrings":
+            return String(localized: "config.validation.type.objectOfStrings", defaultValue: "an object of strings")
+        case "oneOrTwo":
+            return String(localized: "config.validation.type.oneOrTwo", defaultValue: "1 or 2")
+        case "string":
+            return String(localized: "config.validation.type.string", defaultValue: "a string")
+        case "two":
+            return String(localized: "config.validation.type.two", defaultValue: "2")
+        default:
+            return defaultValue
+        }
     }
 
     private func issue(path: String, key: String, arguments: [String]) -> CmuxConfigTypeIssue {

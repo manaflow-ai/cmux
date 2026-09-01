@@ -17,8 +17,9 @@ enum CmuxCommandDefinition: Codable, Hashable, Identifiable, Sendable {
 
     // Keep the source-compatible initializer used by existing callers. A
     // command wins when both forms are supplied, matching the historical
-    // decoder's discriminator rule.
-    init(
+    // decoder's discriminator rule. The failable result prevents callers
+    // from constructing an entry that has neither runnable form.
+    init?(
         name: String,
         description: String? = nil,
         keywords: [String]? = nil,
@@ -27,41 +28,32 @@ enum CmuxCommandDefinition: Codable, Hashable, Identifiable, Sendable {
         command: String? = nil,
         confirm: Bool? = nil
     ) {
-        if command != nil {
-            self = .command(
-                CmuxShellCommandDefinition(
+        if let command {
+            guard let definition = CmuxShellCommandDefinition(
                     name: name,
                     description: description,
                     keywords: keywords,
                     restart: restart,
                     command: command,
                     confirm: confirm
-                )
-            )
+                ) else {
+                return nil
+            }
+            self = .command(definition)
         } else if let workspace {
-            self = .layout(
-                CmuxWorkspaceLayoutCommandDefinition(
+            guard let definition = CmuxWorkspaceLayoutCommandDefinition(
                     name: name,
                     description: description,
                     keywords: keywords,
                     restart: restart,
                     workspace: workspace,
                     confirm: confirm
-                )
-            )
+                ) else {
+                return nil
+            }
+            self = .layout(definition)
         } else {
-            // This state is only reachable from programmatic construction;
-            // decoding rejects it and CmuxConfigFile records the entry issue.
-            self = .command(
-                CmuxShellCommandDefinition(
-                    name: name,
-                    description: description,
-                    keywords: keywords,
-                    restart: restart,
-                    command: nil,
-                    confirm: confirm
-                )
-            )
+            return nil
         }
     }
 

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 /// Bounded, thread-safe cache for config decode results keyed by file content
 /// and its filesystem revision.
@@ -15,7 +16,19 @@ final class CmuxConfigDecodeCache: @unchecked Sendable {
         }
     }
 
+    enum Lookup {
+        case hit(Entry)
+        case miss(isFirstLoader: Bool)
+    }
+
+    private struct State {
+        var inFlightKeys: Set<String> = []
+    }
+
     private let entries: NSCache<NSString, Entry>
+    // Lock carve-out: only the in-flight ownership compare-and-set is guarded;
+    // JSONC parsing runs outside the lock and never blocks other cache users.
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     init(countLimit: Int = 128) {
         let entries = NSCache<NSString, Entry>()
@@ -31,8 +44,19 @@ final class CmuxConfigDecodeCache: @unchecked Sendable {
         return "\(path)|\(fileSize)|\(modificationDate)|\(digest)"
     }
 
-    func entry(for key: String) -> Entry? {
-        entries.object(forKey: key as NSString)
+    /// Returns a cached entry or claims ownership of a cold revision. A
+    /// follower may decode independently, but only the first loader publishes
+    /// a failure; this prevents concurrent misses from duplicating diagnostics.
+    func lookupOrClaim(_ key: String) -> Lookup {
+        if let entry = entries.object(forKey: key as NSString) {
+            return .hit(entry)
+        }
+        return state.withLock { state in
+            if let entry = entries.object(forKey: key as NSString) {
+                return .hit(entry)
+            }
+            return .miss(isFirstLoader: state.inFlightKeys.insert(key).inserted)
+        }
     }
 
     func insert(config: CmuxConfigFile?, for key: String) {
@@ -40,5 +64,13 @@ final class CmuxConfigDecodeCache: @unchecked Sendable {
             Entry(config: config),
             forKey: key as NSString
         )
+    }
+
+    func finishLoading(_ key: String, isOwner: Bool) {
+        guard isOwner else { return }
+        state.withLock { state in
+            state.inFlightKeys.remove(key)
+            return ()
+        }
     }
 }

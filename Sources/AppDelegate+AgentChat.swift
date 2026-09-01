@@ -188,10 +188,12 @@ extension AppDelegate {
                 ),
             ]))
         )
-        let command = CmuxCommandDefinition(
+        guard let command = CmuxCommandDefinition(
             name: workspaceName,
             workspace: workspaceDefinition
-        )
+        ) else {
+            return nil
+        }
         let baseCwd = tabManager.selectedWorkspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         guard CmuxConfigExecutor.executeWorkspaceCommand(

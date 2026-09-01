@@ -226,7 +226,7 @@ def main() -> int:
             print(f"FAIL: {failure}")
         return 1
 
-    print("PASS: cmux config doctor validates JSONC and reports syntax errors")
+    print("PASS: cmux config doctor validates JSONC and command-entry types")
     return 0
 
 

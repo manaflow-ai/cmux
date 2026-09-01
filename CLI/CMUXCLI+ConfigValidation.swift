@@ -14,7 +14,12 @@ extension CMUXCLI {
             displayPath: target.displayPath,
             path: target.path,
             status: issues.isEmpty ? "ok" : "error",
-            message: issues.isEmpty ? "JSONC syntax is valid" : issues.map(\.description).joined(separator: "; "),
+            message: issues.isEmpty
+                ? String(
+                    localized: "config.doctor.valid",
+                    defaultValue: "JSONC syntax and command entries are valid"
+                )
+                : issues.map(\.description).joined(separator: "; "),
             keys: dictionary.keys.sorted(),
             byteCount: byteCount
         )
