@@ -887,6 +887,7 @@ mod tests {
             terminal_output: None,
         };
         assert!(restore_preview(&checkpoint, &[record.clone(), record.clone()], 4).is_err());
+        assert!(restore_preview(&checkpoint, &[record.clone()], 5).is_err());
         let mut gapped = record;
         gapped.sequence = 5;
         assert!(restore_preview(&checkpoint, &[gapped], 5).is_err());
