@@ -5501,11 +5501,11 @@ impl Mux {
                 // A receipt is authoritative for an exact retry. Its ingress
                 // may name a superseded manifest after a producer upgrade,
                 // while a new ingress must still pass current validation.
-                if let Some(commit) = self.workspace_registry.lock().unwrap().replay_journal_ingress(
-                    ingress,
-                    origin,
-                    idempotency_key,
-                )? {
+                let replay = {
+                    let registry = self.workspace_registry.lock().unwrap();
+                    registry.replay_journal_ingress(ingress, origin, idempotency_key)?
+                };
+                if let Some(commit) = replay {
                     return self.finish_journal_ingress(ingress, origin, idempotency_key, commit);
                 }
                 return Err(validation_error);
