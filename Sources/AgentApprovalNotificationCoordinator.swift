@@ -28,7 +28,7 @@ final class AgentApprovalNotificationCoordinator {
         /// Optional producer key supplied by the source notification. The
         /// coordinator still owns the episode key, while the queue keeps this
         /// alias so a producer can clear its exact notification.
-        let producerCorrelationKey: String? = nil
+        let producerCorrelationKey: String?
     }
 
     struct Clear: Equatable, Sendable {
