@@ -76,18 +76,21 @@ struct VaultResumeRegistrationTemplate: Sendable {
 
         var words: [String] = []
         var current = ""
+        var hasToken = false
         var quote: Quote?
         var escaping = false
         let doubleQuoteEscapable: Set<Character> = ["$", "`", "\"", "\\", "\n"]
 
         func finishWord() {
-            guard !current.isEmpty else { return }
+            guard hasToken else { return }
             words.append(current)
             current = ""
+            hasToken = false
         }
 
         for character in command {
             if escaping {
+                hasToken = true
                 if quote == .double, !doubleQuoteEscapable.contains(character) {
                     current.append("\\")
                 }
@@ -96,6 +99,7 @@ struct VaultResumeRegistrationTemplate: Sendable {
                 continue
             }
             if character == "\\", quote != .single {
+                hasToken = true
                 escaping = true
                 continue
             }
@@ -103,12 +107,15 @@ struct VaultResumeRegistrationTemplate: Sendable {
             case (.single, "'"), (.double, "\""):
                 quote = nil
             case (nil, "'"):
+                hasToken = true
                 quote = .single
             case (nil, "\""):
+                hasToken = true
                 quote = .double
             case (nil, " "), (nil, "\t"), (nil, "\n"):
                 finishWord()
             default:
+                hasToken = true
                 current.append(character)
             }
         }
