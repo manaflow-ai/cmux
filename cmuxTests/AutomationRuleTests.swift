@@ -542,12 +542,16 @@ struct AutomationRuleTests {
             try await ContinuousClock().sleep(for: .milliseconds(20))
         }
         #expect(markerContents == "workspace.created")
-        #expect(
-            engine.logsPayload(limit: 32).contains {
+        var completed = false
+        for _ in 0..<250 {
+            completed = engine.logsPayload(limit: 32).contains {
                 ($0["rule_id"] as? String) == "run-marker" &&
                     ($0["status"] as? String) == "completed"
             }
-        )
+            if completed { break }
+            try await ContinuousClock().sleep(for: .milliseconds(20))
+        }
+        #expect(completed)
     }
 
     @Test("engine stops a direct action cycle")
