@@ -106,15 +106,11 @@ public struct CmuxValidatedImageAsset {
     ///   - configSourcePath: Config file used to resolve relative paths.
     ///   - globalConfigPath: Canonical global config path used to distinguish
     ///     project-local confinement from global settings.
-    ///   - readContents: Optional read seam for focused tests. When omitted,
-    ///     validation opens one descriptor and reads at most ``maxImageBytes``
-    ///     + 1 bytes.
     /// - Returns: Prepared image data, or a path-free validation failure.
     public static func prepare(
         _ path: String,
         relativeToConfig configSourcePath: String?,
-        globalConfigPath: String,
-        readContents: ((String) -> Data?)? = nil
+        globalConfigPath: String
     ) -> Result<Prepared, Failure> {
         guard let resolvedPath = safeResolvedImagePath(
             path,
@@ -143,20 +139,14 @@ public struct CmuxValidatedImageAsset {
               fileSize.int64Value <= Int64(maxImageBytes) else {
             return .failure(.tooLarge)
         }
-        let data: Data?
-        if let readContents {
-            data = readContents(resolvedPath)
-        } else {
-            data = boundedImageContents(atPath: resolvedPath)
-        }
-        guard let data else {
+        guard let data = boundedImageContents(atPath: resolvedPath) else {
             return .failure(.unreadableFile)
         }
         guard data.count <= maxImageBytes else {
             return .failure(.tooLarge)
         }
-        if (resolvedPath as NSString).pathExtension.lowercased() == "svg",
-           !isSafeSVG(data: data) {
+        let hasSVGExtension = (resolvedPath as NSString).pathExtension.lowercased() == "svg"
+        if (hasSVGExtension || isSVGDocument(data: data)) && !isSafeSVG(data: data) {
             return .failure(.unsafeSVG)
         }
 
@@ -217,6 +207,33 @@ public struct CmuxValidatedImageAsset {
             data.append(chunk)
         }
         return data
+    }
+
+    private static func isSVGDocument(data: Data) -> Bool {
+        let detector = SVGRootElementDetector()
+        let parser = XMLParser(data: data)
+        parser.delegate = detector
+        parser.shouldProcessNamespaces = false
+        parser.shouldResolveExternalEntities = false
+        _ = parser.parse()
+        return detector.isSVG
+    }
+
+    private final class SVGRootElementDetector: NSObject, XMLParserDelegate {
+        var isSVG = false
+
+        func parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?,
+            attributes attributeDict: [String: String] = [:]
+        ) {
+            let localName = String(elementName.split(separator: ":").last ?? "")
+                .lowercased()
+            isSVG = localName == "svg"
+            parser.abortParsing()
+        }
     }
 
     private static func safeResolvedImagePath(

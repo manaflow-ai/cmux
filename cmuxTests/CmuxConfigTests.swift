@@ -459,6 +459,38 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
+    func testEquivalentGlobalConfigPathsDoNotMarkImageAsProjectLocal() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-svg-global-path-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigPath = globalDirectory.appendingPathComponent("cmux.json").path
+        let equivalentConfigPath = globalDirectory.path + "/./cmux.json"
+        let iconPath = globalDirectory.appendingPathComponent("safe.svg")
+        let data = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><circle/></svg>".utf8)
+        try data.write(to: iconPath)
+
+        let icon = CmuxButtonIcon.imagePath("safe.svg")
+        XCTAssertEqual(
+            icon.bonsplitIcon(
+                configSourcePath: equivalentConfigPath,
+                globalConfigPath: globalConfigPath,
+                allowProjectLocalImage: false
+            ),
+            .imageData(data)
+        )
+        XCTAssertNil(
+            icon.projectLocalImageFingerprint(
+                configSourcePath: equivalentConfigPath,
+                globalConfigPath: globalConfigPath
+            )
+        )
+    }
+
     func testProjectLocalSVGIconRejectsExternalReferences() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-svg-\(UUID().uuidString)",

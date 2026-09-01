@@ -64,18 +64,12 @@ struct CmuxValidatedImageAssetTests {
 
         let imageURL = directory.appendingPathComponent("large.png")
         try Data(repeating: 0, count: CmuxValidatedImageAsset.maxImageBytes + 1).write(to: imageURL)
-        var requestedContentPaths: [String] = []
         let result = CmuxValidatedImageAsset.prepare(
             imageURL.path,
             relativeToConfig: nil,
-            globalConfigPath: directory.appendingPathComponent("cmux.json").path,
-            readContents: { path in
-                requestedContentPaths.append(path)
-                return nil
-            }
+            globalConfigPath: directory.appendingPathComponent("cmux.json").path
         )
         #expect(result == .failure(.tooLarge))
-        #expect(requestedContentPaths.isEmpty)
     }
 
     @Test
@@ -87,30 +81,20 @@ struct CmuxValidatedImageAssetTests {
 
         let imageURL = directory.appendingPathComponent("icon.png")
         try Data(repeating: 0x01, count: 1).write(to: imageURL)
-        var replacementPerformed = false
-        var bytesRead: Int?
+        let metadata = try FileManager.default.attributesOfItem(atPath: imageURL.path)
+        #expect((metadata[.size] as? NSNumber)?.intValue == 1)
 
-        let result = CmuxValidatedImageAsset.prepare(
-            imageURL.path,
-            relativeToConfig: nil,
-            globalConfigPath: directory.appendingPathComponent("cmux.json").path,
-            readContents: { path in
-                // Replace the file after metadata validation, modeling the
-                // TOCTOU window that must not trigger an unbounded read.
-                replacementPerformed = true
-                try? Data(
-                    repeating: 0x02,
-                    count: CmuxValidatedImageAsset.maxImageBytes + 1
-                ).write(to: URL(fileURLWithPath: path), options: .atomic)
-                let data = CmuxValidatedImageAsset.boundedImageContents(atPath: path)
-                bytesRead = data?.count
-                return data
-            }
-        )
+        // Replace the file after the metadata check, modeling the TOCTOU
+        // window. The production reader opens one descriptor and caps the
+        // returned bytes at maxImageBytes + 1.
+        try Data(
+            repeating: 0x02,
+            count: CmuxValidatedImageAsset.maxImageBytes + 1
+        ).write(to: imageURL, options: .atomic)
+        let data = CmuxValidatedImageAsset.boundedImageContents(atPath: imageURL.path)
 
-        #expect(replacementPerformed)
-        #expect(bytesRead == CmuxValidatedImageAsset.maxImageBytes + 1)
-        #expect(result == .failure(.tooLarge))
+        #expect(data?.count == CmuxValidatedImageAsset.maxImageBytes + 1)
+        #expect(data?.prefix(1) == Data([0x02]))
     }
 
     @Test
@@ -152,5 +136,25 @@ struct CmuxValidatedImageAssetTests {
                 "Expected \(fileName) to be rejected, got \(result)"
             )
         }
+    }
+
+    @Test
+    func rejectsUnsafeSVGRegardlessOfFilenameExtension() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-validated-image-disguised-svg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let imageURL = directory.appendingPathComponent("icon.png")
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"
+        try Data(svg.utf8).write(to: imageURL)
+
+        let result = CmuxValidatedImageAsset.prepare(
+            imageURL.path,
+            relativeToConfig: nil,
+            globalConfigPath: directory.appendingPathComponent("cmux.json").path
+        )
+
+        #expect(result == .failure(.unsafeSVG))
     }
 }

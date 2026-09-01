@@ -216,18 +216,12 @@ struct AppIconAppearanceObserverTests {
 
         let imageURL = directory.appendingPathComponent("large.png")
         try Data(repeating: 0, count: CmuxValidatedImageAsset.maxImageBytes + 1).write(to: imageURL)
-        var requestedContentPaths: [String] = []
         let result = CmuxValidatedImageAsset.prepare(
             imageURL.path,
             relativeToConfig: nil,
-            globalConfigPath: AppIconImageResolver.defaultConfigPath,
-            readContents: { path in
-                requestedContentPaths.append(path)
-                return nil
-            }
+            globalConfigPath: AppIconImageResolver.defaultConfigPath
         )
         #expect(result == .failure(.tooLarge))
-        #expect(requestedContentPaths.isEmpty)
     }
 
     @Test

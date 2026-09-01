@@ -551,7 +551,14 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
             globalConfigPath: globalConfigPath
         ) {
         case .success(let prepared):
-            let isProjectLocal = configSourcePath != nil && configSourcePath != globalConfigPath
+            let normalizedGlobal = CmuxValidatedImageAsset.normalizedPath(
+                globalConfigPath,
+                relativeToConfig: nil
+            )
+            let normalizedSource = configSourcePath.flatMap {
+                CmuxValidatedImageAsset.normalizedPath($0, relativeToConfig: nil)
+            }
+            let isProjectLocal = configSourcePath != nil && normalizedSource != normalizedGlobal
             return PreparedImageAsset(
                 data: prepared.data,
                 fingerprint: prepared.fingerprint,
