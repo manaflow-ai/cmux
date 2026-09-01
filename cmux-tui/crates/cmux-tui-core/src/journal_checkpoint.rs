@@ -776,6 +776,38 @@ mod tests {
         }
     }
 
+    fn resource_record(
+        sequence: u64,
+        resource_revision: u64,
+        previous_resource_revision: u64,
+        workspace_id: &str,
+    ) -> SessionJournalRecord {
+        SessionJournalRecord {
+            sequence,
+            event_id: format!("event_resource_{sequence}"),
+            schema_version: 1,
+            kind: "workspace.create".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: sequence,
+            committed_at_ms: sequence,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"changes":[
+                {"kind":"upsert","resource":"workspace","id":workspace_id,
+                 "value":{"id":workspace_id,"index":0}},
+            ]}),
+            resource_revision: Some(resource_revision),
+            previous_resource_revision: Some(previous_resource_revision),
+            terminal_output: None,
+        }
+    }
+
     #[test]
     fn reducer_applies_resource_upserts_and_deletes() {
         let checkpoint = JournalCheckpoint {
@@ -821,6 +853,71 @@ mod tests {
         assert_eq!(preview["fully_reducible"], true);
         assert_eq!(preview["state"]["session_snapshot"]["workspaces"][0]["id"], "workspace_new");
         assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "2");
+    }
+
+    #[test]
+    fn reducer_accepts_contiguous_resource_revisions() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_contiguous_resource_revisions".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({
+                "session_snapshot":{
+                    "cursor":{"generation":"generation","revision":"1"},
+                    "workspaces":[],
+                },
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let records = vec![
+            resource_record(4, 2, 1, "workspace_one"),
+            resource_record(5, 3, 2, "workspace_two"),
+        ];
+
+        let preview = restore_preview(&checkpoint, &records, 5).unwrap();
+
+        assert_eq!(preview["fully_reducible"], true);
+        assert_eq!(preview["unsupported_required_record_count"], "0");
+        assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "3");
+    }
+
+    #[test]
+    fn reducer_rejects_resource_revision_gap_and_stale_predecessor() {
+        for (checkpoint_revision, resource_revision, previous_revision) in [(1, 3, 2), (2, 3, 1)] {
+            let checkpoint = JournalCheckpoint {
+                checkpoint_id: format!(
+                    "checkpoint_invalid_resource_revision_{checkpoint_revision}_{previous_revision}"
+                ),
+                source_sequence: 3,
+                reducer_version: JOURNAL_REDUCER_VERSION,
+                state: json!({
+                    "session_snapshot":{
+                        "cursor":{
+                            "generation":"generation",
+                            "revision":checkpoint_revision.to_string(),
+                        },
+                        "workspaces":[],
+                    },
+                    "journal_extensions":{"producers":[],"hooks":[]},
+                }),
+                content_refs: vec![],
+                sha256: "00".repeat(32),
+                created_at_ms: 1,
+            };
+            let record = resource_record(4, resource_revision, previous_revision, "workspace_new");
+
+            let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
+
+            assert_eq!(preview["fully_reducible"], false);
+            assert_eq!(preview["unsupported_required_record_count"], "1");
+            assert_eq!(
+                preview["state"]["session_snapshot"]["cursor"]["revision"],
+                checkpoint_revision.to_string()
+            );
+        }
     }
 
     #[test]
