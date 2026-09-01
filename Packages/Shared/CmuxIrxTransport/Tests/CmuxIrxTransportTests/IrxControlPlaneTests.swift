@@ -158,7 +158,10 @@ import Testing
             throw IrxConnectionError.closed(nil)
         }
         await engine.relayHintChanged(trigger: "test-idle")
-        try await Task.sleep(for: .milliseconds(50))
+        // `relayHintChanged` completes after the engine has processed the
+        // event. Yield once so any incorrectly scheduled dial task gets a
+        // chance to run, without introducing a timing-based assertion.
+        await Task.yield()
         #expect(gate.dialCount == 0)
     }
 }
