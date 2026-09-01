@@ -1,8 +1,5 @@
 import CmuxTerminal
 import Foundation
-#if canImport(Darwin)
-import Darwin
-#endif
 #if DEBUG
 import CMUXDebugLog
 #endif
@@ -300,9 +297,8 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     private static let maxQueuedWrites = 64
 
     private let lock = NSLock()
-    /// Serializes handle replacement with the check and actual write. The
-    /// generation check alone cannot fence a writer after it unlocks and
-    /// before FileHandle.write starts.
+    /// Serializes queued writes so a handle replacement can invalidate later
+    /// writes without interleaving bytes from different relay generations.
     private let writeLock = NSLock()
     private var handle: FileHandle?
     private var lastGeometryClaim: TimeInterval = 0
@@ -317,10 +313,6 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     /// worse than losing keystrokes typed into a dead pane). A fresh handle
     /// counts as a claim: the relay claims geometry itself at attach.
     func setHandle(_ newHandle: FileHandle?, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        writeLock.lock()
-        if let newHandle {
-            makeNonBlocking(newHandle)
-        }
         lock.lock()
         generation &+= 1
         handle = newHandle
@@ -331,25 +323,12 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
             needsGeometryClaim = false
         }
         lock.unlock()
-        writeLock.unlock()
     }
 
     func setWriteFailureHandler(_ handler: @escaping @Sendable () -> Void) {
         lock.lock()
         writeFailureHandler = handler
         lock.unlock()
-    }
-
-    private func makeNonBlocking(_ handle: FileHandle) {
-#if canImport(Darwin)
-        let descriptor = handle.fileDescriptor
-        let flags = fcntl(descriptor, F_GETFL)
-        if flags >= 0 {
-            _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK)
-        }
-#else
-        _ = handle
-#endif
     }
 
     func send(_ line: Data) {
@@ -451,12 +430,11 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     /// Closes and detaches the current handle (relay stdin EOF = clean
     /// detach on the relay side).
     func closeHandle() {
-        writeLock.lock()
         lock.lock()
         let target = handle
         handle = nil
+        generation &+= 1
         lock.unlock()
-        writeLock.unlock()
         guard let target else { return }
         queue.async {
             try? target.close()
