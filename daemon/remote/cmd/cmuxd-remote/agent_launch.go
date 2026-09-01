@@ -75,6 +75,14 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 		configureClaudeNodeOptions(restoreModulePath)
 	}
 
+	// Record the fully configured launch environment last, so teammate respawns
+	// replay the PATH this process actually execs claude with.
+	if encoded := encodeClaudeTeamsRespawnEnvironment(os.Environ()); encoded != "" {
+		os.Setenv(claudeTeamsRespawnEnvironmentKey, encoded)
+	} else {
+		os.Unsetenv(claudeTeamsRespawnEnvironmentKey)
+	}
+
 	launchArgs := claudeTeamsLaunchArgs(args)
 
 	argv := append([]string{claudePath}, launchArgs...)
@@ -474,6 +482,18 @@ func configureAgentEnvironment(cfg agentConfig) {
 	// Preserve COLORTERM for truecolor support in subagent panes.
 	if os.Getenv("COLORTERM") == "" {
 		os.Setenv("COLORTERM", "truecolor")
+	}
+
+	// Drop launch state inherited from an enclosing claude-teams process tree: its
+	// PATH must not replace this agent's own in a respawn, and its trust-prompt
+	// bypass must not waive this agent's own prompt. cfg.extraEnv is applied after
+	// this, and runClaudeTeamsRelay records its own transport once this returns.
+	for _, key := range []string{
+		"CLAUDE_CODE_SANDBOXED",
+		"CMUX_CLAUDE_TEAMS_SANDBOXED",
+		claudeTeamsRespawnEnvironmentKey,
+	} {
+		os.Unsetenv(key)
 	}
 
 	// Publish only the socket-validated inherited routing identity. Invalid or
