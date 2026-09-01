@@ -16840,6 +16840,7 @@ impl App {
         let handle = self.session.surface(surface)?;
         let (range, content_generation) =
             handle.with_terminal_and_generation(|terminal, generation| {
+                let point = terminal.normalize_selection_point_screen(point)?;
                 let range = match mode {
                     SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
                     SelectionMode::Line => terminal
@@ -17072,6 +17073,8 @@ impl App {
         }
         let (range, content_generation) = handle
             .with_terminal_and_generation(|terminal, generation| {
+                let anchor_point = terminal.normalize_selection_point_screen(anchor_point)?;
+                let current_point = terminal.normalize_selection_point_screen(current_point)?;
                 let range = match mode {
                     SelectionMode::Word => {
                         // Query both directions: Ghostty's nearest-word lookup is
