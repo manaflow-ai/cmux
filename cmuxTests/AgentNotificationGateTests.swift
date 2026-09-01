@@ -362,6 +362,40 @@ import Testing
         #expect(fixture.clears.isEmpty)
     }
 
+    @Test func resolvingDisplayedApprovalRefreshesCoalescedNotification() throws {
+        let fixture = Fixture()
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "first tool needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "newer tool needs approval",
+            approvalID: Self.secondApprovalID
+        )
+        fixture.scheduler.runAll()
+        let displayed = try #require(fixture.deliveries.first)
+        #expect(displayed.body == "newer tool needs approval")
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.secondApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.clears.count == 1)
+        #expect(fixture.clears.first?.correlationKey == displayed.correlationKey)
+        #expect(fixture.deliveries.count == 2)
+        #expect(fixture.deliveries.last?.body == "first tool needs approval")
+    }
+
     @Test func turnResolutionCancelsDeniedApprovalBeforeDelivery() {
         let fixture = Fixture()
 

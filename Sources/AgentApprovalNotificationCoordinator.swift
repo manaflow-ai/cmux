@@ -57,6 +57,7 @@ final class AgentApprovalNotificationCoordinator {
         var scheduledAt: TimeInterval?
         var cancelScheduled: Cancellation?
         var deliveredCorrelationKey: String?
+        var deliveredApprovalID: String? = nil
         var cancelEpisodeExpiry: Cancellation?
         var episodeID: UUID?
     }
@@ -337,13 +338,38 @@ final class AgentApprovalNotificationCoordinator {
         if let latest = state.candidates.values.max(by: { $0.sequence < $1.sequence }) {
             state.workspaceID = latest.workspaceID
         }
+        let displayedApprovalResolved = state.deliveredCorrelationKey != nil
+            && state.deliveredApprovalID.map { state.candidates[$0] == nil } == true
+        let replacementClear: Clear?
+        if displayedApprovalResolved, let deliveredCorrelationKey = state.deliveredCorrelationKey {
+            replacementClear = Clear(
+                workspaceID: state.workspaceID,
+                surfaceID: surfaceID,
+                correlationKey: deliveredCorrelationKey
+            )
+            state.deliveredCorrelationKey = nil
+            state.deliveredApprovalID = nil
+            state.cancelEpisodeExpiry?()
+            state.cancelEpisodeExpiry = nil
+            state.episodeID = nil
+        } else {
+            replacementClear = nil
+        }
         panes[surfaceID] = state
-        guard state.deliveredCorrelationKey == nil else { return }
-        scheduleNextFlush(
-            surfaceID: surfaceID,
-            timestamp: timestamp,
-            replacingExistingSchedule: true
-        )
+        if let replacementClear {
+            clear(replacementClear)
+            scheduleNextFlush(
+                surfaceID: surfaceID,
+                timestamp: timestamp,
+                replacingExistingSchedule: true
+            )
+        } else if state.deliveredCorrelationKey == nil {
+            scheduleNextFlush(
+                surfaceID: surfaceID,
+                timestamp: timestamp,
+                replacingExistingSchedule: true
+            )
+        }
     }
 
     private func scheduleNextFlush(
@@ -405,6 +431,7 @@ final class AgentApprovalNotificationCoordinator {
         let correlationKey = Self.approvalCorrelationPrefix + UUID().uuidString
         state.workspaceID = candidate.workspaceID
         state.deliveredCorrelationKey = correlationKey
+        state.deliveredApprovalID = candidate.approvalID.rawValue
         state.cancelEpisodeExpiry?()
         let episodeID = UUID()
         state.episodeID = episodeID
