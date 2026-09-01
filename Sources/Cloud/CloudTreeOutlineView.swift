@@ -439,7 +439,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // that remote workspace — never a jump to a VNC pane in a different
                 // workspace. Pool rows (openIn == nil) keep the global open-or-focus.
                 if let openIn {
-                    nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                    nodeActions.projectInLocalWorkspace(resource.id, openIn, .split)
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
@@ -623,16 +623,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// tab, a second pane (cloud resources only — a local terminal has one pane),
         /// and copying the resource id agents use with `cmux vm open`.
         private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool, openInLocalWorkspace: UUID? = nil) -> [NSMenuItem] {
+            // Same scope rule as the row's click, for every verb that may reuse a pane
+            // (one shared path): a workspace's Desktop row never teleports elsewhere.
+            let open: (SurfacePlacement) -> Void = { [nodeActions] placement in
+                if let openInLocalWorkspace {
+                    nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace, placement)
+                } else {
+                    nodeActions.project(resource.id, placement, true)
+                }
+            }
             var items: [NSMenuItem] = [
-                item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
-                    // Same scope rule as the row's open verb (one shared path).
-                    if let openInLocalWorkspace {
-                        nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
-                    } else {
-                        nodeActions.project(resource.id, .split, true)
-                    }
-                },
-                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in nodeActions.project(resource.id, .tab, true) },
+                item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { open(.split) },
+                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { open(.tab) },
             ]
             if !isLocal {
                 items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in nodeActions.project(resource.id, .split, false) })

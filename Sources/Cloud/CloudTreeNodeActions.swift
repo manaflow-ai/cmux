@@ -11,7 +11,7 @@ struct CloudTreeNodeActions {
     /// Project a resource into ONE local workspace, reusing only a pane already in it
     /// (a workspace's own Desktop row: a VNC pane in another workspace neither
     /// satisfies the open nor steals focus).
-    let projectInLocalWorkspace: @MainActor (_ resource: SurfaceResourceID, _ workspaceID: UUID) -> Void
+    let projectInLocalWorkspace: @MainActor (_ resource: SurfaceResourceID, _ workspaceID: UUID, _ placement: SurfacePlacement) -> Void
     /// Start a plain terminal on a machine (in a cmux-tui workspace when given) and show it.
     let newTerminal: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) -> Void
     /// Open a whole group (a workspace's terminals and browsers): the first at the
@@ -87,11 +87,11 @@ struct CloudTreeNodeActions {
                     _ = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
                 }
             },
-            projectInLocalWorkspace: { resource, workspaceID in
+            projectInLocalWorkspace: { resource, workspaceID, placement in
                 run(openingLabel(resource.machine)) { catalog in
                     _ = try await catalog.project(
                         resource,
-                        into: .workspace(id: workspaceID, placement: .split),
+                        into: .workspace(id: workspaceID, placement: placement),
                         focus: true,
                         reuseExisting: true,
                         reuseInWorkspace: workspaceID

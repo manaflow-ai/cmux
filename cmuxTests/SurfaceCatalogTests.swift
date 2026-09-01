@@ -229,6 +229,60 @@ struct SurfaceCatalogTests {
         #expect(provider.materialized.count == 2)
     }
 
+    @Test func `Concurrent scoped opens into one workspace share the materialization`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "display_like")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        let ws = UUID()
+        let destination = SurfaceDestination.workspace(id: ws, placement: .split)
+
+        let first = Task { try await catalog.project(term.id, into: destination, reuseInWorkspace: ws) }
+        await gate.waitUntilEntered()
+
+        let (secondStarted, secondStartedContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let second = Task { @MainActor in
+            secondStartedContinuation.yield(())
+            secondStartedContinuation.finish()
+            return try await catalog.project(term.id, into: destination, reuseInWorkspace: ws)
+        }
+        _ = try await awaitFirst(secondStarted)
+        #expect(provider.materialized.count == 1, "a double-click on one workspace's Desktop row must not make two panes")
+
+        gate.release()
+        let firstResult = try await first.value
+        let secondResult = try await second.value
+        #expect(!firstResult.reused)
+        #expect(secondResult.reused)
+        #expect(firstResult.projection == secondResult.projection)
+        #expect(catalog.projections(of: term.id).count == 1)
+    }
+
+    @Test func `A scoped open whose resource vanished mid-materialization discards the pane`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "display_like")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        let ws = UUID()
+
+        let open = Task { try await catalog.project(term.id, into: .workspace(id: ws, placement: .split), reuseInWorkspace: ws) }
+        await gate.waitUntilEntered()
+        catalog.replaceResources([], on: .cloud("vivid-newt"))
+        gate.release()
+
+        await #expect(throws: SurfaceCatalogError.self) { try await open.value }
+        #expect(provider.discardInvocations.count == 1, "the late pane is handed back to the provider, not recorded")
+        #expect(catalog.projections(of: term.id).isEmpty)
+    }
+
     @Test func `Concurrent reuse waits for the in-flight materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))

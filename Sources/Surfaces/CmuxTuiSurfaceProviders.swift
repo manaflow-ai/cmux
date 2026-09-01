@@ -272,22 +272,36 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     /// Runs one close-family command, reconnecting and retrying ONCE when the attempt
-    /// died with the link ("cmux-tui link exited with status …": a dropped tunnel kills
-    /// the whole client run). Safe here because every close verb is idempotent — a
-    /// second attempt against an already-closed target is `selector.not_found`, which
-    /// the callers already tolerate. Non-idempotent verbs (create, run) must not use it.
+    /// died in transport (a dropped tunnel kills the whole client run mid-command).
+    /// Server answers — exit 1 with a structured error such as `selector.not_found` —
+    /// are real results and pass through untouched. Safe here because every close verb
+    /// is idempotent; non-idempotent verbs (create, run) must not use it.
     private func runCloseCommand(_ arguments: (_ socketPath: String) -> [String]) async throws -> Data {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         do {
             return try await link.run(arguments: arguments(connected.socketPath))
         } catch {
-            // selector.not_found is a real answer, not a transport failure.
-            if Self.isSelectorNotFound(error) { throw error }
-            let reconnected = try await links.connected(machineID: machineID)
-            guard let fresh = await links.link(machineID: machineID) else { throw error }
+            guard Self.isTransportDeath(error) else { throw error }
+            // The link learns of its own death asynchronously; one that still claims
+            // to be connected after a transport failure is torn down first so the retry
+            // gets a fresh tunnel instead of the same dead socket.
+            if await links.link(machineID: machineID) === link, await link.isConnected {
+                await links.disconnect(machineID: machineID)
+            }
+            // A failed reconnect reports the close the user acted on, not its own error.
+            guard let reconnected = try? await links.connected(machineID: machineID),
+                  let fresh = await links.link(machineID: machineID) else { throw error }
             return try await fresh.run(arguments: arguments(reconnected.socketPath))
         }
+    }
+
+    /// The cmux-tui client exits 3 for transport and protocol failures (cannot connect
+    /// to the socket, write failed, transport closed before a response); structured
+    /// server errors exit 1 and are answers, not failures to retry.
+    private static func isTransportDeath(_ error: Error) -> Bool {
+        if case CloudMachineLink.LinkError.exited(let status, _) = error { return status == 3 }
+        return false
     }
 
     /// `terminal <id> close`; a terminal whose process already exited is gone from
@@ -298,7 +312,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
         } catch {
             guard let tabID = tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
-            _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
+            do {
+                _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
+            } catch {
+                // A close whose first attempt reached cmux-tui before the link died is
+                // already applied: not-found on the second look means gone, not failed.
+                guard Self.isSelectorNotFound(error) else { throw error }
+            }
         }
         closeLocalPanes(showing: [id])
         catalog.remove(id)
@@ -321,7 +341,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Terminals…") go through `CloudTreeNodeActions.deleteWorkspaceAndTerminals`,
     /// which closes each terminal first.
     func closeRemoteWorkspace(id: String) async throws {
-        _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
+        do {
+            _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
+        } catch {
+            // Already gone (a retry after the first attempt landed, or closed elsewhere):
+            // the local state update below is still the right outcome.
+            guard Self.isSelectorNotFound(error) else { throw error }
+        }
         info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
         catalog.updateMachine(info)
         scheduleRefresh()
