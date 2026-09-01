@@ -7,6 +7,7 @@
 //! identified by manifest id/alias strings instead of a closed enum, and
 //! the explain machinery is trimmed to what the detector consumes.
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use regex::Regex;
@@ -21,6 +22,8 @@ const MAX_TOTAL_GATES: usize = 512;
 const MAX_MATCHERS_PER_GATE: usize = 32;
 const MAX_TOTAL_MATCHERS: usize = 1024;
 const MAX_MATCHER_CHARS: usize = 512;
+const MAX_REGION_CACHE_ENTRIES: usize = 64;
+const MAX_REGION_CACHE_BYTES: usize = 512 * 1024;
 
 /// Detection states a manifest rule can assign to a screen snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,9 +177,26 @@ impl CompiledManifest {
     /// (herdr's `default_known_agent_idle_fallback`).
     pub(crate) fn detect(&self, input: DetectionInput<'_>) -> Detection {
         let mut matched: Option<&ManifestRule> = None;
+        let mut region_cache = HashMap::<String, (String, String)>::new();
+        let mut region_cache_bytes = 0usize;
         for (rule, compiled) in self.manifest.rules.iter().zip(&self.compiled_rules) {
-            let region_text = region(input, &rule.region);
-            if !compiled_gate_matches_text(compiled, region_text) {
+            let region_text = if let Some((text, lower)) = region_cache.get(&rule.region) {
+                compiled_gate_matches(compiled, text, lower)
+            } else {
+                let text = region(input, &rule.region).to_owned();
+                let lower = text.to_lowercase();
+                let matches = compiled_gate_matches(compiled, &text, &lower);
+                if region_cache.len() < MAX_REGION_CACHE_ENTRIES
+                    && region_cache_bytes.saturating_add(text.len()).saturating_add(lower.len())
+                        <= MAX_REGION_CACHE_BYTES
+                {
+                    region_cache_bytes =
+                        region_cache_bytes.saturating_add(text.len()).saturating_add(lower.len());
+                    region_cache.insert(rule.region.clone(), (text, lower));
+                }
+                matches
+            };
+            if !region_text {
                 continue;
             }
             match matched {
@@ -197,11 +217,6 @@ impl CompiledManifest {
             matched_rule: Some(rule.id.clone()),
         }
     }
-}
-
-fn compiled_gate_matches_text(gate: &CompiledGate, text: &str) -> bool {
-    let lower_text = text.to_lowercase();
-    compiled_gate_matches(gate, text, &lower_text)
 }
 
 fn compiled_gate_matches(gate: &CompiledGate, text: &str, lower_text: &str) -> bool {

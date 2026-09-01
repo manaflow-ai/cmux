@@ -1153,6 +1153,36 @@ fn retained_tail_anchor(first_sequence: u64) -> Option<u64> {
     first_sequence.checked_sub(1)
 }
 
+fn roster_from_durable_projections(
+    registry: &WorkspaceRegistry,
+    prior: &crate::journal_reducers::AgentRoster,
+) -> anyhow::Result<crate::journal_reducers::AgentRoster> {
+    let mut roster = crate::journal_reducers::AgentRoster::default();
+    for projection in registry.public_agent_projections(None, None)? {
+        if projection.state == AgentState::Done.as_str() {
+            continue;
+        }
+        let agent = prior
+            .entries
+            .get(projection.terminal_id.as_str())
+            .and_then(|entry| entry.agent.clone());
+        if projection.source == AgentSource::Detected.as_str() && agent.is_none() {
+            continue;
+        }
+        roster.entries.insert(
+            projection.terminal_id.to_string(),
+            crate::journal_reducers::RosterEntry {
+                state: projection.state,
+                source: projection.source,
+                session: projection.source_session,
+                agent,
+                updated_at_ms: projection.updated_at_ms,
+            },
+        );
+    }
+    Ok(roster)
+}
+
 /// Restore the roster from its persisted snapshot and fold the journal tail
 /// committed after the cursor. A reducer-version mismatch discards the
 /// snapshot and re-folds from the journal head. Replay happens before runtime
@@ -1202,28 +1232,21 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         let page = match registry.session_journal_after(host.cursor, 512) {
             Ok(page) => page,
             Err(error) => {
-                // A pruned journal can no longer fill the gap between the
-                // persisted cursor and the first retained record. The roster
-                // is derived state, so fail closed with an empty host rather
-                // than exposing a partial state at a nonzero cursor.
+                // A journal read can fail transiently. Preserve the last
+                // valid snapshot, or rebuild from durable projections when
+                // the snapshot was already reset. Never expose a default
+                // empty host solely because one read failed.
                 eprintln!("cmux-tui: agent roster snapshot cannot be replayed: {error}");
-                let empty_snapshot = AgentRoster::default().snapshot().to_string();
-                let ordering_token = match registry.clear_journal_reducer_state(
-                    AGENT_ROSTER_REDUCER_ID,
-                    AGENT_ROSTER_REDUCER_VERSION,
-                    &empty_snapshot,
-                ) {
-                    Ok(ordering_token) => ordering_token,
-                    Err(reset_error) => {
-                        eprintln!(
-                            "cmux-tui: clearing the unreplayable agent roster snapshot failed: {reset_error}"
-                        );
-                        // Keep the loaded token when the reset write fails, so
-                        // a future live write can still advance past it.
-                        host.ordering_token
-                    }
-                };
-                return Ok(AgentRosterHost { ordering_token, ..AgentRosterHost::default() });
+                // Keep a valid snapshot visible when the journal read is a
+                // transient failure. If the snapshot was already reset,
+                // rebuild the live roster from durable projections instead
+                // of exposing an empty host.
+                if host.roster.entries.is_empty()
+                    && let Ok(roster) = roster_from_durable_projections(registry, &host.roster)
+                {
+                    host.roster = roster;
+                }
+                return Ok(host);
             }
         };
         if page.records.is_empty() {
@@ -1241,7 +1264,14 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                     AGENT_ROSTER_REDUCER_VERSION,
                     &empty_snapshot,
                 )?;
-                return Ok(AgentRosterHost { ordering_token, ..AgentRosterHost::default() });
+                let roster = roster_from_durable_projections(registry, &host.roster)?;
+                return Ok(AgentRosterHost {
+                    roster,
+                    cursor: page.head_sequence,
+                    ordering_token,
+                    needs_projection_rebuild: false,
+                    ..AgentRosterHost::default()
+                });
             }
             break;
         }
@@ -1264,30 +1294,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             // retained tail. This avoids erasing live agents whose original
             // journal records were pruned before the reducer cursor.
             let prior_roster = host.roster.clone();
-            let projections = registry.public_agent_projections(None, None)?;
-            host.roster = AgentRoster::default();
-            for projection in projections {
-                if projection.state == AgentState::Done.as_str() {
-                    continue;
-                }
-                let agent = prior_roster
-                    .entries
-                    .get(projection.terminal_id.as_str())
-                    .and_then(|entry| entry.agent.clone());
-                if projection.source == AgentSource::Detected.as_str() && agent.is_none() {
-                    continue;
-                }
-                host.roster.entries.insert(
-                    projection.terminal_id.to_string(),
-                    crate::journal_reducers::RosterEntry {
-                        state: projection.state,
-                        source: projection.source,
-                        session: projection.source_session,
-                        agent,
-                        updated_at_ms: projection.updated_at_ms,
-                    },
-                );
-            }
+            host.roster = roster_from_durable_projections(registry, &prior_roster)?;
             host.cursor = anchor;
             host.ordering_token = ordering_token;
             host.needs_projection_rebuild = true;
@@ -24697,7 +24704,8 @@ mod tests {
         let session = "roster-unreplayable";
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         // The snapshot is valid, but its cursor points past the retained
-        // journal head. This is the same fail-closed path as a retention gap.
+        // journal head. Keep that valid state visible instead of replacing it
+        // with an empty host when no newer records are retained.
         registry
             .put_journal_reducer_state_ordered(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
@@ -24709,15 +24717,15 @@ mod tests {
             .unwrap();
 
         let host = restore_agent_roster(&registry).unwrap();
-        assert_eq!(host.cursor, 0, "an unreplayable cursor must fail closed");
-        assert_eq!(host.ordering_token, 43, "the reset token must carry into the host");
-        assert!(host.roster.entries.is_empty());
+        assert_eq!(host.cursor, 42, "a valid snapshot cursor must remain intact");
+        assert_eq!(host.ordering_token, 42);
+        assert_eq!(host.roster.entries["term_a"].state, AgentState::Working.as_str());
         let persisted = registry
             .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
             .unwrap()
             .unwrap();
-        assert_eq!(persisted.1, 0, "the unreplayable cursor must be cleared");
-        assert_eq!(persisted.2, r#"{"entries":{}}"#);
+        assert_eq!(persisted.1, 42);
+        assert!(persisted.2.contains("term_a"));
 
         drop(registry);
         std::fs::remove_dir_all(root).unwrap();
