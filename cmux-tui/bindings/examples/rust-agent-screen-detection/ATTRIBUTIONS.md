@@ -34,7 +34,9 @@ transport and process backend; it must not claim a public-process fallback.
 `src/pane/agent_detection.rs` debounce, identity-edge, miss-confirmation, and
 flowing-output signals. The one-second max-evaluation pacer, deterministic
 activity-expiry debt, and same-name process-group replacement edge are
-manaflow changes.
+manaflow changes. The output-revision fence for retained OSC title and
+progress metadata is also a manaflow change; it keeps that generic host
+metadata from being attributed across an agent identity edge.
 
 `src/manifest_update.rs` follows herdr's `src/detect/manifest_update.rs`
 versioned update and status concepts.

@@ -21,7 +21,8 @@ Derived material and unchanged vendored material:
   detection semantics (state model, edge-triggered transitions,
   foreground-process identification, quiescence sampling) derived from
   `src/detect/mod.rs`, `src/pane/agent_detection.rs`, and `src/pane.rs`.
-  These files are a userland plugin. Core only supervises the process and
+  These files are a userland plugin. The output-revision fence for retained
+  OSC metadata is a cmux adaptation. Core only supervises the process and
   folds its generic events.
 - `bindings/examples/rust-agent-screen-detection/src/process.rs`: bounded
   foreground process-group discovery and wrapper handling derived from
