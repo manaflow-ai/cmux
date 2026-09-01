@@ -39,8 +39,12 @@ struct SSHPTYTerminalReadinessReport: Sendable {
         let retryDelayCap = max(initialRetryDelay, maximumRetryDelay)
         var nextRetryDelay = initialRetryDelay
         let clock = ContinuousClock()
+        let credentialResolver = SocketCredentialResolver(
+            explicitPassword: explicitPassword,
+            socketPath: socketPath
+        )
         while !Task.isCancelled {
-            switch deliverOnce() {
+            switch deliverOnce(credentialResolver: credentialResolver) {
             case .acknowledged, .permanentRejection:
                 return
             case .transientFailure:
@@ -55,7 +59,7 @@ struct SSHPTYTerminalReadinessReport: Sendable {
         }
     }
 
-    private func deliverOnce() -> DeliveryOutcome {
+    private func deliverOnce(credentialResolver: SocketCredentialResolver) -> DeliveryOutcome {
         let deadline = Date.now.addingTimeInterval(attemptTimeout)
         let reportingClient = SocketClient(path: socketPath)
         defer { reportingClient.close() }
@@ -68,7 +72,8 @@ struct SSHPTYTerminalReadinessReport: Sendable {
                 explicitPassword: explicitPassword,
                 socketPath: socketPath,
                 responseTimeout: authenticationTimeout,
-                deadline: deadline
+                deadline: deadline,
+                credentialResolver: credentialResolver
             )
             let reportTimeout = deadline.timeIntervalSinceNow
             guard reportTimeout > 0 else { return .transientFailure }
