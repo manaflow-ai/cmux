@@ -309,6 +309,10 @@ impl ScreenDetectTracker {
         entry.foreground_process_group = agent.and(process_group_id);
         entry.startup_grace_until =
             agent.map(|_| now + Duration::from_millis(AGENT_STARTUP_GRACE_MS));
+        // A process identity edge invalidates the prior screen evaluation.
+        // If the first read for the new process fails, the next scan must
+        // retry even when the PTY revision did not change.
+        entry.evaluated_revision = None;
         // Do not carry shell or previous-agent output activity across the
         // identity edge. New PTY output during the grace window will re-arm
         // this signal through observe_revision.
@@ -801,6 +805,32 @@ mod tests {
         }
         assert!(tracker.note_foreground_agent("term_a", None));
         assert_eq!(tracker.foreground_agent("term_a"), None);
+    }
+
+    #[test]
+    fn identity_edge_retries_a_failed_screen_read_without_new_output() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        // Establish a previously evaluated screen for one foreground agent.
+        assert!(tracker.note_foreground_agent_at("term_a", Some("claude"), t0));
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.record_detection_at(
+            "term_a",
+            Some(("claude", detection(ScreenState::Working))),
+            t0,
+            false,
+            false,
+        );
+
+        // The process changes, but the first read after the edge is assumed
+        // to fail. The retry must still be armed by the identity edge.
+        assert!(tracker.note_foreground_agent_at("term_a", Some("codex"), at(100)));
+        assert!(
+            tracker.observe_revision("term_a", 1, at(QUIESCENCE_DEBOUNCE_MS)),
+            "an identity edge must invalidate the old evaluated revision"
+        );
     }
 
     #[test]

@@ -84,7 +84,7 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
-    ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    AgentOrderCache, ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -6919,6 +6919,7 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_order_cache: AgentOrderCache,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9118,6 +9119,7 @@ fn run_with_machine_updates_inner(
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_order_cache: AgentOrderCache::default(),
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -9859,7 +9861,7 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
         let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
         let empty_collapsed = HashSet::new();
         let collapsed = self
@@ -9878,12 +9880,13 @@ impl App {
         } else {
             Vec::new()
         };
-        crate::sidebar_projection::rows(
+        crate::sidebar_projection::rows_cached(
             spec,
             &self.tree,
             &agents,
             self.sidebar_workspace_selection,
             collapsed,
+            &mut self.projection_order_cache,
         )
     }
 
@@ -43999,6 +44002,7 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_order_cache: AgentOrderCache::default(),
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
