@@ -91,9 +91,11 @@ jobs:
                   ;;
                 tests/test_ci_change_areas.py)
                   ci_router_changed=true
+                  ghosttykit_guard_only=false
                   ;;
                 .github/workflows/ci.yml)
                   ci_router_changed=true
+                  ghosttykit_guard_only=false
                   ;;
                 scripts/ci/*)
                   ci_router_changed=true

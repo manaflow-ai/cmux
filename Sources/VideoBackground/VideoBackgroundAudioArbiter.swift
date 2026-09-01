@@ -28,6 +28,16 @@ final class VideoBackgroundAudioArbiter {
     /// never waits for a key event before it may play audio.
     func register(_ controller: WindowVideoBackgroundController, window: NSWindow) {
         controllers.add(controller)
+        registerWindow(window)
+    }
+
+    /// Admits a window to the audio ownership domain.
+    ///
+    /// This is separate from ``windowDidBecomeKey(_:)`` so an arbitrary
+    /// auxiliary key window cannot self-register merely by sending a focus
+    /// notification. The app controller uses ``register(_:window:)``; the
+    /// narrow internal method keeps lifecycle tests on the same path.
+    func registerWindow(_ window: NSWindow) {
         registeredWindows.add(window)
         if ownerWindow == nil || window.isKeyWindow {
             windowDidBecomeKey(window)
@@ -41,7 +51,7 @@ final class VideoBackgroundAudioArbiter {
 
     /// Transfers audio ownership to the window that just became key.
     func windowDidBecomeKey(_ window: NSWindow) {
-        registeredWindows.add(window)
+        guard registeredWindows.contains(window) else { return }
         guard ownerWindow !== window else { return }
         ownerWindow = window
         notifyControllers()

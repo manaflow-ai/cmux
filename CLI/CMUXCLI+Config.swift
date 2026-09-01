@@ -1065,19 +1065,13 @@ extension CMUXCLI {
             .path
     }
 
-    private struct VideoBackgroundGhosttyOpacityStatus {
-        let opacity: Double
-        let path: URL
-        let isUsable: Bool
-    }
-
-    private func videoBackgroundGhosttyOpacityStatus() throws -> VideoBackgroundGhosttyOpacityStatus {
+    private func videoBackgroundGhosttyOpacityStatus() throws -> (opacity: Double, path: URL, isUsable: Bool) {
         let path = try cmuxGhosttyConfigURLForCLI()
         let contents = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
         let raw = CmuxGhosttyConfigSettingEditor().parsedValue(for: "background-opacity", in: contents)
         let parsed = raw.flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         let opacity = parsed?.isFinite == true ? min(max(parsed!, 0), 1) : 1
-        return VideoBackgroundGhosttyOpacityStatus(opacity: opacity, path: path, isUsable: opacity < 0.999)
+        return (opacity: opacity, path: path, isUsable: opacity < 0.999)
     }
 
     private func ensureVideoBackgroundGhosttyOpacity(

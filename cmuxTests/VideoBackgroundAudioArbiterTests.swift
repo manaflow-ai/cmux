@@ -39,6 +39,8 @@ struct VideoBackgroundAudioArbiterTests {
         let first = makeWindow()
         let second = makeWindow()
 
+        arbiter.registerWindow(first)
+        arbiter.registerWindow(second)
         arbiter.windowDidBecomeKey(first)
         #expect(arbiter.mayPlayAudio(in: first))
         #expect(!arbiter.mayPlayAudio(in: second))

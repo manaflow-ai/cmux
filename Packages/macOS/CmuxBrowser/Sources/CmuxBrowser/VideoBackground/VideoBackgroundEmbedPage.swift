@@ -342,7 +342,9 @@ public struct VideoBackgroundEmbedPage: Sendable {
         // backslashes, control characters, and line separators correctly.
         let data = try! JSONSerialization.data(
             withJSONObject: value,
-            options: [.fragmentsAllowed, .withoutEscapingSlashes]
+            // Keep slash escaping enabled: an identifier containing
+            // `</script>` must not terminate the surrounding HTML script tag.
+            options: [.fragmentsAllowed]
         )
         return String(decoding: data, as: UTF8.self)
     }

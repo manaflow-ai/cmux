@@ -354,7 +354,8 @@ struct TerminalVideoBackgroundCard: View {
         guard !trimmed.isEmpty else {
             // The field mirrors the first queue entry. Do not leave an empty
             // display while that stored entry continues to play.
-            sourceDraft = items.first ?? ""
+            sourceDraft = items.first
+                ?? source.current.trimmingCharacters(in: .whitespacesAndNewlines)
             return
         }
         sourceDraft = trimmed

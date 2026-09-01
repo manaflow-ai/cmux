@@ -230,10 +230,14 @@ public struct VideoBackgroundConfigEditor: Sendable {
     /// cannot protect independent synchronous CLI processes; the critical
     /// section never suspends and the kernel releases the lock on a crash.
     private func withExclusiveFileLock<T>(_ operation: () throws -> T) throws -> T {
-        let directory = fileURL.standardizedFileURL.deletingLastPathComponent()
+        // Use the canonical target for the lock identity. Callers may open the
+        // same config through either `cmux.json` or its resolved target path;
+        // both must acquire the same sidecar lock.
+        let lockIdentity = Self.resolvedURL(for: fileURL).standardizedFileURL
+        let directory = lockIdentity.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let lockURL = directory.appendingPathComponent(
-            ".\(fileURL.lastPathComponent).video-background.lock",
+            ".\(lockIdentity.lastPathComponent).video-background.lock",
             isDirectory: false
         )
         let descriptor = lockURL.path.withCString {
