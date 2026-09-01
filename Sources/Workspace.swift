@@ -5352,8 +5352,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // shown by every attached client (tree rows, other Macs, TUI tab bars).
         // Clearing only reverts the local override; the daemon name stays.
         if propagateToCloud, source == .user, !trimmed.isEmpty,
-           let resource = cloudProjectedResource(forPanel: panelId), resource.kind == .terminal,
-           let provider = SurfaceCatalog.shared.provider(for: resource.machine) {
+           let resource = cloudProjectedResource(forPanel: panelId), resource.kind == .terminal {
             CloudWorkspaceRenameWriteThrough.propagateTerminalRename(
                 workspace: self,
                 panelID: panelId,
