@@ -457,7 +457,7 @@ pub async fn stay_online(
     // connections on loopback 127.0.0.1:9776. Managed sandboxes ONLY — this
     // branch is the gate; paired human machines never start the listener.
     // Best-effort: a failed bind degrades to the relay-socket terminal path.
-    let mut tunnel_listener = None;
+    let mut tunnel_listener: Option<tokio::task::JoinHandle<()>> = None;
     let tunnel_listener_cancel = cancellation.child_token();
     #[cfg(unix)]
     if state.managed {
