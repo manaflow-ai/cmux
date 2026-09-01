@@ -144,10 +144,14 @@ final class MobilePairedPhoneStore {
         // being loaded; retry the one-time import at the authenticated
         // compatibility boundary, never from target lookup itself.
         migrateLegacyPickerSelection()
+        let trustedCrossTagBundle = trustedCrossTagBundleIdentifier(
+            trustedIOSBuildTag
+        )
         guard let normalizedAccountID = Self.normalized(accountID),
               let normalizedHandshakeIdentity = Self.normalized(handshakeIdentity),
               normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength,
-              let bundleIdentifier = legacyPickerBundleIdentifier
+              let bundleIdentifier = trustedCrossTagBundle
+                  ?? legacyPickerBundleIdentifier
                   ?? legacyCompatibilityBundleIdentifier,
               isBundleAllowedForMacLane(
                   bundleIdentifier,
