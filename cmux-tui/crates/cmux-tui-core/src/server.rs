@@ -13519,6 +13519,82 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn dropping_a_stale_pending_server_preserves_a_replacement_socket() {
+        let dir = TestSocketDir::create("pending-server-replacement");
+        let path = dir.path().join("mux.sock");
+        let first_mux = test_mux();
+        let first = serve_paused(first_mux.clone(), Some(path.clone())).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let second = serve_paused(test_mux(), Some(path.clone())).unwrap();
+        drop(first);
+
+        assert_eq!(
+            Arc::strong_count(&first_mux),
+            1,
+            "stale pending server did not exit its old listener thread"
+        );
+        assert!(path.exists(), "stale pending-server cleanup removed the replacement socket");
+        assert!(transport::connect(&path).is_ok());
+        drop(second);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_server_cleanup_waits_for_the_start_lock() {
+        let dir = TestSocketDir::create("pending-server-cleanup-lock");
+        let path = dir.path().join("mux.sock");
+        let mux = test_mux();
+        let pending = serve_paused(mux.clone(), Some(path.clone())).unwrap();
+        let listener_refs = Arc::strong_count(&mux);
+        let start_lock = SocketStartLock::acquire(&path, Instant::now()).unwrap();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+        let cleanup = std::thread::spawn(move || {
+            drop(pending);
+            observed_tx.send(()).unwrap();
+        });
+
+        assert!(
+            observed_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "pending-server cleanup bypassed the concurrent start lock"
+        );
+        assert_eq!(
+            Arc::strong_count(&mux),
+            listener_refs,
+            "pending-server cleanup stopped its listener before acquiring the start lock"
+        );
+        drop(start_lock);
+        observed_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("pending-server cleanup did not resume after the start lock was released");
+        cleanup.join().unwrap();
+        assert!(!path.exists());
+    }
+
+    #[cfg(all(not(unix), not(windows)))]
+    #[test]
+    fn socket_cleanup_without_identity_fails_closed() {
+        assert!(
+            !SocketPathIdentity::Unavailable.matches_path(Path::new("replacement.sock")).unwrap()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn socket_cleanup_matches_the_bound_windows_socket_identity() {
+        let dir = TestSocketDir::create("windows-socket-identity");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+        let lease = ServedSocketLease::claim(path.clone()).unwrap();
+
+        assert!(lease.identity.matches_path(&path).unwrap());
+        drop(listener);
+        lease.cleanup();
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_socket_path_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
