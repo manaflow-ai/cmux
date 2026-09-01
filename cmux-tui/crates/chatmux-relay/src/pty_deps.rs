@@ -787,7 +787,7 @@ async fn cleanup_daemon(mut child: tokio::process::Child) {
     }
     match tokio::time::timeout(Duration::from_millis(250), child.wait()).await {
         Ok(Ok(_status)) => return,
-        Ok(Err(_wait_error)) | Err(_elapsed) => {
+        Ok(Err(_)) | Err(_) => {
             // A timeout completion is not enough. `wait` has its own I/O
             // result, and a failed reap must still go through escalation.
         }
