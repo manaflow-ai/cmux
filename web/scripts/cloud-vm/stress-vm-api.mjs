@@ -154,25 +154,38 @@ async function runCase(index) {
     vmId = created.id;
     throwIfInterrupted();
 
+    // Blaxel machines run only the cmux-tui remote daemon (no cmuxd RPC to probe);
+    // every other provider still serves the legacy cmuxd-remote websocket PTY.
+    const expectedTransport = created.provider === "blaxel" ? "cmux-remote" : "websocket";
     const attachStartedAt = performance.now();
     const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json" },
-      body: JSON.stringify({ requireDaemon: true }),
+      body: JSON.stringify(expectedTransport === "cmux-remote" ? { transport: "cmux-remote" } : { requireDaemon: true }),
     }, 45_000);
     attachDurationMs = Math.round(performance.now() - attachStartedAt);
     const attachText = await attach.text();
     if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
     const attached = JSON.parse(attachText);
-    if (attached.transport !== "websocket") throw new Error(`expected websocket attach, got ${attached.transport}`);
-    if (!attached.daemon?.url || !attached.daemon?.token || !attached.daemon?.sessionId) {
-      throw new Error("attach response missing daemon RPC endpoint");
+    if (attached.transport !== expectedTransport) {
+      throw new Error(`expected ${expectedTransport} attach, got ${attached.transport}`);
     }
     throwIfInterrupted();
 
-    const rpcStartedAt = performance.now();
-    const rpc = await rpcProxyHealthz(attached.daemon.url, attached.daemon.token, attached.daemon.sessionId);
-    rpcDurationMs = Math.round(performance.now() - rpcStartedAt);
+    let rpcCapabilities = null;
+    if (expectedTransport === "cmux-remote") {
+      if (!/^wss:\/\/.+\/v1\/link\?/.test(attached.route ?? "")) {
+        throw new Error("cmux-remote attach response missing the daemon route");
+      }
+    } else {
+      if (!attached.daemon?.url || !attached.daemon?.token || !attached.daemon?.sessionId) {
+        throw new Error("attach response missing daemon RPC endpoint");
+      }
+      const rpcStartedAt = performance.now();
+      const rpc = await rpcProxyHealthz(attached.daemon.url, attached.daemon.token, attached.daemon.sessionId);
+      rpcDurationMs = Math.round(performance.now() - rpcStartedAt);
+      rpcCapabilities = rpc.capabilities;
+    }
     throwIfInterrupted();
     return {
       ok: true,
@@ -180,7 +193,7 @@ async function runCase(index) {
       provider: created.provider,
       imageVersion: created.imageVersion,
       attachTransport: attached.transport,
-      rpcCapabilities: rpc.capabilities,
+      rpcCapabilities,
       createDurationMs,
       attachDurationMs,
       rpcDurationMs,

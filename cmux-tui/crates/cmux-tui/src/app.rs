@@ -11,12 +11,13 @@ use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{RecvTimeoutError, TrySendError as StdTrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
@@ -28,6 +29,7 @@ use cmux_tui_core::{
     ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
+use crossbeam_channel::{Sender as SyncSender, TrySendError, bounded as sync_channel};
 use crossterm::ExecutableCommand;
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
@@ -42,7 +44,7 @@ use crossterm::terminal::{
 use ghostty_vt::{
     CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, Mods, MouseAction,
     MouseButton as GhosttyMouseButton, MouseInput, RenderState, Rgb, Screen, Scrollbar,
-    TerminalPointerSemanticSnapshot,
+    SelectionPoint, SelectionRange, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -98,18 +100,19 @@ use crate::ui::{
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
 ) -> std::io::Result<Option<Event>> {
-    if let Some(timeout) = timeout.map(|timeout| timeout.min(Duration::from_millis(100)))
-        && !poll(timeout)?
-    {
-        return Ok(None);
-    }
-    if timeout.is_none() && !poll(Duration::from_millis(100))? {
+    // Keep the input thread interruptible even when no graphics response is
+    // pending. A single normalized poll avoids separate timed and untimed
+    // branches drifting apart as the reader evolves.
+    let poll_timeout =
+        timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
+    if !poll(poll_timeout)? {
         return Ok(None);
     }
     read().map(Some)
@@ -278,7 +281,33 @@ struct SessionEventSender {
     tx: SyncSender<AppEvent>,
     generation: Option<u64>,
     surface_filter: Option<SurfaceId>,
+    cancellation: EventCancellation,
+}
+
+/// A cancellation signal that wakes every sender waiting for capacity.
+/// Crossbeam's bounded channel gives the event queue a select-like send, while
+/// dropping its sole sender broadcasts cancellation to all cloned receivers.
+#[derive(Clone)]
+struct EventCancellation {
     stop: Arc<AtomicBool>,
+    receiver: crossbeam_channel::Receiver<()>,
+    sender: Arc<Mutex<Option<SyncSender<()>>>>,
+}
+
+impl EventCancellation {
+    fn new() -> Self {
+        let (sender, receiver) = sync_channel(0);
+        Self {
+            stop: Arc::new(AtomicBool::new(false)),
+            receiver,
+            sender: Arc::new(Mutex::new(Some(sender))),
+        }
+    }
+
+    fn cancel(&self) {
+        self.stop.store(true, Ordering::Release);
+        self.sender.lock().unwrap().take();
+    }
 }
 
 enum SessionTrySendError {
@@ -291,14 +320,14 @@ impl SessionEventSender {
         tx: SyncSender<AppEvent>,
         generation: u64,
         surface_filter: Option<SurfaceId>,
-        stop: Arc<AtomicBool>,
+        cancellation: EventCancellation,
     ) -> Self {
-        Self { tx, generation: Some(generation), surface_filter, stop }
+        Self { tx, generation: Some(generation), surface_filter, cancellation }
     }
 
     #[cfg(test)]
     fn unscoped(tx: SyncSender<AppEvent>) -> Self {
-        Self { tx, generation: None, surface_filter: None, stop: Arc::new(AtomicBool::new(false)) }
+        Self { tx, generation: None, surface_filter: None, cancellation: EventCancellation::new() }
     }
 
     #[cfg(test)]
@@ -307,7 +336,7 @@ impl SessionEventSender {
             tx,
             generation: None,
             surface_filter: Some(surface),
-            stop: Arc::new(AtomicBool::new(false)),
+            cancellation: EventCancellation::new(),
         }
     }
 
@@ -337,7 +366,7 @@ impl SessionEventSender {
     }
 
     fn try_send(&self, event: AppEvent) -> Result<(), SessionTrySendError> {
-        if self.stop.load(Ordering::Acquire) {
+        if self.cancellation.stop.load(Ordering::Acquire) {
             return Err(SessionTrySendError::Disconnected);
         }
         match self.tx.try_send(self.wrap(event)) {
@@ -348,25 +377,29 @@ impl SessionEventSender {
     }
 
     fn send(&self, event: AppEvent) -> Result<(), ()> {
-        let mut event = self.wrap(event);
-        loop {
-            if self.stop.load(Ordering::Acquire) {
-                return Err(());
-            }
-            match self.tx.try_send(event) {
-                Ok(()) => return Ok(()),
-                Err(TrySendError::Full(returned)) => {
-                    event = returned;
-                    std::thread::park_timeout(Duration::from_millis(1));
-                }
-                Err(TrySendError::Disconnected(_)) => return Err(()),
-            }
-        }
+        send_bounded_cancelable(&self.tx, self.wrap(event), &self.cancellation)
+    }
+}
+
+/// Enqueue on a bounded channel while allowing cancellation to interrupt a
+/// producer that is waiting for capacity. There is no polling delay and no
+/// per-send helper thread.
+fn send_bounded_cancelable<T>(
+    tx: &SyncSender<T>,
+    value: T,
+    cancellation: &EventCancellation,
+) -> Result<(), ()> {
+    if cancellation.stop.load(Ordering::Acquire) {
+        return Err(());
+    }
+    crossbeam_channel::select_biased! {
+        recv(cancellation.receiver) -> _ => Err(()),
+        send(tx, value) -> result => result.map_err(|_| ()),
     }
 }
 
 struct SessionEventWorker {
-    stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     start: Arc<AtomicBool>,
     mux: Option<JoinHandle<()>>,
 }
@@ -377,7 +410,7 @@ impl SessionEventWorker {
     }
 
     fn stop_and_join(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         self.activate();
         if let Some(mux) = self.mux.take() {
             let _ = mux.join();
@@ -393,7 +426,7 @@ impl Drop for SessionEventWorker {
 
 struct OwnerReloadWorker {
     stop: Option<cmux_tui_core::MuxEventReceiver>,
-    cancelled: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -401,36 +434,31 @@ impl OwnerReloadWorker {
     fn spawn(mux: &Mux, tx: SyncSender<AppEvent>) -> std::io::Result<Self> {
         let events = mux.subscribe_config_reload();
         let stop = events.clone();
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let worker_cancelled = cancelled.clone();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
         let thread =
             std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
-                while !worker_cancelled.load(Ordering::Acquire) {
+                while !worker_cancellation.stop.load(Ordering::Acquire) {
                     let Ok(event) = events.recv() else { return };
                     if !matches!(event, MuxEvent::ConfigReloadRequested) {
                         continue;
                     }
-                    let mut app_event = AppEvent::OwnerConfigReloadRequested;
-                    loop {
-                        if worker_cancelled.load(Ordering::Acquire) {
-                            return;
-                        }
-                        match tx.try_send(app_event) {
-                            Ok(()) => break,
-                            Err(TrySendError::Full(returned)) => {
-                                app_event = returned;
-                                std::thread::park_timeout(Duration::from_millis(1));
-                            }
-                            Err(TrySendError::Disconnected(_)) => return,
-                        }
+                    if send_bounded_cancelable(
+                        &tx,
+                        AppEvent::OwnerConfigReloadRequested,
+                        &worker_cancellation,
+                    )
+                    .is_err()
+                    {
+                        return;
                     }
                 }
             })?;
-        Ok(Self { stop: Some(stop), cancelled, thread: Some(thread) })
+        Ok(Self { stop: Some(stop), cancellation, thread: Some(thread) })
     }
 
     fn stop_and_join(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancellation.cancel();
         if let Some(stop) = self.stop.take() {
             stop.close();
         }
@@ -619,7 +647,7 @@ fn forward_mux_events(
     mux_titles: Arc<MuxTitleIngress>,
 ) {
     let mut next_recovery_generation = 0_u64;
-    while !tx.stop.load(Ordering::Acquire) {
+    while !tx.cancellation.stop.load(Ordering::Acquire) {
         let needs_recovery = match session_events.recv_timeout(Duration::from_millis(100)) {
             Ok(event) => {
                 if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
@@ -648,7 +676,7 @@ fn forward_mux_events(
         // retained while every event accepted before overflow is delivered.
         let overflowed_events = std::mem::replace(&mut session_events, event_source.events());
         for event in overflowed_events.try_iter() {
-            if tx.stop.load(Ordering::Acquire) {
+            if tx.cancellation.stop.load(Ordering::Acquire) {
                 return;
             }
             if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
@@ -688,7 +716,7 @@ fn forward_mux_events(
             continue;
         }
         for event in session_events.try_iter() {
-            if tx.stop.load(Ordering::Acquire) {
+            if tx.cancellation.stop.load(Ordering::Acquire) {
                 return;
             }
             if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
@@ -769,9 +797,10 @@ fn start_ordered_session_inner(
     surface_filter: Option<SurfaceId>,
     paused: bool,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
-    let stop = Arc::new(AtomicBool::new(false));
+    let cancellation = EventCancellation::new();
     let start = Arc::new(AtomicBool::new(!paused));
-    let events = SessionEventSender::scoped(app_events, generation, surface_filter, stop.clone());
+    let events =
+        SessionEventSender::scoped(app_events, generation, surface_filter, cancellation.clone());
     let layout_resize_owner = inner.allocate_layout_resize_owner();
     let operations = operations.for_session_generation(generation);
     let session = OrderedSession::new_with_event_sender(
@@ -792,11 +821,11 @@ fn start_ordered_session_inner(
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
             while !worker_start.load(Ordering::Acquire)
-                && !worker_events.stop.load(Ordering::Acquire)
+                && !worker_events.cancellation.stop.load(Ordering::Acquire)
             {
                 std::thread::park_timeout(Duration::from_millis(1));
             }
-            if worker_events.stop.load(Ordering::Acquire) {
+            if worker_events.cancellation.stop.load(Ordering::Acquire) {
                 return;
             }
             forward_mux_events(
@@ -810,7 +839,7 @@ fn start_ordered_session_inner(
         })?;
     Ok((
         session,
-        SessionEventWorker { stop, start, mux: Some(mux) },
+        SessionEventWorker { cancellation, start, mux: Some(mux) },
         mux_titles,
         mux_recovery_generation,
     ))
@@ -2251,6 +2280,12 @@ impl OrderedSession {
 
     fn daemon_shutdown_requested(&self) -> bool {
         self.inner.daemon_shutdown_requested()
+    }
+
+    /// The first reason recorded when a remote transport reader stopped, or
+    /// `None` for local sessions and deliberate local disconnects.
+    fn transport_disconnect_reason(&self) -> Option<String> {
+        self.inner.transport_disconnect_reason()
     }
 
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
@@ -5293,6 +5328,58 @@ pub struct Selection {
     pub head: (u16, u64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum SelectionMode {
+    #[default]
+    Cell,
+    Word,
+    Line,
+}
+
+/// State shared by the press and drag halves of one terminal selection
+/// gesture. Crossterm reports individual presses, so the TUI owns the small
+/// amount of timing and distance state needed to recognize repeats.
+struct SelectionClickSequence {
+    surface: SurfaceId,
+    screen: Option<Screen>,
+    position: (u16, u16),
+    modifiers: KeyModifiers,
+    time: Instant,
+    count: u8,
+    mode: SelectionMode,
+    anchor: (u16, u64),
+    dragged: bool,
+    tracked_anchor: Option<TrackedScreenPoint>,
+    /// A failed semantic press keeps `tracked_anchor` alive for a same-press
+    /// cell drag, but it must not keep the repeat count alive for the next
+    /// press.
+    repeatable: bool,
+}
+
+/// The most recent semantic drag result. Pointer reports often repeat the
+/// same terminal cell while the mouse moves between cell boundaries. Keep
+/// one bounded result and tie it to the terminal content generation so live
+/// output or scrolling always forces a fresh Ghostty lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SemanticSelectionCache {
+    surface: SurfaceId,
+    mode: SelectionMode,
+    anchor: SelectionPoint,
+    current: SelectionPoint,
+    content_generation: u64,
+    range: Option<SelectionRange>,
+}
+
+const SELECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(500);
+const SELECTION_REPEAT_DISTANCE_SQUARED: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VisibleInputState {
+    pty_surface: Option<SurfaceId>,
+    selection: Option<Selection>,
+    scroll_offset: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StatusMessageSelection {
     text: String,
@@ -5727,6 +5814,26 @@ impl PointerRouteIdentity {
             _ => None,
         }
     }
+
+    /// A press that opens the cmux-owned context menu never enters the pane's
+    /// application, so the surface's content generation and encoder semantics
+    /// are not part of that press's route identity. Only the geometry (which
+    /// pane, which region) decides where the menu opens.
+    fn normalized_for_cmux_menu(mut self) -> Self {
+        if let Self::Pane { region, .. } = &mut self {
+            match region {
+                PanePointerRegion::TerminalCell { semantics, content_generation, .. } => {
+                    *semantics = None;
+                    *content_generation = None;
+                }
+                PanePointerRegion::BrowserCell { content_generation, .. } => {
+                    *content_generation = None;
+                }
+                PanePointerRegion::ContentPadding | PanePointerRegion::Chrome => {}
+            }
+        }
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -5739,6 +5846,7 @@ struct RenderedPointerFrame {
     machine_rail: Option<Rect>,
     workspace_rail: Option<Rect>,
     tabs_rail: Option<Rect>,
+    projection_rails: Arc<[(RailKind, Rect)]>,
     hits: Arc<[RenderedHitRoute]>,
     panes: Arc<[RenderedPaneRoute]>,
     terminal_pointer_semantics: Arc<HashMap<SurfaceId, TerminalPointerSemanticSnapshot>>,
@@ -5847,6 +5955,18 @@ impl RenderedPointerFrame {
             (RailKind::Tabs, self.tabs_rail),
         ] {
             if let Some(rect) = rect.filter(|rect| rect.contains(x, y)) {
+                return PointerRouteIdentity::Rail {
+                    kind,
+                    rect,
+                    column: x.saturating_sub(rect.x),
+                    row: y.saturating_sub(rect.y),
+                };
+            }
+        }
+        if let Some((kind, rect)) =
+            self.projection_rails.iter().copied().find(|(_, rect)| rect.contains(x, y))
+        {
+            if !self.panes.iter().any(|pane| pane.content.contains(x, y)) {
                 return PointerRouteIdentity::Rail {
                     kind,
                     rect,
@@ -6759,11 +6879,14 @@ pub struct App {
     #[cfg(test)]
     config_reload_applications: usize,
     pub chrome: ChromeTheme,
-    default_colors: cmux_tui_core::DefaultColors,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
+    /// Reusable storage for the ordered sidebar kind snapshot taken during a
+    /// frame. The draw loop takes this out while dispatching so mutable rail
+    /// renderers do not borrow the layout across calls.
+    pub(crate) sidebar_kind_scratch: Vec<RailKind>,
     /// Terminal grid dimensions from the frame actually drawn for each
     /// surface. Pointer routing uses this snapshot so resize transitions do
     /// not target blank pane margins or wait on the PTY's terminal lock.
@@ -6890,6 +7013,10 @@ pub struct App {
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
+    selection_mode: SelectionMode,
+    selection_mode_surface: Option<SurfaceId>,
+    selection_click_sequence: Option<SelectionClickSequence>,
+    semantic_selection_cache: Option<SemanticSelectionCache>,
     status_selection: Option<StatusMessageSelection>,
     rendered_status_message: Option<RenderedStatusMessage>,
     /// The last status message written to the client log, so a message that
@@ -6933,7 +7060,7 @@ pub struct App {
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce() + Send>>,
+    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -7776,6 +7903,7 @@ fn sidebar_layout_for_state(
         desired: u16,
         max_width: u16,
         priority: u16,
+        collapsed: bool,
     }
 
     let mut specs = config
@@ -7825,37 +7953,73 @@ fn sidebar_layout_for_state(
                     RailKind::Tabs | RailKind::Projection(_) => view.max_width,
                 }
             };
-            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
+            Some(Spec {
+                kind,
+                view_index,
+                desired,
+                max_width,
+                priority: view.collapse_priority,
+                collapsed: false,
+            })
         })
         .collect::<Vec<_>>();
 
-    while width
-        < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
-    {
-        let Some((index, _)) = specs.iter().enumerate().min_by_key(|(_, spec)| spec.priority)
-        else {
-            break;
-        };
-        specs.remove(index);
+    // Sort only when a collapse decision is needed. The configured index is a
+    // deterministic tie breaker for equal priorities, then a final in-place
+    // sort restores configured order before the layout is built. This keeps
+    // the normal frame path allocation-free beyond the specs vector itself and
+    // bounds collapse selection to O(n log n).
+    let needs_width_collapse =
+        width < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16));
+    let needs_hysteresis_collapse = previous.is_some()
+        && width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        && previous
+            .is_some_and(|previous| specs.iter().any(|spec| previous.rail(spec.kind).is_none()));
+    let mut collapsed_count = 0;
+    let mut retained_count = specs.len();
+    if needs_width_collapse || needs_hysteresis_collapse {
+        specs.sort_unstable_by_key(|spec| (spec.priority, spec.view_index));
+
+        while retained_count > 0
+            && width
+                < MIN_CONTENT_WIDTH
+                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
+        {
+            specs[collapsed_count].collapsed = true;
+            collapsed_count += 1;
+            retained_count -= 1;
+        }
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
-            && width
-                < MIN_CONTENT_WIDTH
-                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
-                    .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        let mut candidate_index = collapsed_count;
+        while width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
         {
-            let Some((index, _)) = specs
-                .iter()
-                .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
-                .min_by_key(|(_, spec)| spec.priority)
-            else {
+            while candidate_index < specs.len()
+                && (specs[candidate_index].collapsed
+                    || previous.rail(specs[candidate_index].kind).is_some())
+            {
+                candidate_index += 1;
+            }
+            if candidate_index == specs.len() {
                 break;
-            };
-            specs.remove(index);
+            }
+            specs[candidate_index].collapsed = true;
+            collapsed_count += 1;
+            candidate_index += 1;
+            retained_count -= 1;
         }
+    }
+
+    if collapsed_count > 0 {
+        specs.sort_unstable_by_key(|spec| spec.view_index);
+        specs.retain(|spec| !spec.collapsed);
     }
 
     let mut layout = SidebarLayout::default();
@@ -8115,7 +8279,6 @@ enum MachineControllerCommand {
 
 struct MachineSessionPreparation {
     initial_size: Option<(u16, u16)>,
-    default_colors: cmux_tui_core::DefaultColors,
     generation: u64,
     pty_input: PtyInputSender,
     surface_filter: Option<SurfaceId>,
@@ -8130,7 +8293,6 @@ struct PreparedMachineSession {
     tree: TreeView,
     label: String,
     session_available: bool,
-    color_error: Option<String>,
     machine: Option<MachineKey>,
 }
 
@@ -8169,7 +8331,7 @@ pub(crate) enum MachineControllerCompletion {
 }
 
 struct MachineActionWorker {
-    sender: Option<SyncSender<MachineControllerCommand>>,
+    sender: Option<std::sync::mpsc::SyncSender<MachineControllerCommand>>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -8185,7 +8347,7 @@ impl MachineActionWorker {
         mut controller: Box<dyn MachineController>,
         app_events: SyncSender<AppEvent>,
     ) -> anyhow::Result<Self> {
-        let (sender, receiver) = sync_channel(1);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let worker =
@@ -8368,7 +8530,7 @@ impl MachineActionWorker {
             preparation: Box::new(preparation),
         }) {
             Ok(()) => Ok(()),
-            Err(TrySendError::Full(command)) => Err(MachineSubmitError::Busy(match command {
+            Err(StdTrySendError::Full(command)) => Err(MachineSubmitError::Busy(match command {
                 MachineControllerCommand::Perform { request, .. } => request,
                 MachineControllerCommand::SubscribeUpdates => {
                     unreachable!("perform returned a subscription command")
@@ -8381,7 +8543,7 @@ impl MachineActionWorker {
                     unreachable!("perform returned a replacement decision")
                 }
             })),
-            Err(TrySendError::Disconnected(command)) => {
+            Err(StdTrySendError::Disconnected(command)) => {
                 Err(MachineSubmitError::Stopped(match command {
                     MachineControllerCommand::Perform { request, .. } => request,
                     MachineControllerCommand::SubscribeUpdates => {
@@ -8414,13 +8576,13 @@ impl MachineActionWorker {
         };
         match sender.try_send(MachineControllerCommand::AcknowledgeDurableNotice(delivery)) {
             Ok(()) => Ok(()),
-            Err(TrySendError::Full(MachineControllerCommand::AcknowledgeDurableNotice(
+            Err(StdTrySendError::Full(MachineControllerCommand::AcknowledgeDurableNotice(
                 delivery,
             )))
-            | Err(TrySendError::Disconnected(
+            | Err(StdTrySendError::Disconnected(
                 MachineControllerCommand::AcknowledgeDurableNotice(delivery),
             )) => Err(delivery),
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+            Err(StdTrySendError::Full(_)) | Err(StdTrySendError::Disconnected(_)) => {
                 unreachable!("durable notice sender returned a different command")
             }
         }
@@ -8469,20 +8631,13 @@ fn prepare_machine_session(
 ) -> anyhow::Result<PreparedMachineSession> {
     // The managed-workspace guard runs on every presentation, reused or
     // not: a pooled session can change state while it is not presented, and
-    // the guard is the invariant that makes presenting it safe. Default
-    // colors are also refreshed for reused sessions because they belong to
-    // the current client presentation, not to the pooled remote session.
+    // the guard is the invariant that makes presenting it safe.
     ensure_managed_workspace_guard(&replacement.session, Some(machine_ui))?;
     ensure_initial_for_machine_ui(
         &replacement.session,
         preparation.initial_size,
         Some(machine_ui),
     )?;
-    let color_error = replacement
-        .session
-        .set_default_colors(preparation.default_colors)
-        .err()
-        .map(|error| error.to_string());
     let session_available = machine_ui.session_available;
     let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
         replacement.session,
@@ -8501,7 +8656,6 @@ fn prepare_machine_session(
         tree,
         label: replacement.label,
         session_available,
-        color_error,
         machine: replacement.machine,
     })
 }
@@ -8653,6 +8807,15 @@ fn uses_provider_managed_workspaces(machine_ui: Option<&MachineUiState>) -> bool
     )
 }
 
+/// Route core diagnostics to the bounded client log. Core work can run on a
+/// reconnect thread while this process owns a raw terminal, so the sink must
+/// not echo to stderr.
+pub(crate) fn install_mux_diagnostic_logger(mux: &Arc<Mux>) {
+    let _ = mux.set_diagnostic_reporter(Arc::new(|message| {
+        crate::client_log::warn("mux", message);
+    }));
+}
+
 fn ensure_managed_workspace_guard(
     session: &Session,
     machine_ui: Option<&MachineUiState>,
@@ -8671,6 +8834,7 @@ pub fn run_with_machine_updates(
     owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
+    startup_config: crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
     let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
@@ -8694,6 +8858,7 @@ pub fn run_with_machine_updates(
             owner_mux,
             machine_ui,
             machine_controller,
+            startup_config,
         )
     }));
     let _ = std::panic::take_hook();
@@ -8718,8 +8883,15 @@ fn run_with_machine_updates_inner(
     owner_mux: Option<Arc<Mux>>,
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
+    startup_config: crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<RunOutcome> {
-    let mut config = crate::config::load();
+    if let Session::Local(mux) = &session {
+        install_mux_diagnostic_logger(mux);
+    }
+    if let Some(mux) = owner_mux.as_ref() {
+        install_mux_diagnostic_logger(mux);
+    }
+    let mut config = startup_config.into_config();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
     config.apply_chrome_defaults(chrome);
     let session_available = machine_ui.as_ref().is_none_or(|machine| machine.session_available);
@@ -8760,7 +8932,21 @@ fn run_with_machine_updates_inner(
         move |failure| {
             let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
         },
-        move |message| {
+        move |error| {
+            crate::client_log::error("browser-control", &error);
+            // The dispatcher exposes only a string. Match the one stable CDP
+            // classification and discard every other internal detail before
+            // creating a user-facing status event.
+            let browser = &localization::catalog().browser;
+            let message = if error == CDP_CONNECTION_UNAVAILABLE_MESSAGE {
+                localization::catalog().browser.control_unavailable()
+            } else if error == browser.attach_unsupported {
+                browser.control_failed(browser.attach_unsupported)
+            } else {
+                // Keep the failure category stable. The raw error is already
+                // in the private diagnostic log and must not cross this UI boundary.
+                browser.control_failed("browser operation failed")
+            };
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
     )?;
@@ -8965,11 +9151,11 @@ fn run_with_machine_updates_inner(
         #[cfg(test)]
         config_reload_applications: 0,
         chrome,
-        default_colors,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         chrome_row_scratch: ReusableRowBuffer::default(),
+        sidebar_kind_scratch: Vec::new(),
         rendered_terminal_sizes: HashMap::new(),
         rendered_terminal_pointer_semantics: HashMap::new(),
         rendered_pane_content_generations: HashMap::new(),
@@ -9060,6 +9246,10 @@ fn run_with_machine_updates_inner(
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
+        selection_mode: SelectionMode::Cell,
+        selection_mode_surface: None,
+        selection_click_sequence: None,
+        semantic_selection_cache: None,
         status_selection: None,
         rendered_status_message: None,
         logged_status_message: None,
@@ -9111,14 +9301,7 @@ fn run_with_machine_updates_inner(
     }
 
     if let Err(error) = app.restart_machine_updates() {
-        app.shutdown_background_workers();
-        app.cancel_pointer_interaction();
-        app.session.begin_shutdown();
-        let _ = app.pty_input.shutdown(Duration::from_secs(3));
-        if let Some(writer) = app.graphics_writer.as_mut() {
-            writer.shutdown(Duration::from_millis(200));
-        }
-        let _ = std::panic::take_hook();
+        app.shutdown_runtime_components();
         return Err(terminal_restore.restore_after_error(error));
     }
 
@@ -9127,14 +9310,7 @@ fn run_with_machine_updates_inner(
     }
 
     let result = app.event_loop(&mut terminal, rx);
-    app.shutdown_background_workers();
-    app.cancel_pointer_interaction();
-    app.session.begin_shutdown();
-    let _ = app.pty_input.shutdown(Duration::from_secs(3));
-    if let Some(writer) = app.graphics_writer.as_mut() {
-        writer.shutdown(Duration::from_millis(200));
-    }
-    let _ = std::panic::take_hook();
+    app.shutdown_runtime_components();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
         (Ok(()), Ok(())) => {}
@@ -9496,6 +9672,14 @@ fn should_claim_clear_history_shortcut(
     supports_atomic_fallback: bool,
 ) -> bool {
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
+}
+
+fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
+    if pane.active_tab > removed_tab_index {
+        pane.active_tab -= 1;
+    } else if pane.active_tab >= pane.tabs.len() {
+        pane.active_tab = pane.tabs.len().saturating_sub(1);
+    }
 }
 
 impl App {
@@ -10198,26 +10382,33 @@ impl App {
                 HostInputMessage::Event(event) => AppEvent::Input(event),
                 HostInputMessage::Failed(error) => AppEvent::HostInputFailed(error),
             };
-            action = action.merge(self.handle(event)?);
-            action = action.merge(self.process_machine_requests());
-            self.mark_pointer_route_for_rebuild(action);
+            action = self.handle_event_and_process_machine_requests(event, action)?;
             drained += 1;
         }
         Ok((action, drained))
     }
 
+    fn handle_event_and_process_machine_requests(
+        &mut self,
+        event: AppEvent,
+        mut action: RenderAction,
+    ) -> anyhow::Result<RenderAction> {
+        action = action.merge(self.handle(event)?);
+        action = action.merge(self.process_machine_requests());
+        self.mark_pointer_route_for_rebuild(action);
+        Ok(action)
+    }
+
     fn event_loop<B: Backend>(
         &mut self,
         terminal: &mut RatatuiTerminal<B>,
-        rx: Receiver<AppEvent>,
+        rx: crossbeam_channel::Receiver<AppEvent>,
     ) -> anyhow::Result<()>
     where
         B::Error: Send + Sync + 'static,
     {
         // Initial layout + draw.
-        let size = terminal.size()?;
-        self.sync_layout((size.width, size.height));
-        self.draw_terminal(terminal)?;
+        self.draw_terminal(terminal, RenderAction::Draw)?;
         self.emit_graphics()?;
         self.commit_rendered_pointer_frame();
         self.pointer_route_phase = if self.pending_graphics_submission.is_some() {
@@ -10259,9 +10450,10 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
+            let mut toast_expired_on_timeout = false;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
-                Err(RecvTimeoutError::Timeout) => {
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     if self.shake_frames > 0 {
                         action = RenderAction::Draw;
                     }
@@ -10269,6 +10461,7 @@ impl App {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.expire_toast() {
+                        toast_expired_on_timeout = true;
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.tick_sidebar_files() {
@@ -10276,7 +10469,7 @@ impl App {
                     }
                     None
                 }
-                Err(RecvTimeoutError::Disconnected) => {
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     let action =
                         terminal_paints.render_immediately(RenderAction::None, Instant::now());
                     self.render_action(terminal, action)?;
@@ -10291,19 +10484,15 @@ impl App {
             if first.is_none()
                 && let Some(hook) = self.timeout_drain_hook.take()
             {
-                hook();
+                hook(self);
             }
             if let Some(event) = first {
-                action = action.merge(self.handle(event)?);
-                action = action.merge(self.process_machine_requests());
-                self.mark_pointer_route_for_rebuild(action);
+                action = self.handle_event_and_process_machine_requests(event, action)?;
             }
             for _ in 0..256 {
                 match rx.try_recv() {
                     Ok(event) => {
-                        action = action.merge(self.handle(event)?);
-                        action = action.merge(self.process_machine_requests());
-                        self.mark_pointer_route_for_rebuild(action);
+                        action = self.handle_event_and_process_machine_requests(event, action)?;
                     }
                     Err(_) => break,
                 }
@@ -10325,7 +10514,8 @@ impl App {
             if self.quit {
                 break;
             }
-            if self.expire_toast() {
+            // Keep a toast reintroduced by the timeout drain hook alive for one iteration.
+            if !toast_expired_on_timeout && self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
             action = action.merge(self.advance_viewport_animation(Instant::now()));
@@ -10425,6 +10615,17 @@ impl App {
         }
     }
 
+    fn shutdown_runtime_components(&mut self) {
+        self.shutdown_background_workers();
+        self.cancel_pointer_interaction();
+        self.session.begin_shutdown();
+        let _ = self.pty_input.shutdown(Duration::from_secs(3));
+        if let Some(writer) = self.graphics_writer.as_mut() {
+            writer.shutdown(Duration::from_millis(200));
+        }
+        let _ = std::panic::take_hook();
+    }
+
     fn process_machine_requests(&mut self) -> RenderAction {
         self.submit_pending_durable_notice_ack();
         if self.machine_action_in_flight {
@@ -10468,7 +10669,6 @@ impl App {
                 self.config.scrollbar.position,
                 self.config.pane.padding,
             ),
-            default_colors: self.default_colors,
             generation: self.session_generation.wrapping_add(1).max(1),
             pty_input: self.pty_input.sender(),
             surface_filter: self.surface_only,
@@ -11381,7 +11581,6 @@ impl App {
             tree,
             label,
             session_available,
-            color_error,
             machine: _,
         } = prepared;
         self.pty_input.activate_session_generation(generation);
@@ -11395,12 +11594,6 @@ impl App {
         self.reset_session_presentation(tree);
         if let Some(worker) = self.session_event_worker.as_ref() {
             worker.activate();
-        }
-        if let Some(error) = color_error {
-            self.status_message = Some(format!(
-                "{}: {error}",
-                localization::catalog().sidebar.machine_terminal_colors_failed
-            ));
         }
         if session_available {
             if publishes_global_cell_metrics(self.surface_only) {
@@ -11478,6 +11671,7 @@ impl App {
         self.toast = None;
         self.shake_frames = 0;
         self.replace_selection(None);
+        self.reset_selection_click_sequence();
         self.last_browser_hover = None;
         self.deferred_input.clear();
         self.pending_pointer_motion = None;
@@ -11499,34 +11693,41 @@ impl App {
         self.encode_buf.clear();
     }
 
-    fn request_current_machine_session(&mut self) -> bool {
+    /// A machine that is sleeping or stopped lost its stream BECAUSE it was
+    /// paused; reconnecting would start it right back up and make pause
+    /// impossible. Present it as asleep instead - the user's next input (or
+    /// a rail click) wakes it through the normal switch path.
+    fn present_machine_as_asleep_after_stream_loss(&mut self) -> bool {
         let Some(machine) = self.machine_ui.as_mut() else { return false };
-        // A machine that is sleeping or stopped lost its stream BECAUSE it
-        // was paused; reconnecting would start it right back up and make
-        // pause impossible. Present it as asleep instead - the user's next
-        // input (or a rail click) wakes it through the normal switch path.
-        if let Some(active) = machine.snapshot.active
-            && machine.snapshot.machines.iter().any(|descriptor| {
-                descriptor.key == active
-                    && matches!(
-                        descriptor.status,
-                        crate::machine::MachineStatus::Sleeping
-                            | crate::machine::MachineStatus::Stopped
-                    )
-            })
-        {
-            crate::client_log::info(
-                "machine",
-                &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
-            );
-            machine.session_available = false;
-            machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
-            // The previous open's narration is stale now; a later wake
-            // reuses the same selection intent, so select_machine_intent
-            // will not clear it.
-            machine.clear_connection_progress(active);
+        let Some(active) = machine.snapshot.active else { return false };
+        if !machine.snapshot.machines.iter().any(|descriptor| {
+            descriptor.key == active
+                && matches!(
+                    descriptor.status,
+                    crate::machine::MachineStatus::Sleeping
+                        | crate::machine::MachineStatus::Stopped
+                )
+        }) {
+            return false;
+        }
+        crate::client_log::info(
+            "machine",
+            &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
+        );
+        machine.session_available = false;
+        machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
+        // The previous open's narration is stale now; a later wake
+        // reuses the same selection intent, so select_machine_intent
+        // will not clear it.
+        machine.clear_connection_progress(active);
+        true
+    }
+
+    fn request_current_machine_session(&mut self) -> bool {
+        if self.present_machine_as_asleep_after_stream_loss() {
             return true;
         }
+        let Some(machine) = self.machine_ui.as_mut() else { return false };
         if machine.request.is_none() {
             let request = machine
                 .snapshot
@@ -11581,14 +11782,8 @@ impl App {
         self.ensure_graphics_writer_healthy()?;
         self.mark_pointer_route_for_rebuild(action);
         match action {
-            RenderAction::Draw => {
-                let size = terminal.size()?;
-                self.sync_layout((size.width, size.height));
-                self.draw_terminal(terminal)?;
-                self.emit_graphics()?;
-            }
-            RenderAction::Paint => {
-                self.draw_terminal(terminal)?;
+            RenderAction::Draw | RenderAction::Paint => {
+                self.draw_terminal(terminal, action)?;
                 self.emit_graphics()?;
             }
             RenderAction::Graphics => self.emit_dirty_graphics()?,
@@ -11974,6 +12169,10 @@ impl App {
     }
 
     fn commit_rendered_pointer_frame_for(&mut self, action: RenderAction) {
+        if self.outer_size.0 == 0 || self.outer_size.1 == 0 {
+            self.rendered_pointer_frame = RenderedPointerFrame::default();
+            return;
+        }
         let pairing = self
             .pairing_dialog
             .as_ref()
@@ -11987,6 +12186,16 @@ impl App {
         let machine_rail = self.sidebar_layout.machine;
         let workspace_rail = self.sidebar_layout.workspace;
         let tabs_rail = self.sidebar_layout.tabs;
+        let projection_rails = self
+            .sidebar_layout
+            .ordered
+            .iter()
+            .filter_map(|placement| match placement.kind {
+                RailKind::Projection(_) => Some((placement.kind, placement.rect)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .into();
         let pointer_map_generation = self.session.pointer_map_generation();
         let reuse_owners = action == RenderAction::Paint
             && self.rendered_pointer_frame.pointer_map_generation == pointer_map_generation;
@@ -12070,6 +12279,7 @@ impl App {
             machine_rail,
             workspace_rail,
             tabs_rail,
+            projection_rails,
             hits,
             panes,
             terminal_pointer_semantics,
@@ -12318,6 +12528,12 @@ impl App {
         if self.pointer_route_is_globally_stale() {
             return true;
         }
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the browser bitmap or a
+            // graphics scene. Keep global and layout barriers above, but do
+            // not wait for content admission this press never enters.
+            return false;
+        }
         if self.pending_graphics_changes_cell(mouse.column, mouse.row) {
             return true;
         }
@@ -12325,12 +12541,6 @@ impl App {
             self.pointer_route_phase,
             PointerRoutePhase::GraphicsRenderPending | PointerRoutePhase::GraphicsProcessingPending
         ) {
-            return false;
-        }
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu is owned by cmux rather than the browser bitmap. Keep
-            // geometry barriers above, but do not wait for browser content
-            // admission that this press never enters.
             return false;
         }
         let route = self.rendered_pointer_frame.route_for_mouse(mouse);
@@ -12753,6 +12963,13 @@ impl App {
     }
 
     fn retire_surface_state(&mut self, surface: SurfaceId) {
+        if self
+            .selection_click_sequence
+            .as_ref()
+            .is_some_and(|sequence| sequence.surface == surface)
+        {
+            self.reset_selection_click_sequence();
+        }
         if matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
         {
             self.cancel_pty_release_reservation();
@@ -12812,6 +13029,52 @@ impl App {
     /// topology refresh arrives. The backend projection still owns parent
     /// pane, screen, and workspace collapse.
     fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
+        let Some([workspace_index, screen_index, pane_index, tab_index]) =
+            self.tab_locations.get(&surface).copied()
+        else {
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
+            return;
+        };
+
+        let location_is_current = self
+            .tree
+            .workspaces
+            .get(workspace_index)
+            .and_then(|workspace| workspace.screens.get(screen_index))
+            .and_then(|screen| screen.panes.get(pane_index))
+            .and_then(|pane| pane.tabs.get(tab_index))
+            .is_some_and(|tab| tab.surface == surface);
+        if !location_is_current {
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
+            return;
+        }
+
+        let shifted_tabs = {
+            let pane =
+                &mut self.tree.workspaces[workspace_index].screens[screen_index].panes[pane_index];
+            pane.tabs.remove(tab_index);
+            adjust_active_tab_after_removal(pane, tab_index);
+            pane.tabs
+                .iter()
+                .enumerate()
+                .skip(tab_index)
+                .map(|(tab_index, tab)| (tab.surface, tab_index))
+                .collect::<Vec<_>>()
+        };
+
+        self.tab_locations.remove(&surface);
+        for (shifted_surface, shifted_index) in shifted_tabs {
+            self.tab_locations.insert(
+                shifted_surface,
+                [workspace_index, screen_index, pane_index, shifted_index],
+            );
+        }
+    }
+
+    /// Repair the cache from the tree and rebuild `tab_locations` if the index was missing or stale.
+    /// This path is defensive only. Normal surface exits use the indexed path
+    /// above and touch one pane instead of scanning the entire topology.
+    fn remove_surface_from_cached_tree_scan_and_rebuild_locations(&mut self, surface: SurfaceId) {
         for workspace in &mut self.tree.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
@@ -12820,11 +13083,7 @@ impl App {
                         continue;
                     };
                     pane.tabs.remove(index);
-                    if pane.active_tab > index {
-                        pane.active_tab -= 1;
-                    } else if pane.active_tab >= pane.tabs.len() {
-                        pane.active_tab = pane.tabs.len().saturating_sub(1);
-                    }
+                    adjust_active_tab_after_removal(pane, index);
                 }
             }
         }
@@ -12896,7 +13155,11 @@ impl App {
         anyhow::bail!("{message}")
     }
 
-    fn draw_terminal<B: Backend>(&mut self, terminal: &mut RatatuiTerminal<B>) -> anyhow::Result<()>
+    fn draw_terminal<B: Backend>(
+        &mut self,
+        terminal: &mut RatatuiTerminal<B>,
+        action: RenderAction,
+    ) -> anyhow::Result<()>
     where
         B::Error: Send + Sync + 'static,
     {
@@ -12905,7 +13168,12 @@ impl App {
         lock.recover_stream_locked()?;
         self.ensure_graphics_writer_healthy()?;
         self.painted_durable_notice_this_frame = None;
-        catch_renderer_panic(|| terminal.draw(|f| crate::ui::draw(self, f)))??;
+        catch_renderer_panic(|| {
+            terminal.draw(|frame| {
+                self.prepare_frame_layout(frame.area(), action);
+                crate::ui::draw(self, frame);
+            })
+        })??;
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -13008,6 +13276,36 @@ impl App {
             self.desired_outer_cursor = OuterCursorSpec::Reset;
         }
         self.applied_outer_cursor = None;
+    }
+
+    fn prepare_frame_layout(&mut self, area: ratatui::layout::Rect, action: RenderAction) {
+        let size = (area.width, area.height);
+        if action == RenderAction::Draw || self.outer_size != size {
+            self.sync_layout(size);
+        }
+        if area.width == 0 || area.height == 0 {
+            self.clear_empty_frame_geometry();
+        }
+    }
+
+    fn clear_empty_frame_geometry(&mut self) {
+        self.sidebar_layout = SidebarLayout::default();
+        self.sidebar_width = 0;
+        self.machine_sidebar_width = 0;
+        self.tabs_sidebar_width = 0;
+        self.content_area = Rect::default();
+        self.hits.clear();
+        self.pane_areas.clear();
+        self.viewport_projection.clear();
+        self.viewport_layout.clear();
+        self.viewport_stacked_headers.clear();
+        self.viewport_virtual_width = 0;
+        self.viewport_offset = 0;
+        self.rendered_terminal_sizes.clear();
+        self.rendered_terminal_bounds.clear();
+        self.rendered_kitty_graphics.clear();
+        self.rendered_terminal_pointer_semantics.clear();
+        self.rendered_pane_content_generations.clear();
     }
 
     pub(crate) fn reset_frame_cursor_spec(&mut self) {
@@ -13147,14 +13445,12 @@ impl App {
         let context_changed = self.graphics_scene_cache.context.as_ref() != Some(&context);
         let full_scan = !dirty_only || context_changed;
         self.mark_graphics_clean((!full_scan).then_some(&dirty_surfaces));
-        let areas = self
-            .pane_areas
-            .iter()
-            .copied()
-            .filter(|area| full_scan || dirty_surfaces.contains(&area.surface))
-            .collect::<Vec<_>>();
         let mut updates = Vec::new();
-        for area in areas {
+        for index in 0..self.pane_areas.len() {
+            let area = self.pane_areas[index];
+            if !full_scan && !dirty_surfaces.contains(&area.surface) {
+                continue;
+            }
             let surface = self.session.surface(area.surface);
             let key = self.graphics_pane_scene_key(area, surface.as_ref());
             let unchanged = !context_changed
@@ -14436,7 +14732,7 @@ impl App {
             if let TerminalInput::Mouse(mouse) = input
                 && !pointer_has_capture
             {
-                let rendered_route = self.rendered_pointer_frame.route_for_mouse(mouse);
+                let rendered_route = self.rendered_pointer_route_for_mouse(mouse);
                 let replayed_route_changed = replay_context
                     .as_ref()
                     .and_then(|context| context.pointer.as_ref())
@@ -14715,6 +15011,26 @@ impl App {
                 Ok(self.apply_machine_controller_completion(*completion))
             }
             AppEvent::Mux(MuxEvent::Empty) => {
+                // A genuinely emptied workspace list and a dead event
+                // transport both end the event stream with this event, but
+                // only the former is a clean exit. The remote reader records
+                // why it stopped; consult that BEFORE any machine-session
+                // request so a machine or provider surface cannot swallow the
+                // dead transport into a stuck reconnect (issue 11042). A
+                // deliberate local disconnect records no reason. The one
+                // machine response that outranks the error is a sleeping or
+                // stopped machine, whose stream loss is the designed result
+                // of pausing it.
+                if let Some(reason) = self.session.transport_disconnect_reason() {
+                    if self.present_machine_as_asleep_after_stream_loss() {
+                        return Ok(RenderAction::Draw);
+                    }
+                    crate::client_log::error(
+                        "session",
+                        &format!("remote event transport lost: {reason}"),
+                    );
+                    anyhow::bail!(localization::catalog().runtime.session_transport_lost());
+                }
                 if self.request_current_machine_session() {
                     return Ok(RenderAction::Draw);
                 }
@@ -14767,12 +15083,22 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::GraphicsStatus(status)) => {
                 let messages = &localization::catalog().graphics;
-                self.status_message = Some(match status {
+                let message = match status {
                     GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => {
                         messages.kitty_image_budget_worker_start_failed(&error)
                     }
+                    // Kitty quota updates are advisory: the mux disables graphics
+                    // for an unresponsive surface and the terminal remains usable.
+                    // Keep the structured event available to logs and remote
+                    // observers, but do not replace user-facing command status
+                    // with a diagnostic the user cannot act on.
                     GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } => {
-                        messages.kitty_image_budget_update_failed(retry_exhausted, &summary)
+                        crate::client_log::log(
+                            "WARN",
+                            "kitty-graphics",
+                            &messages.kitty_image_budget_update_failed(retry_exhausted, &summary),
+                        );
+                        return Ok(RenderAction::None);
                     }
                     GraphicsStatus::CellPixelUpdateRetriesExhausted {
                         attempts,
@@ -14783,7 +15109,8 @@ impl App {
                         remaining,
                         cell_pixels,
                     ),
-                });
+                };
+                self.status_message = Some(message);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
@@ -15248,6 +15575,9 @@ impl App {
         action_destination: Option<SurfaceId>,
         action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        if !matches!(&input, TerminalInput::Mouse(_)) {
+            self.reset_selection_click_sequence();
+        }
         let semantic_result =
             if semantic_result.is_none() && self.input_creates_session_destination(&input) {
                 self.clear_finished_semantic_destinations();
@@ -15313,9 +15643,13 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
-                self.cancel_pointer_interaction();
+                let action = if self.cancel_pointer_interaction() {
+                    RenderAction::Draw
+                } else {
+                    RenderAction::None
+                };
                 self.advance_pointer_focus_generation();
-                Ok(RenderAction::None)
+                Ok(action)
             }
             TerminalInput::Resize => {
                 self.reassert_scoped_host_terminal_state();
@@ -15331,6 +15665,15 @@ impl App {
     }
 
     fn handle_paste_to(
+        &mut self,
+        text: String,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
+        let action = self.handle_paste_to_inner(text, destination)?;
+        Ok(action.merge(self.painted_status_message_action()))
+    }
+
+    fn handle_paste_to_inner(
         &mut self,
         text: String,
         destination: Option<SurfaceId>,
@@ -15552,6 +15895,7 @@ impl App {
         self.pending_pointer_motion = None;
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
+        self.reset_selection_click_sequence();
     }
 
     #[cfg(test)]
@@ -15604,7 +15948,7 @@ impl App {
                 focus_generation: self.pointer_focus_generation,
                 pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
                 route: Self::mouse_requires_rendered_route(mouse.kind)
-                    .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
+                    .then(|| self.rendered_pointer_route_for_mouse(mouse)),
             })
         } else {
             None
@@ -15781,7 +16125,19 @@ impl App {
 
     fn mouse_opens_cmux_context_menu(mouse: &MouseEvent) -> bool {
         mouse.kind == MouseEventKind::Down(MouseButton::Right)
-            && mouse.modifiers.contains(KeyModifiers::SHIFT)
+            && (mouse.modifiers.contains(KeyModifiers::SHIFT)
+                || mouse.modifiers.contains(KeyModifiers::ALT))
+    }
+
+    fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
+        let route = self.rendered_pointer_frame.route_for_mouse(mouse);
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu press never enters the pane's application; async output
+            // must not change its recorded route.
+            route.normalized_for_cmux_menu()
+        } else {
+            route
+        }
     }
 
     fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
@@ -15828,6 +16184,14 @@ impl App {
         mouse: &MouseEvent,
         missing_surface: Option<SurfaceId>,
     ) -> TerminalPointerAdmissionResult {
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the terminal
+            // application: the press never forwards bytes, so encoder
+            // semantics and content-generation admission cannot gate it.
+            // Geometry barriers (pending paints, pointer-map mutations)
+            // still defer it through the route staleness checks.
+            return TerminalPointerAdmissionResult::NotTerminal;
+        }
         let Some((surface, input_rect, expected_snapshot)) =
             rendered_route.terminal_pointer_snapshot()
         else {
@@ -16395,9 +16759,380 @@ impl App {
             .unwrap_or(0)
     }
 
+    /// Whether a selection should be painted for a surface. A word or line
+    /// can legitimately contain one cell, so endpoint equality alone is not
+    /// enough to decide whether the highlight is visible.
+    pub(crate) fn selection_is_visible(&self, surface: SurfaceId) -> bool {
+        self.selection.is_some_and(|selection| {
+            selection.surface == surface
+                && (selection.anchor != selection.head
+                    || (self.selection_mode_surface == Some(surface)
+                        && self.selection_mode != SelectionMode::Cell))
+        })
+    }
+
+    fn reset_selection_click_sequence(&mut self) {
+        self.selection_click_sequence = None;
+        self.semantic_selection_cache = None;
+    }
+
+    fn reset_selection_mode(&mut self) {
+        self.selection_mode = SelectionMode::Cell;
+        self.selection_mode_surface = None;
+        self.semantic_selection_cache = None;
+    }
+
+    /// Clear a press that has no semantic range while retaining the surface
+    /// needed to turn a later drag into a cell selection.
+    fn clear_selection_for_cell_gesture(&mut self, surface: SurfaceId) {
+        self.replace_selection(None);
+        self.selection_mode = SelectionMode::Cell;
+        self.selection_mode_surface = Some(surface);
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.mode = SelectionMode::Cell;
+        }
+    }
+
+    fn invalidate_selection_repeat(&mut self, surface: SurfaceId) {
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.repeatable = false;
+        }
+    }
+
+    fn selection_point(cell: (u16, u64)) -> Option<SelectionPoint> {
+        Some(SelectionPoint { column: cell.0, row: u32::try_from(cell.1).ok()? })
+    }
+
+    fn selection_from_range(surface: SurfaceId, range: SelectionRange) -> Selection {
+        Selection {
+            surface,
+            anchor: (range.start.column, u64::from(range.start.row)),
+            head: (range.end.column, u64::from(range.end.row)),
+        }
+    }
+
+    fn selection_for_click(
+        &self,
+        surface: SurfaceId,
+        cell: (u16, u64),
+        mode: SelectionMode,
+    ) -> Option<Selection> {
+        if mode == SelectionMode::Cell {
+            return Some(Selection { surface, anchor: cell, head: cell });
+        }
+        let point = Self::selection_point(cell)?;
+        let handle = self.session.surface(surface)?;
+        let range = handle
+            .with_terminal(|terminal| match mode {
+                SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
+                SelectionMode::Line => terminal
+                    .select_line_screen(point)
+                    .ok()
+                    .flatten()
+                    .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
+                SelectionMode::Cell => None,
+            })
+            .flatten()?;
+        Some(Self::selection_from_range(surface, range))
+    }
+
+    fn terminal_active_screen(&self, surface: SurfaceId) -> Option<Screen> {
+        self.session
+            .surface(surface)
+            .and_then(|handle| handle.with_terminal(|terminal| terminal.active_screen()))
+    }
+
+    fn terminal_content_generation(&self, surface: SurfaceId) -> Option<u64> {
+        let handle = self.session.surface(surface)?;
+        match handle.try_pointer_snapshot()? {
+            PointerSnapshotProbe::Ready(snapshot) => Some(snapshot.content_generation),
+            PointerSnapshotProbe::Contended => None,
+        }
+    }
+
+    fn selection_repeat_allowed(
+        previous: &SelectionClickSequence,
+        surface: SurfaceId,
+        screen: Option<Screen>,
+        position: (u16, u16),
+        modifiers: KeyModifiers,
+        now: Instant,
+    ) -> bool {
+        if !previous.repeatable
+            || screen.is_none()
+            || previous.surface != surface
+            || previous.screen != screen
+            || previous.modifiers != KeyModifiers::NONE
+            || modifiers != KeyModifiers::NONE
+        {
+            return false;
+        }
+        let Some(elapsed) = now.checked_duration_since(previous.time) else { return false };
+        if elapsed > SELECTION_REPEAT_INTERVAL {
+            return false;
+        }
+        let dx = u32::from(previous.position.0.abs_diff(position.0));
+        let dy = u32::from(previous.position.1.abs_diff(position.1));
+        dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
+            <= SELECTION_REPEAT_DISTANCE_SQUARED
+    }
+
+    fn begin_selection_click(
+        &mut self,
+        surface: SurfaceId,
+        cell: (u16, u64),
+        position: (u16, u16),
+        modifiers: KeyModifiers,
+    ) -> SelectionMode {
+        self.semantic_selection_cache = None;
+        let now = Instant::now();
+        let previous = self.selection_click_sequence.take();
+        let screen = self.terminal_active_screen(surface);
+        let repeated = previous.as_ref().is_some_and(|previous| {
+            Self::selection_repeat_allowed(previous, surface, screen, position, modifiers, now)
+        });
+        let (mut count, mut tracked_anchor) = if repeated {
+            let previous = previous.expect("repeated selection click has prior state");
+            (previous.count.saturating_add(1).min(3), previous.tracked_anchor)
+        } else {
+            (1, None)
+        };
+
+        if let Some(row) = u32::try_from(cell.1).ok()
+            && let Some(handle) = self.session.surface(surface)
+        {
+            // A tracked anchor is also a screen-generation check. If it can
+            // no longer be moved, the terminal recycled or removed its page;
+            // do not turn that stale press into a double click.
+            let anchor_moved = tracked_anchor.as_mut().is_some_and(|anchor| {
+                handle
+                    .with_terminal(|terminal| {
+                        terminal.set_tracked_screen_point(anchor, cell.0, row).is_ok()
+                    })
+                    .unwrap_or(false)
+            });
+            if repeated && tracked_anchor.is_some() && !anchor_moved {
+                count = 1;
+                tracked_anchor = None;
+            }
+            if tracked_anchor.is_none() {
+                tracked_anchor = handle
+                    .with_terminal(|terminal| terminal.track_screen_point(cell.0, row).ok())
+                    .flatten();
+            }
+        }
+        let mode = match count {
+            2 => SelectionMode::Word,
+            3 => SelectionMode::Line,
+            _ => SelectionMode::Cell,
+        };
+        self.selection_click_sequence = Some(SelectionClickSequence {
+            surface,
+            screen,
+            position,
+            modifiers,
+            time: now,
+            count,
+            mode,
+            anchor: cell,
+            dragged: false,
+            tracked_anchor,
+            repeatable: true,
+        });
+        mode
+    }
+
+    fn selection_anchor_cell(&self, surface: SurfaceId) -> Option<(u16, u64)> {
+        let sequence = self.selection_click_sequence.as_ref()?;
+        if sequence.surface != surface {
+            return None;
+        }
+        let handle = self.session.surface(surface)?;
+        handle
+            .with_terminal(|terminal| {
+                if let Some(anchor) = sequence.tracked_anchor.as_ref() {
+                    terminal
+                        .tracked_screen_point(anchor)
+                        .map(|(column, row)| (column, u64::from(row)))
+                } else {
+                    Some(sequence.anchor)
+                }
+            })
+            .flatten()
+    }
+
+    fn mark_selection_dragged(&mut self, surface: SurfaceId) {
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.dragged = true;
+        }
+    }
+
+    /// Clear an invalid semantic drag result without ending the gesture. The
+    /// mode and tracked anchor stay available so a later pointer sample can
+    /// recover, while release cannot copy an older range.
+    fn clear_selection_for_semantic_gesture(&mut self, surface: SurfaceId, mode: SelectionMode) {
+        if self.selection.is_some() {
+            self.selection_generation = self.selection_generation.wrapping_add(1);
+            self.selection = None;
+        }
+        self.selection_mode = mode;
+        self.selection_mode_surface = Some(surface);
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.mode = mode;
+        }
+    }
+
+    fn update_semantic_selection(
+        &mut self,
+        surface: SurfaceId,
+        mode: SelectionMode,
+        current: (u16, u64),
+    ) {
+        if mode == SelectionMode::Cell {
+            return;
+        }
+        let Some(anchor) = self.selection_anchor_cell(surface) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(anchor_point) = Self::selection_point(anchor) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(current_point) = Self::selection_point(current) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(handle) = self.session.surface(surface) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let content_generation = self.terminal_content_generation(surface);
+        if let Some(generation) = content_generation
+            && let Some(cache) = self.semantic_selection_cache
+            && cache.surface == surface
+            && cache.mode == mode
+            && cache.anchor == anchor_point
+            && cache.current == current_point
+            && cache.content_generation == generation
+        {
+            if let Some(range) = cache.range {
+                self.replace_selection(Some(Self::selection_from_range(surface, range)));
+            } else {
+                self.clear_selection_for_semantic_gesture(surface, mode);
+            }
+            return;
+        }
+        let range = handle
+            .with_terminal(|terminal| match mode {
+                SelectionMode::Word => {
+                    let first = terminal
+                        .select_word_between_screen(anchor_point, current_point)
+                        .ok()
+                        .flatten()?;
+                    let second = terminal
+                        .select_word_between_screen(current_point, anchor_point)
+                        .ok()
+                        .flatten()?;
+                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                    Some(if current_before_anchor {
+                        SelectionRange { start: second.start, end: first.end }
+                    } else {
+                        SelectionRange { start: first.start, end: second.end }
+                    })
+                }
+                SelectionMode::Line => {
+                    let select_line =
+                        |point| {
+                            terminal.select_line_screen(point).ok().flatten().or_else(|| {
+                                terminal.select_line_screen_untrimmed(point).ok().flatten()
+                            })
+                        };
+                    let first = select_line(anchor_point)?;
+                    let second = select_line(current_point)?;
+                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                    Some(if current_before_anchor {
+                        SelectionRange { start: second.start, end: first.end }
+                    } else {
+                        SelectionRange { start: first.start, end: second.end }
+                    })
+                }
+                SelectionMode::Cell => None,
+            })
+            .flatten();
+        if let Some(generation) = content_generation {
+            self.semantic_selection_cache = Some(SemanticSelectionCache {
+                surface,
+                mode,
+                anchor: anchor_point,
+                current: current_point,
+                content_generation: generation,
+                range,
+            });
+        } else {
+            self.semantic_selection_cache = None;
+        }
+        match range {
+            Some(range) => self.replace_selection(Some(Self::selection_from_range(surface, range))),
+            None => self.clear_selection_for_semantic_gesture(surface, mode),
+        }
+    }
+
     fn replace_selection(&mut self, selection: Option<Selection>) {
         self.selection_generation = self.selection_generation.wrapping_add(1);
         self.selection = selection;
+        if selection.is_none() {
+            self.reset_selection_mode();
+        }
+    }
+
+    fn visible_input_state(&self, destination: Option<SurfaceId>) -> VisibleInputState {
+        let pty_surface = destination
+            .or_else(|| self.active_surface())
+            .filter(|surface| self.tree.surface_kind(*surface) == SurfaceKind::Pty);
+        VisibleInputState {
+            pty_surface,
+            selection: self.selection,
+            scroll_offset: pty_surface.map_or(0, |surface| self.surface_scroll_offset(surface)),
+        }
+    }
+
+    fn painted_status_message_action(&self) -> RenderAction {
+        if self
+            .rendered_status_message
+            .as_ref()
+            .is_some_and(|rendered| self.status_message.as_deref() != Some(rendered.text.as_str()))
+        {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        }
+    }
+
+    fn visible_input_action(&self, before: VisibleInputState) -> RenderAction {
+        let status_action = self.painted_status_message_action();
+        let action = if self.selection != before.selection
+            || before
+                .pty_surface
+                .is_some_and(|surface| self.surface_scroll_offset(surface) != before.scroll_offset)
+        {
+            RenderAction::Draw
+        } else {
+            RenderAction::None
+        };
+        action.merge(status_action)
     }
 
     pub(crate) fn reset_rendered_status_message(&mut self) {
@@ -16479,19 +17214,35 @@ impl App {
         else {
             return false;
         };
-        let Some(surface_id) = self.selection.map(|sel| sel.surface) else { return false };
+        let Some(surface_id) =
+            self.selection_mode_surface.or_else(|| self.selection.map(|sel| sel.surface))
+        else {
+            return false;
+        };
         let Some(surface) = self.session.surface(surface_id) else { return false };
         let content =
             self.current_selection_geometry(surface_id).map_or(content, |(content, _)| content);
         let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
-        if let Some(mut selection) = self.selection {
-            selection.head = (
-                col.min(content.width.saturating_sub(1).saturating_add(source_x)),
-                offset + edge_row as u64,
-            );
-            self.replace_selection(Some(selection));
+        let edge_cell = (
+            col.min(content.width.saturating_sub(1).saturating_add(source_x)),
+            offset + edge_row as u64,
+        );
+        self.mark_selection_dragged(surface_id);
+        if self.selection_mode != SelectionMode::Cell
+            && self.selection_mode_surface == Some(surface_id)
+        {
+            self.update_semantic_selection(surface_id, self.selection_mode, edge_cell);
+        } else {
+            let selection = self.selection.or_else(|| {
+                let anchor = self.selection_anchor_cell(surface_id)?;
+                Some(Selection { surface: surface_id, anchor, head: edge_cell })
+            });
+            if let Some(mut selection) = selection {
+                selection.head = edge_cell;
+                self.replace_selection(Some(selection));
+            }
         }
         moved
     }
@@ -17236,6 +17987,16 @@ impl App {
     }
 
     fn handle_direct_keyboard_to(
+        &mut self,
+        input: keys::KeyboardInput,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
+        let visible_state = self.visible_input_state(destination);
+        let action = self.handle_direct_keyboard_to_inner(input, destination)?;
+        Ok(action.merge(self.visible_input_action(visible_state)))
+    }
+
+    fn handle_direct_keyboard_to_inner(
         &mut self,
         input: keys::KeyboardInput,
         destination: Option<SurfaceId>,
@@ -18829,8 +19590,9 @@ impl App {
                 return Ok(RenderAction::Draw);
             }
             Action::Detach => {
-                // Local sessions end with the TUI; remote sessions keep
-                // running server-side (detach).
+                // Only a session hosted inside this process ends with the
+                // TUI; a session owned elsewhere (detached local owner or
+                // remote daemon) keeps running after this client leaves.
                 self.quit = true;
                 return Ok(RenderAction::None);
             }
@@ -19513,13 +20275,12 @@ impl App {
             self.tree.surface_kind(surface_id),
             self.session.supports_clear_history_key_fallback(surface_id),
         ) {
+            let visible_state = self.visible_input_state(Some(surface_id));
             self.replace_selection(None);
             self.forward_key_to_surface(input, surface_id);
-            return if self.status_message.is_some() {
-                RenderAction::Draw
-            } else {
-                RenderAction::None
-            };
+            let action =
+                if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None };
+            return action.merge(self.visible_input_action(visible_state));
         }
         let Some(key_input) = input.into_terminal_input() else {
             return RenderAction::None;
@@ -19956,6 +20717,7 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Right) => {
+                self.reset_selection_click_sequence();
                 if self.prompt.is_some() {
                     self.shake_frames = 6;
                     return Ok(RenderAction::Draw);
@@ -19997,20 +20759,23 @@ impl App {
                     self.handle_right_up(mouse.column, mouse.row)
                 }
             }
-            MouseEventKind::Down(MouseButton::Middle) => Ok(
-                if self.begin_pty_mouse_drag_with_admission(
-                    mouse.column,
-                    mouse.row,
-                    MouseButton::Middle,
-                    mouse.modifiers,
-                    terminal_admission,
-                ) != PtyMousePressResult::NotOwned
-                {
-                    RenderAction::Draw
-                } else {
-                    RenderAction::None
-                },
-            ),
+            MouseEventKind::Down(MouseButton::Middle) => {
+                self.reset_selection_click_sequence();
+                Ok(
+                    if self.begin_pty_mouse_drag_with_admission(
+                        mouse.column,
+                        mouse.row,
+                        MouseButton::Middle,
+                        mouse.modifiers,
+                        terminal_admission,
+                    ) != PtyMousePressResult::NotOwned
+                    {
+                        RenderAction::Draw
+                    } else {
+                        RenderAction::None
+                    },
+                )
+            }
             MouseEventKind::Drag(MouseButton::Middle) => {
                 self.forward_pty_mouse_drag(
                     mouse.column,
@@ -20079,6 +20844,7 @@ impl App {
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> PtyMousePressResult {
         if modifiers.contains(KeyModifiers::SHIFT)
+            || (button == MouseButton::Right && modifiers.contains(KeyModifiers::ALT))
             || self.menu.is_some()
             || self.prompt.is_some()
             || self.drag.is_some()
@@ -20125,6 +20891,7 @@ impl App {
             self.focus_pane_after_input(area.pane);
         }
         self.leave_workspace_sidebar();
+        self.reset_selection_click_sequence();
         self.replace_selection(None);
         if !forwarded.accepted {
             return PtyMousePressResult::Consumed;
@@ -20379,10 +21146,11 @@ impl App {
         self.handle_pty_enqueue_result(result)
     }
 
-    fn cancel_pointer_interaction(&mut self) {
-        if let Some(menu) = self.menu.as_mut() {
-            menu.finish_scrollbar_drag();
-        }
+    fn cancel_pointer_interaction(&mut self) -> bool {
+        self.reset_selection_click_sequence();
+        let menu_scrollbar_dragged =
+            self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
+        let pointer_dragged = self.drag.is_some();
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
         } else if let Some(Drag::Browser { surface, content, position, frame_seq }) = &self.drag {
@@ -20408,6 +21176,7 @@ impl App {
         }
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
+        menu_scrollbar_dragged || pointer_dragged
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
@@ -20455,11 +21224,13 @@ impl App {
     }
 
     fn finish_active_drag(&mut self) {
+        let had_drag = self.drag.is_some();
         if let Some(menu) = self.menu.as_mut() {
             menu.finish_scrollbar_drag();
         }
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
+            self.reset_selection_click_sequence();
             return;
         }
         match self.drag.take() {
@@ -20493,6 +21264,9 @@ impl App {
             )
             | None => {}
             Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
+        }
+        if had_drag {
+            self.reset_selection_click_sequence();
         }
     }
 
@@ -21186,6 +21960,19 @@ impl App {
         self.status_selection = None;
         self.finish_active_drag();
 
+        // A repeat is valid only for presses that land directly in a PTY
+        // content cell. Any chrome, overlay, browser, or modified click ends
+        // the pending terminal click sequence.
+        let repeat_target = modifiers == KeyModifiers::NONE
+            && self.hit_at(x, y).is_none()
+            && self.pane_area_at(x, y).is_some_and(|area| {
+                self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
+                    && self.terminal_input_rect(area).is_some_and(|content| content.contains(x, y))
+            });
+        if !repeat_target {
+            self.reset_selection_click_sequence();
+        }
+
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_click(x, y);
         }
@@ -21502,9 +22289,11 @@ impl App {
                         self.focus_pane_after_input(area.pane);
                     }
                     let Some(content) = self.terminal_input_rect(&area) else {
+                        self.reset_selection_click_sequence();
                         return Ok(RenderAction::Draw);
                     };
                     if !content.contains(x, y) {
+                        self.reset_selection_click_sequence();
                         return Ok(RenderAction::Draw);
                     }
                     // Begin a text selection; it becomes visible once the
@@ -21513,11 +22302,30 @@ impl App {
                     let source_x = area.content_source_x();
                     let col = source_x.saturating_add(x - content.x);
                     let cell = (col, offset + (y - content.y) as u64);
-                    self.replace_selection(Some(Selection {
-                        surface: area.surface,
-                        anchor: cell,
-                        head: cell,
-                    }));
+                    let mode = self.begin_selection_click(
+                        area.surface,
+                        cell,
+                        (x.saturating_sub(content.x), y.saturating_sub(content.y)),
+                        modifiers,
+                    );
+                    if mode == SelectionMode::Cell && modifiers == KeyModifiers::NONE {
+                        // Ghostty's cell behavior returns no range on press.
+                        // Keep only the tracked anchor until a drag moves it.
+                        self.clear_selection_for_cell_gesture(area.surface);
+                    } else {
+                        self.selection_mode = mode;
+                        self.selection_mode_surface = Some(area.surface);
+                        if let Some(selection) = self.selection_for_click(area.surface, cell, mode)
+                        {
+                            self.replace_selection(Some(selection));
+                        } else {
+                            // A semantic lookup can legitimately return no
+                            // value for an empty cell. Do not leave an older
+                            // selection or semantic drag mode active.
+                            self.clear_selection_for_cell_gesture(area.surface);
+                            self.invalidate_selection_repeat(area.surface);
+                        }
+                    }
                     self.drag = Some(Drag::Select { content, source_x, auto_scroll: None, col });
                 }
             } else if self.active_pane() != Some(area.pane) {
@@ -21567,18 +22375,43 @@ impl App {
             }
             Some(Drag::Select { content, source_x, .. }) => {
                 let fallback = (*content, *source_x);
-                let (content, source_x) = self
-                    .selection
-                    .and_then(|selection| self.current_selection_geometry(selection.surface))
+                let selection_surface = self
+                    .selection_mode_surface
+                    .or_else(|| self.selection.map(|selection| selection.surface));
+                let (content, source_x) = selection_surface
+                    .and_then(|surface| self.current_selection_geometry(surface))
                     .unwrap_or(fallback);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
                 let col = source_x.saturating_add(cx - content.x);
-                let offset =
-                    self.selection.map(|sel| self.surface_scroll_offset(sel.surface)).unwrap_or(0);
-                if let Some(mut selection) = self.selection {
-                    selection.head = (col, offset + (cy - content.y) as u64);
-                    self.replace_selection(Some(selection));
+                let offset = selection_surface
+                    .map(|surface| self.surface_scroll_offset(surface))
+                    .unwrap_or(0);
+                let current = (col, offset + (cy - content.y) as u64);
+                if let Some(surface) = selection_surface {
+                    self.mark_selection_dragged(surface);
+                }
+                let mode = selection_surface
+                    .filter(|surface| self.selection_mode_surface == Some(*surface))
+                    .and_then(|surface| {
+                        self.selection_click_sequence
+                            .as_ref()
+                            .filter(|sequence| sequence.surface == surface)
+                            .map(|sequence| sequence.mode)
+                    })
+                    .unwrap_or(SelectionMode::Cell);
+                if mode == SelectionMode::Cell {
+                    let selection = self.selection.or_else(|| {
+                        let surface = selection_surface?;
+                        let anchor = self.selection_anchor_cell(surface)?;
+                        Some(Selection { surface, anchor, head: current })
+                    });
+                    if let Some(mut selection) = selection {
+                        selection.head = current;
+                        self.replace_selection(Some(selection));
+                    }
+                } else if let Some(surface) = selection_surface {
+                    self.update_semantic_selection(surface, mode, current);
                 }
                 let auto_scroll = if y <= content.y {
                     Some(-1)
@@ -21793,13 +22626,23 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
+        let semantic_select = was_select
+            && self.selection_mode_surface.is_some()
+            && self.selection_mode != SelectionMode::Cell;
+        let selection_dragged = was_select
+            && self.selection_click_sequence.as_ref().is_some_and(|sequence| sequence.dragged);
         let was_drag = self.drag.is_some();
         self.drag = None;
+        if selection_dragged {
+            // Keep the sequence through the gesture so word and line drags use
+            // their semantic mode, then make the next press a plain click.
+            self.reset_selection_click_sequence();
+        }
         if !was_select {
             return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
         match self.selection {
-            Some(sel) if sel.anchor != sel.head => {
+            Some(sel) if sel.anchor != sel.head || semantic_select => {
                 self.copy_selection(sel);
                 Ok(RenderAction::Draw)
             }
@@ -22757,6 +23600,7 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
+        self.reset_selection_click_sequence();
         if let Some(menu) = self.menu.as_mut() {
             return Ok(if menu.scroll_at(x, y, down) {
                 RenderAction::Draw
@@ -22962,6 +23806,7 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
+        self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -23508,48 +24353,69 @@ mod tests {
         );
     }
 
+    #[test]
+    fn crossterm_reader_propagates_poll_errors_without_reading() {
+        let mut read_calls = 0;
+        let error = std::io::Error::new(std::io::ErrorKind::Interrupted, "poll interrupted");
+
+        let result = super::read_crossterm_event(
+            None,
+            |_| Err(std::io::Error::new(error.kind(), error.to_string())),
+            || {
+                read_calls += 1;
+                Ok(Event::Resize(80, 24))
+            },
+        );
+
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 0);
+    }
+
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalQueue,
-        FrontendJournalWorker, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
-        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputMessage,
-        HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
-        MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec,
-        PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
-        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
+        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
+        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
+        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
+        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
+        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
+        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
-        SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
-        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
-        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
+        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
+        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
+        SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
+        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, content_size_for_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
+        forward_host_input, forward_mux_event, forward_mux_events,
         host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
-        reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
-        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
-        start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        reset_pane_area_projection_work, run_status_command, send_bounded_cancelable,
+        should_claim_clear_history_shortcut, sidebar_layout_for, sidebar_layout_for_state,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
+    use crossbeam_channel::Receiver;
     use serde_json::Value;
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::sync::mpsc::Receiver;
+    use std::sync::mpsc::Receiver as StdReceiver;
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
@@ -23599,7 +24465,7 @@ mod tests {
         ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceAttach,
         SurfaceHandle, TreeView, test_remote_session_with_deferred_attach,
         test_remote_session_with_deferred_attach_and_first_resize_failure,
-        test_remote_session_with_deferred_sized_attach,
+        test_remote_session_with_deferred_sized_attach, test_remote_session_with_lost_transport,
     };
 
     #[test]
@@ -23635,6 +24501,56 @@ mod tests {
             RenderAction::Paint,
             "deferred input must flush the pointer route before replay"
         );
+    }
+
+    #[test]
+    fn event_transition_dispatches_machine_request_before_next_event() {
+        let mux = Mux::new("event-transition-machine-order", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let (controller, _requests) = fake_controller(FakeMachineAction::Fail("expected failure"));
+        install_machine_controller(&mut app, controller);
+        let request = MachineRequest::ReconnectProvider;
+        app.machine_ui.as_mut().unwrap().request = Some(request.clone());
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("first".into())),
+                RenderAction::None,
+            )
+            .unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.machine_action_in_flight);
+        assert_eq!(app.machine_action_request, Some(request.clone()));
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("next".into())),
+                action,
+            )
+            .unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.status_message.as_deref(), Some("next"));
+        assert_eq!(app.machine_action_request, Some(request));
+        app.shutdown_background_workers();
+    }
+
+    #[test]
+    fn event_transition_marks_pointer_route_after_structural_event() {
+        let mux = Mux::new("event-transition-pointer-phase", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("redraw".into())),
+                RenderAction::None,
+            )
+            .unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
     }
 
     #[test]
@@ -23739,7 +24655,7 @@ mod tests {
 
     #[test]
     fn host_input_failure_is_forwarded_to_the_event_loop() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         forward_host_input(
             || -> std::io::Result<Event> {
                 Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "revoked tty"))
@@ -25919,6 +26835,38 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_collapse_equal_priorities_keep_first_configured_rail() {
+        let mut config = Config::default();
+        config.sidebar.views_explicit = true;
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 18, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
+        ];
+        for view in &mut config.sidebar.views {
+            view.collapse_priority = 10;
+        }
+
+        // 60 columns cannot fit three minimum rails and the content area,
+        // but can fit the two rails that remain after the first collapse.
+        // Equal priorities must collapse the first configured rail, matching
+        // the previous `min_by_key` plus `remove(index)` behavior.
+        let layout = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (60, 30),
+            SidebarWidthOverrides::default(),
+        );
+        assert_eq!(layout.machine, None);
+        assert_eq!(
+            layout.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
+    }
+
+    #[test]
     fn context_menu_switches_sidebar_profiles_and_keeps_per_profile_visibility() {
         let mux = Mux::new("sidebar-profile-menu-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -25995,6 +26943,21 @@ mod tests {
         );
         assert!(collapsed.machine.is_none());
 
+        let without_previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (70, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            &HashSet::new(),
+            None,
+        );
+        assert!(without_previous.machine.is_some());
+
         let at_boundary = sidebar_layout_for_state(
             &config,
             true,
@@ -26009,6 +26972,10 @@ mod tests {
             Some(&collapsed),
         );
         assert!(at_boundary.machine.is_none());
+        assert_eq!(
+            at_boundary.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
         let revealed = sidebar_layout_for_state(
             &config,
             true,
@@ -26393,6 +27360,438 @@ mod tests {
         assert!(matches!(app.drag, Some(Drag::StatusMessage { .. })));
     }
 
+    fn selection_fixture(
+        name: &str,
+        text: &[u8],
+    ) -> (App, Arc<Mux>, Arc<cmux_tui_core::Surface>, Rect) {
+        let (mux, surface) = test_mux(name, None);
+        surface.with_terminal(|terminal| terminal.vt_write(text));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+        (app, mux, surface, content)
+    }
+
+    #[test]
+    fn double_click_selects_a_complete_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "a double click must highlight the complete word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn a_single_cell_press_does_not_store_a_zero_length_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a single cell press must not retain a zero-length selection"
+        );
+
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn a_failed_word_lookup_downgrades_to_a_cell_gesture() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-word-lookup-selection-state-test", b"alpha");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 10,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+
+        assert!(app.selection.is_none(), "a missing word must not retain an older selection");
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed word lookup must not leave semantic drag mode active"
+        );
+
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert!(
+            app.selection.is_none(),
+            "a click after a failed semantic lookup must not inherit its selection"
+        );
+        assert_eq!(
+            app.selection_mode,
+            SelectionMode::Cell,
+            "a failed semantic lookup must invalidate the repeat count before the next click"
+        );
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_selects_a_complete_whitespace_run() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-whitespace-selection-test", b"alpha   beta");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 6,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((5, 0), (7, 0))),
+            "double click must select the full whitespace run between words"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_extends_selection_by_complete_words() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-drag-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((6, 0), (15, 0))),
+            "double-click drag must start at the selected word and end at the whole target word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_anchors_at_second_press() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-second-press-anchor-test", b"a b c");
+
+        let first_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(first_click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..first_click })
+            .unwrap();
+
+        let second_click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 2,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(second_click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 4,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((2, 0), (4, 0))),
+            "a double-click drag must use the second press as its word anchor"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn double_click_drag_extends_backwards_by_complete_words() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-word-reverse-drag-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (9, 0))),
+            "reverse double-click drags must include both complete words"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn failed_semantic_drag_does_not_keep_a_stale_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-semantic-drag-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "the second press must establish the semantic selection before the drag"
+        );
+
+        // Leave the rendered pane geometry unchanged, but shrink Ghostty's
+        // grid so the next pointer cell is no longer a valid semantic point.
+        surface
+            .with_terminal(|terminal| terminal.resize(2, 8, 8, 16).unwrap())
+            .expect("selection fixture surface must remain a PTY");
+        let invalid_drag = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(invalid_drag).unwrap();
+        assert!(
+            app.selection.is_none(),
+            "a failed semantic drag must clear the old selection before release"
+        );
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            ..invalid_drag
+        })
+        .unwrap();
+        assert!(app.selection.is_none(), "release must not copy or retain stale semantic text");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_click_drag_does_not_seed_a_double_click() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-click-drag-repeat-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 3,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a click after a selection drag must remain a plain click"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn single_click_drag_into_padding_does_not_seed_a_double_click() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-click-padding-drag-repeat-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x - 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x - 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a padding drag must prevent the next click from becoming a double click"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn triple_click_drag_extends_to_a_blank_line() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("triple-click-blank-line-drag-test", b"alpha\n\nbeta");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        for _ in 0..2 {
+            app.handle_mouse(click).unwrap();
+            app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+                .unwrap();
+        }
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y + 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert!(
+            app.selection.is_some_and(|selection| selection.range().1.1 == 1),
+            "triple-click drag must extend the line selection onto a blank line"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[test]
     fn status_message_drag_selection_highlights_the_visible_text() {
         let (mux, _) = test_mux("status-message-selection-test", None);
@@ -26520,6 +27919,20 @@ mod tests {
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
         app.run_action(Action::ToggleSidebarCompact).unwrap();
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
+    }
+
+    #[test]
+    fn expired_toast_is_consumed_once() {
+        let mux = Mux::new("expired-toast-once-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.toast = Some(Toast {
+            text: "expired".to_string(),
+            deadline: Instant::now() - Duration::from_millis(1),
+        });
+
+        assert!(app.expire_toast());
+        assert!(!app.expire_toast());
+        assert!(app.toast.is_none());
     }
 
     #[test]
@@ -29105,6 +30518,14 @@ mod tests {
         assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
         app.menu = None;
 
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::ALT))
+            .unwrap();
+        assert!(app.encode_buf.is_empty(), "Option-right-click must bypass PTY mouse reporting");
+        assert!(app.drag.is_none());
+        assert!(app.menu.is_some(), "Option-right-click must open the cmux context menu");
+        app.menu = None;
+
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
         app.pane_areas[0].content.x += 3;
@@ -29145,6 +30566,66 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn alt_left_and_middle_clicks_preserve_pty_mouse_reporting() {
+        let mux = Mux::new(
+            "alt-mouse-passthrough-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+
+        let event = |kind, modifiers| MouseEvent {
+            kind,
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers,
+        };
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3m");
+        assert!(app.drag.is_none());
+
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Middle, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3m");
+        assert!(app.drag.is_none());
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -30151,6 +31632,100 @@ mod tests {
     }
 
     #[test]
+    fn immediate_menu_press_survives_content_changed_before_surface_output() {
+        let (mux, surface) = test_mux("immediate-menu-content-test", None);
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        // Terminal content moves after the frame committed, exactly like PTY
+        // output landing between a paint and the user's press.
+        surface.scroll_delta(-3).unwrap();
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued output event has not marked the rendered route stale yet"
+        );
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
+        })))
+        .unwrap();
+
+        assert!(
+            app.menu.is_some(),
+            "a cmux-owned context menu press must not be swallowed by terminal content \
+             admission: it never forwards bytes to the terminal application"
+        );
+        assert!(app.deferred_input.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_menu_press_survives_content_repaint_before_replay() {
+        let (mux, surface) = test_mux("deferred-menu-content-test", None);
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
+        })))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(app.menu.is_none());
+
+        // Content changes while the press waits for its paint, so the
+        // repainted frame carries a newer terminal content generation than
+        // the one recorded when the press was deferred.
+        surface.scroll_delta(-3).unwrap();
+        let repaint = app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
+        app.render_action(&mut terminal, repaint).unwrap();
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            app.menu.is_some(),
+            "a replayed cmux-owned context menu press must not be dropped because terminal \
+             content changed under it while it waited for the paint"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
         let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -30461,6 +32036,49 @@ mod tests {
     }
 
     #[test]
+    fn pointer_routes_projection_rail_padding_to_projection_rail() {
+        let rect = Rect { x: 4, y: 0, width: 20, height: 10 };
+        let pane = PaneArea {
+            pane: 7,
+            surface: 9,
+            rect,
+            bar: None,
+            omnibar: None,
+            content: Rect { x: 5, y: 1, width: 18, height: 8 },
+            track: None,
+            viewport: None,
+        };
+        let mux = Mux::new("projection-rail-pointer-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.outer_size = (40, 10);
+        app.sidebar_layout.ordered =
+            vec![super::RailPlacement { kind: RailKind::Projection(0), view_index: 0, rect }];
+        app.pane_areas = vec![pane];
+        app.commit_rendered_pointer_frame();
+
+        let padding_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x + rect.width - 1,
+            row: rect.y + rect.height - 1,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(matches!(
+            padding_route,
+            PointerRouteIdentity::Rail { kind: RailKind::Projection(0), .. }
+        ));
+
+        let content_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: pane.content.x,
+            row: pane.content.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            matches!(content_route, PointerRouteIdentity::Pane { pane: routed, .. } if routed.pane == pane.pane)
+        );
+    }
+
+    #[test]
     fn graphics_only_repaint_is_a_pointer_replay_barrier() {
         assert_eq!(
             PointerRoutePhase::Fresh.with_action(RenderAction::Graphics),
@@ -30558,6 +32176,15 @@ mod tests {
         assert!(
             app.pointer_route_is_stale_for_mouse(&covered),
             "the old browser image still owns this cell until deletion is processed"
+        );
+        let menu = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            modifiers: KeyModifiers::SHIFT,
+            ..covered
+        };
+        assert!(
+            !app.pointer_route_is_stale_for_mouse(&menu),
+            "a cmux-owned menu press must not wait for a graphics image it never enters"
         );
 
         app.pending_graphics_snapshot = Some(vec![GraphicIdentity {
@@ -31079,6 +32706,87 @@ mod tests {
         );
         mux.close_surface(first.id).unwrap();
         mux.close_surface(second.id).unwrap();
+    }
+
+    fn assert_rect_within_frame(rect: Rect, frame_size: (u16, u16)) {
+        assert!(
+            rect.x.saturating_add(rect.width) <= frame_size.0,
+            "rectangle {rect:?} exceeds frame width {}",
+            frame_size.0
+        );
+        assert!(
+            rect.y.saturating_add(rect.height) <= frame_size.1,
+            "rectangle {rect:?} exceeds frame height {}",
+            frame_size.1
+        );
+    }
+
+    fn assert_cached_geometry_within_frame(app: &App, frame_size: (u16, u16)) {
+        assert_eq!(app.outer_size, frame_size, "cached outer size must match the drawn frame");
+        assert_rect_within_frame(app.sidebar_layout.content, frame_size);
+        for rect in
+            [app.sidebar_layout.machine, app.sidebar_layout.workspace, app.sidebar_layout.tabs]
+                .into_iter()
+                .flatten()
+        {
+            assert_rect_within_frame(rect, frame_size);
+        }
+        for placement in &app.sidebar_layout.ordered {
+            assert_rect_within_frame(placement.rect, frame_size);
+        }
+        assert_rect_within_frame(app.content_area, frame_size);
+        for area in &app.pane_areas {
+            assert_rect_within_frame(area.rect, frame_size);
+            assert_rect_within_frame(area.content, frame_size);
+            for rect in [area.bar, area.omnibar, area.track].into_iter().flatten() {
+                assert_rect_within_frame(rect, frame_size);
+            }
+        }
+        for (rect, _) in &app.hits {
+            assert_rect_within_frame(*rect, frame_size);
+        }
+    }
+
+    #[test]
+    fn frame_area_owner_resyncs_paint_after_backend_shrink() {
+        let mux = Mux::new("frame-area-owner-paint-test", SurfaceOptions::default());
+        let surface =
+            mux.new_browser_tab("about:blank".to_string(), None, Some((100, 20))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert_cached_geometry_within_frame(&app, (100, 20));
+
+        terminal.backend_mut().resize(40, 10);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_cached_geometry_within_frame(&app, (40, 10));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn frame_area_owner_zero_frame_drops_rendered_routes() {
+        let mux = Mux::new("frame-area-owner-zero-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 10))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(!app.pane_areas.is_empty());
+        assert!(!app.rendered_pointer_frame.panes.is_empty());
+
+        terminal.backend_mut().resize(0, 0);
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+
+        assert_eq!(app.outer_size, (0, 0));
+        assert!(app.pane_areas.is_empty());
+        assert!(app.hits.is_empty());
+        assert!(app.rendered_pointer_frame.panes.is_empty());
+        assert!(app.rendered_pointer_frame.hits.is_empty());
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -31759,7 +33467,7 @@ mod tests {
 
     #[test]
     fn canceled_mutation_does_not_block_on_a_full_app_channel() {
-        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        let (events, receiver) = crossbeam_channel::bounded(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -31784,7 +33492,7 @@ mod tests {
 
     #[test]
     fn superseded_mutation_settles_without_canceling_session_input() {
-        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        let (events, receiver) = crossbeam_channel::bounded(1);
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
@@ -31811,7 +33519,7 @@ mod tests {
     #[test]
     fn pty_failure_ingress_rearms_after_a_full_app_channel_loses_its_wake() {
         let ingress = PtyFailureIngress::default();
-        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        let (events, receiver) = crossbeam_channel::bounded(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         for index in 0..1_000 {
             let wake = ingress.push(PtyOperationFailure {
@@ -31827,7 +33535,7 @@ mod tests {
             if wake {
                 assert!(matches!(
                     events.try_send(AppEvent::PtyFailuresReady),
-                    Err(std::sync::mpsc::TrySendError::Full(_))
+                    Err(crossbeam_channel::TrySendError::Full(_))
                 ));
             }
         }
@@ -32408,7 +34116,7 @@ mod tests {
         for surface in 0..5_000 {
             mux.emit(MuxEvent::Bell(surface));
         }
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         let titles = Arc::new(MuxTitleIngress::default());
         let destination_generation = Arc::new(AtomicU64::new(0));
         let recovery_generation = Arc::new(AtomicU64::new(0));
@@ -32474,7 +34182,7 @@ mod tests {
 
     #[test]
     fn mux_forwarder_preserves_empty_while_app_channel_is_full() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
         let forwarder = std::thread::spawn(move || {
@@ -32488,7 +34196,7 @@ mod tests {
 
     #[test]
     fn mux_forwarder_preserves_resize_completion_while_app_channel_is_full() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
         let forwarder = std::thread::spawn(move || {
@@ -32515,7 +34223,7 @@ mod tests {
 
     #[test]
     fn mux_forwarder_preserves_one_shot_event_while_app_channel_is_full() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
         let forwarder = std::thread::spawn(move || {
@@ -32529,7 +34237,7 @@ mod tests {
 
     #[test]
     fn single_surface_mux_forwarder_drops_unrelated_output_titles_and_agents() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+        let (tx, rx) = crossbeam_channel::bounded(4);
         let tx = SessionEventSender::filtered(tx, 41);
         let titles = MuxTitleIngress::default();
 
@@ -32589,7 +34297,7 @@ mod tests {
 
     #[test]
     fn title_wake_waits_for_app_capacity_without_triggering_recovery() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = Arc::new(MuxTitleIngress::default());
         let forwarded_titles = titles.clone();
@@ -32698,6 +34406,68 @@ mod tests {
         assert!(!app.render_states.contains_key(&42));
         assert!(!app.tab_locations.contains_key(&42));
         assert!(!app.mux_titles.snapshot().contains_key(&42));
+    }
+
+    #[test]
+    fn cached_surface_exit_updates_tab_index_without_rebuilding_unrelated_tabs() {
+        let mux = Mux::new("cached-surface-exit-index-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
+        let mut third = pane.tabs[0].clone();
+        third.surface = 43;
+        pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
+        pane.tabs.push(third);
+        pane.active_tab = 1;
+        app.replace_tree(tree);
+
+        app.remove_surface_from_cached_tree(40);
+
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
+        assert_eq!(pane.active_tab, 0);
+        assert!(!app.tab_locations.contains_key(&40));
+        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+    }
+
+    #[test]
+    fn stale_surface_exit_index_falls_back_to_tree_scan_and_rebuilds_locations() {
+        let mux = Mux::new("stale-surface-exit-index-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
+        let mut third = pane.tabs[0].clone();
+        third.surface = 43;
+        pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
+        pane.tabs.push(third);
+        pane.active_tab = 2;
+        app.replace_tree(tree);
+
+        // Force the defensive dispatch path by making the cached location stale.
+        app.tab_locations.insert(40, [0, 0, 0, 1]);
+        app.remove_surface_from_cached_tree(40);
+
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
+        assert_eq!(pane.active_tab, 1);
+        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+        assert!(!app.tab_locations.contains_key(&40));
+
+        // The fallback must repair the index so the next exit uses the
+        // indexed path instead of scanning the whole tree again.
+        app.remove_surface_from_cached_tree(41);
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![43]);
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 0]));
+        assert!(!app.tab_locations.contains_key(&41));
     }
 
     #[test]
@@ -33595,6 +35365,32 @@ mod tests {
             .lock()
             .unwrap()
             .insert(7, SurfaceResizeOwnership { desired: (90, 31), reservation_id: None });
+
+        app.status_message = Some("直前のコマンドは完了しました".to_string());
+        crate::client_log::start_test_log_capture();
+        for retry_exhausted in [false, true] {
+            let action = app
+                .handle(AppEvent::Mux(MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                        retry_exhausted,
+                        summary: Arc::<str>::from("surface 7: offline"),
+                    },
+                )))
+                .unwrap();
+            assert_eq!(action, RenderAction::None);
+            assert_eq!(app.status_message.as_deref(), Some("直前のコマンドは完了しました"));
+        }
+        let kitty_records = crate::client_log::take_test_log_capture();
+        assert_eq!(kitty_records.len(), 2);
+        for (record, expected) in kitty_records.iter().zip([
+            "Kitty 画像予算の更新に失敗しました。再試行しています: surface 7: offline",
+            "Kitty 画像予算の更新に失敗し、再試行回数の上限に達したため停止しました: surface 7: offline",
+        ]) {
+            assert_eq!(record.level, "WARN");
+            assert_eq!(record.area, "kitty-graphics");
+            assert_eq!(record.message, expected);
+        }
+
         let cases = [
             (
                 MuxEvent::GraphicsStatus(
@@ -33603,24 +35399,6 @@ mod tests {
                     },
                 ),
                 "Kitty 画像予算ワーカーを開始できませんでした: thread unavailable",
-            ),
-            (
-                MuxEvent::GraphicsStatus(
-                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
-                        retry_exhausted: false,
-                        summary: Arc::<str>::from("surface 7: offline"),
-                    },
-                ),
-                "Kitty 画像予算の更新に失敗しました。再試行しています: surface 7: offline",
-            ),
-            (
-                MuxEvent::GraphicsStatus(
-                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
-                        retry_exhausted: true,
-                        summary: Arc::<str>::from("surface 7: offline"),
-                    },
-                ),
-                "Kitty 画像予算の更新に失敗し、再試行回数の上限に達したため停止しました: surface 7: offline",
             ),
             (
                 MuxEvent::GraphicsStatus(
@@ -33659,6 +35437,39 @@ mod tests {
             app.status_message.as_deref(),
             Some("ブラウザサーフェス 8 の 100x40 へのサイズ変更に失敗しました: viewport rejected")
         );
+    }
+
+    #[test]
+    fn kitty_budget_failures_do_not_replace_the_user_status_message() {
+        let mux = Mux::new("kitty-status-preservation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.status_message = Some("command completed".to_string());
+        crate::client_log::start_test_log_capture();
+
+        let summary = "surface 7: host did not acknowledge limits";
+        for retry_exhausted in [false, true] {
+            let action = app
+                .handle(AppEvent::Mux(MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                        retry_exhausted,
+                        summary: Arc::<str>::from(summary),
+                    },
+                )))
+                .unwrap();
+            assert_eq!(action, RenderAction::None);
+            assert_eq!(app.status_message.as_deref(), Some("command completed"));
+        }
+
+        let records = crate::client_log::take_test_log_capture();
+        assert_eq!(records.len(), 2);
+        for (record, expected) in records.iter().zip([
+            "Kitty image budget update failed, retrying: surface 7: host did not acknowledge limits",
+            "Kitty image budget update failed, stopped after exhausting retries: surface 7: host did not acknowledge limits",
+        ]) {
+            assert_eq!(record.level, "WARN");
+            assert_eq!(record.area, "kitty-graphics");
+            assert_eq!(record.message, expected);
+        }
     }
 
     #[test]
@@ -35702,7 +37513,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         });
         app.pointer_route_phase = PointerRoutePhase::DrawPending;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         drop(events);
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
@@ -35723,7 +37534,7 @@ mod tests {
         for _ in 0..257 {
             app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)));
         }
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events
             .send(AppEvent::Input(Event::Key(KeyEvent::new(
                 KeyCode::Char('z'),
@@ -35757,7 +37568,7 @@ mod tests {
         while app.session.has_pending_mutations() {
             app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -35792,7 +37603,7 @@ mod tests {
         let dialog_y = (20 - 10) / 2;
         let approve_width = localization::catalog().pairing.approve.chars().count() as u16;
         let approve_x = dialog_x + width - 2 - approve_width;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -35841,7 +37652,7 @@ mod tests {
             app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
         let content = app.pane_areas[0].content;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -35992,11 +37803,11 @@ mod tests {
         app.shake_frames = 2;
         let (timeout_started_tx, timeout_started_rx) = std::sync::mpsc::channel();
         let (pointer_queued_tx, pointer_queued_rx) = std::sync::mpsc::channel();
-        app.timeout_drain_hook = Some(Box::new(move || {
+        app.timeout_drain_hook = Some(Box::new(move |_| {
             timeout_started_tx.send(()).unwrap();
             pointer_queued_rx.recv().unwrap();
         }));
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         let sender = std::thread::spawn(move || {
             timeout_started_rx.recv().unwrap();
             events
@@ -36021,6 +37832,33 @@ mod tests {
     }
 
     #[test]
+    fn event_loop_expires_toast_on_idle_timeout() {
+        let mux = Mux::new("toast-timeout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.toast = Some(Toast {
+            text: "expired".to_string(),
+            deadline: Instant::now() - Duration::from_millis(1),
+        });
+        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timeout_seen_in_hook = timeout_seen.clone();
+        let (events, receiver) = crossbeam_channel::unbounded();
+        app.timeout_drain_hook = Some(Box::new(move |app| {
+            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
+            app.toast = Some(Toast {
+                text: "reintroduced".to_string(),
+                deadline: Instant::now() - Duration::from_millis(1),
+            });
+            drop(events);
+        }));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
+    }
+
+    #[test]
     fn focus_loss_cancels_non_pty_pointer_interaction() {
         let mux = Mux::new("focus-loss-selection-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -36036,6 +37874,277 @@ mod tests {
 
         assert!(app.drag.is_none(), "focus loss must stop selection and its auto-scroll tick");
         assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn visible_state_direct_keyboard_requests_draw_after_selection_clear() {
+        let (mux, surface) = test_mux("visible-state-key-selection-test", None);
+        surface.with_terminal(|terminal| {
+            for line in 0..32 {
+                terminal.vt_write(format!("history-{line:02}\r\n").as_bytes());
+            }
+            terminal.vt_write(b"bottom");
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.status_message = Some("old failure".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        let visible = app.session.surface(surface.id).unwrap();
+        assert_eq!(visible.scroll_delta(-5), Some(true));
+        let offset = app.surface_scroll_offset(surface.id);
+        assert!(offset > 0);
+        app.replace_selection(Some(Selection {
+            surface: surface.id,
+            anchor: (0, offset),
+            head: (4, offset),
+        }));
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        assert!(app.selection.is_some(), "the setup frame must retain the visible selection");
+        assert_eq!(
+            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
+            Some("old failure"),
+            "the setup frame must retain the semantic status message"
+        );
+
+        let action = app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('x'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "clearing a painted selection needs a new frame");
+        assert!(app.selection.is_none());
+        assert!(app.status_message.is_none());
+        let scrollbar = app
+            .session
+            .surface(surface.id)
+            .and_then(|surface| surface.scrollbar())
+            .expect("the visible PTY must expose viewport geometry");
+        assert_eq!(
+            scrollbar.offset,
+            scrollbar.total.saturating_sub(scrollbar.len),
+            "ordinary PTY input must return the viewport to the live bottom (offset is absolute)"
+        );
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the input frame must remove the semantic status message"
+        );
+
+        let unchanged = app
+            .handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('y'),
+                KeyModifiers::NONE,
+            ))))
+            .unwrap();
+        assert_eq!(unchanged, RenderAction::None, "a key with no visible mutation needs no draw");
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_paste_requests_draw_after_status_clear() {
+        let (mux, surface) = test_mux("visible-state-paste-status-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.sync_layout((100, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.status_message = Some("old failure".to_string());
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Paint).unwrap();
+        assert_eq!(
+            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
+            Some("old failure"),
+            "the setup frame must retain the semantic status message"
+        );
+
+        let action = app.handle(AppEvent::Input(Event::Paste("text".to_string()))).unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "removing a painted status needs a new frame");
+        assert!(app.status_message.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the paste frame must remove the semantic status message"
+        );
+
+        let unchanged = app.handle(AppEvent::Input(Event::Paste("more".to_string()))).unwrap();
+        assert_eq!(unchanged, RenderAction::None, "paste with no visible mutation needs no draw");
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_keyboard_requests_draw_after_status_clear_for_browser_surface() {
+        let mux = Mux::new("visible-state-browser-status-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        app.status_message = Some("old failure".to_string());
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(
+            app.rendered_status_message.as_ref().is_some_and(|message| !message.text.is_empty()),
+            "the setup frame must retain a visible status message"
+        );
+
+        let action = app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "a browser key that clears a painted status still needs a new frame"
+        );
+        assert!(app.status_message.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the input frame must remove the semantic status message"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_keyboard_requests_draw_after_selection_clear_on_other_surface() {
+        let mux = Mux::new("visible-state-split-selection-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 12))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 12))).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(app.active_surface(), Some(second.id));
+
+        app.replace_selection(Some(Selection { surface: first.id, anchor: (0, 0), head: (3, 0) }));
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+
+        let action = app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "typing in the active pane must repaint a selection cleared from another pane"
+        );
+        assert!(app.selection.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_browser_input_requests_draw_after_selection_clear_on_pty_surface() {
+        let mux = Mux::new("visible-state-browser-selection-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 12))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 12))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let browser = mux
+            .new_browser_tab("about:blank".to_string(), Some(second_pane), Some((40, 12)))
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(app.active_surface(), Some(browser.id));
+
+        app.replace_selection(Some(Selection { surface: first.id, anchor: (0, 0), head: (3, 0) }));
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+
+        let action = app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "browser input must repaint a selection cleared from a visible PTY pane"
+        );
+        assert!(app.selection.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(browser.id).unwrap();
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_clear_history_fallback_requests_draw_after_selection_clear() {
+        let mux = Mux::new("visible-state-clear-history-fallback-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(11, false);
+        app.replace_selection(Some(Selection { surface: 11, anchor: (1, 1), head: (4, 1) }));
+
+        let action = app.run_clear_history_shortcut(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER).into(),
+        );
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "the unclaimed PTY fallback clears the visible selection before forwarding the key"
+        );
+        assert!(app.selection.is_none());
+
+        let unchanged = app.run_clear_history_shortcut(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER).into(),
+        );
+        assert_eq!(unchanged, RenderAction::None, "fallback with no selection needs no draw");
+    }
+
+    #[test]
+    fn visible_state_focus_loss_requests_draw_after_pointer_cancel() {
+        let mux = Mux::new("visible-state-focus-loss-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((40, 10))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((40, 10))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.drag = Some(Drag::Tab { surface: second.id, target: Some((pane, 0)) });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains('▌'),
+            "the setup frame must contain the tab drop marker"
+        );
+
+        let action = app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert_eq!(action, RenderAction::Draw, "canceling painted pointer state needs a new frame");
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            !buffer_text(terminal.backend().buffer()).contains('▌'),
+            "the focus-loss frame must remove the old tab drop marker"
+        );
+
+        let unchanged = app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+        assert_eq!(unchanged, RenderAction::None, "idle focus loss needs no draw");
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.close_workspace(workspace);
     }
 
     #[test]
@@ -36151,7 +38260,7 @@ mod tests {
             })))
             .unwrap();
         }
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         drop(events);
         app.event_loop(&mut terminal, receiver).unwrap();
 
@@ -36200,7 +38309,7 @@ mod tests {
         let mux = Mux::new("pairing-key-render-barrier-test", SurfaceOptions::default());
         let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
         let mut app = test_app(Session::Local(mux));
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
         events
             .send(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
@@ -36302,7 +38411,7 @@ mod tests {
         app.prompt = Some(Prompt::new("Rename", "ab".to_string(), PromptTarget::Surface(77)));
         let prompt_x = (100 - 42) / 2;
         let prompt_y = (20 - 9) / 2;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(77))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -36350,7 +38459,7 @@ mod tests {
         let content = app.pane_areas[0].content;
         let press = (content.x + 4, content.y + 2);
         let select = (press.0 + 1, press.1);
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -40661,6 +42770,31 @@ mod tests {
     }
 
     #[test]
+    fn empty_projection_uses_its_leaf_resource_label() {
+        let mux = Mux::new("projection-empty-leaf-label-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-tabs".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.sync_layout((100, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(rendered.contains("no tabs"), "{rendered}");
+        assert!(!rendered.contains("no workspaces"), "{rendered}");
+    }
+
+    #[test]
     fn workspace_keyboard_enter_returns_focus_to_pane() {
         let mux = Mux::new("workspace-keyboard-enter-focus-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
@@ -41283,7 +43417,6 @@ mod tests {
         let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         super::MachineSessionPreparation {
             initial_size: None,
-            default_colors: cmux_tui_core::DefaultColors::default(),
             generation: 2,
             pty_input: dispatcher.sender(),
             surface_filter: None,
@@ -41323,7 +43456,6 @@ mod tests {
                     tree,
                     label: label.into(),
                     session_available: true,
-                    color_error: None,
                     machine: None,
                 },
             },
@@ -41340,7 +43472,7 @@ mod tests {
     }
 
     struct BlockingMachineController {
-        release: Receiver<()>,
+        release: StdReceiver<()>,
     }
 
     impl MachineController for BlockingMachineController {
@@ -41375,7 +43507,7 @@ mod tests {
     #[test]
     fn machine_worker_preserves_exact_durable_notice_ack_result() {
         for fail in [false, true] {
-            let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+            let (events, event_receiver) = crossbeam_channel::bounded(4);
             let (acknowledgements, acknowledged) = std::sync::mpsc::channel();
             let mut worker = MachineActionWorker::spawn(
                 Box::new(AckMachineController { acknowledgements, fail }),
@@ -41438,7 +43570,7 @@ mod tests {
 
     struct OrderedBlockingMachineController {
         started: std::sync::mpsc::Sender<MachineKey>,
-        release: Receiver<()>,
+        release: StdReceiver<()>,
         closed: Option<std::sync::mpsc::Sender<()>>,
     }
 
@@ -41485,7 +43617,7 @@ mod tests {
 
     #[test]
     fn machine_action_worker_serializes_requests_in_submission_order() {
-        let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (events, event_receiver) = crossbeam_channel::bounded(4);
         let (started, starts) = std::sync::mpsc::channel();
         let (release, releases) = std::sync::mpsc::channel();
         let mut worker = MachineActionWorker::spawn(
@@ -41527,7 +43659,7 @@ mod tests {
 
     #[test]
     fn machine_action_worker_shutdown_never_joins_a_blocked_action() {
-        let (events, _event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (events, _event_receiver) = crossbeam_channel::bounded(4);
         let (started, starts) = std::sync::mpsc::channel();
         let (release, releases) = std::sync::mpsc::channel();
         let (closed, closes) = std::sync::mpsc::channel();
@@ -41674,7 +43806,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -41752,7 +43883,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -41801,62 +43931,6 @@ mod tests {
     }
 
     #[test]
-    fn machine_color_failure_status_uses_the_selected_locale() {
-        const CHILD_ENV: &str = "CMUX_MACHINE_COLOR_FAILURE_LOCALE_CHILD";
-        if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .arg("app::tests::machine_color_failure_status_uses_the_selected_locale")
-                .arg("--exact")
-                .arg("--nocapture")
-                .env(CHILD_ENV, "1")
-                .env("LC_ALL", "ja_JP.UTF-8")
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "Japanese machine color failure child failed:\nstdout:\n{}\nstderr:\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return;
-        }
-
-        let first = Mux::new("machine-color-locale-first", SurfaceOptions::default());
-        let second = Mux::new("machine-color-locale-second", SurfaceOptions::default());
-        let (mut app, _events) = test_app_with_events(Session::Local(first));
-        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (session, event_worker, mux_titles, mux_recovery_generation) = prepare_ordered_session(
-            Session::Local(second),
-            pty_input.sender(),
-            app.app_events.clone(),
-            2,
-            None,
-        )
-        .unwrap();
-        let tree = session.tree();
-
-        app.install_prepared_machine_session(
-            super::PreparedMachineSession {
-                session,
-                event_worker,
-                generation: 2,
-                mux_titles,
-                mux_recovery_generation,
-                tree,
-                label: "second".into(),
-                session_available: false,
-                color_error: Some("offline".into()),
-                machine: None,
-            },
-            true,
-        );
-
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("ターミナルの色を適用できませんでした: offline")
-        );
-    }
-
     #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
@@ -41903,7 +43977,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -42240,7 +44313,6 @@ mod tests {
                 tree,
                 label: "second".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -42347,6 +44419,80 @@ mod tests {
         assert_eq!(app.session_generation, 2);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
         assert!(!app.quit);
+    }
+
+    /// Regression test for issue 11042: when a remote event transport dies,
+    /// the reader thread records the reason and synthesizes `MuxEvent::Empty`.
+    /// That must surface the transport failure as an error, never the "session
+    /// has no workspaces" clean quit (exit code 0) it produces today.
+    #[test]
+    fn transport_loss_empty_event_is_an_error_not_a_clean_quit() {
+        let reason = "the daemon closed the connection";
+        let mut app = test_app(test_remote_session_with_lost_transport(reason));
+
+        let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
+
+        let error = result.expect_err("a lost event transport must not report an empty session");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+        assert!(!error.to_string().contains(reason));
+        assert!(!app.quit, "a lost transport must not use the clean-quit path");
+    }
+
+    /// The transport check must run BEFORE any machine-session request: with
+    /// machine/provider authority present, `request_current_machine_session`
+    /// returns true and would otherwise swallow the dead transport into a
+    /// stuck reconnect state.
+    #[test]
+    fn transport_loss_outranks_a_machine_session_request() {
+        let reason = "the daemon closed the connection";
+        let mut app = test_app(test_remote_session_with_lost_transport(reason));
+        app.machine_ui = Some(provider_machine_ui());
+
+        let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
+
+        let error = result.expect_err("machine authority must not hide a lost transport");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+        assert!(!error.to_string().contains(reason));
+        assert!(!app.quit);
+        let machine = app.machine_ui.as_ref().unwrap();
+        assert!(
+            machine.request.is_none(),
+            "no reconnect request may be queued for a dead transport"
+        );
+    }
+
+    /// A sleeping or stopped machine loses its stream because it was paused;
+    /// that deliberate loss keeps presenting the machine as asleep instead of
+    /// failing the client, even though a transport reason is recorded.
+    #[test]
+    fn sleeping_machine_stream_loss_still_presents_as_asleep() {
+        let mut app =
+            test_app(test_remote_session_with_lost_transport("the daemon closed the connection"));
+        let mut ui = provider_machine_ui();
+        ui.snapshot.machines[0].status = MachineStatus::Sleeping;
+        app.machine_ui = Some(ui);
+
+        let action = app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert!(!app.quit);
+        let machine = app.machine_ui.as_ref().unwrap();
+        assert!(!machine.session_available);
+        assert!(machine.request.is_none());
+    }
+
+    /// A genuinely emptied session (all workspaces closed) still exits
+    /// cleanly: `MuxEvent::Empty` without a recorded transport failure keeps
+    /// the quiet quit path.
+    #[test]
+    fn empty_session_without_transport_loss_still_quits_cleanly() {
+        let mux = Mux::new("empty-clean-quit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        let action = app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert!(app.quit);
     }
 
     #[test]
@@ -42654,7 +44800,7 @@ mod tests {
     fn canceling_a_session_event_worker_joins_a_blocked_mux_reader() {
         let mux = Mux::new("machine-worker-cancel", SurfaceOptions::default());
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (events, _receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (events, _receiver) = crossbeam_channel::bounded(4_096);
         let (_session, mut worker, _, _) =
             start_ordered_session(Session::Local(mux), pty_input.sender(), events, 7, None)
                 .unwrap();
@@ -42665,10 +44811,39 @@ mod tests {
     }
 
     #[test]
+    fn canceling_a_bounded_event_send_unblocks_before_join_when_queue_is_full() {
+        let (events, receiver) = crossbeam_channel::bounded(1);
+        events.send(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = send_bounded_cancelable(
+                &events,
+                AppEvent::Mux(MuxEvent::Empty),
+                &worker_cancellation,
+            );
+            completed_tx.send(result).unwrap();
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            completed_rx.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancellation.cancel();
+        assert_eq!(completed_rx.recv_timeout(Duration::from_secs(1)).unwrap(), Err(()));
+        worker.join().unwrap();
+        drop(receiver);
+    }
+
+    #[test]
     fn prepared_machine_session_events_stay_paused_until_commit_activation() {
         let mux = Mux::new("prepared-machine-session-events", SurfaceOptions::default());
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (events, receiver) = crossbeam_channel::bounded(4_096);
         let (_session, mut worker, _, _) = prepare_ordered_session(
             Session::Local(mux.clone()),
             pty_input.sender(),
@@ -42681,7 +44856,7 @@ mod tests {
         mux.new_workspace(None, None).unwrap();
         assert!(matches!(
             receiver.recv_timeout(Duration::from_millis(50)),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            Err(crossbeam_channel::RecvTimeoutError::Timeout)
         ));
 
         worker.activate();
@@ -42750,7 +44925,6 @@ mod tests {
                 tree,
                 label: "replacement".into(),
                 session_available: true,
-                color_error: None,
                 machine: None,
             },
             true,
@@ -42787,7 +44961,7 @@ mod tests {
             failure_ingress.push(failure);
         })
         .unwrap();
-        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (events, receiver) = crossbeam_channel::bounded(4_096);
         let layout_resize_owner = session.allocate_layout_resize_owner();
         let session =
             OrderedSession::new(session, pty_input.sender(), events.clone(), layout_resize_owner);
@@ -42832,11 +45006,11 @@ mod tests {
             config: Config::default(),
             config_reload_applications: 0,
             chrome: ChromeTheme::dark(),
-            default_colors: cmux_tui_core::DefaultColors::default(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
+            sidebar_kind_scratch: Vec::new(),
             rendered_terminal_sizes: HashMap::new(),
             rendered_terminal_pointer_semantics: HashMap::new(),
             rendered_pane_content_generations: HashMap::new(),
@@ -42927,6 +45101,10 @@ mod tests {
             shake_frames: 0,
             selection: None,
             selection_generation: 0,
+            selection_mode: SelectionMode::Cell,
+            selection_mode_surface: None,
+            selection_click_sequence: None,
+            semantic_selection_cache: None,
             status_selection: None,
             rendered_status_message: None,
             logged_status_message: None,

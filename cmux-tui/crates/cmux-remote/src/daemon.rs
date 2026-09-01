@@ -2306,6 +2306,7 @@ mod tests {
                         generation: 0,
                         connection_attempt,
                         resume: BTreeMap::new(),
+                        handshake_timeout: Duration::from_secs(5),
                     },
                 )
                 .await

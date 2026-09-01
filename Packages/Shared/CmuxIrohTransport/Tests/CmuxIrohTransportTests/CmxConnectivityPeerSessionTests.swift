@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
+@Suite(.serialized)
 struct CmxConnectivityPeerSessionTests {
     @Test
     func concurrentCallersShareOneDialAndOneAdmittedSession() async throws {
