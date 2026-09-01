@@ -790,9 +790,9 @@ fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> 
     }
 }
 
-fn fallback_child_reap<T, E, K, W>(lifecycle: &ChildLifecycleHandle, kill: K, wait: W) -> Result<T, E>
+fn fallback_child_reap<T, E, K, W, EK>(lifecycle: &ChildLifecycleHandle, kill: K, wait: W) -> Result<T, E>
 where
-    K: FnOnce() -> Result<(), E>,
+    K: FnOnce() -> Result<(), EK>,
     W: FnOnce() -> Result<T, E>,
 {
     if ChildLifecycle::begin_reaping(lifecycle) {
