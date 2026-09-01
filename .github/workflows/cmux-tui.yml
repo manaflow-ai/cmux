@@ -519,6 +519,66 @@ jobs:
         working-directory: cmux-tui
         run: python3 scripts/smoke-attach.py
 
+  test-windows:
+    name: test (windows)
+    needs: validate-inputs
+    # The full gate already enables the Windows package build. Run the
+    # platform tests in a separate hosted job so package builds stay focused
+    # on release artifacts and this coverage is visible as its own check.
+    if: inputs.mode == 'full'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        shell: bash
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust target
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          printf '%s\n' 'C:\\msys64\\mingw64\\bin' >> "$GITHUB_PATH"
+
+      - name: Verify LLVM GNU linker
+        shell: bash
+        run: ld.lld --version
+
+      - name: Run Windows platform Cargo tests
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          unset CMUX_GHOSTTY_SRC
+          cargo test -p cmux-tui-core --lib --locked \
+            --target x86_64-pc-windows-gnu \
+            platform::tests:: -- --test-threads=1
+
   bindings-e2e:
     needs: validate-inputs
     if: inputs.mode == 'full'
@@ -637,6 +697,7 @@ jobs:
       - web-frontend
       - valgrind-leak-check
       - test
+      - test-windows
       - bindings-e2e
       - build-artifacts
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -648,6 +709,7 @@ jobs:
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
+      WINDOWS_TEST_RESULT: ${{ needs.test-windows.result }}
       BINDINGS_RESULT: ${{ needs.bindings-e2e.result }}
       ARTIFACT_RESULT: ${{ needs.build-artifacts.result }}
     steps:
@@ -668,6 +730,7 @@ jobs:
           require_success "Rust tests" "$TEST_RESULT"
           require_success "dogfood artifact build" "$ARTIFACT_RESULT"
           if [[ "$MODE" == "full" ]]; then
+            require_success "Windows Rust tests" "$WINDOWS_TEST_RESULT"
             require_success "web frontend" "$WEB_RESULT"
             require_success "Valgrind" "$VALGRIND_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
