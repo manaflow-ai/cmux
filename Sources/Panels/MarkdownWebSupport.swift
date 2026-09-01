@@ -458,7 +458,7 @@ final class MarkdownRendererSession {
     /// The live preview web view — the panel's keyboard surface in preview
     /// mode, and the evaluation target for find-in-page scripts. `nil` until
     /// the renderer has been mounted once.
-    var webView: WKWebView? {
+    var findScriptWebView: WKWebView? {
         ownedCoordinator.webView
     }
 
