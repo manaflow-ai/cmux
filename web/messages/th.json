@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "หากเราพบบัญชี โปรดตรวจสอบอีเมลเพื่อดูขั้นตอนถัดไป"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "ดำเนินการต่อในเทอร์มินัล",

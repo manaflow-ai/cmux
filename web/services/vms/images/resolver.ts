@@ -206,6 +206,17 @@ export function resolveVmImage(
   const envVar = providerImageEnvKey(provider, kind);
   const configured = env[envVar]?.trim();
   if (configured) {
+    // An operator's generic selector naming an image of another kind is not a
+    // misconfiguration for this request: deployments from before image kinds
+    // existed set the single selector to the desktop image. Serve the
+    // requested kind from the manifest defaults instead of failing the
+    // create on the mismatch. Client-requested images keep the strict check.
+    if (kind !== undefined) {
+      const entry = findVmImageManifestEntry(provider, configured);
+      if (entry && deriveVmImageKind(entry, configured) !== kind) {
+        return resolveByKind(provider, kind, envVar, env);
+      }
+    }
     return resolveKnownOrAllowed(provider, configured, envVar, env, kind);
   }
 
