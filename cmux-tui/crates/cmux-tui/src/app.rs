@@ -16827,14 +16827,17 @@ impl App {
         let point = Self::selection_point(cell)?;
         let handle = self.session.surface(surface)?;
         let range = handle
-            .with_terminal(|terminal| match mode {
-                SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
-                SelectionMode::Line => terminal
-                    .select_line_screen(point)
-                    .ok()
-                    .flatten()
-                    .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
-                SelectionMode::Cell => None,
+            .with_terminal(|terminal| {
+                let point = terminal.normalize_selection_point_screen(point)?;
+                match mode {
+                    SelectionMode::Word => terminal.select_word_screen(point).ok().flatten(),
+                    SelectionMode::Line => terminal
+                        .select_line_screen(point)
+                        .ok()
+                        .flatten()
+                        .or_else(|| terminal.select_line_screen_untrimmed(point).ok().flatten()),
+                    SelectionMode::Cell => None,
+                }
             })
             .flatten()?;
         Some(Self::selection_from_range(surface, range))
@@ -17036,40 +17039,43 @@ impl App {
             return;
         }
         let range = handle
-            .with_terminal(|terminal| match mode {
-                SelectionMode::Word => {
-                    let first = terminal
-                        .select_word_between_screen(anchor_point, current_point)
-                        .ok()
-                        .flatten()?;
-                    let second = terminal
-                        .select_word_between_screen(current_point, anchor_point)
-                        .ok()
-                        .flatten()?;
-                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
-                    Some(if current_before_anchor {
-                        SelectionRange { start: second.start, end: first.end }
-                    } else {
-                        SelectionRange { start: first.start, end: second.end }
-                    })
-                }
-                SelectionMode::Line => {
-                    let select_line =
-                        |point| {
+            .with_terminal(|terminal| {
+                let anchor_point = terminal.normalize_selection_point_screen(anchor_point)?;
+                let current_point = terminal.normalize_selection_point_screen(current_point)?;
+                match mode {
+                    SelectionMode::Word => {
+                        let first = terminal
+                            .select_word_between_screen(anchor_point, current_point)
+                            .ok()
+                            .flatten()?;
+                        let second = terminal
+                            .select_word_between_screen(current_point, anchor_point)
+                            .ok()
+                            .flatten()?;
+                        let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                        Some(if current_before_anchor {
+                            SelectionRange { start: second.start, end: first.end }
+                        } else {
+                            SelectionRange { start: first.start, end: second.end }
+                        })
+                    }
+                    SelectionMode::Line => {
+                        let select_line = |point| {
                             terminal.select_line_screen(point).ok().flatten().or_else(|| {
                                 terminal.select_line_screen_untrimmed(point).ok().flatten()
                             })
                         };
-                    let first = select_line(anchor_point)?;
-                    let second = select_line(current_point)?;
-                    let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
-                    Some(if current_before_anchor {
-                        SelectionRange { start: second.start, end: first.end }
-                    } else {
-                        SelectionRange { start: first.start, end: second.end }
-                    })
+                        let first = select_line(anchor_point)?;
+                        let second = select_line(current_point)?;
+                        let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
+                        Some(if current_before_anchor {
+                            SelectionRange { start: second.start, end: first.end }
+                        } else {
+                            SelectionRange { start: first.start, end: second.end }
+                        })
+                    }
+                    SelectionMode::Cell => None,
                 }
-                SelectionMode::Cell => None,
             })
             .flatten();
         if let Some(generation) = content_generation {
