@@ -13020,7 +13020,7 @@ struct VerticalTabsSidebar: View, Equatable {
             latestNotificationText: unreadSnapshot.latestNotificationText(forWorkspaceId: workspace.id),
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
-            listeningPorts: workspace.listeningPorts,
+            listeningPorts: workspace.sidebarVisibleListeningPorts,
             pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
             panelDirectories: workspace.sidebarFilesystemDirectoriesInDisplayOrder(),
             gitBranches: workspace.sidebarGitBranchesInDisplayOrder().map {

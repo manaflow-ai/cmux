@@ -911,7 +911,7 @@ struct AgentHibernationTests {
         defer {
             PortScanner.shared.unregisterPanel(workspaceId: workspace.id, panelId: panelId)
         }
-        workspace.surfaceListeningPorts[panelId] = [4321]
+        workspace.setSurfaceListeningPorts([4321], for: panelId)
         workspace.recomputeListeningPorts()
 
         try #require(workspace.enterAgentHibernation(

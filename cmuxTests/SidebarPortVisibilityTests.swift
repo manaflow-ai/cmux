@@ -22,7 +22,7 @@ struct SidebarPortVisibilityTests {
         let panelPorts = [49_151, 49_152, 65_535]
         let agentPorts = [3_000, 63_315]
 
-        workspace.surfaceListeningPorts[panelID] = panelPorts
+        workspace.setSurfaceListeningPorts(panelPorts, for: panelID)
         workspace.agentListeningPorts = agentPorts
         workspace.recomputeListeningPorts()
 
@@ -48,7 +48,7 @@ struct SidebarPortVisibilityTests {
         let manager = TabManager(settings: settings)
         let workspace = try #require(manager.selectedWorkspace)
         let panelID = try #require(workspace.focusedPanelId)
-        workspace.surfaceListeningPorts[panelID] = [3_000, 49_152, 65_535]
+        workspace.setSurfaceListeningPorts([3_000, 49_152, 65_535], for: panelID)
         workspace.recomputeListeningPorts()
 
         #expect(workspace.listeningPorts == [3_000, 49_152, 65_535])
@@ -115,7 +115,7 @@ struct SidebarPortVisibilityTests {
         let panelID = try #require(workspace.focusedPanelId)
         let observedPorts = [49_151, 49_152, 65_535]
 
-        workspace.surfaceListeningPorts[panelID] = observedPorts
+        workspace.setSurfaceListeningPorts(observedPorts, for: panelID)
         workspace.recomputeListeningPorts()
 
         let snapshot = workspace.customSidebarWorkspaceSnapshot(
@@ -128,7 +128,7 @@ struct SidebarPortVisibilityTests {
         #expect(surface.listeningPorts == [49_151])
         #expect(workspace.surfaceListeningPorts[panelID] == observedPorts)
 
-        workspace.surfaceListeningPorts[panelID] = [3_000, 49_152]
+        workspace.setSurfaceListeningPorts([3_000, 49_152], for: panelID)
         let updatedSnapshot = workspace.customSidebarWorkspaceSnapshot(
             index: 0,
             selectedId: workspace.id,

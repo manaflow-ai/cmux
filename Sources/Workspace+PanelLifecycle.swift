@@ -365,18 +365,17 @@ extension Workspace {
 
     func recomputeListeningPorts() {
         let policy = currentSidebarPortVisibilityPolicy()
-        refreshSidebarVisibleSurfacePorts(using: policy)
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
             .union(agentListeningPorts)
             .union(remoteDetectedPorts)
             .union(remoteForwardedPorts)
-        // Keep source observations intact so retention and rescanning remain
-        // independent from the sidebar projection, and settings changes can
-        // reveal an existing observation without waiting for another scan.
-        let next = policy.visiblePorts(from: unique.sorted())
-        if listeningPorts != next {
-            listeningPorts = next
+        let authoritativePorts = unique.sorted()
+        if listeningPorts != authoritativePorts {
+            listeningPorts = authoritativePorts
         }
+        // Keep authoritative observations independent from the sidebar
+        // projection so control APIs and automation never lose hidden badges.
+        setSidebarVisibleListeningPorts(policy.visiblePorts(from: authoritativePorts))
     }
 
     @discardableResult
@@ -535,7 +534,7 @@ extension Workspace {
         pendingPlainSSHRestorePanelIds.remove(panelId)
         observedPlainSSHPanelIds.remove(panelId)
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
-        surfaceListeningPorts.removeValue(forKey: panelId)
+        removeSurfaceListeningPorts(for: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)

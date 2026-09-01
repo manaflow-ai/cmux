@@ -301,7 +301,7 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .combineLatest($sidebarVisibleListeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }

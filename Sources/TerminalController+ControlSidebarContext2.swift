@@ -186,7 +186,7 @@ extension TerminalController {
             prune: true,
             requireLiveSurface: true
         ) { tab, surfaceId in
-            tab.surfaceListeningPorts[surfaceId] = ports
+            tab.setSurfaceListeningPorts(ports, for: surfaceId)
             tab.recomputeListeningPorts()
         }
     }
@@ -209,9 +209,9 @@ extension TerminalController {
             guard validSurfaceIds.contains(surfaceId) else {
                 return .panelNotFound(surfaceId)
             }
-            tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
+            tab.removeSurfaceListeningPorts(for: surfaceId)
         } else {
-            tab.surfaceListeningPorts.removeAll()
+            tab.removeAllSurfaceListeningPorts()
         }
         tab.recomputeListeningPorts()
         return .done
@@ -433,7 +433,7 @@ extension TerminalController {
             focusedPanel: focusedPanel,
             gitBranch: gitBranch,
             firstPullRequest: firstPullRequest,
-            listeningPorts: tab.listeningPorts,
+            listeningPorts: tab.sidebarVisibleListeningPorts,
             progress: progress,
             statusEntries: tab.sidebarStatusEntriesInDisplayOrder().map {
                 ControlSidebarStatusEntrySnapshot(

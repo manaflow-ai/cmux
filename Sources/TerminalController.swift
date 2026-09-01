@@ -1048,7 +1048,11 @@ class TerminalController {
               workspace.panels[panelId] != nil else { return }
         let nextPorts: [Int]? = ports.isEmpty ? nil : ports
         guard workspace.surfaceListeningPorts[panelId] != nextPorts else { return }
-        workspace.surfaceListeningPorts[panelId] = nextPorts
+        if let nextPorts {
+            workspace.setSurfaceListeningPorts(nextPorts, for: panelId)
+        } else {
+            workspace.removeSurfaceListeningPorts(for: panelId)
+        }
         workspace.recomputeListeningPorts()
     }
 

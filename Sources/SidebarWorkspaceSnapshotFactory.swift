@@ -108,7 +108,9 @@ struct SidebarWorkspaceSnapshotFactory {
             branchLinesContainBranch: settings.showsGitBranch
                 && branchDirectoryLines.contains { $0.branch != nil },
             pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? workspace.listeningPorts : [],
+            listeningPorts: detailVisibility.showsPorts
+                ? workspace.sidebarVisibleListeningPorts
+                : [],
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: workspace),
             mediaActivity: workspace.browserMediaActivity,
             taskStatus: taskStatusResolution?.effective,

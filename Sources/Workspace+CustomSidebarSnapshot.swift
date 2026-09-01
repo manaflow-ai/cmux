@@ -29,7 +29,7 @@ extension Workspace {
             isPinned: isPinned,
             index: index,
             directory: presentedCurrentDirectory ?? "",
-            listeningPorts: listeningPorts,
+            listeningPorts: sidebarVisibleListeningPorts,
             unreadCount: unreadCount,
             surfaces: customSidebarSurfaceSnapshots(focusedPanelId: focusedPanelId),
             surfaceCount: bonsplitController.allPaneIds.reduce(0) {

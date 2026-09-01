@@ -94,7 +94,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
 
         workspace.configureRemoteConnection(configuration, autoConnect: false)
-        workspace.surfaceListeningPorts[panelId] = [6969]
+        workspace.setSurfaceListeningPorts([6969], for: panelId)
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
