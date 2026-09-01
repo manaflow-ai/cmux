@@ -31,10 +31,6 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
-/// Process identity is refreshed on a bounded cadence, with process-id changes
-/// forcing an immediate lookup. This keeps swaps prompt without polling every
-/// terminal at every 100 ms output tick.
-pub(crate) const PROCESS_LOOKUP_INTERVAL_MS: u64 = 500;
 const PENDING_RETRY_INTERVAL_MS: u64 = 1_000;
 /// Re-emit an unchanged screen state so it can claim a terminal after the
 /// hook owner's freshness window expires.
@@ -69,9 +65,6 @@ struct TrackedTerminal {
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
-    /// Last scan that queried foreground process metadata.
-    last_process_lookup_at: Option<Instant>,
-    last_process_id: Option<u32>,
     /// Whether the cached foreground identity came from a successful lookup.
     foreground_identity_known: bool,
     /// Earliest time to retry a failed viewport read.
@@ -156,23 +149,16 @@ impl ScreenDetectTracker {
     }
 
     /// Return true when process metadata should be refreshed for this
-    /// terminal. Identity is correctness-critical and refreshes every scan.
+    /// terminal. Identity is correctness-critical: a process can `exec` in
+    /// place while retaining its PID, so caches cannot establish freshness.
     pub(crate) fn should_lookup_foreground_agent(
         &mut self,
         terminal_id: &str,
-        process_id: Option<u32>,
-        now: Instant,
+        _process_id: Option<u32>,
+        _now: Instant,
     ) -> bool {
-        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
-        let process_changed = entry.last_process_id != process_id;
-        entry.last_process_id = process_id;
-        let due = entry.last_process_lookup_at.is_none_or(|last| {
-            now.duration_since(last).as_millis() as u64 >= PROCESS_LOOKUP_INTERVAL_MS
-        }) || process_changed;
-        if due {
-            entry.last_process_lookup_at = Some(now);
-        }
-        due
+        self.terminals.entry(terminal_id.to_string()).or_default();
+        true
     }
 
     pub(crate) fn foreground_agent(&self, terminal_id: &str) -> Option<String> {
@@ -183,14 +169,17 @@ impl ScreenDetectTracker {
         self.terminals.get(terminal_id).is_some_and(|entry| entry.foreground_identity_known)
     }
 
-    pub(crate) fn invalidate_foreground_identity(&mut self, terminal_id: &str) {
+    pub(crate) fn invalidate_foreground_identity(&mut self, terminal_id: &str) -> Option<String> {
         if let Some(entry) = self.terminals.get_mut(terminal_id) {
             entry.foreground_identity_known = false;
             // A failed lookup must not leave the previous process identity
-            // available to a later screen evaluation. Keep the durable roster
-            // unchanged until a fresh lookup proves the next lifecycle.
-            entry.foreground_agent = None;
+            // available to a later screen evaluation. Return it so the
+            // scanner can retire a detected durable row fail-closed.
+            let previous = entry.foreground_agent.take();
             entry.emitted = None;
+            previous
+        } else {
+            None
         }
     }
 
@@ -491,7 +480,7 @@ mod tests {
         let mut tracker = ScreenDetectTracker::default();
         let t0 = Instant::now();
         assert!(tracker.should_lookup_foreground_agent("term_a", Some(10), t0));
-        assert!(!tracker.should_lookup_foreground_agent(
+        assert!(tracker.should_lookup_foreground_agent(
             "term_a",
             Some(10),
             t0 + Duration::from_millis(1),

@@ -1126,8 +1126,21 @@ struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
     ordering_token: u64,
+    /// Deltas produced while replaying the journal before the Mux exists.
+    /// Startup must apply these to durable projections after resources are
+    /// materialized; advancing the cursor alone is not sufficient because
+    /// the live fold has no tail left to read.
+    pending_projection_deltas: Vec<PendingRosterProjection>,
     #[cfg_attr(not(test), allow(dead_code))]
     needs_projection_rebuild: bool,
+}
+
+#[derive(Debug, Clone)]
+struct PendingRosterProjection {
+    delta: crate::journal_reducers::RosterDelta,
+    kind: String,
+    screen_detect: bool,
+    sequence: u64,
 }
 
 fn retained_journal_tail_has_gap(cursor: u64, first_sequence: Option<u64>) -> bool {
@@ -1282,8 +1295,25 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             continue;
         }
         for record in &page.records {
-            if !host.roster.apply(&RosterEvent::from_record(record)).is_empty() {
+            let deltas = host.roster.apply(&RosterEvent::from_record(record));
+            if !deltas.is_empty() {
                 host.needs_projection_rebuild = true;
+                let screen_detect = record.payload.get("native_event").and_then(Value::as_str)
+                    == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT)
+                    && record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        != Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER);
+                host.pending_projection_deltas.extend(deltas.into_iter().map(|delta| {
+                    PendingRosterProjection {
+                        delta,
+                        kind: record.kind.clone(),
+                        screen_detect,
+                        sequence: record.sequence,
+                    }
+                }));
             }
             host.cursor = host.cursor.max(record.sequence);
             host.ordering_token = host.ordering_token.saturating_add(1);
@@ -2767,36 +2797,43 @@ impl Mux {
     /// so screen-detection deltas repair durable projections before exposing
     /// the restored session. Hook projections are restored separately.
     fn rebuild_agent_roster_projections(&self) {
-        let needs_rebuild = self.agent_roster.lock().unwrap().needs_projection_rebuild;
-        if !needs_rebuild {
-            return;
-        }
-        {
+        let (needs_rebuild, pending) = {
             let mut host = self.agent_roster.lock().unwrap();
-            // Retention-gap recovery seeds active entries from durable agent
-            // projections and anchors the cursor at the retained head. Keep
-            // that state while folding the retained tail; resetting to an
-            // empty roster would erase agents whose original events pruned.
+            if !host.needs_projection_rebuild {
+                return;
+            }
             host.needs_projection_rebuild = false;
+            (true, std::mem::take(&mut host.pending_projection_deltas))
+        };
+        debug_assert!(needs_rebuild);
+        // Startup replay happens before resource surfaces are materialized,
+        // so the normal live fold cannot apply its deltas. Replay the exact
+        // reducer outputs now, after materialization, preserving source and
+        // sequence metadata for idempotent projection commits.
+        for index in 0..pending.len() {
+            let current = pending[index].clone();
+            if let Err(error) = self.apply_roster_delta(
+                current.delta,
+                &current.kind,
+                current.screen_detect,
+                current.sequence,
+            ) {
+                eprintln!(
+                    "cmux-tui: startup agent roster projection repair failed at sequence {}: {error}",
+                    current.sequence
+                );
+                // Keep the rebuild marker set. A subsequent terminal
+                // availability signal or restart will retry the repair from
+                // the durable journal snapshot instead of silently exposing
+                // an incomplete projection.
+                let mut host = self.agent_roster.lock().unwrap();
+                host.needs_projection_rebuild = true;
+                // Preserve this delta and all later deltas. They must be
+                // retried in journal order after the transient failure.
+                host.pending_projection_deltas.extend(pending.into_iter().skip(index));
+                break;
+            }
         }
-        let ingress = crate::JournalIngress {
-            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
-            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
-            kind: "agent.roster.rebuild".into(),
-            schema_version: 1,
-            occurred_at_ms: None,
-            subjects: Vec::new(),
-            sensitivity: Some(crate::JournalSensitivity::Metadata),
-            payload: serde_json::json!({}),
-            causation_id: None,
-            correlation_id: None,
-        };
-        let commit = crate::JournalAppendCommit {
-            sequence: 0,
-            event_id: "roster-rebuild".into(),
-            replayed: true,
-        };
-        self.fold_agent_roster(&ingress, &commit);
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -2883,6 +2920,19 @@ impl Mux {
             .entries
             .get(terminal_id.as_str())
             .map(|entry| entry.agent_source())
+    }
+
+    pub(crate) fn agent_roster_agent_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<String> {
+        self.agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .and_then(|entry| entry.agent.clone())
     }
 
     pub(crate) fn discard_screen_detect_pending_for_terminal(
@@ -24365,21 +24415,16 @@ mod tests {
         assert_eq!(records[0].agent.as_deref(), Some("codex"));
 
         // A changed screen must not be evaluated with a cached identity. The
-        // process can swap during the 500 ms metadata interval; decisions
-        // wait for the next successful lookup instead of attributing the
-        // screen to the old codex process.
+        // process can replace itself with `exec` while retaining its PID, so
+        // each scan refreshes process metadata before making a decision.
         surface.apply_stream_output_for_test(b"$ rm -rf build\r\nAllow command?\r\n").unwrap();
         scanner::scan(&mux, &mut tracker, manifests, step(900), &gone);
-        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
 
-        // A transient process lookup miss must not close the detected entry.
-        // The lookup interval expires at 1,000 ms, so this exercises the
-        // resolver's explicit Unknown result rather than a skipped lookup.
+        // A transient process lookup miss fails closed. A later successful
+        // lookup can create a fresh detected generation.
         scanner::scan(&mux, &mut tracker, manifests, step(1_000), &unknown);
-        let records = mux.list_agents(Some(surface_id), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].state, AgentState::Idle);
-        assert_eq!(records[0].agent.as_deref(), Some("codex"));
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
 
         // New output re-arms the debounce; the blocked screen lands after
         // quiescence.
@@ -24526,6 +24571,14 @@ mod tests {
         .unwrap();
         let rederived = reopened.agent_roster.lock().unwrap().roster.entries.clone();
         assert_eq!(rederived, live_entries);
+        let repaired_projection = reopened
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .public_agent_projections(Some(&terminal_id), None)
+            .unwrap();
+        assert_eq!(repaired_projection.len(), 1);
+        assert_eq!(repaired_projection[0].state, AgentState::Working.as_str());
 
         // Folding the tail after an ended session removes the entry, and
         // that removal survives the next reopen through the snapshot.

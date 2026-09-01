@@ -115,9 +115,9 @@ pub(crate) fn scan(
         let mut unknown = false;
         let mut identity_edge = false;
         let mut detected_manifest = None;
-        // Identity refreshes are bounded independently from output sampling.
-        // A launch or swap is observed within the lookup interval and still
-        // evaluates the screen immediately.
+        // Identity refreshes happen at the event boundary. A process can
+        // `exec` in place while retaining its PID, so interval or PID caches
+        // would allow stale attribution.
         match resolver(&surface) {
             ProcessLookup::Name(name) => {
                 let manifest = manifests.identify(&name);
@@ -130,7 +130,27 @@ pub(crate) fn scan(
                 exited = true;
             }
             ProcessLookup::Unknown => {
-                tracker.invalidate_foreground_identity(terminal_id);
+                let prior_agent = tracker
+                    .invalidate_foreground_identity(terminal_id)
+                    .or_else(|| mux.agent_roster_agent_for_terminal(&terminal_public_id));
+                // Unknown process identity is a fail-closed state. Retire a
+                // detected row instead of leaving it live indefinitely when
+                // process metadata is unavailable. A later successful lookup
+                // can create a fresh generation through the normal identity
+                // edge path.
+                if mux.agent_roster_source_for_terminal(&terminal_public_id)
+                    == Some(crate::AgentSource::Detected)
+                {
+                    if let Some(agent) = prior_agent
+                        && !mux.screen_detect_pending_for_terminal(&terminal_public_id)
+                    {
+                        let _ = mux.append_screen_detect_event(&super::ScreenDetectEmission {
+                            terminal_id: terminal_id.to_string(),
+                            agent,
+                            state: crate::AgentState::Done,
+                        });
+                    }
+                }
                 unknown = true;
             }
         }
