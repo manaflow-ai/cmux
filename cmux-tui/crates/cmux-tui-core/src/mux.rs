@@ -6526,6 +6526,13 @@ impl Mux {
         source: AgentSource,
         session: Option<&str>,
     ) -> anyhow::Result<Option<String>> {
+        // Resource revisions are durable and strictly monotonic. Include the
+        // current revision in the transition key so an ABA sequence cannot
+        // reuse the key from an earlier cycle after the compatibility cache
+        // returns to the same state. Repeated polls of one semantic state
+        // still return early through `unchanged`, so steady-state reports do
+        // not append another echo.
+        let resource_revision = self.state.lock().unwrap().resource_revision;
         // The durable projection is updated before its echo is folded. Read
         // it first so a blocked roster replay still has a stable semantic
         // receipt for repeated reports.
@@ -6619,7 +6626,7 @@ impl Mux {
         // journal cursor would make an unrelated event defeat coalescing and
         // turn a steady socket poll into one durable row per event elsewhere.
         let material = format!(
-            "agent-report-echo-v4|{terminal_id}|{}|{}|{:?}|{previous}",
+            "agent-report-echo-v5|{terminal_id}|{}|{}|{:?}|revision={resource_revision}|{previous}",
             state.as_str(),
             source.as_str(),
             session,
