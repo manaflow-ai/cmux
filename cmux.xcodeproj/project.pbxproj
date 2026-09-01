@@ -2374,6 +2374,7 @@
 		C7B0FACE0000000000000012 /* SleepyPixelButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000013 /* SleepyPixelButtonStyle.swift */; };
 		C7B0FACE000000000000000A /* SleepyPowerControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000B /* SleepyPowerControlling.swift */; };
 		C7B000000000000000000102 /* SleepyPowerControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B000000000000000000101 /* SleepyPowerControls.swift */; };
+		5A9730000000000000000001 /* SleepyPowerControlsLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A9730000000000000000002 /* SleepyPowerControlsLockTests.swift */; };
 		C7B0FACE0000000000000020 /* SleepyPowerUIState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000021 /* SleepyPowerUIState.swift */; };
 		C7B0FACE000000000000000E /* SleepyReactions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000F /* SleepyReactions.swift */; };
 		C7B0FACE0000000000000014 /* SleepyStar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000015 /* SleepyStar.swift */; };
@@ -5455,6 +5456,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C7B0FACE0000000000000013 /* SleepyPixelButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPixelButtonStyle.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000B /* SleepyPowerControlling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPowerControlling.swift; sourceTree = "<group>"; };
 		C7B000000000000000000101 /* SleepyPowerControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPowerControls.swift; sourceTree = "<group>"; };
+		5A9730000000000000000002 /* SleepyPowerControlsLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPowerControlsLockTests.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000021 /* SleepyPowerUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPowerUIState.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000F /* SleepyReactions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyReactions.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000015 /* SleepyStar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStar.swift; sourceTree = "<group>"; };
@@ -9345,6 +9347,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C10D0A200000000000000002 /* CloudDomainsCLIIntegrationTests.swift */,
 				C37800000000000000000002 /* VMSSHCommandTests.swift */,
 				0A0F00550000000000000002 /* OmpSupportTests.swift */,
+				5A9730000000000000000002 /* SleepyPowerControlsLockTests.swift */,
 				0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */,
 				0A0F00560000000000000004 /* CampfireHookNotificationTests.swift */,
 				0A0F00570000000000000004 /* CampfireSupportProcessBindingTests.swift */,
@@ -12760,6 +12763,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B804C0010000000000000001 /* SidebarWorkspaceTableTests.swift in Sources */,
 				C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */,
 				C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */,
+				5A9730000000000000000001 /* SleepyPowerControlsLockTests.swift in Sources */,
 				A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */,
 				A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
