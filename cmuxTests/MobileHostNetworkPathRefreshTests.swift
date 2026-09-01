@@ -462,6 +462,25 @@ struct MobileHostIrohStartupRetryTests {
     }
 
     @Test
+    func reconcileInvalidatesPendingRelayApplicationsImmediately() {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let originalApplicationGeneration = runtime.relayPolicyApplicationGeneration
+        let originalTransitionTask = runtime.transitionTask
+
+        let reconciliation = runtime.scheduleReconcile(eraseAccountState: false)
+        #expect(
+            runtime.relayPolicyApplicationGeneration
+                == originalApplicationGeneration &+ 1
+        )
+
+        reconciliation.cancel()
+        runtime.transitionTask = originalTransitionTask
+        runtime.lifecycleRevision = originalRevision
+        runtime.relayPolicyApplicationGeneration = originalApplicationGeneration
+    }
+
+    @Test
     func staleDeactivationCannotClearReplacementRuntimeState() async {
         let runtime = MobileHostIrohRuntime.shared
         let originalDesiredActive = runtime.desiredActive
