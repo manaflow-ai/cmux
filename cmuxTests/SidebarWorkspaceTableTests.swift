@@ -523,8 +523,7 @@ struct SidebarWorkspaceTableTests {
     func unreadRefreshKeepsTableHeightInLockstepWithTheReconfiguredCell() async throws {
         let workspace = Workspace()
         let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)
-        var pumpModel = baseModel
-        pumpModel.latestNotificationText = "metadata refresh"
+        let pumpModel = SidebarWorkspaceRowSuspensionTests.makeModel(customDescription: "metadata refresh", workspaceId: workspace.id)
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: .dark,
             globalFontMagnificationPercent: 100,
@@ -595,10 +594,9 @@ struct SidebarWorkspaceTableTests {
         // The initial pump replay installs a height override for the shorter
         // live model. The unread update below must retire that override before
         // the cell is painted with its taller notification preview.
+        await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == "metadata refresh" }
         let pumpHeight = controller.tableView(container.tableView, heightOfRow: 0)
-        let baseHeight = ceil(
-            cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
-        )
+        let baseHeight = row.estimatedHeight
         #expect(pumpHeight > baseHeight)
 
         let latestText = String(repeating: "latest agent message ", count: 30)
@@ -688,15 +686,14 @@ struct SidebarWorkspaceTableTests {
             table.view(atColumn: 0, row: 0, makeIfNecessary: true)
                 as? SidebarWorkspaceRowTableCellView
         )
+        await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == pumpDescription }
         #expect(
             cell.currentModelForMeasurement?.snapshot.customDescription
                 == pumpDescription
         )
 
         let pumpHeight = controller.tableView(table, heightOfRow: 0)
-        let authoritativeHeight = ceil(
-            cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
-        )
+        let authoritativeHeight = row.estimatedHeight
         #expect(pumpHeight > authoritativeHeight)
 
         // The row configuration is intentionally identical. An unrelated
@@ -785,8 +782,10 @@ struct SidebarWorkspaceTableTests {
     func widthMismatchedPumpOverrideIsRenotedWhenApplyReleasesIt() async throws {
         let workspace = Workspace()
         let baseModel = SidebarWorkspaceRowSuspensionTests.makeModel(workspaceId: workspace.id)
-        var pumpModel = baseModel
-        pumpModel.latestNotificationText = String(repeating: "live metadata ", count: 30)
+        let pumpModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: String(repeating: "live metadata ", count: 30),
+            workspaceId: workspace.id
+        )
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: .dark,
             globalFontMagnificationPercent: 100,
@@ -839,11 +838,9 @@ struct SidebarWorkspaceTableTests {
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
                 as? SidebarWorkspaceRowTableCellView
         )
-        #expect(cell.currentModelForMeasurement?.latestNotificationText == pumpModel.latestNotificationText)
+        await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == pumpModel.snapshot.customDescription }
         let initialPumpHeight = controller.tableView(container.tableView, heightOfRow: 0)
-        let baseHeight = ceil(
-            cell.layoutContent(model: baseModel, width: cell.bounds.width, apply: false)
-        )
+        let baseHeight = row.estimatedHeight
         #expect(initialPumpHeight > baseHeight)
 
         // Change the measured width without delivering the bounds notification
