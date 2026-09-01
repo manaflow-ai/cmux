@@ -195,6 +195,7 @@ import Testing
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
+            isMuted: false,
             customColorHex: customColorHex,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
