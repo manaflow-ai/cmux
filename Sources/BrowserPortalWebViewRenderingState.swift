@@ -123,16 +123,13 @@ extension WKWebView {
 }
 
 /// Returns the nearest view that owns a responder for browser focus routing.
-/// Field editors use their tracked/declared owner first; all other responder
+/// Field editors use their tracked owner first; all other responder
 /// chains are bounded so a malformed chain cannot add unbounded key-path work.
 extension NSResponder {
     func cmuxBrowserOwningView() -> NSView? {
         if let fieldEditor = self as? NSTextView, fieldEditor.isFieldEditor {
             if let trackedOwner = cmuxTrackedFindFieldEditorOwner(fieldEditor) {
                 return trackedOwner
-            }
-            if let delegate = fieldEditor.delegate as? NSView {
-                return delegate
             }
             var current: NSResponder? = fieldEditor.nextResponder
             var hops = 0

@@ -271,11 +271,11 @@ final class CmuxWebViewKeyDownReentryTests {
         container.addSubview(webView)
 
         var keyDownEvents: [NSEvent] = []
-            setCmuxUnitTestCmuxWebViewKeyDownHook({ currentWebView, event in
-                guard currentWebView === webView else { return false }
-                keyDownEvents.append(event)
-                return true
-            }, for: webView)
+        setCmuxUnitTestCmuxWebViewKeyDownHook({ [weak webView] currentWebView, event in
+            guard let webView, currentWebView === webView else { return false }
+            keyDownEvents.append(event)
+            return true
+        }, for: webView)
 
         window.makeKeyAndOrderFront(nil)
         defer {

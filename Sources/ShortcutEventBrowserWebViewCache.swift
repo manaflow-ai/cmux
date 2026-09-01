@@ -2,13 +2,13 @@ import AppKit
 import ObjectiveC
 import WebKit
 
-private var shortcutEventBrowserWebViewCacheKey: UInt8 = 0
-
 /// Keeps the direct browser ownership result for one AppKit event while it
 /// crosses the application, window, and web-view key-equivalent boundaries.
 /// The cache is attached to the event itself, so it cannot grow with the
 /// number of panes or keystrokes and needs no app-wide mutable registry.
 final class ShortcutEventBrowserWebViewCache {
+    fileprivate static var associationKey: UInt8 = 0
+
     /// Event associations must not keep a closed auxiliary window or WebView
     /// alive. Ownership is held by the window/panel graph; this cache only
     /// observes it while that graph remains live.
@@ -47,13 +47,13 @@ final class ShortcutEventBrowserWebViewCache {
 extension NSEvent {
     var cmuxBrowserWebViewCache: ShortcutEventBrowserWebViewCache? {
         get {
-            objc_getAssociatedObject(self, &shortcutEventBrowserWebViewCacheKey)
+            objc_getAssociatedObject(self, &ShortcutEventBrowserWebViewCache.associationKey)
                 as? ShortcutEventBrowserWebViewCache
         }
         set {
             objc_setAssociatedObject(
                 self,
-                &shortcutEventBrowserWebViewCacheKey,
+                &ShortcutEventBrowserWebViewCache.associationKey,
                 newValue,
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )

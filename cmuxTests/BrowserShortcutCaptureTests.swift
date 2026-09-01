@@ -59,13 +59,13 @@ final class BrowserShortcutCaptureTests {
         try withCaptureEnabled { harness in
             installCmuxUnitTestCmuxWebViewKeyDownOverride()
             var browserKeyDownCount = 0
-            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
-                if webView === harness.webView {
-                    browserKeyDownCount += 1
-                }
+            let targetWebView = harness.webView
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ [weak targetWebView] webView, _ in
+                guard let targetWebView, webView === targetWebView else { return false }
+                browserKeyDownCount += 1
                 return false
-            }, for: harness.webView)
-            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
+            }, for: targetWebView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: targetWebView) }
 
             let commandR = try #require(makeKeyDownEvent(
                 key: "r",
@@ -85,13 +85,13 @@ final class BrowserShortcutCaptureTests {
         try withCaptureEnabled { harness in
             installCmuxUnitTestCmuxWebViewKeyDownOverride()
             var browserKeyDownCount = 0
-            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
-                if webView === harness.webView {
-                    browserKeyDownCount += 1
-                }
+            let targetWebView = harness.webView
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ [weak targetWebView] webView, _ in
+                guard let targetWebView, webView === targetWebView else { return false }
+                browserKeyDownCount += 1
                 return false
-            }, for: harness.webView)
-            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
+            }, for: targetWebView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: targetWebView) }
 
             let previousMainMenu = NSApp.mainMenu
             let menuProbe = BrowserCaptureMenuActionProbe()
@@ -253,6 +253,7 @@ final class BrowserShortcutCaptureTests {
             let inspectorChild = BrowserCaptureFocusableView(frame: inspectorContainer.bounds)
             inspectorContainer.addSubview(inspectorChild)
             harness.webView.addSubview(inspectorContainer)
+            defer { inspectorContainer.removeFromSuperview() }
             #expect(harness.window.makeFirstResponder(inspectorChild))
 
             let commandP = try #require(makeKeyDownEvent(
@@ -279,6 +280,7 @@ final class BrowserShortcutCaptureTests {
                 frame: NSRect(x: 0, y: 0, width: 120, height: 40)
             )
             slot.addSubview(chromeView, positioned: .above, relativeTo: nil)
+            defer { chromeView.removeFromSuperview() }
             #expect(harness.window.makeFirstResponder(chromeView))
 
             let commandR = try #require(makeKeyDownEvent(
@@ -397,10 +399,9 @@ final class BrowserShortcutCaptureTests {
 
         installCmuxUnitTestCmuxWebViewKeyDownOverride()
         var browserKeyDownCount = 0
-        setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
-            if webView === popupWebView {
-                browserKeyDownCount += 1
-            }
+        setCmuxUnitTestCmuxWebViewKeyDownHook({ [weak popupWebView] webView, _ in
+            guard let popupWebView, webView === popupWebView else { return false }
+            browserKeyDownCount += 1
             return false
         }, for: popupWebView)
         defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: popupWebView) }
@@ -423,13 +424,13 @@ final class BrowserShortcutCaptureTests {
         try withCaptureEnabled { harness in
             installCmuxUnitTestCmuxWebViewKeyDownOverride()
             var browserKeyDownCount = 0
-            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
-                if webView === harness.webView {
-                    browserKeyDownCount += 1
-                }
+            let targetWebView = harness.webView
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ [weak targetWebView] webView, _ in
+                guard let targetWebView, webView === targetWebView else { return false }
+                browserKeyDownCount += 1
                 return false
-            }, for: harness.webView)
-            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
+            }, for: targetWebView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: targetWebView) }
 
             let cases: [(
                 shortcut: BrowserCaptureStoredShortcut,
@@ -502,13 +503,13 @@ final class BrowserShortcutCaptureTests {
         try withCaptureEnabled { harness in
             installCmuxUnitTestCmuxWebViewKeyDownOverride()
             var browserKeyDownCount = 0
-            setCmuxUnitTestCmuxWebViewKeyDownHook({ webView, _ in
-                if webView === harness.webView {
-                    browserKeyDownCount += 1
-                }
+            let targetWebView = harness.webView
+            setCmuxUnitTestCmuxWebViewKeyDownHook({ [weak targetWebView] webView, _ in
+                guard let targetWebView, webView === targetWebView else { return false }
+                browserKeyDownCount += 1
                 return false
-            }, for: harness.webView)
-            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: harness.webView) }
+            }, for: targetWebView)
+            defer { setCmuxUnitTestCmuxWebViewKeyDownHook(nil, for: targetWebView) }
 
             let numberedShortcut = BrowserCaptureStoredShortcut(
                 key: "1",

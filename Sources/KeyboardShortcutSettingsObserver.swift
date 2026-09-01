@@ -14,7 +14,7 @@ extension StoredShortcut {
         case "←", "→", "↑", "↓",
              "escape", "esc", "delete", "forwarddelete", "forward-delete",
              "home", "end", "pageup", "page-up", "pagedown", "page-down",
-             "help", "insert", "clear":
+             "help", "insert", "clear", "tab", "return", "enter":
             return true
         default:
             break
@@ -46,6 +46,19 @@ final class KeyboardShortcutSettingsObserver {
         whenClause: ShortcutWhenClause,
         usesNumberedDigitMatching: Bool
     )
+
+    /// Retains the resolved action and its routing metadata for a shortcut
+    /// declared in the cmux.json action registry. Keeping the action alongside
+    /// its shortcut prevents browser capture from discarding focus predicates,
+    /// numbered-family semantics, or lifecycle protection before matching.
+    struct BrowserCaptureConfiguredMatcherEntry {
+        let action: CmuxResolvedConfigAction
+        let shortcut: StoredShortcut
+        let whenClause: ShortcutWhenClause
+        let usesNumberedDigitMatching: Bool
+        let isProtectedFromBrowserCapture: Bool
+    }
+
     typealias BrowserCaptureMatcherSnapshot = (
         settingsRevision: UInt64,
         settingsOwner: () -> AnyObject?,
@@ -53,7 +66,7 @@ final class KeyboardShortcutSettingsObserver {
         configOwnerPresent: Bool,
         configRevision: UInt64?,
         actions: [BrowserCaptureMatcherEntry],
-        configuredShortcuts: [StoredShortcut],
+        configuredActions: [BrowserCaptureConfiguredMatcherEntry],
         staleDefaults: [BrowserCaptureMatcherEntry],
         candidateStrokes: Set<ShortcutStroke>,
         numberedDigitModifierRawValues: Set<UInt>
@@ -160,7 +173,7 @@ final class KeyboardShortcutSettingsObserver {
         settingsOwner: AnyObject,
         configOwner: AnyObject?,
         configRevision: UInt64?,
-        configuredShortcuts: () -> [StoredShortcut]
+        configuredActions: () -> [BrowserCaptureConfiguredMatcherEntry]
     ) -> BrowserCaptureMatcherSnapshot {
         if let snapshot = browserCaptureMatcherSnapshotCache.first(where: { snapshot in
             snapshot.settingsRevision == revision
@@ -240,9 +253,12 @@ final class KeyboardShortcutSettingsObserver {
             }
         }
 
-        let configured = configuredShortcuts()
-        for shortcut in configured {
-            appendCandidate(shortcut)
+        let configured = configuredActions()
+        for entry in configured where !entry.isProtectedFromBrowserCapture {
+            appendCandidate(
+                entry.shortcut,
+                usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+            )
         }
 
         let snapshot = BrowserCaptureMatcherSnapshot(
@@ -252,7 +268,7 @@ final class KeyboardShortcutSettingsObserver {
             configOwnerPresent: configOwner != nil,
             configRevision: configRevision,
             actions: actions,
-            configuredShortcuts: configured,
+            configuredActions: configured,
             staleDefaults: staleDefaults,
             candidateStrokes: candidateStrokes,
             numberedDigitModifierRawValues: numberedDigitModifierRawValues

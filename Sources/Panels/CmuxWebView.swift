@@ -736,12 +736,11 @@ final class CmuxWebView: WKWebView {
               let window else {
             return result
         }
-        _ = window.cmuxForceDispatchKeyDownOnce(
+        return window.cmuxForceDispatchKeyDownOnce(
             event,
             to: self,
             reason: fallbackReason
         )
-        return true
     }
 
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {

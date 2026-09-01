@@ -18100,10 +18100,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        for shortcut in snapshot.configuredShortcuts {
-            if browserCaptureMatchesShortcut(event: event, shortcut: shortcut) {
-                return true
+        for entry in snapshot.configuredActions {
+            guard !entry.isProtectedFromBrowserCapture,
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
+                continue
             }
+            return true
         }
 
         // A remapped action leaves its old menu equivalent behind until the
@@ -18199,13 +18206,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             settingsOwner: KeyboardShortcutSettings.settingsFileStore,
             configOwner: configOwner,
             configRevision: configOwner?.configRevision,
-            configuredShortcuts: {
-                configuredCmuxShortcutActions(for: context).compactMap { action in
-                    guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
-                    return shortcut
+            configuredActions: {
+                configuredCmuxShortcutActions(for: context).compactMap {
+                    browserCaptureConfiguredMatcherEntry(for: $0)
                 }
             }
         )
+    }
+
+    /// Resolves a configured action to the built-in shortcut metadata that
+    /// governs browser capture. Custom action IDs have no built-in focus
+    /// restriction and therefore use an always-available clause; IDs that
+    /// mirror a keyboard action retain its configured `shortcuts.when` clause,
+    /// numbered-family semantics, and lifecycle protection.
+    private func browserCaptureConfiguredMatcherEntry(
+        for action: CmuxResolvedConfigAction
+    ) -> KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry? {
+        guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
+        let keyboardAction = browserCaptureKeyboardAction(for: action)
+        return KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry(
+            action: action,
+            shortcut: shortcut,
+            whenClause: keyboardAction.map {
+                KeyboardShortcutSettings.effectiveWhenClause(for: $0)
+            } ?? .always,
+            usesNumberedDigitMatching: keyboardAction?.usesNumberedDigitMatching ?? false,
+            isProtectedFromBrowserCapture: keyboardAction?.isProtectedFromBrowserCapture ?? false
+        )
+    }
+
+    /// Maps action-registry built-ins and direct keyboard-action IDs to the
+    /// app shortcut metadata used by the browser matcher. The registry's
+    /// namespaced built-in IDs intentionally differ from the keyboard action
+    /// names, so both forms are handled here.
+    private func browserCaptureKeyboardAction(
+        for action: CmuxResolvedConfigAction
+    ) -> KeyboardShortcutSettings.Action? {
+        if let directAction = KeyboardShortcutSettings.Action(rawValue: action.id) {
+            return directAction
+        }
+        switch action.action {
+        case .builtIn(.newWorkspace):
+            return .newTab
+        case .builtIn(.newTerminal):
+            return .newSurface
+        case .builtIn(.newBrowser):
+            return .newBrowserWorkspace
+        case .builtIn(.splitRight):
+            return .splitRight
+        case .builtIn(.splitDown):
+            return .splitDown
+        case .builtIn, .command, .agent, .workspaceCommand, .workspace, .actionReference:
+            return nil
+        }
     }
 
     /// Checks the compact modifier-only or bare-Space candidate set that can
@@ -18286,6 +18339,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for entry in snapshot.actions {
             guard entry.action.shortcutContext == .browserPanel
                     || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
+                continue
+            }
+            return true
+        }
+
+        for entry in snapshot.configuredActions {
+            guard !entry.isProtectedFromBrowserCapture,
                   entry.whenClause.evaluate(focusContext.shortcutContext),
                   browserCaptureMatchesShortcut(
                       event: event,

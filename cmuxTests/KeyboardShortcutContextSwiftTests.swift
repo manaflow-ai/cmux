@@ -71,6 +71,9 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("\u{1B}"))
         #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("\u{7F}"))
         #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("\u{F728}"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("tab"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("return"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("enter"))
     }
 
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
