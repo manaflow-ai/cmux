@@ -121,6 +121,9 @@ export function makeCoderouterAccountsPostHandler(
       decision = await dependencies.additionAllowed({
         stackUserId: resolved.value.user.id,
         teamId: resolved.value.team.teamId,
+        ...(resolved.value.user.userBillingPlanId
+          ? { userBillingPlanId: resolved.value.user.userBillingPlanId }
+          : {}),
         provider: credential.provider,
         providerAccountId: credential.accountId,
       });

@@ -53,6 +53,27 @@ describe("coderouter entitlement", () => {
       accountCount: 7,
     });
   });
+
+  test("a Founder personal entitlement covers a team over the free limit", async () => {
+    const hasActiveSubscription = mock(async (...args: unknown[]) =>
+      args[2] === "founders",
+    );
+    const check = createCoderouterEntitlementCheck({
+      countAccounts: async () => 7,
+      hasActiveSubscription: hasActiveSubscription as never,
+    });
+
+    await expect(check("user_1", "team_1", "founders")).resolves.toEqual({
+      allowed: true,
+      basis: "subscription",
+      accountCount: 7,
+    });
+    expect(hasActiveSubscription).toHaveBeenCalledWith(
+      "user_1",
+      "team_1",
+      "founders",
+    );
+  });
 });
 
 describe("coderouter account addition gate", () => {
@@ -94,6 +115,19 @@ describe("coderouter account addition gate", () => {
       findExisting: async () => null,
     });
     await expect(gate(input)).resolves.toEqual({
+      allowed: true,
+      accountCount: 3,
+    });
+  });
+
+  test("allows a fourth account for a Founder personal entitlement", async () => {
+    const gate = createAccountAdditionGate({
+      countAccounts: async () => 3,
+      hasActiveSubscription: async (_userId, _teamId, userBillingPlanId) =>
+        userBillingPlanId === "founders",
+      findExisting: async () => null,
+    });
+    await expect(gate({ ...input, userBillingPlanId: "founders" })).resolves.toEqual({
       allowed: true,
       accountCount: 3,
     });

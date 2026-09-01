@@ -18,7 +18,11 @@ export type CoderouterEntitlement = {
 
 export type CoderouterEntitlementDependencies = {
   readonly countAccounts: typeof countAccountsForTeam;
-  readonly hasActiveSubscription: typeof hasActiveCoderouterSubscription;
+  readonly hasActiveSubscription: (
+    stackUserId: string,
+    teamId: string,
+    userBillingPlanId?: string | null,
+  ) => Promise<boolean>;
 };
 
 /**
@@ -28,8 +32,12 @@ export type CoderouterEntitlementDependencies = {
  */
 export function createCoderouterEntitlementCheck(
   dependencies: CoderouterEntitlementDependencies,
-): (stackUserId: string, teamId: string) => Promise<CoderouterEntitlement> {
-  return async (stackUserId, teamId) => {
+): (
+  stackUserId: string,
+  teamId: string,
+  userBillingPlanId?: string | null,
+) => Promise<CoderouterEntitlement> {
+  return async (stackUserId, teamId, userBillingPlanId) => {
     const accountCount = await dependencies.countAccounts(teamId);
     if (accountCount <= CODEROUTER_FREE_ACCOUNT_LIMIT) {
       return { allowed: true, basis: "free_tier", accountCount };
@@ -37,6 +45,7 @@ export function createCoderouterEntitlementCheck(
     const subscribed = await dependencies.hasActiveSubscription(
       stackUserId,
       teamId,
+      userBillingPlanId,
     );
     return subscribed
       ? { allowed: true, basis: "subscription", accountCount }
@@ -72,6 +81,7 @@ export function createAccountAdditionGate(
 ): (input: {
   stackUserId: string;
   teamId: string;
+  userBillingPlanId?: string | null;
   provider: CodeRouterProvider;
   providerAccountId: string;
 }) => Promise<AccountAdditionDecision> {
@@ -89,6 +99,7 @@ export function createAccountAdditionGate(
     const subscribed = await dependencies.hasActiveSubscription(
       input.stackUserId,
       input.teamId,
+      input.userBillingPlanId,
     );
     return { allowed: subscribed, accountCount };
   };

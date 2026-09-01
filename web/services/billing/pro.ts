@@ -160,7 +160,12 @@ export function hasFounderEditionEntitlement(raw: unknown): boolean {
   // older verified Founder records durable during migration.
   const override = normalizedPlanValue(metadata.cmuxVmPlan);
   const source = override ?? normalizedPlanValue(metadata.cmuxPlan);
-  return source === FOUNDERS_PLAN_ID;
+  return isFounderPlanId(source);
+}
+
+/** Compare a plan value using the same normalization as Founder metadata. */
+export function isFounderPlanId(raw: unknown): boolean {
+  return normalizedPlanValue(raw) === FOUNDERS_PLAN_ID;
 }
 
 /**
@@ -465,7 +470,12 @@ export async function hasActiveTeamSubscriptionForTeam(
 export async function hasActiveCoderouterSubscription(
   stackUserId: string,
   stackTeamId: string,
+  userBillingPlanId?: string | null,
 ): Promise<boolean> {
+  // Auth already resolved this Stack user's authoritative personal plan. Keep
+  // the hosted CodeRouter gate on the same Founder-aware source as billing and
+  // VM/TestFlight access, including operator grants with no Stripe row.
+  if (isFounderPlanId(userBillingPlanId)) return true;
   try {
     const rows = await cloudDb()
       .select({ id: stripeSubscriptions.id })

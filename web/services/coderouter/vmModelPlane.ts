@@ -21,6 +21,8 @@ export const VM_ROUTE_TOKEN_LABEL = "vm";
 export type VmModelPlaneInput = {
   readonly teamId: string;
   readonly stackUserId: string;
+  /** Personal plan resolved by Stack Auth, including operator Founder grants. */
+  readonly userBillingPlanId?: string | null;
   /** Any URL on the serving origin (typically request.url); only the origin is kept. */
   readonly requestUrl: string;
 };
@@ -66,7 +68,13 @@ export async function mintVmModelPlaneEnv(
 ): Promise<Record<string, string> | null> {
   if (!dependencies.enabled()) return null;
   if (dependencies.hostedProRequired()) {
-    const entitlement = await dependencies.entitlement(input.stackUserId, input.teamId);
+    const entitlement = input.userBillingPlanId
+      ? await dependencies.entitlement(
+          input.stackUserId,
+          input.teamId,
+          input.userBillingPlanId,
+        )
+      : await dependencies.entitlement(input.stackUserId, input.teamId);
     if (!entitlement.allowed) return null;
   }
   const origin = new URL(input.requestUrl).origin;

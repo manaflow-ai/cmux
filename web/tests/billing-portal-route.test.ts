@@ -14,6 +14,9 @@ const stripeModule = await import("../services/billing/stripe");
 const signedInUser = {
   id: "user-pro",
   isAnonymous: false,
+  isRestricted: false,
+  primaryEmail: null as string | null,
+  primaryEmailVerified: false,
   clientReadOnlyMetadata: {} as Record<string, unknown>,
   selectedTeam: null as null | { id: string; displayName?: string },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
@@ -108,9 +111,14 @@ describe("billing portal route", () => {
       raw: { metadata: { app: "cmux", plan: "pro" } },
     }];
     signedInUser.selectedTeam = null;
+    signedInUser.isAnonymous = false;
+    signedInUser.isRestricted = false;
+    signedInUser.primaryEmail = null;
+    signedInUser.primaryEmailVerified = false;
     signedInUser.clientReadOnlyMetadata = {};
     signedInUser.listTeams.mockClear();
     getUser.mockClear();
+    mockImplementation(signedInUser.update, async () => undefined);
     signedInUser.update.mockClear();
     anonymousUser.update.mockClear();
     createPortalSession.mockClear();
@@ -134,6 +142,26 @@ describe("billing portal route", () => {
       return_url: "https://cmux.test/pricing",
     });
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
+  });
+
+  test("opens a valid Stripe portal when metadata reconciliation would fail", async () => {
+    signedInUser.primaryEmail = "pro@example.com";
+    signedInUser.primaryEmailVerified = true;
+    signedInUser.isAnonymous = false;
+    signedInUser.isRestricted = false;
+    mockImplementation(signedInUser.update, async () => {
+      throw new Error("metadata update unavailable");
+    });
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://billing.stripe.com/session/test",
+    );
+    expect(createPortalSession).toHaveBeenCalled();
   });
 
   test("does not open the Stripe portal for a Founder-only entitlement", async () => {
@@ -197,7 +225,7 @@ describe("billing portal route", () => {
     expect(response.headers.get("location")).toBe(
       "https://billing.stripe.com/session/test",
     );
-    expect(getUser).toHaveBeenCalledTimes(3);
+    expect(getUser).toHaveBeenCalledTimes(2);
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
     expect(getUser).toHaveBeenCalledWith({ or: "anonymous-if-exists[deprecated]" });
     expect(createPortalSession).toHaveBeenCalledWith({

@@ -9,7 +9,7 @@ import {
   isAppStoreDistributionMode,
 } from "../../../lib/billing";
 import { captureBillingError } from "../../../../services/errors";
-import { resolveProPlanStatus } from "../../../../services/billing/pro";
+import { hasActiveStripeProSubscription } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
   stripe,
@@ -48,46 +48,47 @@ export async function GET(request: NextRequest) {
 
     const requestedScope = billingPortalScope(request.nextUrl.searchParams.get("scope"));
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
-    // Resolve once before looking up the customer so a verified account can
-    // consume a parked anonymous Pro checkout before requesting management.
-    const canClaimPendingBilling =
-      !team &&
-      user.isAnonymous !== true &&
-      user.isRestricted !== true &&
-      user.primaryEmailVerified === true &&
-      Boolean(user.primaryEmail?.trim());
-    const personalStatus = await resolveProPlanStatus(
-      user,
-      canClaimPendingBilling
-        ? {
-            claimPendingBilling: (candidate) =>
-              import("../../../../services/billing/purchase").then(
-                ({ claimPendingProBilling }) =>
-                  claimPendingProBilling(
-                    candidate as never,
-                    { stackApp: getStackServerApp() },
-                  ),
-              ),
-          }
-        : {},
-    );
-    // The personal portal is available only for a real Stripe-managed
-    // subscription. Permanent Founder/VM entitlements (and stale customer
-    // rows on Free accounts) must not expose subscription controls.
-    if (!team && personalStatus.billingManagement !== "stripe") {
-      return pricingRedirect(request, "unavailable");
+    let personalStripeManaged = false;
+    if (!team) {
+      // A verified account may consume a parked anonymous Pro checkout before
+      // requesting management. Claim failures must not prevent an already
+      // mapped Stripe subscription from opening the portal.
+      const canClaimPendingBilling =
+        user.isAnonymous !== true &&
+        user.isRestricted !== true &&
+        user.primaryEmailVerified === true &&
+        Boolean(user.primaryEmail?.trim());
+      if (canClaimPendingBilling) {
+        try {
+          const { claimPendingProBilling } = await import(
+            "../../../../services/billing/purchase"
+          );
+          await claimPendingProBilling(user as never, {
+            stackApp: getStackServerApp(),
+          });
+        } catch {
+          // Keep this gate read-only and authoritative on the Stripe rows.
+        }
+      }
+      // Portal access is intentionally limited to Stripe-managed billing. A
+      // direct regular-subscription read avoids coupling access to metadata
+      // reconciliation (which may fail independently of Stripe).
+      personalStripeManaged = await hasActiveStripeProSubscription(user.id);
+      if (!personalStripeManaged) {
+        return pricingRedirect(request, "unavailable");
+      }
     }
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);
     if (!customerId) {
-      if (!team && personalStatus.billingManagement === "stripe") {
+      if (!team && personalStripeManaged) {
         captureBillingError(
           new Error("Stripe-managed billing user is missing a Stripe customer row"),
           {
             route: "/api/billing/portal",
             stackUserId: user.id,
-            billingManagement: personalStatus.billingManagement,
+            billingManagement: "stripe",
           },
         );
       }

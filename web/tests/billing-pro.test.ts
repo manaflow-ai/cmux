@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   FREE_PLAN_ID,
+  hasActiveCoderouterSubscription,
   isTestflightEligible,
   hasFounderEditionEntitlement,
+  isFounderPlanId,
   normalizePersonalPlan,
   PRO_PLAN_ID,
   reconcileProPlanMetadata,
@@ -153,6 +155,17 @@ describe("normalizePersonalPlan", () => {
       isPro: true,
       billingManagement: "none",
     });
+  });
+
+  test("normalizes Founder plan ids for shared entitlement gates", () => {
+    expect(isFounderPlanId(" Founders ")).toBe(true);
+    expect(isFounderPlanId("pro")).toBe(false);
+  });
+
+  test("lets hosted CodeRouter recognize an operator Founder grant without Stripe", async () => {
+    await expect(
+      hasActiveCoderouterSubscription("founder-user", "team-1", "founders"),
+    ).resolves.toBe(true);
   });
 });
 
