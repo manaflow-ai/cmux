@@ -56,6 +56,16 @@ struct WorkspaceEnvironmentTests {
     }
 
     @Test
+    func workspaceEnvironmentEditorParsesEscapedCommentLikeKeysAndMultilineValues() throws {
+        let serialized = "\\#COMMENT=first\\nsecond\\rthird\\\\tail\nURL=https://example.test?a=b"
+        let parsed = try WorkspaceEnvironmentEditor.parse(serialized)
+        #expect(parsed == [
+            "#COMMENT": "first\nsecond\rthird\\tail",
+            "URL": "https://example.test?a=b",
+        ])
+    }
+
+    @Test
     func workspaceEnvironmentEditorRejectsMalformedAndDuplicateEntries() {
         do {
             _ = try WorkspaceEnvironmentEditor.parse("GOOD=value\nBROKEN\n")
