@@ -353,10 +353,10 @@ final class AutomationEngine {
         enabledUpdateRequestIDs[id] = requestID
         let task = Task { @MainActor [weak self] in
             defer {
-                guard let self,
-                      self.enabledUpdateRequestIDs[id] == requestID else { return }
-                self.enabledUpdateRequestIDs.removeValue(forKey: id)
-                self.enabledUpdateTasks.removeValue(forKey: id)
+                if let self, self.enabledUpdateRequestIDs[id] == requestID {
+                    self.enabledUpdateRequestIDs.removeValue(forKey: id)
+                    self.enabledUpdateTasks.removeValue(forKey: id)
+                }
             }
             guard let self else { return }
             guard !Task.isCancelled else { return }
