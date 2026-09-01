@@ -887,6 +887,13 @@ impl Inner {
         generation: u64,
         publication_gate: &Arc<Mutex<()>>,
     ) {
+        let auth = Self::auth_snapshot(context);
+        if self
+            .authorize_snapshot_for_generation(pty_id, &auth, context, "output", generation)
+            .is_none()
+        {
+            return;
+        }
         let attachments = self.attachments.lock().expect("attach lock");
         let Some(current) = attachments.get(pty_id) else { return };
         if current.generation != generation
@@ -896,13 +903,6 @@ impl Inner {
         }
         let _publication = publication_gate.lock().expect("attachment publication lock");
         drop(attachments);
-        let auth = Self::auth_snapshot(context);
-        if self
-            .authorize_snapshot_for_generation(pty_id, &auth, context, "output", generation)
-            .is_none()
-        {
-            return;
-        }
         // Zero-byte chunks carry nothing and historically crashed the web
         // terminal's write path (D-R6-1); never put an empty frame on the wire.
         if chunk.is_empty() {
@@ -913,6 +913,7 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
+            drop(_publication);
             self.close_if_generation(pty_id, generation);
             send_pty_error(
                 context,
@@ -941,15 +942,6 @@ impl Inner {
         generation: u64,
         publication_gate: &Arc<Mutex<()>>,
     ) {
-        let attachments = self.attachments.lock().expect("attach lock");
-        let Some(current) = attachments.get(pty_id) else { return };
-        if current.generation != generation
-            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
-        {
-            return;
-        }
-        let _publication = publication_gate.lock().expect("attachment publication lock");
-        drop(attachments);
         let auth = Self::auth_snapshot(context);
         if self
             .authorize_snapshot_for_generation(pty_id, &auth, context, "exit", generation)
@@ -958,6 +950,13 @@ impl Inner {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
+        let Some(current) = attachments.get(pty_id) else { return };
+        if current.generation != generation
+            || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+        {
+            return;
+        }
+        let _publication = publication_gate.lock().expect("attachment publication lock");
         match attachments.get(pty_id) {
             Some(attachment)
                 if attachment.generation == generation
