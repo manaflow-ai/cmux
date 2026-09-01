@@ -655,12 +655,14 @@ public final class GhosttySurfaceHostView: UIView {
             bg.withAlphaComponent(0.55).cgColor,
             bg.withAlphaComponent(0).cgColor,
         ]
-        // Reversed ramp: transparent at the grid seam, solid at the screen
-        // bottom where the chrome sits.
+        // Reversed, front-loaded ramp: transparent at the grid seam but
+        // strong within the first quarter of the band, so the toolbar row's
+        // controls (keyboard toggle, record dot) sit on a solid wash instead
+        // of raw rows; near-opaque by the screen bottom.
         bottomScrollEdgeFadeView.gradientLayer.colors = [
             bg.withAlphaComponent(0).cgColor,
-            bg.withAlphaComponent(0.55).cgColor,
-            bg.withAlphaComponent(0.95).cgColor,
+            bg.withAlphaComponent(0.8).cgColor,
+            bg.withAlphaComponent(0.97).cgColor,
         ]
     }
 
@@ -733,7 +735,9 @@ private final class ScrollEdgeFadeGradientView: UIView {
         super.init(frame: frame)
         gradientLayer.startPoint = CGPoint(x: 0.5, y: 0)
         gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
-        gradientLayer.locations = [0, 0.65, 1]
+        // Front-loaded: the mid stop lands just below the grid seam so the
+        // wash is already strong under the first row of chrome.
+        gradientLayer.locations = [0, 0.22, 1]
     }
 
     @available(*, unavailable)
