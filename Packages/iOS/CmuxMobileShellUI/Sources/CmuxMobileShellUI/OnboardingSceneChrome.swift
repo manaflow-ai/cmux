@@ -30,6 +30,15 @@ struct OnboardingSceneChrome: Equatable {
                 defaultValue: "Continue"
             )
             secondaryTitle = nil
+        case .push:
+            primaryTitle = L10n.string(
+                "mobile.onboarding.push.enable",
+                defaultValue: "Enable Notifications"
+            )
+            secondaryTitle = L10n.string(
+                "mobile.onboarding.push.notNow",
+                defaultValue: "Not Now"
+            )
         case .connect:
             guard isAuthenticated else {
                 primaryTitle = L10n.string(

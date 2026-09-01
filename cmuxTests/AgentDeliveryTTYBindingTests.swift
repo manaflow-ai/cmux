@@ -31,7 +31,10 @@ extension AgentNotificationRegressionTests {
             hostedView.removeFromSuperview()
             window.orderOut(nil)
         }
-        let liveTTYName = try #require(await waitForControllingTTYName(for: terminal))
+        let liveTTYName = try await TerminalControllingTTYWaiter().wait(
+            for: terminal,
+            timeout: .seconds(15)
+        )
         let liveTTYDevice = try #require(
             CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: liveTTYName)
         )
@@ -410,17 +413,6 @@ extension AgentNotificationRegressionTests {
             dock.attachDetachedSurface(transfer, inPane: rootPane, focus: false)
                 == fixture.panelId
         )
-    }
-
-    private func waitForControllingTTYName(for terminal: TerminalPanel) async -> String? {
-        let deadline = ContinuousClock.now + .seconds(15)
-        while ContinuousClock.now < deadline {
-            if let ttyName = terminal.surface.controllingTTYName() {
-                return ttyName
-            }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return terminal.surface.controllingTTYName()
     }
 
     private func assertRelayTTYTarget(

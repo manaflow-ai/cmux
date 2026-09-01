@@ -169,6 +169,7 @@ struct WorkstreamStoreTests {
         )
         let events: [WorkstreamEvent.HookEventName] = [
             .postToolUse,
+            .postToolUseFailure,
             .preCompact,
             .postCompact,
             .subagentStart,
@@ -186,6 +187,11 @@ struct WorkstreamStoreTests {
         #expect(store.items.count == events.count)
         #expect(store.pending.isEmpty)
         #expect(store.items.allSatisfy { $0.status == .telemetry })
+        if case .toolResult(_, _, let isError) = store.items[1].payload {
+            #expect(isError)
+        } else {
+            Issue.record("expected PostToolUseFailure to decode as an error tool result")
+        }
         #expect(store.items.map(\.title).contains("Compaction"))
         #expect(store.items.map(\.title).contains("Subagent"))
         #expect(!store.items.map(\.title).contains("PreCompact"))
