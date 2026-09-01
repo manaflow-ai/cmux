@@ -132,18 +132,22 @@ pub(crate) fn scan(
             // Remove it before admitting state for the new generation.
             mux.discard_screen_detect_pending_for_terminal(&terminal_public_id);
             tracker.clear_pending_emission(terminal_id);
-        } else if mux.screen_detect_pending_for_terminal(terminal_id) {
-            // A queued emission must be admitted before newer screen states;
-            // otherwise retry order can invert and regress the roster.
-            continue;
         }
         if let Some(pending) = tracker.pending_emission(terminal_id) {
             if mux.append_screen_detect_event(&pending).is_ok() {
+                // The durable row was staged by the original failed append.
+                // Clear it after this in-memory retry succeeds to prevent a
+                // duplicate admission with a new idempotency key.
+                mux.discard_screen_detect_pending_for_terminal(&terminal_public_id);
                 tracker.clear_pending_emission(terminal_id);
             }
             if tracker.pending_emission(terminal_id).is_some() {
                 continue;
             }
+        } else if mux.screen_detect_pending_for_terminal(&terminal_public_id) {
+            // A queued emission must be admitted before newer screen states;
+            // otherwise retry order can invert and regress the roster.
+            continue;
         }
         if unknown {
             // Keep the prior identity and roster state. The next scan can

@@ -2804,11 +2804,14 @@ impl Mux {
         Ok(())
     }
 
-    pub(crate) fn screen_detect_pending_for_terminal(&self, terminal_id: &str) -> bool {
+    pub(crate) fn screen_detect_pending_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> bool {
         self.workspace_registry
             .lock()
             .unwrap()
-            .pending_agent_hook_projections()
+            .pending_agent_hook_projections_for_terminal(terminal_id)
             .map(|rows| {
                 rows.into_iter().any(|(_, origin, _, _, ingress)| {
                     origin == "screen-detect"
@@ -6296,7 +6299,7 @@ impl Mux {
                     eprintln!(
                         "cmux-tui: screen-detected state queued after journal failure: {error}"
                     );
-                    Ok(())
+                    Err(error)
                 } else {
                     Err(error)
                 }
