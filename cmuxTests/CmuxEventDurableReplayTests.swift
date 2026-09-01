@@ -90,6 +90,7 @@ struct CmuxEventDurableReplayTests {
 
         let bus = CmuxEventBus(retainedEventLimit: 1, eventLogURL: logURL)
         bus.publish(name: "first", category: "test", source: "writer")
+        bus.flushEventLogForTesting()
         bus.publish(name: "second", category: "test", source: "writer")
         bus.flushEventLogForTesting()
 
@@ -102,5 +103,60 @@ struct CmuxEventDurableReplayTests {
         defer { bus.unsubscribe(snapshot.subscription) }
 
         #expect(snapshot.replay.compactMap { $0["name"] as? String } == ["first", "second"])
+    }
+
+    @Test
+    func oversizedDurableGenerationUsesBoundedSuffixAndReportsGap() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-bounded-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let source = CmuxEventBus(retainedEventLimit: 16)
+        for index in 0..<8 {
+            source.publish(name: "bounded.\(index)", category: "test", source: "writer")
+        }
+        let lines = source.retainedSnapshot().compactMap(CmuxEventBus.encodeLine)
+        try lines.joined(separator: "\n").appending("\n")
+            .write(to: logURL, atomically: true, encoding: .utf8)
+
+        let firstLine = try #require(lines.first)
+        let maxBytes = UInt64(max(1, firstLine.utf8.count * 2))
+        let bus = CmuxEventBus(
+            retainedEventLimit: 16,
+            eventLogURL: logURL,
+            maxEventLogBytes: maxBytes
+        )
+        let snapshot = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        #expect(snapshot.replay.count < lines.count)
+        let resume = try #require(snapshot.ack["resume"] as? [String: Any])
+        #expect(resume["gap"] as? Bool == true)
+    }
+
+    @Test
+    func unreadableOversizedGenerationStillReportsGapWithoutReplayRecords() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-unreadable-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try String(repeating: "x", count: 4_096)
+            .write(to: logURL, atomically: true, encoding: .utf8)
+
+        let bus = CmuxEventBus(
+            retainedEventLimit: 16,
+            eventLogURL: logURL,
+            maxEventLogBytes: 64
+        )
+        let snapshot = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        #expect(snapshot.replay.isEmpty)
+        let resume = try #require(snapshot.ack["resume"] as? [String: Any])
+        #expect(resume["gap"] as? Bool == true)
+        #expect(resume["gap_reason"] as? String == "durable event log has a sequence gap")
     }
 }

@@ -517,13 +517,17 @@ carry a durable stream-monotonic `seq`, a `boot_id` segment marker, and a stable
 `id` for dedupe. Clients should persist `seq` after processing each event and
 reconnect with that value. `ack.resume.gap` is explicit when the cursor falls
 outside the bounded durable log or crosses a missing sequence.
-See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
+See [events.md#resume-contract](events.md#resume-contract) for the full
+protocol, gap reasons, sequence-consistent snapshot cutover, and event catalog.
+cmux best-effort attempts to append every emitted event to
 `~/.cmuxterm/events.jsonl`, including model lifecycle events for window
 creation, close, focus, key-window state, workspace selection, pane focus, and
-surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
-4,096 events in memory for live delivery, replays `events.jsonl` plus its one
-16 MiB rotated archive, caps each encoded event frame at 16 KiB, and closes slow
-subscribers after 1,024 pending events.
+surface selection, focus, creation, or closure. Disk backpressure can omit
+records, so JSONL consumers must treat the file as potentially incomplete rather
+than as a complete audit source. The stream is bounded: cmux keeps 4,096 events
+in memory for live delivery, replays `events.jsonl` plus its one 16 MiB rotated
+archive, caps each encoded event frame at 16 KiB, and closes slow subscribers
+after 1,024 pending events.
 
 ## Workspace todos
 

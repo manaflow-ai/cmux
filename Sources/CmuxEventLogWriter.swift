@@ -3,6 +3,13 @@ import os
 
 nonisolated private let cmuxEventLogLogger = Logger(subsystem: "com.cmuxterm.app", category: "event-log")
 
+/// Describes the lines written by one serialized event-log append attempt.
+struct CmuxEventLogPersistedBatch: Sendable {
+    let lines: [String]
+    let didRotate: Bool
+    let didFail: Bool
+}
+
 // Sendable safety: pending state is protected by `lock`; file IO runs on `queue`.
 final class CmuxEventLogWriter: @unchecked Sendable {
     static let defaultMaxPendingLines = 1_024
@@ -12,7 +19,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let eventLogURL: URL
     private let maxEventLogBytes: UInt64
     private let maxPendingLines: Int
-    private let onPersisted: (@Sendable () -> Void)?
+    private let onPersisted: (@Sendable (CmuxEventLogPersistedBatch) -> Void)?
     private let lock = NSLock()
     private var pendingLines: [String] = []
     private var flushScheduled = false
@@ -21,11 +28,12 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private var flushSuspendedForTesting = false
 #endif
 
+    /// Creates a writer that batches bounded event-log appends on its utility lane.
     init(
         eventLogURL: URL,
         maxEventLogBytes: UInt64,
         maxPendingLines: Int,
-        onPersisted: (@Sendable () -> Void)? = nil
+        onPersisted: (@Sendable (CmuxEventLogPersistedBatch) -> Void)? = nil
     ) {
         self.eventLogURL = eventLogURL
         self.maxEventLogBytes = max(1, maxEventLogBytes)
@@ -33,6 +41,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         self.onPersisted = onPersisted
     }
 
+    /// Queues one encoded event without blocking the publisher.
     func enqueue(_ line: String) {
         var shouldSchedule = false
         lock.lock()
@@ -132,9 +141,18 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         }
     }
 
+    /// Persists one batch and reports exactly what reached disk.
     private func append(_ lines: [String]) {
         guard !lines.isEmpty else { return }
-        defer { onPersisted?() }
+        let batch = appendToDisk(lines)
+        onPersisted?(batch)
+    }
+
+    /// Appends lines, rotating when needed, while retaining partial-write state.
+    private func appendToDisk(_ lines: [String]) -> CmuxEventLogPersistedBatch {
+        var persistedLines: [String] = []
+        var didRotate = false
+        var didFail = false
         do {
             try FileManager.default.createDirectory(
                 at: eventLogURL.deletingLastPathComponent(),
@@ -153,15 +171,23 @@ final class CmuxEventLogWriter: @unchecked Sendable {
                 if currentSize + UInt64(data.count) > maxEventLogBytes {
                     try handle.close()
                     try rotate(fileManager: fileManager)
+                    didRotate = true
                     handle = try FileHandle(forWritingTo: eventLogURL)
                     currentSize = 0
                 }
                 try handle.write(contentsOf: data)
                 currentSize += UInt64(data.count)
+                persistedLines.append(line)
             }
         } catch {
+            didFail = true
             cmuxEventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
         }
+        return CmuxEventLogPersistedBatch(
+            lines: persistedLines,
+            didRotate: didRotate,
+            didFail: didFail
+        )
     }
 
     private func rotate(fileManager: FileManager) throws {

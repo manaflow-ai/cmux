@@ -1,6 +1,7 @@
 import Foundation
 
 extension CmuxEventBus {
+    /// Registers a subscription and captures a replay/live cutover boundary.
     func subscribe(
         afterSequence: Int64?,
         names: Set<String>,
@@ -61,6 +62,12 @@ extension CmuxEventBus {
         )
     }
 
+    private enum ReplaySource {
+        case durable
+        case retained
+    }
+
+    /// Merges the ordered durable cache with the retained tail in one pass.
     private func durableReplayState(
         durableSnapshot: CmuxEventLogReplayStore.Snapshot,
         retainedSnapshot: [[String: Any]],
@@ -68,45 +75,161 @@ extension CmuxEventBus {
         afterSequence: Int64?,
         subscription: CmuxEventSubscription
     ) -> (replay: [[String: Any]], oldestSequence: Int64, gapReason: String?) {
-        var eventsByID: [String: [String: Any]] = [:]
-        var anonymousEvents: [[String: Any]] = []
-        for event in durableSnapshot.events + retainedSnapshot {
-            guard let sequence = CmuxEventBus.int64(event["seq"]), sequence <= latestSequence else { continue }
-            if let id = event["id"] as? String, !id.isEmpty {
-                eventsByID[id] = event
-            } else {
-                anonymousEvents.append(event)
-            }
-        }
-
-        let events = (Array(eventsByID.values) + anonymousEvents).sorted { lhs, rhs in
-            let lhsSequence = CmuxEventBus.int64(lhs["seq"]) ?? 0
-            let rhsSequence = CmuxEventBus.int64(rhs["seq"]) ?? 0
-            if lhsSequence != rhsSequence { return lhsSequence < rhsSequence }
-            let lhsID = lhs["id"] as? String ?? ""
-            let rhsID = rhs["id"] as? String ?? ""
-            return lhsID < rhsID
-        }
-        let availableSequences = Array(Set(events.compactMap { CmuxEventBus.int64($0["seq"]) })).sorted()
-        let oldestSequence = availableSequences.first ?? nextSequenceAfter(latestSequence)
         let requestedAfter = afterSequence ?? latestSequence
-        let replay = events.filter { event in
-            let sequence = CmuxEventBus.int64(event["seq"]) ?? 0
-            return sequence > requestedAfter && subscription.accepts(event)
+
+        // The retained tail is small and may contain writes that have not made
+        // it to disk yet. Index only that tail; the durable index is maintained
+        // by CmuxEventLogReplayStore and is never rebuilt for a subscription.
+        var durableOverlapIDs = Set<String>()
+        var retainedAnonymousSequences = Set<Int64>()
+        for event in retainedSnapshot {
+            guard let sequence = CmuxEventBus.int64(event["seq"]),
+                  sequence >= 1,
+                  sequence <= latestSequence else { continue }
+            if let id = event["id"] as? String, !id.isEmpty {
+                if durableSnapshot.eventsByID[id] != nil {
+                    durableOverlapIDs.insert(id)
+                }
+            } else {
+                retainedAnonymousSequences.insert(sequence)
+            }
         }
 
-        let gapReason: String? = afterSequence.flatMap { after in
-            if after < oldestSequence - 1 {
-                return "requested sequence is older than the durable event log"
+        var durableIndex = 0
+        var retainedIndex = 0
+        var seenRetainedIDs = Set<String>()
+        var firstSequence: Int64?
+        var previousSequence: Int64?
+        var sequenceGap = false
+        var replay: [[String: Any]] = []
+
+        while true {
+            while durableIndex < durableSnapshot.events.count {
+                let event = durableSnapshot.events[durableIndex]
+                guard let sequence = CmuxEventBus.int64(event["seq"]),
+                      sequence >= 1,
+                      sequence <= latestSequence else {
+                    durableIndex += 1
+                    continue
+                }
+                break
             }
+            while retainedIndex < retainedSnapshot.count {
+                let event = retainedSnapshot[retainedIndex]
+                guard let sequence = CmuxEventBus.int64(event["seq"]),
+                      sequence >= 1,
+                      sequence <= latestSequence else {
+                    retainedIndex += 1
+                    continue
+                }
+                break
+            }
+
+            let durableEvent = durableIndex < durableSnapshot.events.count
+                ? durableSnapshot.events[durableIndex]
+                : nil
+            let retainedEvent = retainedIndex < retainedSnapshot.count
+                ? retainedSnapshot[retainedIndex]
+                : nil
+            guard durableEvent != nil || retainedEvent != nil else { break }
+
+            var consumedDurableAtSameSequence = false
+            let candidate: (source: ReplaySource, event: [String: Any], sequence: Int64)?
+            switch (durableEvent, retainedEvent) {
+            case let (durable?, retained?):
+                let durableSequence = CmuxEventBus.int64(durable["seq"]) ?? 0
+                let retainedSequence = CmuxEventBus.int64(retained["seq"]) ?? 0
+                if durableSequence < retainedSequence {
+                    candidate = (source: .durable, event: durable, sequence: durableSequence)
+                    durableIndex += 1
+                } else {
+                    // Prefer the in-memory copy at an equal sequence so a
+                    // just-published event wins while the durable duplicate is
+                    // consumed in the same step.
+                    candidate = (source: .retained, event: retained, sequence: retainedSequence)
+                    retainedIndex += 1
+                    if durableSequence == retainedSequence {
+                        durableIndex += 1
+                        consumedDurableAtSameSequence = true
+                    }
+                }
+            case let (durable?, nil):
+                candidate = (
+                    source: .durable,
+                    event: durable,
+                    sequence: CmuxEventBus.int64(durable["seq"]) ?? 0
+                )
+                durableIndex += 1
+            case let (nil, retained?):
+                candidate = (
+                    source: .retained,
+                    event: retained,
+                    sequence: CmuxEventBus.int64(retained["seq"]) ?? 0
+                )
+                retainedIndex += 1
+            case (nil, nil):
+                candidate = nil
+            }
+
+            guard let candidate else { break }
+            let source = candidate.source
+            let event = candidate.event
+            let sequence = candidate.sequence
+            guard sequence >= 1, sequence <= latestSequence else { continue }
+            let id = (event["id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if source == .durable {
+                // The retained tail is authoritative for duplicate IDs,
+                // including a pending write whose disk copy is already visible.
+                if let id, durableOverlapIDs.contains(id) { continue }
+                if id == nil, retainedAnonymousSequences.contains(sequence) { continue }
+            } else if let id {
+                guard seenRetainedIDs.insert(id).inserted else { continue }
+            } else if !consumedDurableAtSameSequence,
+                      containsSortedSequence(durableSnapshot.sequences, sequence) {
+                // A sequence without an ID still represents one stream
+                // position; the durable index already contains that position.
+                continue
+            }
+
+            if let previousSequence {
+                // A sequence identifies one stream position. Keep the first
+                // merged event at a position and derive gaps from the ordered
+                // walk instead of constructing a Set for every subscription.
+                if sequence <= previousSequence { continue }
+                let expected = nextSequenceAfter(previousSequence)
+                if sequence > expected,
+                   expected <= latestSequence,
+                   sequence > requestedAfter {
+                    sequenceGap = true
+                }
+            } else {
+                firstSequence = sequence
+            }
+            previousSequence = sequence
+
+            if sequence > requestedAfter, subscription.accepts(event) {
+                replay.append(event)
+            }
+        }
+
+        if let previousSequence,
+           afterSequence != nil,
+           previousSequence < latestSequence,
+           nextSequenceAfter(previousSequence) <= latestSequence,
+           latestSequence > requestedAfter {
+            sequenceGap = true
+        }
+
+        let oldestSequence = firstSequence ?? nextSequenceAfter(latestSequence)
+        let gapReason: String? = afterSequence.flatMap { after in
             if after > latestSequence {
                 return "requested sequence is newer than this cmux process; cmux probably restarted"
             }
-            if durableSequenceGap(
-                afterSequence: after,
-                latestSequence: latestSequence,
-                availableSequences: availableSequences
-            ) {
+            if after < oldestSequence - 1 {
+                return "requested sequence is older than the durable event log"
+            }
+            if (sequenceGap || durableSnapshot.hasUnavailableRange),
+               after < latestSequence || firstSequence == nil {
                 return "durable event log has a sequence gap"
             }
             return nil
@@ -114,24 +237,27 @@ extension CmuxEventBus {
         return (replay, oldestSequence, gapReason)
     }
 
-    private func durableSequenceGap(
-        afterSequence: Int64,
-        latestSequence: Int64,
-        availableSequences: [Int64]
-    ) -> Bool {
-        guard afterSequence < latestSequence else { return false }
-        var expected = nextSequenceAfter(afterSequence)
-        for sequence in availableSequences where sequence >= expected && sequence <= latestSequence {
-            if sequence > expected { return true }
-            expected = nextSequenceAfter(sequence)
-        }
-        return expected <= latestSequence
-    }
-
+    /// Advances a sequence without overflowing at the representable maximum.
     private func nextSequenceAfter(_ sequence: Int64) -> Int64 {
         sequence == Int64.max ? Int64.max : sequence + 1
     }
 
+    /// Tests membership in the store's sorted sequence index.
+    private func containsSortedSequence(_ sequences: [Int64], _ value: Int64) -> Bool {
+        var lower = 0
+        var upper = sequences.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if sequences[middle] < value {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        return lower < sequences.count && sequences[lower] == value
+    }
+
+    /// Builds the protocol acknowledgement and replay payload for a subscription.
     private func makeSubscriptionSnapshot(
         subscription: CmuxEventSubscription,
         replay: [[String: Any]],
@@ -143,17 +269,20 @@ extension CmuxEventBus {
         categories: Set<String>,
         bootId: String
     ) -> CmuxEventSubscriptionSnapshot {
-        var resume: [String: Any] = [
-            "after_seq": afterSequence.map { NSNumber(value: $0) } ?? NSNull(),
-            "requested_after_seq": NSNumber(value: afterSequence ?? latestSequence),
-            "oldest_seq": NSNumber(value: oldestSequence),
-            "latest_seq": NSNumber(value: latestSequence),
-            "next_seq": NSNumber(value: nextSequenceAfter(latestSequence)),
-            "gap": gapReason != nil
-        ]
-        if let gapReason {
-            resume["gap_reason"] = gapReason
-        }
+        let resume: [String: Any] = {
+            var value: [String: Any] = [
+                "after_seq": afterSequence.map { NSNumber(value: $0) } ?? NSNull(),
+                "requested_after_seq": NSNumber(value: afterSequence ?? latestSequence),
+                "oldest_seq": NSNumber(value: oldestSequence),
+                "latest_seq": NSNumber(value: latestSequence),
+                "next_seq": NSNumber(value: nextSequenceAfter(latestSequence)),
+                "gap": gapReason != nil
+            ]
+            if let gapReason {
+                value["gap_reason"] = gapReason
+            }
+            return value
+        }()
 
         let ack: [String: Any] = [
             "type": "ack",

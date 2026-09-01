@@ -122,7 +122,10 @@ final class CmuxEventBus: @unchecked Sendable {
     static let maxSanitizedArrayItems = 256
     static let maxSanitizedObjectEntries = 256
     static let maxSanitizedDepth = 12
-    private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
+    // ISO8601DateFormatter is protected by `isoFormatterLock`; the explicit
+    // nonisolated annotation keeps this synchronous utility available to the
+    // socket and event-log paths without claiming the formatter is Sendable.
+    private nonisolated(unsafe) static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
     private static let isoFormatterLock = NSLock()
 
     private let lock = NSLock()
@@ -145,15 +148,20 @@ final class CmuxEventBus: @unchecked Sendable {
         maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
     ) {
         let normalizedMaxEventLineBytes = max(1, maxEventLineBytes)
+        let normalizedMaxEventLogBytes = max(1, maxEventLogBytes)
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.maxEventLineBytes = normalizedMaxEventLineBytes
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
         let replayStore = eventLogURL.map {
-            CmuxEventLogReplayStore(eventLogURL: $0, maxEventLineBytes: normalizedMaxEventLineBytes)
+            CmuxEventLogReplayStore(
+                eventLogURL: $0,
+                maxEventLineBytes: normalizedMaxEventLineBytes,
+                maxEventLogBytes: normalizedMaxEventLogBytes
+            )
         }
-        let onPersisted: (@Sendable () -> Void)?
+        let onPersisted: (@Sendable (CmuxEventLogPersistedBatch) -> Void)?
         if let replayStore = replayStore {
-            onPersisted = { [weak replayStore] in replayStore?.refreshFromDisk() }
+            onPersisted = { [weak replayStore] batch in replayStore?.apply(batch) }
         } else {
             onPersisted = nil
         }
@@ -161,7 +169,7 @@ final class CmuxEventBus: @unchecked Sendable {
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
-                maxEventLogBytes: maxEventLogBytes,
+                maxEventLogBytes: normalizedMaxEventLogBytes,
                 maxPendingLines: maxPendingEventLogLines,
                 onPersisted: onPersisted
             )
