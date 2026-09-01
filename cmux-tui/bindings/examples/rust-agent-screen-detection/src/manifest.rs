@@ -26,7 +26,7 @@ pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Resul
     read_bounded_utf8(File::open(path)?, max_bytes)
 }
 
-fn read_bounded_utf8(mut reader: impl Read, max_bytes: usize) -> io::Result<String> {
+fn read_bounded_utf8(reader: impl Read, max_bytes: usize) -> io::Result<String> {
     let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
     reader
         .take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
@@ -571,11 +571,11 @@ fn preview(text: &str) -> String {
 /// can contain many rules over `whole_recent` or a shared bottom slice, so
 /// reusing both the slice and its case-folded text keeps the hot path linear in
 /// the number of distinct regions rather than the number of rules.
-fn cached_region<'input, 'spec>(
-    cache: &mut HashMap<&'spec str, (&'input str, String)>,
+fn cached_region<'cache, 'input, 'spec>(
+    cache: &'cache mut HashMap<&'spec str, (&'input str, String)>,
     input: DetectionInput<'input>,
     spec: &'spec str,
-) -> (&'input str, &str) {
+) -> (&'input str, &'cache str) {
     if let Entry::Vacant(entry) = cache.entry(spec) {
         let text = region(input, spec);
         entry.insert((text, text.to_lowercase()));
