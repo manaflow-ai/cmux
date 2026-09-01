@@ -18,10 +18,9 @@ private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 
 /// Resolves the primary page-content child of a macOS `WKWebView` without
 /// depending on WebKit's sibling ordering. Inspector/companion children are
-/// excluded explicitly. When a responder is available, its direct child
-/// ownership disambiguates overlapping page/overlay views; otherwise the
-/// unique child covering the largest portion of the web view wins and ties
-/// fail closed.
+/// excluded explicitly. When a responder is available, it must belong to the
+/// unique child covering the largest portion of the web view; otherwise that
+/// child wins. Near-ties fail closed rather than being disambiguated by focus.
 func cmuxBrowserPageContentRoot(
     for webView: WKWebView,
     owningResponder: NSResponder? = nil
@@ -59,31 +58,42 @@ func cmuxBrowserPageContentRoot(
         return nil
     }
 
-    if let owningResponder,
-       let responderView = cmuxBrowserViewOwningResponder(owningResponder),
-       let owner = scored.first(where: {
-           responderView === $0.view || responderView.isDescendant(of: $0.view)
-       }) {
-        // A clearly smaller sibling is browser chrome. If the focused
-        // responder belongs to a tied/overlapping candidate, its direct
-        // ownership is the only stable discriminator available from AppKit.
-        guard owner.coverage + 0.01 >= maximumCoverage else { return nil }
-        return owner.view
-    }
-
     let winners = scored.filter { abs($0.coverage - maximumCoverage) <= 0.01 }
     guard winners.count == 1 else { return nil }
+
+    if let owningResponder,
+       let responderView = cmuxBrowserViewOwningResponder(owningResponder) {
+        // A responder in a clearly smaller sibling is browser chrome. Do not
+        // use responder ownership to break a near-tie: an unknown full-size
+        // WebKit companion/overlay must remain fail-closed rather than being
+        // promoted to page content merely because it owns focus.
+        guard responderView === webView
+                || responderView === winners[0].view
+                || responderView.isDescendant(of: winners[0].view) else {
+            return nil
+        }
+    }
     return winners[0].view
 }
 
 /// Whether WebKit has not yet exposed a stable page-content structure. This
 /// narrow transient signal is used only by the legacy document-editing
-/// fallback; ambiguous but populated hierarchies remain fail-closed.
+/// fallback. Ambiguous populated hierarchies remain fail-closed; a lone child
+/// that is still being sized is the only populated transient case.
 func cmuxBrowserPageContentStructureIsTransient(for webView: WKWebView) -> Bool {
-    let hasVisiblePageCandidate = webView.subviews.contains {
+    let candidates = webView.subviews.filter {
         !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
     }
-    return !hasVisiblePageCandidate || webView.bounds.width <= 0 || webView.bounds.height <= 0
+    guard webView.bounds.width > 0, webView.bounds.height > 0 else {
+        return true
+    }
+    guard candidates.count == 1 else {
+        return candidates.isEmpty
+    }
+    let webArea = webView.bounds.width * webView.bounds.height
+    let intersection = candidates[0].frame.intersection(webView.bounds)
+    let coverage = max(0, intersection.width) * max(0, intersection.height) / webArea
+    return coverage < 0.5
 }
 
 private func cmuxBrowserViewOwningResponder(_ responder: NSResponder) -> NSView? {
