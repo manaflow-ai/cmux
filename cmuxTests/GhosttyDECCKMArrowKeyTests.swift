@@ -37,11 +37,11 @@ struct GhosttyDECCKMArrowKeyTests {
         import tty
 
         fd = 0
-        sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
-        sys.stdout.flush()
         old = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
+            sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
+            sys.stdout.flush()
             data = bytearray()
             deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline and len(data) < 12:
@@ -77,7 +77,6 @@ struct GhosttyDECCKMArrowKeyTests {
             $0.contains(captureReadyMarker)
         }
         #expect(readyText.contains(captureReadyMarker), "Expected DECCKM capture harness to become ready")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         let arrows: [(name: String, characters: String, keyCode: UInt16)] = [
             ("up", String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
@@ -140,11 +139,11 @@ struct GhosttyDECCKMArrowKeyTests {
         import tty
 
         fd = 0
-        sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
-        sys.stdout.flush()
         old = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
+            sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
+            sys.stdout.flush()
             data = bytearray()
             deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline and len(data) < 6:
@@ -178,7 +177,6 @@ struct GhosttyDECCKMArrowKeyTests {
             $0.contains(captureReadyMarker)
         }
         #expect(readyText.contains(captureReadyMarker), "Expected editing capture harness to become ready")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         let events: [(name: String, flags: NSEvent.ModifierFlags, keyCode: UInt16, characters: String)] = [
             ("Command+Backspace", [.command], 51, "\u{8}"),

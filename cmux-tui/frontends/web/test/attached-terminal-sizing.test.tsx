@@ -172,6 +172,23 @@ describe("attached terminal sizing", () => {
     const handler = terminalMocks.instances[0]?.customKeyEventHandler;
     if (handler === undefined) throw new Error("xterm key handler was not registered");
 
+    // The attach starts with stdin disabled until the first authoritative
+    // replay arrives. Editing chords must not leak into the VM during that
+    // window, and must remain suppressed in the browser.
+    const terminal = terminalMocks.instances[0];
+    if (terminal === undefined) throw new Error("xterm terminal was not created");
+    terminal.options.disableStdin = true;
+    const beforeAttach = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Backspace",
+      metaKey: true,
+    });
+    expect(handler(beforeAttach)).toBe(false);
+    expect(beforeAttach.defaultPrevented).toBe(true);
+    expect(client.send).not.toHaveBeenCalled();
+    terminal.options.disableStdin = false;
+
     const editingEvents = [
       ["Backspace", "\u0015"],
       ["Delete", "\u000b"],
