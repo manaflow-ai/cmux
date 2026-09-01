@@ -967,7 +967,7 @@ impl WorkspaceRegistry {
         reducer_id: &str,
         version: u32,
         snapshot: &str,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<u64> {
         // A reset is an explicit state transition, so it must bypass the
         // cursor guard even when the previous cursor is nonzero. Advance the
         // ordering token so in-flight writes from the old state stay stale.
@@ -989,7 +989,7 @@ impl WorkspaceRegistry {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![format!("journal_reducer.{reducer_id}"), value.to_string()],
         )?;
-        Ok(())
+        Ok(ordering_token)
     }
 
     /// The most recently started journal output stream for one terminal:

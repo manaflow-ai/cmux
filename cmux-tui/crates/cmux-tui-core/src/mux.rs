@@ -1163,7 +1163,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     };
     if reset_persisted_state {
         let empty_snapshot = AgentRoster::default().snapshot().to_string();
-        registry.clear_journal_reducer_state(
+        host.ordering_token = registry.clear_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
             &empty_snapshot,
