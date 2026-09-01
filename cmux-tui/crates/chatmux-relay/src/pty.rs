@@ -22,6 +22,8 @@
 use std::collections::{HashMap, VecDeque};
 #[cfg(unix)]
 use std::fs::File;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -96,6 +98,15 @@ pub struct ResolvedCwd {
     pub path: PathBuf,
     #[cfg(unix)]
     pub directory: Arc<File>,
+    #[cfg(unix)]
+    ancestry: Arc<Vec<DirectoryIdentity>>,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DirectoryIdentity {
+    dev: u64,
+    ino: u64,
 }
 
 /// Resolve a PTY working directory and enforce every configured root list.
@@ -162,23 +173,44 @@ fn scoped_cwd(
     };
     let path = expand_path(raw, home, home);
     let canonical = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
-    for roots in [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
-        .into_iter()
-        .flatten()
-    {
-        if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
-            std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
-        }) {
-            return Err("cwd is outside the allowed roots".to_owned());
-        }
+    #[cfg(unix)]
+    let allowed_root_groups: Vec<Vec<Vec<DirectoryIdentity>>> =
+        [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
+            .into_iter()
+            .flatten()
+            .map(|roots| {
+                roots
+                    .iter()
+                    .filter_map(|root| {
+                        let canonical_root =
+                            std::fs::canonicalize(expand_path(root, home, home)).ok()?;
+                        Some(open_pinned_directory(&canonical_root).ok()?.1)
+                    })
+                    .collect()
+            })
+            .collect();
+    #[cfg(not(unix))]
+    let allowed_root_groups: Vec<Vec<Vec<()>>> = Vec::new();
+    if allowed_root_groups.iter().any(|group| group.is_empty()) {
+        return Err("cwd is outside the allowed roots".to_owned());
     }
     if !canonical.is_dir() {
         return Err("cwd is not a directory".to_owned());
     }
     #[cfg(unix)]
     {
-        let directory = open_pinned_directory(&canonical)?;
-        Ok(ResolvedCwd { path: canonical, directory: Arc::new(directory) })
+        let (directory, ancestry) = open_pinned_directory(&canonical)?;
+        if allowed_root_groups
+            .iter()
+            .any(|group| !group.iter().any(|root| ancestry.starts_with(root)))
+        {
+            return Err("cwd is outside the allowed roots".to_owned());
+        }
+        Ok(ResolvedCwd {
+            path: canonical,
+            directory: Arc::new(directory),
+            ancestry: Arc::new(ancestry),
+        })
     }
     #[cfg(not(unix))]
     {
@@ -187,7 +219,7 @@ fn scoped_cwd(
 }
 
 #[cfg(unix)]
-fn open_pinned_directory(path: &Path) -> Result<File, String> {
+fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), String> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -208,6 +240,7 @@ fn open_pinned_directory(path: &Path) -> Result<File, String> {
         .open("/")
         .map_err(|_| "cwd is not accessible".to_owned())?;
     let mut expected_path = PathBuf::from("/");
+    let mut ancestry = Vec::new();
     for component in path.components() {
         let std::path::Component::Normal(name) = component else {
             continue;
@@ -215,6 +248,7 @@ fn open_pinned_directory(path: &Path) -> Result<File, String> {
         expected_path.push(name);
         let expected =
             std::fs::metadata(&expected_path).map_err(|_| "cwd is not accessible".to_owned())?;
+        ancestry.push(DirectoryIdentity { dev: expected.dev(), ino: expected.ino() });
         let name = CString::new(name.as_os_str().as_bytes())
             .map_err(|_| "cwd is not accessible".to_owned())?;
         // SAFETY: `parent` is an open directory and `name` is NUL-free.
@@ -230,7 +264,7 @@ fn open_pinned_directory(path: &Path) -> Result<File, String> {
         }
         parent = child;
     }
-    Ok(parent)
+    Ok((parent, ancestry))
 }
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
