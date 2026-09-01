@@ -19,6 +19,9 @@ extension TerminalNotificationStore {
               ) else {
             return
         }
+        guard !isWorkspaceNotificationsMuted(forTabId: initialTarget.tabId) else {
+            return
+        }
         let initialManager = initialTarget.surfaceId.flatMap {
             appDelegate.notificationSurfaceOwner(
                 surfaceID: $0,
@@ -52,6 +55,9 @@ extension TerminalNotificationStore {
                 claimedTabId: tabId,
                 surfaceId: surfaceId
               ) else {
+            return
+        }
+        guard !isWorkspaceNotificationsMuted(forTabId: target.tabId) else {
             return
         }
         let owningManager = target.surfaceId.flatMap {

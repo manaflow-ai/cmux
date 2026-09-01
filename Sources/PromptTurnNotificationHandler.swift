@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import CmuxSettings
 import Foundation
 
 /// Debounces prompt candidates and verifies their exact foreground process before notifying.
@@ -141,6 +142,10 @@ actor PromptTurnNotificationHandler {
             ),
             category: .turnComplete,
             pending: false,
+            soundContext: NotificationSoundOverrideContext(
+                agentID: definition.id,
+                alertType: .turnDone
+            ),
             // Prompt-line detection verifies the pane's foreground agent
             // process itself, so this is always a top-level session.
             agentKind: definition.id,
