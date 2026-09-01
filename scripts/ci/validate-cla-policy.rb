@@ -24,7 +24,7 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # policy change requires trusted review without a fragile follow-up hash bump.
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "63a96bd533e09afaa8aecfe871362b07e28697cf2a1ed85459b5991001d885f8"
-EXPECTED_GUARD_SCRIPT_DIGEST = "a2b91eea0805be406ac8c59805b12a2d6e9b470066a2b7378f1c126387f6dd7e"
+EXPECTED_GUARD_SCRIPT_DIGEST = "21a1c1f0ba00f3c31454870e1aaabbcf9cb0d1c5f87ab8b2b8c75cfa872e0cf5"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -241,9 +241,12 @@ def cla_admission_outcome(event)
   return :malformed unless association.is_a?(String) && !association.empty? && !association.match?(/[\r\n]/)
 
   if event[:comment_body] == CLA_SIGN_PHRASE
-    return :admitted if author_id == pr_author_id
-
-    return :ordinary
+    # The maintained action's signer-preflight is the single source of truth
+    # for commit authorship and co-authorship. The base-controlled matrix only
+    # admits an authenticated exact declaration to that read-only check; an
+    # arbitrary commenter cannot reach the writer unless preflight authorizes
+    # the same live identity.
+    return :admitted
   end
   if event[:comment_body] == CLA_RECHECK_PHRASE
     return :admitted if author_id == pr_author_id || CLA_TRUSTED_ASSOCIATIONS.include?(association)
