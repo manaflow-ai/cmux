@@ -306,6 +306,11 @@ public actor CmxConnectivityEngine {
         await supervisor.hasConfiguredRelay()
     }
 
+    /// Returns whether the active endpoint generation reports a usable home relay.
+    public func hasUsableHomeRelay() async -> Bool {
+        await supervisor.hasUsableHomeRelay()
+    }
+
     /// Waits for the active endpoint generation to report relay readiness.
     public func waitForUsableHomeRelay(
         timeout: Duration = .seconds(15)
