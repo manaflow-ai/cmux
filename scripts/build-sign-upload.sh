@@ -116,6 +116,15 @@ echo "Notarizing app..."
   "$APP_PATH" \
   "$ENTITLEMENTS" \
   "$SIGN_HASH"
+
+# The helper stapling/reseal pass above is the final bundle mutation before
+# the host app is submitted. Check every embedded Mach-O here as well as in
+# the GitHub release workflows so local publishing cannot bypass the same
+# universal arm64+x86_64 invariant.
+echo "Verifying universal Mach-O architectures..."
+./scripts/verify-macos-bundle-architectures.sh \
+  --allowlist scripts/macos-universal-bundle-allowlist.txt \
+  "$APP_PATH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
 xcrun notarytool submit cmux-notary.zip \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait

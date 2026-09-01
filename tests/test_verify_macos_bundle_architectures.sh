@@ -218,4 +218,48 @@ if printf '%s\n' "$partial_allowlist_output" |
   fail "an allowlisted path should not be reported as a failure"
 fi
 
+# Exercise the fail-closed \`file -E\` path with a deterministic shim. macOS's
+# default \`file\` behavior returns success for an inaccessible path, so a
+# status-only check would incorrectly skip this inventory entry.
+FILE_ERROR_APP="$TMP_DIR/file-error.app"
+mkdir -p "$FILE_ERROR_APP/Contents/Resources"
+printf 'synthetic inaccessible entry\n' > "$FILE_ERROR_APP/Contents/Resources/unreadable macho"
+FILE_ERROR_TOOL="$TOOLS_DIR/file-error"
+FILE_ERROR_LIPO_TOOL="$TOOLS_DIR/lipo-file-error"
+cat > "$FILE_ERROR_TOOL" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+target=""
+strict=0
+for argument in "$@"; do
+  case "$argument" in
+    -E) strict=1 ;;
+    --) ;;
+    *) target="$argument" ;;
+  esac
+done
+if (( strict )); then
+  printf "ERROR: cannot stat '%s' (synthetic permission error)\n" "$target" >&2
+  exit 1
+fi
+printf "cannot open '%s' (synthetic permission error)\n" "$target"
+EOF
+cat > "$FILE_ERROR_LIPO_TOOL" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "unexpected lipo invocation" >&2
+exit 1
+EOF
+chmod +x "$FILE_ERROR_TOOL" "$FILE_ERROR_LIPO_TOOL"
+if file_error_output="$(
+  CMUX_FILE_TOOL="$FILE_ERROR_TOOL" \
+  CMUX_LIPO_TOOL="$FILE_ERROR_LIPO_TOOL" \
+  "$VERIFY_SCRIPT" "$FILE_ERROR_APP" 2>&1
+)"; then
+  printf '%s\n' "$file_error_output" >&2
+  fail "filesystem inspection errors should fail the verifier"
+fi
+assert_contains "$file_error_output" "file identification failed"
+assert_contains "$file_error_output" "Contents/Resources/unreadable macho"
+
 echo "PASS: bundle-wide Mach-O architecture verifier catches all non-universal files, surfaces lipo errors, and honors relative allowlist patterns"

@@ -18,6 +18,29 @@ on:
       - .github/workflows/release.yml
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
+      # Keep the release-build architecture gate connected to every macOS app
+      # producer and bundle mutator. A path-scoped workflow that omits one of
+      # these inputs can silently skip the only job that scans the resulting
+      # packaged Mach-O files.
+      - "Sources/**"
+      - "CLI/**"
+      - "Packages/Shared/**"
+      - "Packages/macOS/**"
+      - "Resources/**"
+      - "Native/**"
+      - "cmux.xcodeproj/**"
+      - "cmux.xcworkspace/**"
+      - "vendor/**"
+      - "scripts/**"
+      - "webviews/**"
+      - "package.json"
+      - "bun.lock"
+      - "*.entitlements"
+      - "**/*.entitlements"
+      - "**/*.xcconfig"
+      - "**/*.plist"
+      - ".github/actions/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:

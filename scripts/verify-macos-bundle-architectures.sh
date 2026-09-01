@@ -125,7 +125,10 @@ while IFS= read -r -d '' path; do
   files_seen=$((files_seen + 1))
   relative_path="${path#"$APP_PATH"/}"
 
-  if ! file_description="$("$FILE_TOOL" -b -- "$path" 2>&1)"; then
+  # file on macOS reports filesystem errors as a successful classification
+  # unless -E is supplied. Fail closed so a disappearing or unreadable
+  # inventory entry can never be silently treated as a non-Mach-O resource.
+  if ! file_description="$("$FILE_TOOL" -E -b -- "$path" 2>&1)"; then
     echo "ERROR: file identification failed for $relative_path: $file_description" >&2
     lipo_failures=$((lipo_failures + 1))
     continue
