@@ -211,14 +211,16 @@ extension Workspace {
             return false
         }
 
-        let forkWorkspace = owningTabManager.addWorkspace(
+        guard let forkWorkspace = owningTabManager.addWorkspaceIfActive(
             workingDirectory: nil,
             initialTerminalCommand: remoteConfiguration.terminalStartupCommand,
             initialTerminalInput: startupInput,
             initialTerminalEnvironment: remoteConfiguration.sshTerminalStartupEnvironment ?? [:],
             inheritWorkingDirectory: false,
             autoWelcomeIfNeeded: false
-        )
+        ) else {
+            return false
+        }
         forkWorkspace.configureRemoteConnection(
             remoteConfiguration,
             autoConnect: true
@@ -254,14 +256,16 @@ extension Workspace {
             return false
         }
 
-        let forkWorkspace = owningTabManager.addWorkspace(
+        guard let forkWorkspace = owningTabManager.addWorkspaceIfActive(
             workingDirectory: launch.terminalWorkingDirectory,
             initialTerminalCommand: launch.initialTerminalCommand,
             initialTerminalInput: launch.initialTerminalInput,
             initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
             autoWelcomeIfNeeded: false
-        )
+        ) else {
+            return false
+        }
         if let remoteConfiguration = launch.remoteConfiguration {
             forkWorkspace.configureRemoteConnection(
                 remoteConfiguration,

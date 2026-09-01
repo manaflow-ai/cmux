@@ -12,6 +12,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
     let requestedPath: String
     let selectedPathID: MobileTaskDirectoryPathID
     let suggestionIndex: MobileTaskDirectorySuggestionIndex
+    let recents: [MobileTaskDirectoryCandidate]
     let choose: (String) -> Void
     let cancel: () -> Void
     let searchMac: (
@@ -30,6 +31,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
         requestedPath: String,
         selectedPathID: MobileTaskDirectoryPathID,
         suggestionIndex: MobileTaskDirectorySuggestionIndex,
+        recents: [MobileTaskDirectoryCandidate],
         choose: @escaping (String) -> Void,
         cancel: @escaping () -> Void,
         searchMac: @escaping (
@@ -43,6 +45,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
         self.requestedPath = requestedPath
         self.selectedPathID = selectedPathID
         self.suggestionIndex = suggestionIndex
+        self.recents = recents
         self.choose = choose
         self.cancel = cancel
         self.searchMac = searchMac
@@ -81,6 +84,7 @@ struct TaskComposerDirectoryBrowseScreen: View {
         .toolbar {
             TaskComposerDirectoryCancelToolbar(cancel: cancel)
         }
+        .taskComposerRecentChipsBar(recents: recents, isVisible: !isSearchActive)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !isSearchActive, let currentPath = browse.snapshot?.currentPath {
                 TaskComposerDirectoryChooseButton(

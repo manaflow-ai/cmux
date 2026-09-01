@@ -88,7 +88,7 @@ extension MobileWorkspaceSortMode {
         case .automatic:
             return L10n.string("mobile.workspaces.sort.automatic", defaultValue: "Last Opened")
         case .computerPriority:
-            return L10n.string("mobile.workspaces.sort.connectionOrder", defaultValue: "Computer Order")
+            return L10n.string("mobile.workspaces.sort.connectionOrder", defaultValue: "Custom Order")
         case .recentActivity:
             return L10n.string("mobile.workspaces.sort.recentActivity", defaultValue: "Recent Activity")
         }

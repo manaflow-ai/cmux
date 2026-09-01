@@ -390,6 +390,7 @@ class ProcessInfoResult:
     executable: Optional[str]
     argv: Tuple[str, ...]
     cwd: Optional[str]
+    foreground_cwd: Optional[str]
     children: Tuple[int, ...]
 
 
