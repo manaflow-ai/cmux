@@ -27414,6 +27414,35 @@ mod tests {
     }
 
     #[test]
+    fn double_clicking_the_trailing_cell_of_a_wide_word_selects_the_word() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-wide-word-selection-test", "foo 界 bar".as_bytes());
+
+        // The CJK character occupies columns 4 and 5. A click on the trailing
+        // cell must behave like a click on the grapheme's leading cell.
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 5,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((4, 0), (4, 0))),
+            "double-clicking a wide grapheme's trailing cell must select its word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn a_single_cell_press_does_not_store_a_zero_length_selection() {
         let (mut app, mux, surface, content) =
             selection_fixture("single-cell-press-selection-state-test", b"alpha beta");
