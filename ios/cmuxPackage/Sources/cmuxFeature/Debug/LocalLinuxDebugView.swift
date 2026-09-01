@@ -5,6 +5,7 @@ import CmuxMobileSupport
 import CmuxMobileTerminal
 import CmuxMobileTerminalKit
 import OSLog
+import os.lock
 import SwiftUI
 import UIKit
 
@@ -12,6 +13,110 @@ nonisolated private let localLinuxLog = Logger(
     subsystem: "ai.manaflow.cmux.ios",
     category: "local-linux.debug"
 )
+
+/// Retains startup and session-close completion across a SwiftUI remount.
+///
+/// The retry action changes the representable identity, so its coordinator is
+/// destroyed before the replacement coordinator starts. A coordinator-local
+/// task would be released with the old object and could let the replacement
+/// call into iSH while the old C pty is still unwinding. The outer DEBUG view
+/// owns this fence in `@State`, which survives that identity change. The lock
+/// only protects the short task/identity exchange; the potentially blocking
+/// C hangup always runs in the detached task.
+private nonisolated final class LocalLinuxDebugLifecycleFence: @unchecked Sendable {
+    private struct State: Sendable {
+        var closeTask: Task<Void, Never>?
+        var closeID: UUID?
+        var bootDrainTask: Task<Void, Never>?
+        var bootDrainID: UUID?
+    }
+
+    // lint:allow lock — sanctioned carve-out for this synchronous C-lifecycle fence.
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    /// Starts and retains a close for `session`, chaining it after an earlier
+    /// close if one is still settling. This method is synchronous so teardown
+    /// can publish its state before SwiftUI creates a replacement coordinator.
+    func schedule(_ session: LocalLinuxSession?) {
+        guard let session else { return }
+        state.withLock { state in
+            let previous = state.closeTask
+            let task = Task.detached(priority: .utility) {
+                if let previous {
+                    await previous.value
+                }
+                await session.hangup()
+            }
+            state.closeTask = task
+            state.closeID = UUID()
+        }
+    }
+
+    /// Retains a cancelled boot drain until the synchronous C open has
+    /// returned. A replacement coordinator must await this operation before
+    /// it starts another open. The caller supplies the identity so an old
+    /// drain cannot clear a newer one while its completion callback unwinds.
+    func registerBootDrain(_ task: Task<Void, Never>, id: UUID) {
+        state.withLock { state in
+            state.bootDrainTask = task
+            state.bootDrainID = id
+        }
+    }
+
+    /// Releases one boot-drain identity after its underlying startup task has
+    /// settled. This is called before a stale coordinator asks itself to retry,
+    /// so that self-retry cannot wait on its own completed drain.
+    func completeBootDrain(id: UUID) {
+        state.withLock { state in
+            guard state.bootDrainID == id else { return }
+            state.bootDrainTask = nil
+            state.bootDrainID = nil
+        }
+    }
+
+    /// Awaits every boot drain and session close scheduled before or during
+    /// this wait. A newer retry can append another task while the current task
+    /// is awaited, so metadata is cleared only when the identity still
+    /// matches. Boot drains are observed first, which keeps a still-running C
+    /// open from overlapping a session hangup or replacement open.
+    func wait() async {
+        while true {
+            let snapshot = state.withLock { state in
+                (
+                    closeTask: state.closeTask,
+                    closeID: state.closeID,
+                    bootDrainTask: state.bootDrainTask,
+                    bootDrainID: state.bootDrainID
+                )
+            }
+            var waited = false
+
+            if let task = snapshot.bootDrainTask {
+                waited = true
+                await task.value
+                state.withLock { state in
+                    guard state.bootDrainID == snapshot.bootDrainID else { return }
+                    state.bootDrainTask = nil
+                    state.bootDrainID = nil
+                }
+            }
+
+            if let task = snapshot.closeTask {
+                waited = true
+                await task.value
+                state.withLock { state in
+                    guard state.closeID == snapshot.closeID else { return }
+                    state.closeTask = nil
+                    state.closeID = nil
+                }
+            }
+
+            if !waited {
+                return
+            }
+        }
+    }
+}
 
 /// A temporary, DEBUG-only host for the on-device Alpine Linux terminal.
 ///
@@ -23,6 +128,9 @@ struct LocalLinuxDebugView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var phase: LocalLinuxDebugPhase = .starting
     @State private var retryGeneration: UInt = 0
+    /// Survives `.id(retryGeneration)` so a replacement coordinator waits for
+    /// the previous session's asynchronous C teardown.
+    @State private var lifecycleFence = LocalLinuxDebugLifecycleFence()
 
     /// The app composition root owns this actor. Keeping it in the view value
     /// makes DEBUG launches use the same process-global kernel as the
@@ -42,6 +150,7 @@ struct LocalLinuxDebugView: View {
         ZStack {
             LocalLinuxDebugRepresentable(
                 runtime: runtime,
+                lifecycleFence: lifecycleFence,
                 sceneIsActive: sceneIsActive,
                 retryGeneration: retryGeneration,
                 onPhaseChange: { phase = $0 }
@@ -217,6 +326,7 @@ private struct LocalLinuxStatusOverlay: View {
 
 private struct LocalLinuxDebugRepresentable: UIViewRepresentable {
     let runtime: LocalLinuxRuntime
+    let lifecycleFence: LocalLinuxDebugLifecycleFence
     let sceneIsActive: Bool
     let retryGeneration: UInt
     let onPhaseChange: @MainActor (LocalLinuxDebugPhase) -> Void
@@ -224,6 +334,7 @@ private struct LocalLinuxDebugRepresentable: UIViewRepresentable {
     func makeCoordinator() -> LocalLinuxDebugCoordinator {
         LocalLinuxDebugCoordinator(
             runtime: runtime,
+            lifecycleFence: lifecycleFence,
             sceneIsActive: sceneIsActive,
             onPhaseChange: onPhaseChange
         )
@@ -295,6 +406,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     weak var surfaceView: GhosttySurfaceView?
 
     private let runtime: LocalLinuxRuntime
+    private let lifecycleFence: LocalLinuxDebugLifecycleFence
     private let onPhaseChange: @MainActor (LocalLinuxDebugPhase) -> Void
     /// Used by isolated DEBUG harnesses and previews that do not receive the
     /// app-lifetime tracker through the SwiftUI environment.
@@ -316,11 +428,6 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     /// barrier releases it.
     private var bootDrainTask: Task<Void, Never>?
     private var bootDrainGeneration: UInt?
-    /// Completion fence for sessions released by synchronous teardown. The
-    /// next boot waits for this task so a retry cannot race the old C pty
-    /// hangup.
-    private var closeBarrier: Task<Void, Never>?
-    private var closeBarrierID: UUID?
     /// A retry or foreground attachment asks for a boot. The drain callback
     /// consumes this intent only after the previous operation is quiescent.
     private var bootStartRequested = false
@@ -361,10 +468,12 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
 
     init(
         runtime: LocalLinuxRuntime,
+        lifecycleFence: LocalLinuxDebugLifecycleFence,
         sceneIsActive: Bool,
         onPhaseChange: @escaping @MainActor (LocalLinuxDebugPhase) -> Void
     ) {
         self.runtime = runtime
+        self.lifecycleFence = lifecycleFence
         self.sceneIsActive = sceneIsActive
         self.onPhaseChange = onPhaseChange
         super.init()
@@ -376,6 +485,8 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         inputTask?.cancel()
         inputWorkerID = nil
         resizeTask?.cancel()
+        lifecycleFence.schedule(pendingSession)
+        lifecycleFence.schedule(session)
         _ = pendingSession?.beginClose()
         _ = session?.beginClose()
         if let lane {
@@ -584,8 +695,14 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
               generation != lifecycleGeneration else { return }
 
         bootDrainGeneration = generation
-        bootDrainTask = Task { @MainActor [weak self, task, generation] in
+        let fenceID = UUID()
+        let lifecycleFence = self.lifecycleFence
+        let drainTask = Task { @MainActor [weak self, task, generation, lifecycleFence, fenceID] in
             await task.value
+            // Clear the shared fence before asking this coordinator to retry.
+            // Otherwise a same-coordinator retry could await this very task
+            // through `waitForSessionCloseBarrier` and deadlock.
+            lifecycleFence.completeBootDrain(id: fenceID)
             guard let self else { return }
             guard self.bootTaskGeneration == generation else {
                 // The startup continuation may have completed its defer just
@@ -608,37 +725,21 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
             guard self.bootStartRequested else { return }
             self.startIfNeeded()
         }
+        bootDrainTask = drainTask
+        lifecycleFence.registerBootDrain(drainTask, id: fenceID)
     }
 
-    /// Starts a nonblocking session close and chains it behind any earlier
-    /// close. UIKit teardown is synchronous, while the C bridge hangup is an
-    /// asynchronous completion fence. Retaining this task prevents a retry
-    /// from opening a replacement pty before the old one is quiescent.
+    /// Starts a nonblocking session close. The fence is shared by all
+    /// representable generations, so a retry cannot lose this task when the
+    /// old coordinator is dismantled.
     private func scheduleSessionClose(_ candidate: LocalLinuxSession?) {
-        guard let candidate else { return }
-        let previous = closeBarrier
-        let barrierID = UUID()
-        let task = Task.detached(priority: .utility) {
-            if let previous {
-                await previous.value
-            }
-            await candidate.hangup()
-        }
-        closeBarrier = task
-        closeBarrierID = barrierID
+        lifecycleFence.schedule(candidate)
     }
 
-    /// Awaits all session closes currently owned by the coordinator. MainActor
-    /// reentrancy can append a newer barrier while this one is suspended, so
-    /// metadata is cleared only when the identity still matches.
+    /// Awaits all session closes currently owned by any DEBUG coordinator for
+    /// this view. The shared fence remains alive across `.id` remounts.
     private func waitForSessionCloseBarrier() async {
-        while let barrier = closeBarrier {
-            let barrierID = closeBarrierID
-            await barrier.value
-            guard closeBarrierID == barrierID else { continue }
-            closeBarrier = nil
-            closeBarrierID = nil
-        }
+        await lifecycleFence.wait()
     }
 
     private func finishBootTask(generation: UInt) {
