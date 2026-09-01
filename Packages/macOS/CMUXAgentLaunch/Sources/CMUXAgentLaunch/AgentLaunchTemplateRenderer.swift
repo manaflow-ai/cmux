@@ -37,6 +37,7 @@ public struct AgentLaunchTemplateRenderer: Sendable, Equatable {
             }
             resolved.append(value)
         }
+        guard resolved.first?.isEmpty == false else { return nil }
         return resolved
     }
 

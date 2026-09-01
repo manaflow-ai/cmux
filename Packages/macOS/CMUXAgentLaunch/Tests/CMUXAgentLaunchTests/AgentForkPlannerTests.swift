@@ -77,6 +77,18 @@ struct AgentForkPlannerTests {
         ) == ["agent", "a\\q"])
     }
 
+    @Test("Custom templates reject an empty executable word")
+    func customTemplateRejectsEmptyExecutableWord() {
+        let renderer = AgentLaunchTemplateRenderer()
+        #expect(renderer.arguments(
+            template: "'' agent",
+            executable: "agent",
+            sessionID: "session",
+            workingDirectory: nil,
+            sessionDirectory: nil
+        ) == nil)
+    }
+
     @Test("Uses prepared fork argv with restore environment policy")
     func preparedForkArgumentsStayStructured() throws {
         let checkpointID = "fork-session"
