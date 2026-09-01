@@ -21,7 +21,7 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
-    let processLiveness: RestorableAgentProcessLiveness = .unknown
+    let processLiveness: RestorableAgentProcessLiveness
 
     /// Creates a record while preserving the historical default for process
     /// liveness. The explicit initializer keeps the new field available to
