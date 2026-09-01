@@ -82,6 +82,36 @@ struct CmuxEventDurableReplayTests {
     }
 
     @Test
+    func sequenceFloorPreventsReuseWhenQueuedEventIsLost() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-sequence-floor-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var firstBus: CmuxEventBus? = CmuxEventBus(eventLogURL: logURL)
+        firstBus?.setEventLogFlushSuspendedForTesting(true)
+        firstBus?.publish(name: "lost", category: "test", source: "first-process")
+
+        let floorURL = logURL.appendingPathExtension("seq")
+        let persistedFloor = try String(contentsOf: floorURL, encoding: .utf8)
+        #expect(persistedFloor.trimmingCharacters(in: .whitespacesAndNewlines) == "2")
+        firstBus = nil
+
+        let secondBus = CmuxEventBus(eventLogURL: logURL)
+        secondBus.publish(name: "replacement", category: "test", source: "second-process")
+        secondBus.flushEventLogForTesting()
+
+        let snapshot = secondBus.subscribe(afterSequence: 1, names: [], categories: [])
+        defer { secondBus.unsubscribe(snapshot.subscription) }
+
+        #expect(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) } == [2])
+        #expect(snapshot.replay.compactMap { $0["name"] as? String } == ["replacement"])
+        let resume = try #require(snapshot.ack["resume"] as? [String: Any])
+        #expect(resume["gap"] as? Bool == true)
+        #expect(resume["gap_reason"] as? String == "durable event log has a sequence gap")
+    }
+
+    @Test
     func subscriptionUsesCachedPersistedSnapshotInsteadOfReadingTheLogAgain() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-replay-cache-\(UUID().uuidString)", isDirectory: true)
@@ -117,6 +147,7 @@ struct CmuxEventDurableReplayTests {
             source.publish(name: "bounded.\(index)", category: "test", source: "writer")
         }
         let lines = source.retainedSnapshot().compactMap(CmuxEventBus.encodeLine)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try lines.joined(separator: "\n").appending("\n")
             .write(to: logURL, atomically: true, encoding: .utf8)
 
