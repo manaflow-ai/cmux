@@ -5,6 +5,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
+import { shouldTrustDirectDevBackendHost } from "./app/lib/direct-dev-backend-host";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +15,7 @@ const releaseDocsOrigin =
   process.env.CMUX_RELEASE_DOCS_ORIGIN ?? "https://cmux-docs-release.vercel.app";
 const nightlyDocsOrigin =
   process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
+const directDevBackend = shouldTrustDirectDevBackendHost();
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level
 // slugs working with permanent redirects, for the bare English path and every
@@ -59,6 +61,10 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
+    // Next's public config type does not expose this legacy option, but the
+    // runtime still uses it when constructing request.nextUrl. It is enabled
+    // only for the private Tailscale Serve transport.
+    ...(directDevBackend ? { trustHostHeader: true } : {}),
     exposeTestingApiInProductionBuild: process.env.NEXT_INSTANT_TEST === "1",
     instantInsights: {
       validationLevel: "warning",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldTrustDirectDevBackendHost } from "../lib/direct-dev-backend-host";
+import { shouldTrustDirectDevBackendHost } from "../app/lib/direct-dev-backend-host";
 
 describe("direct dev backend host forwarding", () => {
   test("trusts the forwarded host only for the direct backend transport", () => {
