@@ -1271,7 +1271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let eventWindowNumber = event?.window?.windowNumber ?? -1
         let eventNumber = event?.windowNumber ?? -1
         let eventChars = safeShortcutCharactersIgnoringModifiers(for: event)
-        let eventKeyCode = event.map { String($0.keyCode) } ?? "nil"
+        let eventKeyCode = safeShortcutKeyCode(for: event)
         let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? -1
         let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? -1
         let ws = workspaceId.map { String($0.uuidString.prefix(8)) } ?? "nil"
@@ -1284,6 +1284,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func safeShortcutCharactersIgnoringModifiers(for event: NSEvent?) -> String {
         guard let event, event.type == .keyDown || event.type == .keyUp else { return "" }
         return event.charactersIgnoringModifiers ?? ""
+    }
+
+    private func safeShortcutKeyCode(for event: NSEvent?) -> String {
+        guard let event,
+              event.type == .keyDown || event.type == .keyUp || event.type == .flagsChanged else {
+            return "nil"
+        }
+        return String(event.keyCode)
     }
 #endif
 
@@ -8634,7 +8642,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     imageKinds: page?.limits?.imageKinds ?? [],
                     submit: { [weak self] request in
                         guard let self else { return false }
-                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, completion in
+                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, _, completion in
                             guard let self else { return false }
                             return self.launchCloudVMBaseOpen(
                                 workspace: workspace,

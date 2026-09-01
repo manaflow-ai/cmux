@@ -72,6 +72,7 @@ final class SleepyModeController {
     /// Shows the screensaver and keeps the Mac awake. Any key/click wakes it.
     func activate() {
         guard !isActive else { return }
+        powerUIState.beginSession()
         isActive = true
         beginPowerAssertions()
         installScreenObserver()
@@ -90,6 +91,7 @@ final class SleepyModeController {
     func deactivate() {
         guard isActive else { return }
         isActive = false
+        powerUIState.cancelLockRequest()
         removeScreenObserver()
         endPowerAssertions()
         tearDownOverlayWindows()

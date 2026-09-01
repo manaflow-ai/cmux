@@ -41,6 +41,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
+    "cmuxTests/SleepyPowerControlsLockTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the

@@ -281,8 +281,13 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
 
         try Self.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"",
-            "exit 253",
+            "case \" $* \" in",
+            "  *\" ssh-pty-attach \"*)",
+            "    printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"",
+            "    exit 253",
+            "    ;;",
+            "  *) exit 0 ;;",
+            "esac",
         ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",

@@ -305,6 +305,7 @@ def main() -> int:
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
                 "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
                 "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
+                "-only-testing:cmuxTests/SleepyPowerControlsLockTests",
                 "-only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
             ):
                 if focused_selector in shard_selectors:

@@ -243552,6 +243552,131 @@
         }
       }
     },
+    "sleepyMode.lockFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر قفل الـ Mac — اخرج من Sleepy Mode، ثم اضغط ⌃⌘Q أو اختر «قفل الشاشة» من قائمة Apple"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac se nije mogao zaključati — izađite iz režima Sleepy, zatim pritisnite ⌃⌘Q ili odaberite „Zaključaj ekran“ u Apple meniju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac’en kunne ikke låses – afslut Sleepy Mode, og tryk derefter på ⌃⌘Q, eller vælg Lås skærm i Apple-menuen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Mac konnte nicht gesperrt werden – beende den Sleepy Mode und drücke dann ⌃⌘Q oder wähle „Bildschirm sperren“ im Apple-Menü"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't lock the Mac — exit Sleepy Mode, then press ⌃⌘Q or choose Lock Screen from the Apple menu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo bloquear el Mac: sal del modo Sleepy y, después, pulsa ⌃⌘Q o elige «Bloquear pantalla» en el menú Apple"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de verrouiller le Mac — quittez le mode Sleepy, puis appuyez sur ⌃⌘Q ou choisissez « Verrouiller l’écran » dans le menu Pomme"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile bloccare il Mac: esci dalla modalità Sleepy, quindi premi ⌃⌘Q o scegli “Blocca schermo” dal menu Apple"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macをロックできませんでした — Sleepy Modeを終了してから、⌃⌘Qを押すか、Appleメニューから「画面をロック」を選んでください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាក់សោ Mac បានទេ — ចេញពី Sleepy Mode រួចចុច ⌃⌘Q ឬជ្រើស «ចាក់សោអេក្រង់» ពីម៉ឺនុយ Apple"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac을 잠글 수 없습니다. Sleepy Mode를 종료한 다음 ⌃⌘Q를 누르거나 Apple 메뉴에서 ‘화면 잠금’을 선택하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke låse Macen – avslutt Sleepy Mode, og trykk deretter ⌃⌘Q eller velg «Lås skjerm» fra Apple-menyen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zablokować Maca — zamknij tryb Sleepy, a następnie naciśnij ⌃⌘Q lub wybierz „Zablokuj ekran” z menu Apple"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível bloquear o Mac — saia do Modo Sleepy e pressione ⌃⌘Q ou escolha “Bloquear Tela” no menu Apple"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось заблокировать Mac — выйдите из режима Sleepy, затем нажмите ⌃⌘Q или выберите «Заблокировать экран» в меню Apple"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถล็อก Mac ได้ — ออกจากโหมด Sleepy แล้วกด ⌃⌘Q หรือเลือก “ล็อกหน้าจอ” จากเมนู Apple"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac kilitlenemedi — Sleepy Modu’ndan çıkın, ardından ⌃⌘Q tuşlarına basın veya Apple menüsünden “Ekranı Kilitle”yi seçin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося заблокувати Mac — вийдіть із режиму Sleepy, потім натисніть ⌃⌘Q або виберіть «Замкнути екран» у меню Apple"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法锁定 Mac — 请退出 Sleepy Mode，然后按 ⌃⌘Q，或从苹果菜单中选择“锁定屏幕”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法鎖定 Mac — 請退出 Sleepy Mode，然後按 ⌃⌘Q，或從「蘋果」選單中選擇「鎖定螢幕」"
+          }
+        }
+      }
+    },
     "sleepyMode.mascot.cat": {
       "extractionState": "manual",
       "localizations": {

@@ -557,6 +557,30 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
+  lock-screen-symbol-canary:
+    needs:
+      - changes
+      - linux-preflight
+    # See app-host-unit-tests for why the direct needs are required explicitly.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    name: lock-screen symbol canary (macOS 26)
+    # The unit-test canary in SleepyPowerControlsLockTests runs on the macOS 15
+    # app-host runners, but the bug class it guards (issue #9730: macOS 26
+    # removed the CGSession lock binary) manifests on new macOS majors. Resolve
+    # the replacement SACLockScreenImmediate symbol on the macOS 26 runner too,
+    # via a build-free script, so a future removal there turns CI red. The
+    # script never invokes the symbol, so it cannot lock the runner.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Verify SACLockScreenImmediate resolves on this macOS
+        run: swift scripts/ci/check-lock-screen-symbol.swift
+
   app-host-unit-tests:
     needs:
       - changes
@@ -722,6 +746,27 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      - name: Run Sleepy Mode lock regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep the Lock Mac regression (issue #9730: the
+          # CGSession binary was removed in macOS 26, so the old lock silently
+          # did nothing) on a non-tolerant focused invocation so a broken lock
+          # path cannot appear green.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SleepyPowerControlsLockTests \
+            test
+
       - name: Run bundled command PATH regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -744,6 +789,19 @@ jobs:
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/CmuxBundledBinPathIntegrationTests \
             test
+
+      - name: Run shell socket capability regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Keep this non-tolerant regression near the fish setup above. When it
+          # ran in the late CLI batch, earlier xcodebuild output could exhaust
+          # the job log before GitHub recorded its failure details.
+          set -euo pipefail
+          command -v fish >/dev/null 2>&1 || {
+            echo "fish is required for the issue #9075 shell socket regression" >&2
+            exit 1
+          }
+          python3 tests/test_issue_9075_shell_socket_reports.py
 
       - name: Run agent chat transcript lifecycle regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1351,6 +1409,9 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
+          # Runner annotations survive even when earlier xcodebuild output
+          # exhausts GitHub's retained text log for this long-lived job.
+          trap 'status=$?; echo "::error title=CLI no-socket regression failed::${BASH_COMMAND} (exit ${status})"; exit "$status"' ERR
 
           CLI_BIN="$(
             find "$CMUX_DERIVED_DATA_PATH" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
@@ -1405,14 +1466,6 @@ jobs:
           python3 tests/test_nushell_integration_hooks.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
-          if ! command -v fish >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
-          fi
-          command -v fish >/dev/null 2>&1 || {
-            echo "fish is required for the issue #9075 shell socket regression" >&2
-            exit 1
-          }
-          python3 tests/test_issue_9075_shell_socket_reports.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_push_notification.py
@@ -2374,6 +2427,7 @@ jobs:
       - diff-sidecar-check
       - web-db-migrations
       - linux-preflight
+      - lock-screen-symbol-canary
       - app-host-unit-tests
       - tests
       - swift-package-tests

@@ -152,7 +152,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         """
         try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
-
         // Managed SSH startup artifacts pin the system OpenSSH executable. Keep
         // that production security invariant, and substitute the fixture only
         // in the generated test artifact rather than relying on PATH lookup.
