@@ -854,8 +854,7 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
         }
         lock.unlock()
         for line in lines {
-            if line.range(of: Data(#""diag""#.utf8)) != nil,
-               line.range(of: Data(#""resize""#.utf8)) != nil {
+            if isTuiManualIOResizeDiagLine(line) {
                 onResizeDiag()
             }
         }
@@ -868,6 +867,15 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
         lock.unlock()
         target?.readabilityHandler = nil
     }
+}
+
+/// Returns true only for the relay's structured resize diagnostic. Matching
+/// JSON fields avoids treating human-readable stderr text as an ack.
+func isTuiManualIOResizeDiagLine(_ line: Data) -> Bool {
+    guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+          let diag = object["diag"] as? [String: Any]
+    else { return false }
+    return diag["resize"] != nil
 }
 
 /// Splits one accumulated stderr buffer in a single pass. Repeatedly
