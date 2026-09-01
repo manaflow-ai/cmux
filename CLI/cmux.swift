@@ -1309,6 +1309,12 @@ final class ClaudeHookSessionStore {
                 ?? (promptDepthPolicy.closesActivePrompt ? .idle : nil)
             let runtimeWhenClosed: AgentHookRuntimeStatus? = runtimeStatus
                 ?? (promptDepthPolicy.closesActivePrompt ? .idle : nil)
+            // A nested balanced stop must not overwrite a still-running
+            // session with its child completion's idle/error status. An
+            // authoritative boundary, or an explicit running status from
+            // active background work, is safe to persist immediately.
+            let shouldUpdateRuntimeStatus = updateRuntimeStatus
+                && (depthAfterStop == 0 || runtimeStatus == .running)
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1324,7 +1330,7 @@ final class ClaudeHookSessionStore {
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: depthAfterStop == 0 ? runtimeWhenClosed : runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus
+                updateRuntimeStatus: shouldUpdateRuntimeStatus
                     || (promptDepthPolicy.closesActivePrompt && depthAfterStop == 0),
                 now: now
             )
@@ -35427,6 +35433,10 @@ export default CMUXSessionRestore;
                 }
                 return stopNotificationStatus == .idle ? .idle : .needsInput
             }()
+            var runtimeStatusAfterStop: AgentHookRuntimeStatus? =
+                hasActiveBackgroundWork && stopNotificationStatus == .idle
+                    ? .running
+                    : runtimeStatus(for: stopNotificationStatus)
             var staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             // Current tokenized launches settle only from CodexTurnLedger. Keep
@@ -35486,6 +35496,8 @@ export default CMUXSessionRestore;
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
+                    runtimeStatus: runtimeStatusAfterStop,
+                    updateRuntimeStatus: true,
                     autoNameMessages: autoNamingMessages(
                         for: def,
                         parsedInput: input,
@@ -35537,6 +35549,9 @@ export default CMUXSessionRestore;
                 lifecycleAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
                     ? .running
                     : (stopNotificationStatus == .idle ? .idle : .needsInput)
+                runtimeStatusAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
+                    ? .running
+                    : runtimeStatus(for: stopNotificationStatus)
                 staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                     hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             }
@@ -35610,7 +35625,7 @@ export default CMUXSessionRestore;
                                   lastBody: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : body,
                                   lastNotificationStatus: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : stopNotificationStatus,
                                   updateLastNotificationStatus: true,
-                                  runtimeStatus: (hasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
+                                  runtimeStatus: runtimeStatusAfterStop,
                                   updateRuntimeStatus: true)
                 if def.name == "codex", codexHasActiveBackgroundWork {
                     try? store.clearNotificationSummary(sessionId: sessionId)

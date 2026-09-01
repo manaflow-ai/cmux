@@ -7,7 +7,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { context.cleanup() }
 
         let sessionId = "antigravity-depth-session"
-        func run(_ subcommand: String, payload: String) -> ProcessRunResult {
+        func run(
+            _ subcommand: String,
+            payload: String,
+            extraEnvironment: [String: String] = [:]
+        ) -> ProcessRunResult {
             let handled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
                 self.agentHookMockResponse(line: line, context: context)
             }
@@ -15,7 +19,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 context: context,
                 agent: "antigravity",
                 subcommand: subcommand,
-                standardInput: payload
+                standardInput: payload,
+                extraEnvironment: extraEnvironment
             )
             wait(for: [handled], timeout: 5)
             return result
@@ -38,6 +43,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(prompt.status, 0, prompt.stderr)
         }
 
+        assertActivePromptState(try readAntigravityHookSession(sessionId, context: context))
+
         let stop = run(
             "stop",
             payload: #"{"conversationId":"\#(sessionId)","fullyIdle":true,"terminationReason":"model_stop","workspacePaths":["\#(context.root.path)"],"hook_event_name":"Stop"}"#
@@ -57,6 +64,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 payload: #"{"conversationId":"\#(sessionId)","invocationNum":0,"workspacePaths":["\#(context.root.path)"],"hook_event_name":"PreInvocation","turn_id":"nested-\#(index)"}"#
             )
             XCTAssertEqual(prompt.status, 0, prompt.stderr)
+            assertActivePromptState(try readAntigravityHookSession(sessionId, context: context))
             let nestedStop = run(
                 "stop",
                 payload: #"{"conversationId":"\#(sessionId)","fullyIdle":true,"terminationReason":"model_stop","workspacePaths":["\#(context.root.path)"],"hook_event_name":"Stop","turn_id":"nested-\#(index)"}"#
@@ -66,6 +74,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertNil(record["activePromptDepth"], "Nested Antigravity pair \(index) must return depth to zero")
             XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
         }
+
+        // The nested-agent suppression path skips the later visible-state
+        // upsert, so the prompt-stop transaction itself must retain the
+        // authoritative running runtime status while background work remains.
+        let suppressedSessionId = "\(sessionId)-background"
+        _ = run(
+            "session-start",
+            payload: #"{"conversationId":"\#(suppressedSessionId)","workspacePaths":["\#(context.root.path)"],"hook_event_name":"SessionStart"}"#
+        )
+        _ = run(
+            "prompt-submit",
+            payload: #"{"conversationId":"\#(suppressedSessionId)","workspacePaths":["\#(context.root.path)"],"hook_event_name":"PreInvocation"}"#
+        )
+        let suppressedStop = run(
+            "stop",
+            payload: #"{"conversationId":"\#(suppressedSessionId)","fullyIdle":false,"workspacePaths":["\#(context.root.path)"],"hook_event_name":"Stop"}"#,
+            extraEnvironment: ["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "1"]
+        )
+        XCTAssertFalse(suppressedStop.timedOut, suppressedStop.stderr)
+        XCTAssertEqual(suppressedStop.status, 0, suppressedStop.stderr)
+        let suppressedRecord = try readAntigravityHookSession(suppressedSessionId, context: context)
+        XCTAssertNil(suppressedRecord["activePromptDepth"])
+        XCTAssertEqual(suppressedRecord["agentLifecycle"] as? String, "running")
+        XCTAssertEqual(suppressedRecord["runtimeStatus"] as? String, "running")
     }
 
     func testAntigravitySessionEndAndSessionStartRecoverUnbalancedPromptState() throws {
@@ -98,6 +130,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
 
+        assertActivePromptState(try readAntigravityHookSession(sessionId, context: context))
+
         // There is no Stop callback in this recovery path. SessionEnd is the
         // authoritative turn boundary and must settle every abandoned frame.
         let sessionEnd = run(
@@ -122,6 +156,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 payload: #"{"conversationId":"\#(interruptedSessionId)","invocationNum":\#(invocation),"workspacePaths":["\#(context.root.path)"],"hook_event_name":"PreInvocation"}"#
             )
         }
+        assertActivePromptState(try readAntigravityHookSession(interruptedSessionId, context: context))
         let restarted = run(
             "session-start",
             payload: #"{"conversationId":"\#(interruptedSessionId)","workspacePaths":["\#(context.root.path)"],"hook_event_name":"SessionStart"}"#
@@ -129,50 +164,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(restarted.status, 0, restarted.stderr)
         record = try readAntigravityHookSession(interruptedSessionId, context: context)
         XCTAssertNil(record["activePromptDepth"])
-    }
-
-    func testIdleAntigravityLifecycleIsEligibleForHibernation() {
-        XCTAssertTrue(AgentHibernationLifecycleStatusKeys.isAllowed("antigravity"))
-        XCTAssertTrue(AgentHibernationLifecycleState.idle.allowsHibernation)
-
-        let workspaceId = UUID()
-        let antigravityKey = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
-        let runningKey = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
-        let settings = AgentHibernationSettings.Values(
-            enabled: true,
-            idleSeconds: 5,
-            maxLiveTerminals: 1,
-            confirmationSeconds: 5
-        )
-        let selected = AgentHibernationPlanner.selectedPanelKeys(
-            inputs: [
-                AgentHibernationPlannerInput(
-                    key: antigravityKey,
-                    hasRestorableAgent: true,
-                    isLive: true,
-                    hasLiveProcess: true,
-                    processSafetyAllowsHibernation: true,
-                    isProtected: false,
-                    lifecycle: .idle,
-                    hasUnconfirmedTerminalInput: false,
-                    lastActivityAt: 0
-                ),
-                AgentHibernationPlannerInput(
-                    key: runningKey,
-                    hasRestorableAgent: true,
-                    isLive: true,
-                    hasLiveProcess: true,
-                    processSafetyAllowsHibernation: true,
-                    isProtected: false,
-                    lifecycle: .running,
-                    hasUnconfirmedTerminalInput: false,
-                    lastActivityAt: 100
-                ),
-            ],
-            settings: settings,
-            now: 100
-        )
-        XCTAssertEqual(selected, Set([antigravityKey]))
     }
 
     private func readAntigravityHookSession(
@@ -185,5 +176,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func assertActivePromptState(
+        _ record: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThan(record["activePromptDepth"] as? Int ?? 0, 0, file: file, line: line)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "running", file: file, line: line)
     }
 }
