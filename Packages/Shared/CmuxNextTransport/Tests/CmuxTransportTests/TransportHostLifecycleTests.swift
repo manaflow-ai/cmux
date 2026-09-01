@@ -13,7 +13,10 @@ struct TransportHostLifecycleTests {
     let now: Int64 = 1_000_000
 
     private func makeHost() -> TransportHost {
-        TransportHost(verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
+        let fixedNow = now
+        return TransportHost(
+            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+            epochNow: { fixedNow })
     }
 
     private func mintedIdentity(
@@ -136,7 +139,8 @@ extension TransportHostLifecycleTests {
         // Queued while offline, expired by the time the device reconnects.
         _ = await host.pushRelayCredential(
             deviceID: identity.deviceID, appIdentity: identity.appIdentity,
-            url: "https://usc1.relay.cmux.dev/", token: expiringToken(exp: now - 30))
+            url: "https://usc1.relay.cmux.dev/", token: expiringToken(exp: now - 30),
+            now: now)
 
         let (client, hostEnd) = LoopbackWire().makeEnds(
             authenticatedClientKey: identity.publicKeyData)

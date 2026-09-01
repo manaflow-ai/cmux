@@ -30,8 +30,8 @@ public enum RelayCredentialMode: String, Sendable, Codable {
 /// `Task.sleep(240s)` loops: the next refresh is derived from the earliest
 /// actual `expiresAt` across the installed credentials, minus a lead, plus
 /// caller-supplied jitter so a fleet of clients does not re-mint in
-/// lockstep. Credentials without a parseable expiry fall back to the legacy
-/// cadence so a shorter- or longer-lived token is honored either way.
+/// lockstep. Credentials without a parseable expiry contribute the legacy
+/// fallback deadline even when other credentials expose a later expiry.
 public enum RelayCredentialSchedule {
     /// Seconds of validity we insist on having left when the refresh fires.
     public static let defaultLeadSeconds: Int64 = 60
@@ -61,12 +61,13 @@ public enum RelayCredentialSchedule {
     ) -> Int64? {
         guard !expiries.isEmpty else { return nil }
         let earliest = expiries.compactMap { $0 }.min()
-        let target: Int64
-        if let earliest {
-            target = earliest - leadSeconds - max(0, jitterSeconds)
-        } else {
-            target = now + fallbackIntervalSeconds - max(0, jitterSeconds)
-        }
+        let jitter = max(0, jitterSeconds)
+        let fallbackTarget = now + fallbackIntervalSeconds - jitter
+        let expiryTarget = earliest.map { $0 - leadSeconds - jitter }
+        // A mixed set is only as safe as its least observable credential. If
+        // any token has no expiry claim, retain the fallback deadline even
+        // when another token advertises a much later expiry.
+        let target = min(expiryTarget ?? fallbackTarget, fallbackTarget)
         return max(target, now + minimumDelaySeconds)
     }
 

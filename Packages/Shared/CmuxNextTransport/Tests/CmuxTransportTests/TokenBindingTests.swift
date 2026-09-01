@@ -66,7 +66,8 @@ struct TokenBindingTests {
         let signer = GrantSigner()
         let now: Int64 = 1_000_000
         let host = TransportHost(
-            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
+            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+            epochNow: { now })
         let identity = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "d1")
         let grant = try signer.mint(
             accountID: "acct-1", deviceID: identity.deviceID,
@@ -105,7 +106,8 @@ struct TokenBindingTests {
         let signer = GrantSigner()
         let now: Int64 = 1_000_000
         let host = TransportHost(
-            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
+            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+            epochNow: { now })
         let identity = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "d1")
         let grant = try signer.mint(
             accountID: "acct-1", deviceID: identity.deviceID,
@@ -142,7 +144,8 @@ struct TokenBindingTests {
         let signer = GrantSigner()
         let now: Int64 = 1_000_000
         let host = TransportHost(
-            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
+            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+            epochNow: { now })
         let identity = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "d1")
         let grant = try signer.mint(
             accountID: "acct-1", deviceID: identity.deviceID,
@@ -186,7 +189,10 @@ struct TokenBindingTests {
                 return nil
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(5))
+                // A bounded cancellation-aware deadline protects the test
+                // from a stalled continuation without imposing a fixed wait
+                // on the success path.
+                try? await Task.sleep(for: .seconds(1))
                 return nil
             }
             let first = await group.next() ?? nil

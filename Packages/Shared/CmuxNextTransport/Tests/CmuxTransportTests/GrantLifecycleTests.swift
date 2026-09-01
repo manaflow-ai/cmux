@@ -13,9 +13,11 @@ struct GrantLifecycleTests {
     let now: Int64 = 1_000_000
 
     private func makeHost(grace: Int64, warning: Int64) -> TransportHost {
-        TransportHost(
+        let fixedNow = now
+        return TransportHost(
             verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
-            expiryGraceSeconds: grace, expiryWarningSeconds: warning)
+            expiryGraceSeconds: grace, expiryWarningSeconds: warning,
+            epochNow: { fixedNow })
     }
 
     private func mint(

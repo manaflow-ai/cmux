@@ -613,7 +613,8 @@ public final class MobileIrohRuntimeComposition:
             ?? { CmxIrohReconnectBackoff() }
         self.diagnosticLog = diagnosticLog
         #if DEBUG
-        self.nextTransportFacade = NextTransportGraduationFacade()
+        self.nextTransportFacade = NextTransportGraduationFacade(
+            defaults: debugDefaults ?? .standard)
         #endif
     }
 
@@ -921,7 +922,10 @@ public final class MobileIrohRuntimeComposition:
             let (_, stream) = try await acceptor.acceptServerEventStream()
             let macPrefix = Self.nextTransportMacPrefix(request)
             let connID = NextTransportGraduationFacade.objectID(connection)
-            return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(32)) { continuation in
+            // Byte chunks are ordered payload, not replaceable state. Keep a
+            // bounded oldest-first buffer and fail the lane if a slow consumer
+            // fills it; silently dropping a chunk would corrupt the stream.
+            return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(32)) { continuation in
                 let pump = Task {
                     let pumpStart = ContinuousClock.now
                     var chunks = 0
@@ -947,7 +951,22 @@ public final class MobileIrohRuntimeComposition:
                                     elapsedMs=\(NextTransportGraduationFacade.elapsedMs(since: pumpStart), privacy: .public)
                                     """)
                             }
-                            continuation.yield(chunk)
+                            switch continuation.yield(chunk) {
+                            case .enqueued:
+                                break
+                            case .dropped:
+                                nextTransportCompositionLog.error(
+                                    "server-events pump buffer overflow mac=\(macPrefix, privacy: .public) conn=\(connID, privacy: .public); failing lane")
+                                continuation.finish(throwing: NextTransportUnavailableError())
+                                await stream.receiveStream.stop(errorCode: 1)
+                                return
+                            case .terminated:
+                                return
+                            @unknown default:
+                                continuation.finish(throwing: NextTransportUnavailableError())
+                                await stream.receiveStream.stop(errorCode: 1)
+                                return
+                            }
                         }
                         nextTransportCompositionLog.notice(
                             """

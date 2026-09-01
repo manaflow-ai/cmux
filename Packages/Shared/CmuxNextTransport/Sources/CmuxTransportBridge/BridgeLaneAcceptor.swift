@@ -22,16 +22,25 @@ public actor BridgeLaneAcceptor {
     }
 
     private let acceptsServerEvents: Bool
-    private var appQueue: [AppEvent] = []
-    private var appWaiters: [(id: Int, continuation: CheckedContinuation<AppEvent, any Error>)] = []
-    private var pendingControl: [RawByteStream] = []
-    private var controlWaiters: [(id: Int, continuation: CheckedContinuation<RawByteStream, any Error>)] = []
-    private var pendingServerEvents: [(CmxIrohLane, CmxIrohBidirectionalStream)] = []
-    private var serverEventWaiters:
-        [(id: Int, continuation: CheckedContinuation<(lane: CmxIrohLane, stream: CmxIrohBidirectionalStream), any Error>)] = []
+    private var appQueue = FIFOQueue<AppEvent>()
+    private var appWaiters = FIFOQueue<(id: Int, continuation: CheckedContinuation<AppEvent, any Error>)>()
+    private var pendingControl = FIFOQueue<RawByteStream>()
+    private var controlWaiters = FIFOQueue<(id: Int, continuation: CheckedContinuation<RawByteStream, any Error>)>()
+    private var pendingServerEvents = FIFOQueue<(CmxIrohLane, CmxIrohBidirectionalStream)>()
+    private var serverEventWaiters = FIFOQueue<(
+        id: Int,
+        continuation: CheckedContinuation<(lane: CmxIrohLane, stream: CmxIrohBidirectionalStream), any Error>
+    )>()
     private var closed = false
     private var closeWatcher: Task<Void, Never>?
     private var waiterCounter = 0
+
+    /// Queues are deliberately bounded: stream admission is already capped by
+    /// the substrate, and retaining an arbitrary number of unconsumed events
+    /// would let a peer turn rejected lanes into memory growth.
+    private static let maxQueuedApplicationEvents = 64
+    private static let maxQueuedControlStreams = 1
+    private static let maxQueuedServerEventStreams = 16
 
     /// - Parameter acceptsServerEvents: true on the peer (phone) side, where
     ///   the host legitimately opens server-event streams; false on the host
@@ -114,8 +123,10 @@ public actor BridgeLaneAcceptor {
                     """)
             }
             if let waiter = controlWaiters.first {
-                controlWaiters.removeFirst()
+                _ = controlWaiters.popFirst()
                 waiter.continuation.resume(returning: stream)
+            } else if pendingControl.count >= Self.maxQueuedControlStreams {
+                await reject(stream)
             } else {
                 pendingControl.append(stream)
             }
@@ -145,8 +156,10 @@ public actor BridgeLaneAcceptor {
             }
             let event = (lane, CmxIrohBidirectionalStream(bridging: stream))
             if let waiter = serverEventWaiters.first {
-                serverEventWaiters.removeFirst()
+                _ = serverEventWaiters.popFirst()
                 waiter.continuation.resume(returning: event)
+            } else if pendingServerEvents.count >= Self.maxQueuedServerEventStreams {
+                await reject(stream)
             } else {
                 pendingServerEvents.append(event)
             }
@@ -159,7 +172,7 @@ public actor BridgeLaneAcceptor {
                     delivery=\(self.appWaiters.isEmpty ? "queued" : "waiter", privacy: .public)
                     """)
             }
-            deliver(.lane(lane, CmxIrohBidirectionalStream(bridging: stream)))
+            await deliver(.lane(lane, CmxIrohBidirectionalStream(bridging: stream)))
         }
     }
 
@@ -168,7 +181,7 @@ public actor BridgeLaneAcceptor {
         lane: CmxIrohLane, stream: CmxIrohBidirectionalStream
     ) {
         if !pendingServerEvents.isEmpty {
-            return pendingServerEvents.removeFirst()
+            return pendingServerEvents.popFirst()!
         }
         guard !closed else {
             if BridgeDebugLog.enabled {
@@ -189,7 +202,7 @@ public actor BridgeLaneAcceptor {
                 } else if closed {
                     continuation.resume(throwing: BridgeAcceptError.connectionClosed)
                 } else if !pendingServerEvents.isEmpty {
-                    continuation.resume(returning: pendingServerEvents.removeFirst())
+                    continuation.resume(returning: pendingServerEvents.popFirst()!)
                 } else {
                     serverEventWaiters.append((id: waiterID, continuation: continuation))
                 }
@@ -202,20 +215,38 @@ public actor BridgeLaneAcceptor {
     private func reject(_ stream: RawByteStream) async {
         await stream.resetSend(errorCode: 1)
         await stream.stopReceiving(errorCode: 1)
-        deliver(.rejected)
+        await deliver(.rejected)
     }
 
-    private func deliver(_ event: AppEvent) {
+    private func reject(_ stream: CmxIrohBidirectionalStream) async {
+        await stream.sendStream.reset(errorCode: 1)
+        await stream.receiveStream.stop(errorCode: 1)
+    }
+
+    private func deliver(_ event: AppEvent) async {
         if let waiter = appWaiters.first {
-            appWaiters.removeFirst()
+            _ = appWaiters.popFirst()
             switch event {
             case .lane(let lane, let stream):
                 waiter.continuation.resume(returning: .lane(lane, stream))
             case .rejected:
                 waiter.continuation.resume(returning: .rejected)
             }
-        } else {
+        } else if case .rejected = event,
+            appQueue.contains(where: { if case .rejected = $0 { true } else { false } })
+        {
+            // One queued rejection is enough to wake the legacy router; keep
+            // coalescing hostile repeats instead of retaining one event each.
+            return
+        } else if appQueue.count < Self.maxQueuedApplicationEvents {
             appQueue.append(event)
+        } else {
+            switch event {
+            case .rejected:
+                return
+            case .lane(_, let stream):
+                await reject(stream)
+            }
         }
     }
 
@@ -223,7 +254,7 @@ public actor BridgeLaneAcceptor {
     /// exactly one per connection.
     public func nextControlStream() async throws -> RawByteStream {
         if !pendingControl.isEmpty {
-            return pendingControl.removeFirst()
+            return pendingControl.popFirst()!
         }
         guard !closed else {
             if BridgeDebugLog.enabled {
@@ -244,7 +275,7 @@ public actor BridgeLaneAcceptor {
                 } else if closed {
                     continuation.resume(throwing: BridgeAcceptError.connectionClosed)
                 } else if !pendingControl.isEmpty {
-                    continuation.resume(returning: pendingControl.removeFirst())
+                    continuation.resume(returning: pendingControl.popFirst()!)
                 } else {
                     controlWaiters.append((id: waiterID, continuation: continuation))
                 }
@@ -260,7 +291,7 @@ public actor BridgeLaneAcceptor {
     ) {
         let event: AppEvent
         if !appQueue.isEmpty {
-            event = appQueue.removeFirst()
+            event = appQueue.popFirst()!
         } else {
             guard !closed else {
                 if BridgeDebugLog.enabled {
@@ -281,7 +312,7 @@ public actor BridgeLaneAcceptor {
                     } else if closed {
                         continuation.resume(throwing: BridgeAcceptError.connectionClosed)
                     } else if !appQueue.isEmpty {
-                        continuation.resume(returning: appQueue.removeFirst())
+                        continuation.resume(returning: appQueue.popFirst()!)
                     } else {
                         appWaiters.append((id: waiterID, continuation: continuation))
                     }
@@ -307,7 +338,7 @@ public actor BridgeLaneAcceptor {
 
     /// Ends the acceptor: queued streams are dropped, current and future
     /// waiters see `connectionClosed`.
-    public func finish() {
+    public func finish() async {
         guard !closed else { return }
         closed = true
         if BridgeDebugLog.enabled {
@@ -324,38 +355,44 @@ public actor BridgeLaneAcceptor {
         }
         closeWatcher?.cancel()
         closeWatcher = nil
-        for waiter in appWaiters {
+        while let waiter = appWaiters.popFirst() {
             waiter.continuation.resume(throwing: BridgeAcceptError.connectionClosed)
         }
-        appWaiters.removeAll()
-        for waiter in controlWaiters {
+        while let waiter = controlWaiters.popFirst() {
             waiter.continuation.resume(throwing: BridgeAcceptError.connectionClosed)
         }
-        controlWaiters.removeAll()
-        for waiter in serverEventWaiters {
+        while let waiter = serverEventWaiters.popFirst() {
             waiter.continuation.resume(throwing: BridgeAcceptError.connectionClosed)
         }
-        serverEventWaiters.removeAll()
-        appQueue.removeAll()
-        pendingControl.removeAll()
-        pendingServerEvents.removeAll()
+        while let event = appQueue.popFirst() {
+            if case .lane(_, let stream) = event {
+                await reject(stream)
+            }
+        }
+        while let stream = pendingControl.popFirst() {
+            await stream.resetSend(errorCode: 1)
+            await stream.stopReceiving(errorCode: 1)
+        }
+        while let (_, stream) = pendingServerEvents.popFirst() {
+            await reject(stream)
+        }
     }
 
     /// Cancels one parked application-lane waiter and resumes it exactly once.
     private func cancelAppWaiter(id: Int) {
-        guard let index = appWaiters.firstIndex(where: { $0.id == id }) else { return }
-        appWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        guard let waiter = appWaiters.remove(where: { $0.id == id }) else { return }
+        waiter.continuation.resume(throwing: CancellationError())
     }
 
     /// Cancels one parked control-stream waiter and resumes it exactly once.
     private func cancelControlWaiter(id: Int) {
-        guard let index = controlWaiters.firstIndex(where: { $0.id == id }) else { return }
-        controlWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        guard let waiter = controlWaiters.remove(where: { $0.id == id }) else { return }
+        waiter.continuation.resume(throwing: CancellationError())
     }
 
     /// Cancels one parked server-event waiter and resumes it exactly once.
     private func cancelServerEventWaiter(id: Int) {
-        guard let index = serverEventWaiters.firstIndex(where: { $0.id == id }) else { return }
-        serverEventWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        guard let waiter = serverEventWaiters.remove(where: { $0.id == id }) else { return }
+        waiter.continuation.resume(throwing: CancellationError())
     }
 }

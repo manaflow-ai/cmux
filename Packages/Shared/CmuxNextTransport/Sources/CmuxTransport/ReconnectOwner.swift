@@ -466,15 +466,28 @@ public actor ReconnectOwner {
             }
             return
         }
-        connection = nil
         let termination = await conn.termination()
+        // `termination()` suspends. An explicit redial or shutdown may have
+        // replaced/cleared the connection while the old watcher was waiting;
+        // never let that stale watcher apply a remote-close transition to the
+        // replacement owner state.
+        guard connection === conn else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.notice(
+                    "owner (TransportDebugLog.id(self), privacy: .public) connection end became stale while awaiting termination conn=\(TransportDebugLog.id(conn), privacy: .public)")
+            }
+            return
+        }
+        connection = nil
         let code = termination?.code ?? "connection-lost"
         // Local deliberate closes are preserved as exact codes by the
-        // connection owner. A remote close that cannot be parsed is therefore
-        // treated as an ordinary transport loss and redialed through the
-        // capped backoff; refusing to recover would strand a phone after a
-        // network/path drop whose FFI diagnostic has no stable reason text.
-        let willAutoRedial = !Self.terminalCloseCodes.contains(code)
+        // connection owner. A transport diagnostic with no application-close
+        // shape is an ordinary loss and redials through capped backoff; an
+        // ambiguous peer application close is held down fail-closed so a
+        // changed FFI rendering cannot resurrect a superseded session.
+        let ambiguousClose = termination?.authority == .ambiguous
+        let willAutoRedial = !ambiguousClose
+            && !Self.terminalCloseCodes.contains(code)
             && DenialCode(rawValue: code) == nil
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(

@@ -437,6 +437,7 @@ final class NextTransportGraduationFacade {
         Self.BootstrapKeychain.delete(
             macID: macID, defaults: defaults, keyPrefix: Self.bootstrapKeyPrefix)
         let client = clients.removeValue(forKey: macID)
+        clientStartupTasks[macID]?.task.cancel()
         if let client {
             let disconnectID = UUID()
             let disconnectTask = Task { [weak self] in
@@ -444,6 +445,8 @@ final class NextTransportGraduationFacade {
                 await self?.clientStartupFinished(macID: macID, id: disconnectID)
             }
             clientStartupTasks[macID] = (id: disconnectID, task: disconnectTask)
+        } else {
+            clientStartupTasks.removeValue(forKey: macID)
         }
         probedThisRun.remove(macID)
         setRouting(.unknown, macID: macID)

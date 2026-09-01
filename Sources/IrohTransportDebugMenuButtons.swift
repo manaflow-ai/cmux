@@ -97,8 +97,7 @@ struct NextTransportDebugMenuButtons: View {
             ) + nextTransportStateSuffix
         ) {
             Button {
-                enabled.toggle()
-                MobileHostService.shared.nextTransportRuntime.setEnabled(enabled)
+                MobileHostService.shared.nextTransportRuntime.setEnabled(!enabled)
             } label: {
                 if enabled {
                     Label(

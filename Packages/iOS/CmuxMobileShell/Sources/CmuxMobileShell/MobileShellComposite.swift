@@ -11412,7 +11412,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // generation and cancelled when that client is replaced.
         if let probe = nextTransportBootstrapProbe,
             let client = remoteClient,
-            let macDeviceID = activeTicket?.macDeviceID
+            let macDeviceID = activeTicket?.macDeviceID,
+            !macDeviceID.isEmpty
         {
             let generation = connectionGeneration
             if nextTransportBootstrapProbeGeneration != generation {

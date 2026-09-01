@@ -69,8 +69,9 @@ struct NextTransportEnvironmentTests {
     /// An unsigned JWT whose payload carries only `exp`, for the offline
     /// expiry-fallback paths (IrohSubstrate.tokenExpiry only base64-decodes
     /// the middle segment).
-    private static func fakeJWT(exp: Int64) throws -> String {
-        let payload = try JSONEncoder().encode(JSONValue.object(["exp": .int(exp)]))
+    private static func fakeJWT(exp: Int64, endpointHex: String) throws -> String {
+        let payload = try JSONEncoder().encode(
+            JSONValue.object(["exp": .int(exp), "endpoint_id": .string(endpointHex)]))
         let b64 = payload.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -88,13 +89,35 @@ struct NextTransportEnvironmentTests {
         case "/api/devices/iroh/register":
             return (200, "{}")
         case "/api/relay/token":
+            let endpoint: String = {
+                guard let body = request.httpBody,
+                    let value = try? JSONDecoder().decode(JSONValue.self, from: body),
+                    let object = value.objectValue,
+                    let endpoint = object["endpointId"]?.stringValue
+                else { return "" }
+                return endpoint
+            }()
+            let token = Self.token(endpointHex: endpoint)
             return (
                 200,
-                #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"tok-r1","expiresAt":1234}]}"#
+                #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"\#(token)","expiresAt":4102444800}]}"#
             )
         default:
             return (404, "unexpected \(request.url!.path)")
         }
+    }
+
+    private static func token(endpointHex: String) -> String {
+        let encode: (Data) -> String = { data in
+            data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let header = encode(Data(#"{"alg":"EdDSA","typ":"JWT"}"#.utf8))
+        let payload = encode(
+            Data(#"{"endpoint_id":"\#(endpointHex)","exp":4102444800}"#.utf8))
+        return "\(header).\(payload).c2ln"
     }
 
     @Test("staging matches the constants the call sites previously hardcoded")
@@ -271,13 +294,15 @@ struct NextTransportEnvironmentTests {
 
     @Test("A register-bootstrapped grant skips the /api/relay/token mint")
     func bootstrapGrantSkipsMint() async throws {
-        let expiry: Int64 = 1_900_000_000
+        let expiry: Int64 = 4_102_444_800
+        let identity = Self.identity()
+        let bootToken = Self.token(endpointHex: HexEncoding.lowercase(identity.publicKeyData))
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let expiresAt = formatter.string(
             from: Date(timeIntervalSince1970: TimeInterval(expiry)))
         let register = """
-            {"relay":{"status":"issued","token":"tok-boot","expires_at":"\(expiresAt)",\
+            {"relay":{"status":"issued","token":"\(bootToken)","expires_at":"\(expiresAt)",\
             "relay_fleet":["https://r1.relay/","https://r2.relay/"]}}
             """
         let script = ScriptedBroker { request in
@@ -287,14 +312,14 @@ struct NextTransportEnvironmentTests {
             return Self.standardScript(request)
         }
         let client = BrokerCredentialClient(
-            environment: Self.environment(), identity: Self.identity(),
+            environment: Self.environment(), identity: identity,
             auth: .session(tokens: Self.sessionTokens()),
             transport: script.transport)
 
         let credentials = try await client.mint(preferredUrl: "https://r2.relay/")
         #expect(!script.requests.map(\.url!.path).contains("/api/relay/token"))
         #expect(credentials.map(\.relayUrl) == ["https://r2.relay/", "https://r1.relay/"])
-        #expect(credentials.map(\.token) == ["tok-boot", "tok-boot"])
+        #expect(credentials.map(\.token) == [bootToken, bootToken])
         #expect(credentials.map(\.expiresAt) == [expiry, expiry])
     }
 
@@ -314,12 +339,15 @@ struct NextTransportEnvironmentTests {
         let credentials = try await client.mint(preferredUrl: nil)
         #expect(script.requests.map(\.url!.path).contains("/api/relay/token"))
         #expect(credentials.map(\.relayUrl) == ["https://r1.relay/"])
-        #expect(credentials.first?.expiresAt == 1234)
+        #expect(credentials.first?.expiresAt == 4_102_444_800)
     }
 
     @Test("Missing server expiry falls back to the token's own JWT exp claim")
     func expiryFallsBackToJwtExp() async throws {
-        let jwt = try Self.fakeJWT(exp: 1_234_567)
+        let identity = Self.identity()
+        let jwt = try Self.fakeJWT(
+            exp: 4_102_444_800,
+            endpointHex: HexEncoding.lowercase(identity.publicKeyData))
         let script = ScriptedBroker { request in
             switch request.url!.path {
             case "/api/devices/iroh/challenge":
@@ -336,11 +364,11 @@ struct NextTransportEnvironmentTests {
             }
         }
         let client = BrokerCredentialClient(
-            environment: Self.environment(), identity: Self.identity(),
+            environment: Self.environment(), identity: identity,
             auth: .session(tokens: Self.sessionTokens()),
             transport: script.transport)
 
         let credentials = try await client.mint(preferredUrl: nil)
-        #expect(credentials.first?.expiresAt == 1_234_567)
+        #expect(credentials.first?.expiresAt == 4_102_444_800)
     }
 }

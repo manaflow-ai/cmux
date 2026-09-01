@@ -101,10 +101,13 @@ struct LaneTests {
 
     @Test("A cancelled reader unparks with nil instead of leaking")
     func cancelledReaderUnparks() async throws {
-        let (client, _) = LoopbackWire().makeEnds()
-        let lane = await client.lane("idle")
-        let reader = Task { await lane.receive() }
-        for _ in 0..<50 { await Task.yield() }
+        let pipe = FramePipe()
+        let reader = Task { await pipe.receive() }
+        let deadline = ContinuousClock.now + .seconds(1)
+        while await pipe.waitingReceiverCount == 0, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        #expect(await pipe.waitingReceiverCount == 1)
         reader.cancel()
         // Before cancellation-aware receive, this awaited forever.
         #expect(await reader.value == nil)

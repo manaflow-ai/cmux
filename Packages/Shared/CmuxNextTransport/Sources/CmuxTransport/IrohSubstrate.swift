@@ -273,6 +273,7 @@ public actor IrohPeerConnection: PeerConnection {
     /// A single FIFO delivery task preserves the arrival order promised by
     /// `onRawStream`; one task per stream could be scheduled out of order.
     private var rawDeliveryQueue: [(String, RawByteStream)] = []
+    private var rawDeliveryHead = 0
     private var rawDeliveryTask: Task<Void, Never>?
     private var closedFlag = false
     private var localTermination: ConnectionTermination?
@@ -326,7 +327,7 @@ public actor IrohPeerConnection: PeerConnection {
     /// delivered immediately, in arrival order.
     public func onRawStream(
         _ handler: @escaping @Sendable (String, RawByteStream) async -> Void
-    ) {
+    ) async {
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(
                 """
@@ -413,7 +414,11 @@ public actor IrohPeerConnection: PeerConnection {
                     try? await stream.recv().stop(errorCode: 0)
                     return existing
                 }
-                let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
+                let channel = IrohLaneChannel(
+                    send: stream.send(), recv: stream.recv(),
+                    onProtocolError: { [weak self] in
+                        await self?.protocolViolation()
+                    })
                 try await channel.sendFrame(
                     Frame(type: Self.laneOpenType, payload: ["name": .string(name)]))
                 let lane = makeLane(name: name, channel: channel)
@@ -555,6 +560,7 @@ public actor IrohPeerConnection: PeerConnection {
         rawDeliveryTask?.cancel()
         rawDeliveryTask = nil
         rawDeliveryQueue.removeAll()
+        rawDeliveryHead = 0
         pendingRawStreams.removeAll()
         for task in laneWaiterTasks.values { task.cancel() }
         laneWaiterTasks.removeAll()
@@ -613,7 +619,15 @@ public actor IrohPeerConnection: PeerConnection {
             // The matcher above accepts only reason-shaped boundaries, so the
             // recovered code is the structured lifecycle value exposed to the
             // reconnect owner; unrelated diagnostic substrings are ignored.
-            return ConnectionTermination(code: code)
+            return ConnectionTermination(code: code, authority: .authoritative)
+        }
+        // An unrecognized peer application close is intentionally surfaced as
+        // an ambiguity marker. Reconnect policy must not redial a session that
+        // may have been superseded merely because a future FFI version changed
+        // the human-readable reason format. Transport timeout/reset diagnostics
+        // do not match this predicate and retain automatic recovery.
+        if Self.renderedPeerApplicationClose(rendered) {
+            return ConnectionTermination(code: "connection-lost", authority: .ambiguous)
         }
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(
@@ -631,11 +645,39 @@ public actor IrohPeerConnection: PeerConnection {
     /// for remote FFI strings that have no structured reason accessor.
     private static func renderedReasonContains(_ rendered: String, code: String) -> Bool {
         let value = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value == code
-            || value.hasSuffix(" \(code)")
-            || value.hasSuffix(":\(code)")
-            || value.contains("reason=\(code)")
-            || value.contains("reason: \(code)")
+        if value == code || value.hasSuffix(" \(code)") || value.hasSuffix(":\(code)") {
+            return true
+        }
+        // Current iroh-ffi renders an application close as
+        // `closed by peer: <reason> (code <n>)`; future versions may quote the
+        // reason or add a prefix. Extract only the token immediately following
+        // a reason-labelled boundary, never an arbitrary diagnostic substring.
+        for marker in [
+            "closed by peer: ", "aborted by peer: ", "reason=", "reason: ",
+            "reason \"", "reason='"
+        ] {
+            guard let range = value.range(of: marker, options: .backwards) else { continue }
+            let tail = value[range.upperBound...]
+            let token = tail.split(whereSeparator: {
+                $0 == " " || $0 == "(" || $0 == ")" || $0 == ","
+                    || $0 == "\"" || $0 == "'" || $0 == ":"
+            }).first.map(String.init)
+            if token == code { return true }
+        }
+        return false
+    }
+
+    /// Returns true for a peer application-close diagnostic without trusting
+    /// any reason text inside it. This is only an ambiguity fence for retry
+    /// policy; it never claims a lifecycle code.
+    private static func renderedPeerApplicationClose(_ rendered: String) -> Bool {
+        let value = rendered.lowercased()
+        return value.hasPrefix("closed by peer")
+            || value.hasPrefix("aborted by peer")
+            || value.contains("connectionclosed(")
+            || value.contains("applicationclosed(")
+            || (value.contains("peer") && value.contains("closed")
+                && (value.contains("code") || value.contains("reason")))
     }
 
     /// Creates a lane whose end callback returns ownership to this
@@ -709,7 +751,11 @@ public actor IrohPeerConnection: PeerConnection {
     /// bounded worker and cannot block later control/application lanes.
     private func processInboundStream(_ stream: BiStream, taskID: UInt64) async {
         defer { inboundStreamTasks.removeValue(forKey: taskID) }
-        let channel = IrohLaneChannel(send: stream.send(), recv: stream.recv())
+        let channel = IrohLaneChannel(
+            send: stream.send(), recv: stream.recv(),
+            onProtocolError: { [weak self] in
+                await self?.protocolViolation()
+            })
         guard let open = await receiveOpenFrameWithDeadline(channel: channel) else {
             if TransportDebugLog.enabled {
                 TransportDebugLog.core.notice(
@@ -741,11 +787,21 @@ public actor IrohPeerConnection: PeerConnection {
                     """)
             }
             if rawStreamHandler != nil {
+                guard rawDeliveryQueue.count - rawDeliveryHead < Self.maxConcurrentInboundStreams else {
+                    await raw.resetSend(errorCode: 1)
+                    await raw.stopReceiving(errorCode: 1)
+                    return
+                }
                 rawDeliveryQueue.append((preamble, raw))
                 // Delivery is serialized through one FIFO task so the
                 // handler observes streams in substrate arrival order.
                 startRawDeliveryIfNeeded()
             } else {
+                guard pendingRawStreams.count < Self.maxConcurrentInboundStreams else {
+                    await raw.resetSend(errorCode: 1)
+                    await raw.stopReceiving(errorCode: 1)
+                    return
+                }
                 pendingRawStreams.append((preamble, raw))
             }
             return
@@ -845,6 +901,15 @@ public actor IrohPeerConnection: PeerConnection {
         try? await stream.recv().stop(errorCode: 1)
     }
 
+    /// Closes the whole session when a framed lane cannot be decoded. A plain
+    /// EOF would otherwise look like an ordinary transport loss to the
+    /// reconnect owner and hide a protocol/version violation.
+    private func protocolViolation() async {
+        guard !closedFlag else { return }
+        await closeAll(
+            reason: ConnectionTermination(code: DenialCode.protocolMismatch.rawValue))
+    }
+
     private func resumeAllWaitersClosed() {
         if TransportDebugLog.enabled, !laneWaiters.isEmpty {
             TransportDebugLog.core.notice(
@@ -877,14 +942,26 @@ public actor IrohPeerConnection: PeerConnection {
 
     /// Pops the next queued raw stream for the delivery worker.
     private func nextRawDelivery() -> (String, RawByteStream)? {
-        guard !rawDeliveryQueue.isEmpty else { return nil }
-        return rawDeliveryQueue.removeFirst()
+        guard rawDeliveryHead < rawDeliveryQueue.count else {
+            rawDeliveryQueue.removeAll(keepingCapacity: true)
+            rawDeliveryHead = 0
+            return nil
+        }
+        let item = rawDeliveryQueue[rawDeliveryHead]
+        rawDeliveryHead += 1
+        // Compact only after a meaningful prefix has been consumed; this keeps
+        // dequeue cost amortized O(1) without retaining old stream handles.
+        if rawDeliveryHead >= 32, rawDeliveryHead * 2 >= rawDeliveryQueue.count {
+            rawDeliveryQueue.removeSubrange(0..<rawDeliveryHead)
+            rawDeliveryHead = 0
+        }
+        return item
     }
 
     /// Clears the completed worker handle; a later arrival can start a new one.
     private func rawDeliveryFinished() {
         rawDeliveryTask = nil
-        if !rawDeliveryQueue.isEmpty { startRawDeliveryIfNeeded() }
+        if rawDeliveryHead < rawDeliveryQueue.count { startRawDeliveryIfNeeded() }
     }
 }
 
@@ -925,10 +1002,11 @@ public actor IrohLane: TransportLane {
         return frame
     }
 
-    /// QUIC flow control provides the survivable per-lane backpressure (5.3)
-    /// at the transport level; per-stall counting arrives with endpoint
-    /// metrics in the lab (endpoint.stats()), not here.
-    public var backpressureStalls: Int { 0 }
+    /// Number of short writes observed while QUIC flow control applied
+    /// backpressure to this lane.
+    public var backpressureStalls: Int {
+        get async { await channel.backpressureStalls }
+    }
 
     func finishSend() async {
         await channel.finish()
@@ -940,23 +1018,50 @@ actor IrohLaneChannel {
     private let sendStream: SendStream
     private let recvStream: RecvStream
     private var decoder = FrameDecoder(captureEncodedFrames: true)
-    private var pending: [(frame: Frame, encoded: Data)] = []
+    private var pending = FIFOQueue<(frame: Frame, encoded: Data)>()
     private var eof = false
+    private var protocolErrorNotified = false
+    private var backpressureStallCount = 0
     private let encoder = FrameEncoder()
+    private let frameTypePolicy = FrameTypePolicy()
+    private let onProtocolError: (@Sendable () async -> Void)?
 
-    init(send: SendStream, recv: RecvStream) {
+    init(
+        send: SendStream,
+        recv: RecvStream,
+        onProtocolError: (@Sendable () async -> Void)? = nil
+    ) {
         self.sendStream = send
         self.recvStream = recv
+        self.onProtocolError = onProtocolError
     }
 
     func sendFrame(_ frame: Frame) async throws {
         let data = try encoder.encode(frame)
         do {
-            try await sendStream.writeAll(buf: data)
+            var offset = 0
+            while offset < data.count {
+                let remaining = data.dropFirst(offset)
+                let written = try await sendStream.write(buf: Data(remaining))
+                guard written > 0, written <= UInt64(remaining.count) else {
+                    throw TransportError.pipeClosed
+                }
+                if written < UInt64(remaining.count) {
+                    // A short write is the FFI-visible evidence that QUIC
+                    // flow control required another turn; count it for the
+                    // lane diagnostics without guessing from wall time.
+                    backpressureStallCount += 1
+                }
+                offset += Int(written)
+            }
         } catch {
             throw TransportError.pipeClosed
         }
     }
+
+    /// Number of short writes observed while QUIC flow control was applying
+    /// backpressure to this lane.
+    var backpressureStalls: Int { backpressureStallCount }
 
     func receiveFrame() async -> Frame? {
         while pending.isEmpty && !eof {
@@ -974,7 +1079,7 @@ actor IrohLaneChannel {
                     eof = true
                     break
                 }
-                pending.append(contentsOf: zip(frames, encoded).map { (frame: $0.0, encoded: $0.1) })
+                guard appendDecoded(frames, encoded: encoded) else { break }
                 if !pending.isEmpty { break }
 
                 let data = try await recvStream.read(sizeLimit: 1 << 16)
@@ -988,12 +1093,15 @@ actor IrohLaneChannel {
                     eof = true
                     break
                 }
-                pending.append(contentsOf: zip(frames, encodedAfterRead).map { (frame: $0.0, encoded: $0.1) })
+                guard appendDecoded(frames, encoded: encodedAfterRead) else { break }
+            } catch let error as FrameCodecError {
+                eof = true
+                notifyProtocolError(error)
             } catch {
                 eof = true
             }
         }
-        return pending.isEmpty ? nil : pending.removeFirst().frame
+        return pending.popFirst()?.frame
     }
 
     /// Reads exactly one opening frame and leaves all coalesced bytes in the
@@ -1014,6 +1122,10 @@ actor IrohLaneChannel {
                     _ = decoder.drainEncodedFrames()
                     return frame
                 }
+            } catch let error as FrameCodecError {
+                eof = true
+                notifyProtocolError(error)
+                break
             } catch {
                 eof = true
                 break
@@ -1036,15 +1148,46 @@ actor IrohLaneChannel {
     /// frame. Raw handoff must re-inject them ahead of the stream reads.
     func drainBufferedBytes() -> Data {
         var out = Data()
-        for item in pending {
+        while let item = pending.popFirst() {
             // A raw peer never sends more frames after raw.open; anything
             // decoded here IS raw payload that happened to parse-attempt. Use
             // the original bytes, never a freshly encoded approximation.
             out.append(item.encoded)
         }
-        pending.removeAll()
         out.append(decoder.drainRemainder())
         return out
+    }
+
+    private func notifyProtocolError(_ error: FrameCodecError) {
+        guard !protocolErrorNotified else { return }
+        protocolErrorNotified = true
+        _ = error
+        // Do not await the parent connection while this channel is servicing
+        // the lane read: the parent's close path finishes every lane and would
+        // otherwise wait on this actor recursively. The one-shot task is
+        // weakly owned by the callback's parent and immediately closes the
+        // native connection, which releases this read before lane cleanup.
+        let callback = onProtocolError
+        Task { await callback?() }
+    }
+
+    /// Applies the mandatory/optional frame-type policy at the framed receive
+    /// boundary. Consumers never get a mandatory unknown frame to accidentally
+    /// treat as an ignorable application message.
+    private func appendDecoded(_ frames: [Frame], encoded: [Data]) -> Bool {
+        guard frames.count == encoded.count else {
+            eof = true
+            return false
+        }
+        for (frame, bytes) in zip(frames, encoded) {
+            if frameTypePolicy.classify(frame.type) == .fatalUnknown {
+                eof = true
+                notifyProtocolError(.unknownMandatoryType(frame.type))
+                return false
+            }
+            pending.append((frame: frame, encoded: bytes))
+        }
+        return true
     }
 }
 

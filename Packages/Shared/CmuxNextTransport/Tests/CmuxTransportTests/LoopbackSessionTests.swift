@@ -9,7 +9,10 @@ struct LoopbackSessionTests {
     let now: Int64 = 1_000_000
 
     private func makeHost() -> TransportHost {
-        TransportHost(verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
+        let fixedNow = now
+        return TransportHost(
+            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+            epochNow: { fixedNow })
     }
 
     private func mintedIdentity(
@@ -68,10 +71,9 @@ struct LoopbackSessionTests {
         // supersession) the session stayed in the table, status reported the
         // phone as present, and the rig's rotation gate waited forever.
         await client.closeAll(reason: nil)
-        var polls = 0
-        while await host.sessionCount != 0, polls < 200 {
-            try await Task.sleep(for: .milliseconds(10))
-            polls += 1
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await host.sessionCount != 0, ContinuousClock.now < deadline {
+            await Task.yield()
         }
         #expect(await host.sessionCount == 0)
         #expect(await host.sessionDeviceIDs.isEmpty)
@@ -249,5 +251,20 @@ struct LoopbackSessionTests {
             await client.termination()
                 == ConnectionTermination(code: DenialCode.protocolMismatch.rawValue))
         await serving
+    }
+
+    @Test("A silent peer is closed at the hello deadline")
+    func silentPeerHitsHelloDeadline() async throws {
+        let host = TransportHost(
+            verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+            handshakeSleep: { _ in })
+        let (client, hostEnd) = LoopbackWire().makeEnds()
+
+        await host.serve(connection: hostEnd, now: now)
+
+        #expect(await client.isClosed)
+        #expect(
+            await client.termination()
+                == ConnectionTermination(code: DenialCode.malformedHello.rawValue))
     }
 }

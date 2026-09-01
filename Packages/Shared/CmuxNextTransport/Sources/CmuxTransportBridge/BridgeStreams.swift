@@ -9,6 +9,7 @@ import Foundation
 public actor BridgeReceiveStream: CmxIrohReceiveStream {
     private let stream: RawByteStream
     private var buffer: Data
+    private var closed = false
 
     public init(stream: RawByteStream) {
         self.stream = stream
@@ -16,6 +17,7 @@ public actor BridgeReceiveStream: CmxIrohReceiveStream {
     }
 
     public func receive(maximumByteCount: Int) async throws -> Data? {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
         if !buffer.isEmpty {
             let chunk = buffer.prefix(maximumByteCount)
             buffer.removeFirst(chunk.count)
@@ -26,6 +28,9 @@ public actor BridgeReceiveStream: CmxIrohReceiveStream {
     }
 
     public func stop(errorCode: UInt64) async {
+        guard !closed else { return }
+        closed = true
+        buffer.removeAll(keepingCapacity: false)
         await stream.stopReceiving(errorCode: errorCode)
     }
 }
@@ -69,15 +74,19 @@ extension CmxIrohBidirectionalStream {
 public actor BridgeByteTransport: CmxByteTransport {
     private let stream: RawByteStream
     private var buffer: Data
+    private var closed = false
 
     public init(stream: RawByteStream) {
         self.stream = stream
         buffer = stream.handshakeRemainder
     }
 
-    public func connect() async throws {}
+    public func connect() async throws {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
+    }
 
     public func receive() async throws -> Data? {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
         if !buffer.isEmpty {
             let chunk = buffer.prefix(1 << 16)
             buffer.removeFirst(chunk.count)
@@ -88,10 +97,14 @@ public actor BridgeByteTransport: CmxByteTransport {
     }
 
     public func send(_ data: Data) async throws {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
         try await stream.write(data)
     }
 
     public func close() async {
+        guard !closed else { return }
+        closed = true
+        buffer.removeAll(keepingCapacity: false)
         if BridgeDebugLog.enabled {
             BridgeDebugLog.lanes.notice(
                 """

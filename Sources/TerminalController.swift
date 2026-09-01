@@ -11832,7 +11832,7 @@ class TerminalController {
         guard parts.count == 3, let key = Data(base64Encoded: parts[1]) else {
             return "ERROR: " + String(
                 localized: "cli.nextTransport.grantUsage",
-                defaultValue: "Usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
+                defaultValue: "Usage: cmux next-transport-grant <deviceId> <devicePublicKeyB64> <appIdentity>"
             )
         }
         return v2MainSync {

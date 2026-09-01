@@ -17,6 +17,11 @@ public struct TransportCounters: Sendable, Equatable {
 /// against `PeerConnection`, so the same host logic serves loopback today and
 /// the iroh / tailnet substrates in P1; only the dial/accept plumbing differs.
 public actor TransportHost {
+    private enum HelloReadOutcome: Sendable {
+        case frame(Frame)
+        case eof
+        case timeout
+    }
     /// Supplies the account currently authenticated on the host. When set,
     /// every admission and renewal must carry that same account ID; returning
     /// nil fails closed as ``DenialCode/accountMismatch``.
@@ -70,15 +75,22 @@ public actor TransportHost {
     private var admissionOverride: DenialCode?
     private var sessions: [SessionKey: ActiveSession] = [:]
     private var sessionCounter = 0
-    /// The host's notion of "now", injected by serve()/enforceExpiries() so
-    /// every lifecycle behavior is deterministic in tests. The P1 runtime
-    /// advances it from a real clock; no timers live in this layer.
+    /// The most recent lifecycle tick, retained for diagnostics and explicit
+    /// simulated-time callers. Fresh operations use `epochNow` instead of
+    /// trusting this potentially stale snapshot.
     private var currentTime: Int64 = 0
     /// Wall-clock source used for operations that can arrive between explicit
     /// lifecycle ticks (for example a relay push or grant renewal). Tests may
     /// inject a deterministic epoch source; the compatibility fallback below
     /// also keeps an explicitly simulated `serve(now:)` timeline stable.
     private let epochNow: @Sendable () -> Int64
+    /// Clock seam for the bounded initial hello deadline. Tests inject an
+    /// immediate cancellation-aware sleeper; production uses wall time.
+    private let handshakeSleep: @Sendable (Duration) async throws -> Void
+    /// Admission reservations fence actor reentrancy while an older session's
+    /// close is awaited. Only the reservation owner may install a session.
+    private var admissionReservations: [SessionKey: UInt64] = [:]
+    private var admissionReservationCounter: UInt64 = 0
     public private(set) var counters = TransportCounters()
 
     public init(
@@ -90,7 +102,10 @@ public actor TransportHost {
         },
         accountIDProvider: AccountIDProvider? = nil,
         initialRevokedGrantIDs: Set<String> = [],
-        onGrantRevoked: GrantRevocationHandler? = nil
+        onGrantRevoked: GrantRevocationHandler? = nil,
+        handshakeSleep: @escaping @Sendable (Duration) async throws -> Void = { delay in
+            try await ContinuousClock().sleep(for: delay)
+        }
     ) {
         self.verifier = verifier
         self.accountIDProvider = accountIDProvider
@@ -98,6 +113,7 @@ public actor TransportHost {
         self.expiryGraceSeconds = expiryGraceSeconds
         self.expiryWarningSeconds = expiryWarningSeconds
         self.epochNow = epochNow
+        self.handshakeSleep = handshakeSleep
         self.revokedGrantIDs = initialRevokedGrantIDs
     }
 
@@ -168,11 +184,7 @@ public actor TransportHost {
     /// A test that supplies `serve(now:)` values far from the wall clock is
     /// treated as explicitly clocked until the next host instance is created.
     private func verificationNow() -> Int64 {
-        let wall = epochNow()
-        guard currentTime != 0, abs(wall - currentTime) > 86_400 else {
-            return wall
-        }
-        return currentTime
+        epochNow()
     }
 
     /// Reconcile the table against the substrate's OWN liveness signal.
@@ -231,7 +243,8 @@ public actor TransportHost {
                 """)
         }
         let control = await connection.lane(Self.controlLaneName)
-        guard let hello = await control.receive(), hello.type == FrameTypes.hello else {
+        guard let hello = await receiveHello(
+            from: control, connection: connection), hello.type == FrameTypes.hello else {
             if TransportDebugLog.enabled {
                 TransportDebugLog.host.error(
                     """
@@ -239,7 +252,9 @@ public actor TransportHost {
                     no frame or wrong type
                     """)
             }
-            await deny(.malformedHello, connection: connection)
+            if await !connection.isClosed {
+                await deny(.malformedHello, connection: connection)
+            }
             return
         }
         if let override = admissionOverride {
@@ -344,6 +359,9 @@ public actor TransportHost {
             // A dead process's session must never block re-admission; the
             // field logs showed an ~85s lockout doing exactly that.
             let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
+            admissionReservationCounter &+= 1
+            let reservation = admissionReservationCounter
+            admissionReservations[key] = reservation
             var supersededSessionID: String?
             if let old = sessions.removeValue(forKey: key) {
                 supersededSessionID = old.id
@@ -351,6 +369,14 @@ public actor TransportHost {
                 await old.connection.closeAll(
                     reason: ConnectionTermination(code: CloseReason.superseded.code))
                 counters.closesByCode[CloseReason.superseded.code, default: 0] += 1
+            }
+            // The close above suspends this actor. A newer admission for the
+            // same identity may have claimed the reservation while we waited;
+            // never let this stale connection become an untracked session.
+            guard admissionReservations[key] == reservation else {
+                await connection.closeAll(
+                    reason: ConnectionTermination(code: CloseReason.superseded.code))
+                return
             }
             sessionCounter += 1
             let session = ActiveSession(
@@ -382,6 +408,13 @@ public actor TransportHost {
                     """)
             }
             try? await control.send(Frame.admit(sessionID: session.id))
+            guard admissionReservations[key] == reservation,
+                sessions[key]?.connection === connection
+            else {
+                await connection.closeAll(
+                    reason: ConnectionTermination(code: CloseReason.superseded.code))
+                return
+            }
             if let credential = pendingRelayCredentials[key],
                 Self.credentialExpired(token: credential.token, now: now)
             {
@@ -425,7 +458,44 @@ public actor TransportHost {
                 // session that is already gone. Kill them, never leak them.
                 for task in serviceTasks { task.cancel() }
             }
+            if admissionReservations[key] == reservation {
+                admissionReservations.removeValue(forKey: key)
+            }
         }
+    }
+
+    /// Reads the first control frame with a bounded, cancellation-aware
+    /// deadline. Closing the connection on timeout wakes substrates whose FFI
+    /// receive future does not observe task cancellation on its own.
+    private func receiveHello(
+        from control: any TransportLane,
+        connection: any PeerConnection
+    ) async -> Frame? {
+        let outcome = await withTaskGroup(of: HelloReadOutcome.self) { group in
+            group.addTask {
+                guard let frame = await control.receive() else { return .eof }
+                return .frame(frame)
+            }
+            let sleep = handshakeSleep
+            group.addTask {
+                do {
+                    try await sleep(.seconds(10))
+                } catch {
+                    return .eof
+                }
+                return .timeout
+            }
+            let result = await group.next() ?? .eof
+            group.cancelAll()
+            if case .timeout = result {
+                await connection.closeAll(
+                    reason: ConnectionTermination(code: DenialCode.malformedHello.rawValue))
+            }
+            await group.waitForAll()
+            return result
+        }
+        if case .frame(let frame) = outcome { return frame }
+        return nil
     }
 
     /// The admitted session bound to one live connection, if any. Host
@@ -507,10 +577,14 @@ public actor TransportHost {
     }
 
     public func pushRelayCredential(
-        deviceID: String, appIdentity: String, url: String, token: String
+        deviceID: String, appIdentity: String, url: String, token: String,
+        now: Int64? = nil
     ) async -> Bool {
         _ = await reapClosedSessions()  // never claim delivery to a zombie
-        let now = verificationNow()
+        // Callers that own a simulated/lifecycle clock may supply the exact
+        // observation instant. Otherwise read the fresh injected wall clock;
+        // never reuse a stale `serve(now:)` value after a long idle gap.
+        let now = now ?? verificationNow()
         currentTime = now
         let key = SessionKey(deviceID: deviceID, appIdentity: appIdentity)
         // Insert is also the prune point: without it, keys for devices that
@@ -913,7 +987,15 @@ public struct TransportClient: Sendable {
             }
             throw TransportError.unexpectedFrame(reply.type)
         }
-        let sessionID = reply.payload["session"]?.stringValue ?? ""
+        guard let sessionID = reply.payload["session"]?.stringValue,
+            !sessionID.isEmpty
+        else {
+            if TransportDebugLog.enabled {
+                TransportDebugLog.core.error(
+                    "client connect FAILED conn=\(TransportDebugLog.id(connection), privacy: .public) cause=empty-admit-session")
+            }
+            throw TransportError.unexpectedFrame("ctl.admit.empty-session")
+        }
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(
                 """

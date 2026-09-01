@@ -125,9 +125,7 @@ struct RelayE2ETests {
         let stranger = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "x")
         let strangerGrant = try signer.mint(
             accountID: "acct-relay", deviceID: "x", devicePublicKey: stranger.publicKeyData,
-            appIdentity: stranger.appIdentity, grantID: "g-x", issuedAt: now,
-            expiresAt: now - 10)
-        await host.revokeGrant(id: "g-x")
+            appIdentity: stranger.appIdentity, grantID: "g-x", issuedAt: now)
         let conn2 = try await IrohSubstrate.dial(
             endpoint: client,
             to: try IrohSubstrate.relayAddr(id: mac.publicKeyData, relayUrl: config.relayUrl))

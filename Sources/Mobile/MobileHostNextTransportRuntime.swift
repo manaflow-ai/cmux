@@ -7,11 +7,6 @@ import IrohLib
 import Observation
 import OSLog
 
-nonisolated private let mobileHostNextTransportLog = Logger(
-    subsystem: "dev.cmux",
-    category: "mobile-host-next-transport"
-)
-
 // MARK: - Pure decision logic (no I/O; integrator wires unit tests)
 
 /// Timing knobs for the parallel host's startup and lifecycle races.
@@ -141,7 +136,7 @@ private actor MobileHostNextTransportGrantRevocationStore {
             guard let data = try await keychain.read(account: account) else { return [] }
             return Set(try JSONDecoder().decode([String].self, from: data))
         } catch {
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 "next-transport grant revocation read failed: \(String(describing: error), privacy: .public)")
             return []
         }
@@ -161,7 +156,7 @@ private actor MobileHostNextTransportGrantRevocationStore {
                 account: account,
                 accessibility: .afterFirstUnlockThisDeviceOnly)
         } catch {
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 "next-transport grant revocation write failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -187,6 +182,14 @@ private actor MobileHostNextTransportGrantRevocationStore {
 @MainActor
 @Observable
 final class MobileHostNextTransportRuntime {
+    /// Shared logger for the runtime and its bridge companion. Keeping it on
+    /// the owning type avoids ambient module-global state while the
+    /// nonisolated declaration remains safe to use from worker tasks.
+    nonisolated static let logger = Logger(
+        subsystem: "dev.cmux",
+        category: "mobile-host-next-transport"
+    )
+
     /// Elapsed whole milliseconds used by host and bridge diagnostics.
     nonisolated static func elapsedMs(since start: ContinuousClock.Instant) -> Int64 {
         let elapsed = start.duration(to: ContinuousClock.now)
@@ -270,6 +273,8 @@ final class MobileHostNextTransportRuntime {
     private var grantRevocationTask: Task<Void, Never>?
     private var issuedGrantIDs: Set<String> = []
     private var grantExpiryTask: Task<Void, Never>?
+    /// Withdraws a cached relay route when no broker client exists to renew it.
+    private var cachedCredentialExpiryTask: Task<Void, Never>?
     /// Single owner for enable/disable races: every start belongs to one
     /// generation, disable bumps it, and every post-await step re-checks it,
     /// so a stale start can never publish (or clobber a newer one).
@@ -287,7 +292,7 @@ final class MobileHostNextTransportRuntime {
     }
 
     func setEnabled(_ enabled: Bool) {
-        mobileHostNextTransportLog.notice(
+        MobileHostNextTransportRuntime.logger.notice(
             "host runtime setEnabled=\(enabled, privacy: .public) (was \(self.isEnabled, privacy: .public))")
         UserDefaults.standard.set(enabled, forKey: Self.debugDefaultsKey)
         if enabled {
@@ -328,16 +333,16 @@ final class MobileHostNextTransportRuntime {
     /// Idempotent: a host that is already starting or running is left alone.
     func startIfEnabled() {
         guard isEnabled else {
-            mobileHostNextTransportLog.notice("host runtime startIfEnabled: disabled; not starting")
+            MobileHostNextTransportRuntime.logger.notice("host runtime startIfEnabled: disabled; not starting")
             return
         }
         guard MobileRemoteControlPolicy.isEnabled else {
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 "host runtime startIfEnabled: managed remote-control disable; not starting")
             return
         }
         guard startTask == nil, endpoint == nil else {
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 host runtime startIfEnabled: already \
                 \(self.endpoint == nil ? "starting" : "running", privacy: .public) \
@@ -365,7 +370,7 @@ final class MobileHostNextTransportRuntime {
     /// fresh immediately), closing the endpoint in the background. Bumping
     /// the generation strands any in-flight start at its next checkpoint.
     private func beginStop(reason: String) {
-        mobileHostNextTransportLog.notice(
+        MobileHostNextTransportRuntime.logger.notice(
             """
             host stop begin reason=\(reason, privacy: .public) \
             state=\(self.state, privacy: .public) \
@@ -381,6 +386,8 @@ final class MobileHostNextTransportRuntime {
         credentialTask = nil
         grantExpiryTask?.cancel()
         grantExpiryTask = nil
+        cachedCredentialExpiryTask?.cancel()
+        cachedCredentialExpiryTask = nil
         for task in serveTasks.values { task.cancel() }
         serveTasks.removeAll()
         let grantsToRevoke = issuedGrantIDs
@@ -394,7 +401,7 @@ final class MobileHostNextTransportRuntime {
             }
         }
         MobileHostService.shared.updateNextTransportRoute(nil)
-        mobileHostNextTransportLog.notice("presence route CLEARED")
+        MobileHostNextTransportRuntime.logger.notice("presence route CLEARED")
         let closing = endpoint
         endpoint = nil
         host = nil
@@ -410,10 +417,10 @@ final class MobileHostNextTransportRuntime {
             // observe Swift task cancellation).
             Task.detached {
                 try? await closing.close()
-                mobileHostNextTransportLog.notice("host endpoint closed")
+                MobileHostNextTransportRuntime.logger.notice("host endpoint closed")
             }
         }
-        mobileHostNextTransportLog.notice("host stop done state=off")
+        MobileHostNextTransportRuntime.logger.notice("host stop done state=off")
     }
 
     /// Drives the host's grant lifecycle while the endpoint is live. Admission
@@ -463,7 +470,7 @@ final class MobileHostNextTransportRuntime {
     /// of cmux#9724.
     func mintTicketJSON() -> Result<String, RequestFailure> {
         guard readiness == .published, let endpoint, let signer else {
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 ticket mint refused: host not published \
                 (endpoint=\(self.endpoint != nil, privacy: .public) \
@@ -502,10 +509,10 @@ final class MobileHostNextTransportRuntime {
         guard let data = try? JSONEncoder().encode(JSONValue.object(ticket)),
             let json = String(data: data, encoding: .utf8)
         else {
-            mobileHostNextTransportLog.error("ticket mint failed: ticket JSON did not encode")
+            MobileHostNextTransportRuntime.logger.error("ticket mint failed: ticket JSON did not encode")
             return .failure(.encodingFailed("ticket JSON"))
         }
-        mobileHostNextTransportLog.notice(
+        MobileHostNextTransportRuntime.logger.notice(
             """
             ticket minted endpoint=\(String(self.endpointID?.prefix(8) ?? "?"), privacy: .public) \
             addrs=\(addrs.joined(separator: ","), privacy: .public) \
@@ -522,7 +529,7 @@ final class MobileHostNextTransportRuntime {
         deviceID: String, devicePublicKey: Data, appIdentity: String
     ) -> Result<String, RequestFailure> {
         guard readiness == .published, let signer else {
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 grant mint refused: host not published \
                 device=\(String(deviceID.prefix(8)), privacy: .public) \
@@ -537,7 +544,7 @@ final class MobileHostNextTransportRuntime {
             // Never mint a grant with a placeholder account. A grant issued
             // while signed out would remain cryptographically valid after a
             // later account switch and could cross the host's trust boundary.
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 "grant mint refused: no authenticated account")
             return .failure(.notReady(readiness: readiness, state: state))
         }
@@ -552,7 +559,7 @@ final class MobileHostNextTransportRuntime {
             let data = try? JSONEncoder().encode(JSONValue.object(["grant": grant.payloadValue])),
             let json = String(data: data, encoding: .utf8)
         else {
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 """
                 grant mint FAILED device=\(String(deviceID.prefix(8)), privacy: .public) \
                 app=\(appIdentity, privacy: .public)
@@ -560,11 +567,11 @@ final class MobileHostNextTransportRuntime {
             return .failure(.encodingFailed("grant"))
         }
         issuedGrantIDs.insert(grant.grantID)
-        mobileHostNextTransportLog.notice(
+        MobileHostNextTransportRuntime.logger.notice(
             """
             grant minted device=\(String(deviceID.prefix(8)), privacy: .public) \
             app=\(appIdentity, privacy: .public) \
-            grantID=\(grant.grantID, privacy: .public) \
+            grantID=\(String(grant.grantID.prefix(8)), privacy: .public) \
             key=\(Self.hex(Data(devicePublicKey.prefix(4))), privacy: .public)
             """)
         return .success(json)
@@ -588,14 +595,14 @@ final class MobileHostNextTransportRuntime {
         let startClock = ContinuousClock.now
         state = "starting"
         readiness = .starting
-        mobileHostNextTransportLog.notice("host start begin state=starting")
+        MobileHostNextTransportRuntime.logger.notice("host start begin state=starting")
         do {
             // The parallel host is account-bound. Do not bind an endpoint or
             // mint grants while auth is signed out; the auth observer retries
             // after the next authenticated session is published.
             guard await MobileHostService.shared.currentAuthenticatedLocalUserID() != nil else {
                 state = "waiting for authenticated account"
-                mobileHostNextTransportLog.notice(
+                MobileHostNextTransportRuntime.logger.notice(
                     "host start deferred: no authenticated account")
                 return
             }
@@ -630,7 +637,7 @@ final class MobileHostNextTransportRuntime {
             let client = await Task.detached { Self.brokerClient(identity: identity) }.value
             guard generation == gen else { return }
             credentialClient = client
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 host broker client \(client == nil ? "ABSENT (no dogfood credentials; direct-only)" : "ready", privacy: .public) \
                 device=\(String(identity.deviceID.prefix(8)), privacy: .public)
@@ -641,11 +648,17 @@ final class MobileHostNextTransportRuntime {
             // broker mint is never on the binding path.
             let cached = await Self.loadCachedRelayCredentials()
             guard generation == gen else { return }
+            // Cached credentials are endpoint-bound. A regenerated identity
+            // must never reuse the previous endpoint's token and publish a
+            // relay route that the fleet will silently reject.
+            let identityBoundCached = cached.filter {
+                IrohSubstrate.tokenEndpointId($0.token) == identity.publicKeyData
+            }
             let usable = relayCachePolicy.usable(
-                cached, now: Int64(Date().timeIntervalSince1970))
+                identityBoundCached, now: Int64(Date().timeIntervalSince1970))
             let plan = NextTransportRelayPlan.make(
                 hasBrokerClient: client != nil, hasUsableCache: !usable.isEmpty)
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 host relay plan \(String(describing: plan), privacy: .public) \
                 cached=\(cached.count, privacy: .public) \
@@ -673,7 +686,7 @@ final class MobileHostNextTransportRuntime {
             startGrantExpiryLoop(host: host, generation: gen)
             endpointID = Self.hex(endpoint.id().toBytes())
             relayURL = usable.first?.relayUrl
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 host endpoint bound id=\(String(self.endpointID?.prefix(8) ?? "?"), privacy: .public) \
                 relays=\(relays.count, privacy: .public) \
@@ -681,6 +694,7 @@ final class MobileHostNextTransportRuntime {
                 elapsedMs=\(Self.elapsedMs(since: startClock), privacy: .public)
                 """)
 
+            var cachedRelayConfirmed = relays.isEmpty
             if !relays.isEmpty {
                 // online() waits for the relay handshake. A cached token the
                 // fleet has stopped honoring hangs it with no client-visible
@@ -690,9 +704,26 @@ final class MobileHostNextTransportRuntime {
                 let cameOnline = await Self.raceDeadline(
                     seconds: NextTransportHostTiming.onlineDeadlineSeconds,
                     sleep: sleep
-                ) { await endpoint.online() }
+                ) {
+                    await endpoint.online()
+                } onTimeout: {
+                    // Abort only the unconfirmed relay legs. Keeping the
+                    // endpoint alive preserves direct LAN candidates while a
+                    // later broker mint repairs the relay map.
+                    for relay in relays {
+                        _ = try? await endpoint.removeRelay(url: relay.url)
+                    }
+                }
                 guard generation == gen else { return }
-                mobileHostNextTransportLog.notice(
+                cachedRelayConfirmed = cameOnline
+                if !cameOnline {
+                    // Direct paths remain usable, but an unconfirmed cached
+                    // relay must never be published as a live route. A broker
+                    // client will mint and insert a replacement below.
+                    relayURL = nil
+                    refreshStateDescription()
+                }
+                MobileHostNextTransportRuntime.logger.notice(
                     """
                     host relay online \(cameOnline ? "confirmed" : "NOT confirmed within deadline (continuing; background mint will rotate)", privacy: .public) \
                     relay=\(self.relayURL ?? "none", privacy: .public)
@@ -709,15 +740,26 @@ final class MobileHostNextTransportRuntime {
                 setReadiness(.relayAttached, generation: gen)
                 publishIfReady(generation: gen)
             case .cachedCredential:
-                // The relay is in the map with a still-valid token: usable
-                // now. Refresh runs in the background when a client exists
-                // (cache without client stays cache-only until it expires).
-                setReadiness(.relayAttached, generation: gen)
-                publishIfReady(generation: gen)
+                if cachedRelayConfirmed {
+                    // The relay handshake succeeded, so this cached route is
+                    // safe to publish. Without a broker client, a bounded
+                    // expiry watcher withdraws it when the token ends.
+                    setReadiness(.relayAttached, generation: gen)
+                    publishIfReady(generation: gen)
+                }
                 if let client {
                     startCredentialLoop(
                         endpoint: endpoint, client: client,
-                        initialEntries: usable, generation: gen)
+                        initialEntries: cachedRelayConfirmed ? usable : [], generation: gen)
+                } else if cachedRelayConfirmed {
+                    startCachedCredentialExpiryWatcher(
+                        endpoint: endpoint, entries: usable, generation: gen)
+                } else {
+                    // No refresh authority and no confirmed relay: publish a
+                    // direct-only route after the endpoint has bound.
+                    relayURL = nil
+                    setReadiness(.relayAttached, generation: gen)
+                    publishIfReady(generation: gen)
                 }
             case .awaitFirstMint:
                 // Relay attachment (and publication) wait on the first mint;
@@ -728,7 +770,7 @@ final class MobileHostNextTransportRuntime {
                         initialEntries: [], generation: gen)
                 }
             }
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 next-transport host up: \(self.endpointID ?? "?", privacy: .public) \
                 state=\(self.state, privacy: .public) \
@@ -738,7 +780,7 @@ final class MobileHostNextTransportRuntime {
         } catch {
             guard generation == gen else { return }
             state = "failed: \(error)"
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 """
                 next-transport start failed: \(String(describing: error), privacy: .public) \
                 elapsedMs=\(Self.elapsedMs(since: startClock), privacy: .public)
@@ -750,14 +792,14 @@ final class MobileHostNextTransportRuntime {
 
     private func setReadiness(_ new: NextTransportReadiness, generation gen: UInt64) {
         guard generation == gen else {
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 "readiness advance to \(new.description, privacy: .public) dropped: stale generation")
             return
         }
         guard readiness < new else { return }
         readiness = new
         refreshStateDescription()
-        mobileHostNextTransportLog.notice(
+        MobileHostNextTransportRuntime.logger.notice(
             """
             host readiness -> \(new.description, privacy: .public) \
             state=\(self.state, privacy: .public)
@@ -797,7 +839,7 @@ final class MobileHostNextTransportRuntime {
     /// rotations at `.published`), so a stale start can never publish.
     private func publishPresenceRoute() {
         guard let endpointID else {
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 "presence route publish skipped: no endpoint id")
             return
         }
@@ -814,13 +856,13 @@ final class MobileHostNextTransportRuntime {
                 priority: 30
             )
             MobileHostService.shared.updateNextTransportRoute(route)
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 presence route PUBLISHED endpoint=\(String(endpointID.prefix(8)), privacy: .public) \
                 relay=\(self.relayURL ?? "none", privacy: .public) priority=30
                 """)
         } catch {
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 "next-transport presence route rejected: \(String(describing: error))")
         }
     }
@@ -837,7 +879,7 @@ final class MobileHostNextTransportRuntime {
                     else { break }
                     guard let self, self.generation == gen, !Task.isCancelled else { return }
                     accepted += 1
-                    mobileHostNextTransportLog.notice(
+                    MobileHostNextTransportRuntime.logger.notice(
                         """
                         host accept-loop connection #\(accepted, privacy: .public) \
                         spawning serve task
@@ -847,15 +889,15 @@ final class MobileHostNextTransportRuntime {
                     self.registerServeTask(
                         connection: connection, host: host, number: accepted, generation: gen)
                 } catch {
-                    guard !Task.isCancelled else { return }
-                    mobileHostNextTransportLog.error(
+                    guard !Task.isCancelled, !endpoint.isClosed() else { return }
+                    MobileHostNextTransportRuntime.logger.error(
                         "host accept-loop transient failure: \(String(describing: error), privacy: .public)")
                     // Avoid a hot loop when a malformed incoming handshake is
                     // rejected before the endpoint itself closes.
                     try? await sleep(.milliseconds(100))
                 }
             }
-            mobileHostNextTransportLog.notice("host accept-loop exit (endpoint closed)")
+            MobileHostNextTransportRuntime.logger.notice("host accept-loop exit (endpoint closed)")
         }
     }
 
@@ -873,7 +915,7 @@ final class MobileHostNextTransportRuntime {
                 return
             }
             guard let admitted = await host.activeSession(for: connection) else {
-                mobileHostNextTransportLog.notice(
+                MobileHostNextTransportRuntime.logger.notice(
                     """
                     host serve-task connection #\(number, privacy: .public) \
                     NOT admitted (denied or closed during serve); no bridge
@@ -887,7 +929,7 @@ final class MobileHostNextTransportRuntime {
             }
             // Count only CONFIRMED admissions (activeSession proved it).
             self.admissions &+= 1
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 """
                 host serve-task connection #\(number, privacy: .public) \
                 ADMITTED session=\(admitted.id, privacy: .public) \
@@ -951,7 +993,7 @@ final class MobileHostNextTransportRuntime {
             if served {
                 group.cancelAll()  // stop the timer; the injected scheduler honors cancellation
             } else {
-                mobileHostNextTransportLog.notice(
+                MobileHostNextTransportRuntime.logger.notice(
                     """
                     host serve-task connection #\(number, privacy: .public) \
                     hello deadline (\(NextTransportHostTiming.helloDeadlineSeconds, privacy: .public)s) \
@@ -970,10 +1012,50 @@ final class MobileHostNextTransportRuntime {
         endpoint: Endpoint, client: BrokerCredentialClient,
         initialEntries: [NextTransportCachedRelayCredential], generation gen: UInt64
     ) {
+        cachedCredentialExpiryTask?.cancel()
+        cachedCredentialExpiryTask = nil
+        credentialTask?.cancel()
         credentialTask = Task { [weak self] in
             await self?.runCredentialLoop(
                 endpoint: endpoint, client: client,
                 initialEntries: initialEntries, generation: gen)
+        }
+    }
+
+    /// Schedules route withdrawal for a cached relay when no broker client is
+    /// available to refresh it. The endpoint remains alive for direct LAN
+    /// traffic, but the advertised relay is removed as soon as its bounded
+    /// validity window ends (or at the fallback cadence when expiry is hidden).
+    private func startCachedCredentialExpiryWatcher(
+        endpoint: Endpoint,
+        entries: [NextTransportCachedRelayCredential],
+        generation gen: UInt64
+    ) {
+        cachedCredentialExpiryTask?.cancel()
+        let sleep = self.sleep
+        let now = Int64(Date().timeIntervalSince1970)
+        let target = entries.compactMap(\.expiresAt).min() ??
+            now + RelayCredentialSchedule.fallbackIntervalSeconds
+        let delay = max(target - now, RelayCredentialSchedule.minimumDelaySeconds)
+        cachedCredentialExpiryTask = Task { [weak self] in
+            do {
+                try await sleep(.seconds(delay))
+            } catch {
+                return
+            }
+            guard let self, self.generation == gen, !Task.isCancelled else { return }
+            let oldRelayURL = self.relayURL
+            self.relayURL = nil
+            self.refreshStateDescription()
+            if self.readiness == .published {
+                self.publishPresenceRoute()
+            }
+            if let oldRelayURL {
+                _ = try? await endpoint.removeRelay(url: oldRelayURL)
+            }
+            self.cachedCredentialExpiryTask = nil
+            MobileHostNextTransportRuntime.logger.notice(
+                "cached relay credential expired; route withdrawn")
         }
     }
 
@@ -1004,7 +1086,7 @@ final class MobileHostNextTransportRuntime {
                         jitterSeconds: Int64.random(
                             in: 0...NextTransportHostTiming.refreshJitterMaxSeconds))
                 else { return }
-                mobileHostNextTransportLog.notice(
+                MobileHostNextTransportRuntime.logger.notice(
                     """
                     host relay refresh scheduled inSeconds=\(max(target - now, 0), privacy: .public) \
                     earliestExpiry=\(entries.compactMap(\.expiresAt).min().map(String.init) ?? "none", privacy: .public)
@@ -1029,7 +1111,7 @@ final class MobileHostNextTransportRuntime {
                 relayURL = fresh.first?.relayUrl
                 await Self.persistCachedRelayCredentials(entries)
                 guard generation == gen else { return }
-                mobileHostNextTransportLog.notice(
+                MobileHostNextTransportRuntime.logger.notice(
                     """
                     host relay credentials rotated zero-gap \
                     count=\(fresh.count, privacy: .public) \
@@ -1051,7 +1133,7 @@ final class MobileHostNextTransportRuntime {
                 let now = Int64(Date().timeIntervalSince1970)
                 let delay = mintRetryPolicy.retryDelay(
                     earliestExpiry: entries.compactMap(\.expiresAt).min(), now: now)
-                mobileHostNextTransportLog.error(
+                MobileHostNextTransportRuntime.logger.error(
                     """
                     credential mint failed: \(String(describing: error), privacy: .public); \
                     retry inSeconds=\(delay, privacy: .public) (endpoint stays up)
@@ -1066,31 +1148,39 @@ final class MobileHostNextTransportRuntime {
 
     // MARK: - Deadline race
 
-    /// True when `operation` finishes before the deadline. The loser is
-    /// abandoned, NOT joined: uniffi async calls (`endpoint.online()`) do
-    /// not observe Swift task cancellation, and joining a hung relay
-    /// handshake would wedge start(). The abandoned worker completes
-    /// harmlessly on its own once the endpoint closes.
+    /// True when `operation` finishes before the deadline. On timeout the
+    /// caller's `onTimeout` hook must abort the underlying operation, after
+    /// which both child tasks are cancelled and joined before returning.
     #if compiler(>=6.2)
     @concurrent
     #endif
     private nonisolated static func raceDeadline(
         seconds: Int64,
         sleep: @escaping @Sendable (Duration) async throws -> Void,
-        operation: @escaping @Sendable () async -> Void
+        operation: @escaping @Sendable () async -> Void,
+        onTimeout: (@Sendable () async -> Void)? = nil
     ) async -> Bool {
-        let (stream, continuation) = AsyncStream<Bool>.makeStream()
-        Task {
-            await operation()
-            continuation.yield(true)
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await operation()
+                return true
+            }
+            group.addTask {
+                do {
+                    try await sleep(.seconds(seconds))
+                } catch {
+                    return true
+                }
+                return false
+            }
+            let finished = await group.next() ?? false
+            group.cancelAll()
+            if !finished {
+                await onTimeout?()
+            }
+            await group.waitForAll()
+            return finished
         }
-        let timer = Task {
-            try? await sleep(.seconds(seconds))
-            continuation.yield(false)
-        }
-        defer { timer.cancel() }
-        for await finished in stream { return finished }
-        return false
     }
 
     // MARK: - Key storage (Keychain; one-time migration from UserDefaults)
@@ -1107,11 +1197,11 @@ final class MobileHostNextTransportRuntime {
             if let identity = try? PeerIdentity(
                 appIdentity: "dev.cmux.next.host", deviceID: deviceID, privateKeyData: key)
             {
-                mobileHostNextTransportLog.notice(
+                MobileHostNextTransportRuntime.logger.notice(
                     "host identity LOADED device=\(String(deviceID.prefix(8)), privacy: .public)")
                 return identity
             }
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 "host identity key bytes invalid; generating a fresh identity")
             let fresh = PeerIdentity.generate(
                 appIdentity: "dev.cmux.next.host", deviceID: deviceID)
@@ -1124,7 +1214,7 @@ final class MobileHostNextTransportRuntime {
                 ?? UUID().uuidString.lowercased())
         await storeSecret(fresh.privateKeyData, account: identityKeyAccount)
         defaults.set(fresh.deviceID, forKey: identityDeviceIDDefaultsKey)
-        mobileHostNextTransportLog.notice(
+        MobileHostNextTransportRuntime.logger.notice(
             "host identity CREATED device=\(String(fresh.deviceID.prefix(8)), privacy: .public)")
         return fresh
     }
@@ -1140,19 +1230,19 @@ final class MobileHostNextTransportRuntime {
             account: signerKeyAccount, legacyDefaultsKey: legacySignerKeyDefaultsKey)
         {
             if let signer = try? GrantSigner(privateKeyData: key) {
-                mobileHostNextTransportLog.notice(
+                MobileHostNextTransportRuntime.logger.notice(
                     """
                     host signer LOADED (persisted; prior phone grants stay valid) \
                     signerKey=\(Self.hex(Data(signer.publicKeyData.prefix(4))), privacy: .public)
                     """)
                 return signer
             }
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 "host signer key bytes invalid; generating a fresh signer")
         }
         let signer = GrantSigner()
         await storeSecret(signer.privateKeyData, account: signerKeyAccount)
-        mobileHostNextTransportLog.notice(
+        MobileHostNextTransportRuntime.logger.notice(
             """
             host signer CREATED (fresh; any previously minted phone grants \
             are now invalid) \
@@ -1177,7 +1267,7 @@ final class MobileHostNextTransportRuntime {
             if let stored = try await store.read(account: account) { return stored }
         } catch {
             readError = error
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 """
                 host key Keychain read failed account=\(account, privacy: .public) \
                 error=\(String(describing: error), privacy: .public)
@@ -1191,11 +1281,11 @@ final class MobileHostNextTransportRuntime {
         do {
             try await store.write(legacy, account: account)
             defaults.removeObject(forKey: legacyDefaultsKey)
-            mobileHostNextTransportLog.notice(
+            MobileHostNextTransportRuntime.logger.notice(
                 "host key MIGRATED defaults->Keychain account=\(account, privacy: .public)")
         } catch {
             // Keep the defaults copy so a later launch can retry.
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 """
                 host key migration write failed account=\(account, privacy: .public) \
                 error=\(String(describing: error), privacy: .public); keeping defaults copy
@@ -1212,7 +1302,7 @@ final class MobileHostNextTransportRuntime {
             try await CmxIrohKeychainIdentityStore(service: keyStoreService)
                 .write(data, account: account)
         } catch {
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 """
                 host key Keychain write failed account=\(account, privacy: .public) \
                 error=\(String(describing: error), privacy: .public); key is session-only
@@ -1235,7 +1325,7 @@ final class MobileHostNextTransportRuntime {
             }
             return NextTransportRelayCredentialCachePolicy().decode(data)
         } catch {
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 """
                 host relay credential cache read failed \
                 error=\(String(describing: error), privacy: .public); starting uncached
@@ -1259,7 +1349,7 @@ final class MobileHostNextTransportRuntime {
                     data, account: credentialCacheAccount,
                     accessibility: .afterFirstUnlockThisDeviceOnly)
         } catch {
-            mobileHostNextTransportLog.error(
+            MobileHostNextTransportRuntime.logger.error(
                 """
                 host relay credential cache write failed \
                 error=\(String(describing: error), privacy: .public); next launch mints fresh

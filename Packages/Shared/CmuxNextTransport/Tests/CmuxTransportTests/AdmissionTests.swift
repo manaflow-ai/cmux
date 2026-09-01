@@ -127,6 +127,18 @@ struct AdmissionTests {
         #expect(identity == nil)
         #expect(signer == nil)
     }
+
+    @Test("Independent in-memory identity stores do not share a default device id")
+    func identityStoresAreIndependent() async throws {
+        let first = InMemoryIdentityStore()
+        let second = InMemoryIdentityStore()
+        let firstIdentity = try await first.loadOrCreate(appIdentity: "dev.cmux.lite")
+        let secondIdentity = try await second.loadOrCreate(appIdentity: "dev.cmux.lite")
+
+        #expect(firstIdentity.deviceID != secondIdentity.deviceID)
+        #expect(
+            try await first.loadOrCreate(appIdentity: "dev.cmux.lite") == firstIdentity)
+    }
 }
 
 extension AdmissionTests {

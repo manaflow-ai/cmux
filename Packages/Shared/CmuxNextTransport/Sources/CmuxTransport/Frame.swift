@@ -51,7 +51,8 @@ public enum FrameTypes {
     public static let chatTyping = "opt.chat.typing"
 
     public static let allKnown: Set<String> = [
-        hello, admit, grantUpdate, grantAck, dataChunk, chatMessage,
+        hello, admit, grantUpdate, grantAck, grantExpiring, relayCredential,
+        dataChunk, chatMessage, chatTyping,
     ]
 }
 
@@ -86,6 +87,8 @@ public enum FrameCodecError: Error, Equatable {
     case frameTooLarge(length: Int)
     case malformedJSON
     case unsupportedVersion(Int64)
+    /// A decoded frame used a mandatory type this peer cannot handle.
+    case unknownMandatoryType(String)
 }
 
 /// Encodes one frame as a 4-byte big-endian length prefix + JSON envelope.

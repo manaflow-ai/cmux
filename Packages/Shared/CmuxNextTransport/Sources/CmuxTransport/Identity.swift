@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import os
 
 /// Errors raised when persisted identity key material cannot be parsed.
 public enum PeerIdentityError: Error, Equatable, Sendable {
@@ -75,27 +74,24 @@ public struct PeerIdentity: Sendable, Equatable {
 /// ID across installs (1.5), and lands in the on-device phase, where it can
 /// actually be tested against a real Keychain.
 public protocol IdentityStore: Sendable {
-    func loadOrCreate(appIdentity: String) throws -> PeerIdentity
+    func loadOrCreate(appIdentity: String) async throws -> PeerIdentity
 }
 
-public final class InMemoryIdentityStore: IdentityStore, Sendable {
+public actor InMemoryIdentityStore: IdentityStore {
     private let deviceID: String
-    /// The lock OWNS the mutable state, so sendability is checked by the
-    /// compiler instead of promised by @unchecked.
-    private let identities = OSAllocatedUnfairLock<[String: PeerIdentity]>(initialState: [:])
+    private var identities: [String: PeerIdentity] = [:]
 
     /// One store instance models one device: every app identity it vends
-    /// shares the same device ID (contract 1.5).
-    public init(deviceID: String = "in-memory-device") {
+    /// shares the same device ID (contract 1.5). A unique default prevents
+    /// independent test stores from accidentally superseding one another.
+    public init(deviceID: String = UUID().uuidString.lowercased()) {
         self.deviceID = deviceID
     }
 
-    public func loadOrCreate(appIdentity: String) throws -> PeerIdentity {
-        identities.withLock { identities in
-            if let existing = identities[appIdentity] { return existing }
-            let identity = PeerIdentity.generate(appIdentity: appIdentity, deviceID: deviceID)
-            identities[appIdentity] = identity
-            return identity
-        }
+    public func loadOrCreate(appIdentity: String) async throws -> PeerIdentity {
+        if let existing = identities[appIdentity] { return existing }
+        let identity = PeerIdentity.generate(appIdentity: appIdentity, deviceID: deviceID)
+        identities[appIdentity] = identity
+        return identity
     }
 }

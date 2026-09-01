@@ -47,10 +47,20 @@ extension TransportLane {
 /// dependence (contract 3.3, 4.4). The code namespace is shared with
 /// DenialCode.rawValue and CloseReason.code.
 public struct ConnectionTermination: Sendable, Equatable {
-    public var code: String
+    /// How confidently the substrate identified the close cause. A rendered
+    /// FFI diagnostic can only provide an ambiguity hint when its format is
+    /// unknown; callers must fail closed for that case.
+    public enum Authority: Sendable, Equatable {
+        case authoritative
+        case ambiguous
+    }
 
-    public init(code: String) {
+    public var code: String
+    public var authority: Authority
+
+    public init(code: String, authority: Authority = .authoritative) {
         self.code = code
+        self.authority = authority
     }
 }
 

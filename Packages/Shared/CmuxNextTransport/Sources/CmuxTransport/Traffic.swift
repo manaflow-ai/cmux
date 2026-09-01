@@ -42,6 +42,10 @@ public struct TrafficValidator: Sendable {
             malformedFrames += 1
             return
         }
+        guard seq < Int64.max else {
+            malformedFrames += 1
+            return
+        }
         received += 1
         if seq != expectedSeq, firstGap == nil {
             firstGap = (expected: expectedSeq, got: seq)

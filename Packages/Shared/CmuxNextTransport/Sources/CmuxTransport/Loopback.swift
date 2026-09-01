@@ -16,15 +16,20 @@ public enum TransportError: Error, Equatable {
 /// (contract 5.3): a full pipe suspends the sender, it never drops and never
 /// kills anything.
 public actor FramePipe {
-    private var buffer: [Frame] = []
+    private var buffer = FIFOQueue<Frame>()
     private let capacity: Int
     private var closed = false
-    private var sendWaiters: [(id: Int, continuation: CheckedContinuation<Void, Never>)] = []
-    private var recvWaiters: [(id: Int, continuation: CheckedContinuation<Frame?, Never>)] = []
+    private var sendWaiters = FIFOQueue<(id: Int, continuation: CheckedContinuation<Void, Never>)>()
+    private var recvWaiters = FIFOQueue<(id: Int, continuation: CheckedContinuation<Frame?, Never>)>()
     private var waiterCounter = 0
     public private(set) var backpressureStalls = 0
 
+    /// Number of receive continuations currently parked on this pipe. Exposed
+    /// for deterministic conformance tests; it is an observation only.
+    public var waitingReceiverCount: Int { recvWaiters.count }
+
     public init(capacity: Int = 64) {
+        precondition(capacity > 0, "FramePipe capacity must be positive")
         self.capacity = capacity
     }
 
@@ -42,7 +47,7 @@ public actor FramePipe {
                     if Task.isCancelled || closed {
                         continuation.resume()
                     } else {
-                        sendWaiters.append((id, continuation))
+                        sendWaiters.append((id: id, continuation: continuation))
                     }
                 }
             } onCancel: {
@@ -51,8 +56,8 @@ public actor FramePipe {
             try Task.checkCancellation()
         }
         guard !closed else { throw TransportError.pipeClosed }
-        if !recvWaiters.isEmpty {
-            recvWaiters.removeFirst().continuation.resume(returning: frame)
+        if let waiter = recvWaiters.popFirst() {
+            waiter.continuation.resume(returning: frame)
         } else {
             buffer.append(frame)
         }
@@ -64,9 +69,9 @@ public actor FramePipe {
     /// over `frames` end cleanly instead of parking forever.
     public func receive() async -> Frame? {
         if !buffer.isEmpty {
-            let frame = buffer.removeFirst()
-            if !sendWaiters.isEmpty {
-                sendWaiters.removeFirst().continuation.resume()
+            let frame = buffer.popFirst()!
+            if let waiter = sendWaiters.popFirst() {
+                waiter.continuation.resume()
             }
             return frame
         }
@@ -78,9 +83,16 @@ public actor FramePipe {
                 if Task.isCancelled || closed {
                     continuation.resume(returning: nil)
                 } else if !buffer.isEmpty {
-                    continuation.resume(returning: buffer.removeFirst())
+                    guard let frame = buffer.popFirst() else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    if let waiter = sendWaiters.popFirst() {
+                        waiter.continuation.resume()
+                    }
+                    continuation.resume(returning: frame)
                 } else {
-                    recvWaiters.append((id, continuation))
+                    recvWaiters.append((id: id, continuation: continuation))
                 }
             }
         } onCancel: {
@@ -91,20 +103,22 @@ public actor FramePipe {
     public func close() {
         guard !closed else { return }
         closed = true
-        for waiter in recvWaiters { waiter.continuation.resume(returning: nil) }
-        recvWaiters.removeAll()
-        for waiter in sendWaiters { waiter.continuation.resume() }
-        sendWaiters.removeAll()
+        while let waiter = recvWaiters.popFirst() {
+            waiter.continuation.resume(returning: nil)
+        }
+        while let waiter = sendWaiters.popFirst() {
+            waiter.continuation.resume()
+        }
     }
 
     private func cancelSendWaiter(id: Int) {
-        guard let index = sendWaiters.firstIndex(where: { $0.id == id }) else { return }
-        sendWaiters.remove(at: index).continuation.resume()
+        guard let waiter = sendWaiters.remove(where: { $0.id == id }) else { return }
+        waiter.continuation.resume()
     }
 
     private func cancelRecvWaiter(id: Int) {
-        guard let index = recvWaiters.firstIndex(where: { $0.id == id }) else { return }
-        recvWaiters.remove(at: index).continuation.resume(returning: nil)
+        guard let waiter = recvWaiters.remove(where: { $0.id == id }) else { return }
+        waiter.continuation.resume(returning: nil)
     }
 }
 
@@ -113,21 +127,39 @@ public struct LaneEnd: TransportLane {
     public let name: String
     let outbound: FramePipe
     let inbound: FramePipe
+    private let closed: Bool
+
+    init(name: String, outbound: FramePipe, inbound: FramePipe, closed: Bool = false) {
+        self.name = name
+        self.outbound = outbound
+        self.inbound = inbound
+        self.closed = closed
+    }
+
+    static func closed(name: String) -> LaneEnd {
+        LaneEnd(name: name, outbound: FramePipe(), inbound: FramePipe(), closed: true)
+    }
 
     public func send(_ frame: Frame) async throws {
+        guard !closed else { throw TransportError.pipeClosed }
         try await outbound.send(frame)
     }
 
     public func receive() async -> Frame? {
-        await inbound.receive()
+        guard !closed else { return nil }
+        return await inbound.receive()
     }
 
     public func closeOutbound() async {
+        guard !closed else { return }
         await outbound.close()
     }
 
     public var backpressureStalls: Int {
-        get async { await outbound.backpressureStalls }
+        get async {
+            guard !closed else { return 0 }
+            return await outbound.backpressureStalls
+        }
     }
 }
 
@@ -152,6 +184,7 @@ public actor LoopbackWire {
     public private(set) var termination: ConnectionTermination?
 
     public init(laneCapacity: Int = 64) {
+        precondition(laneCapacity > 0, "Loopback lane capacity must be positive")
         self.laneCapacity = laneCapacity
     }
 
@@ -161,6 +194,8 @@ public actor LoopbackWire {
         let pipes: LanePipes
         if let existing = lanes[name] {
             pipes = existing
+        } else if isClosed {
+            return .closed(name: name)
         } else {
             pipes = LanePipes(
                 aToB: FramePipe(capacity: laneCapacity),

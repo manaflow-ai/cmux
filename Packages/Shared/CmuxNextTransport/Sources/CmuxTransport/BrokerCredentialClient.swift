@@ -330,7 +330,7 @@ public struct BrokerCredentialClient: Sendable {
 
         // 3. Challenge.
         let challenge = try await post(
-            "\(baseUrl)/api/devices/iroh/challenge", headers: authed,
+            base: baseUrl, path: "/api/devices/iroh/challenge", headers: authed,
             body: [
                 "deviceId": .string(deviceId),
                 "appInstanceId": .string(appInstanceId),
@@ -354,7 +354,7 @@ public struct BrokerCredentialClient: Sendable {
         var registered: [String: JSONValue] = [:]
         do {
             registered = try await post(
-                "\(baseUrl)/api/devices/iroh/register", headers: authed,
+                base: baseUrl, path: "/api/devices/iroh/register", headers: authed,
                 body: [
                     "challengeId": .string(challengeId),
                     "nonce": .string(nonce),
@@ -402,7 +402,7 @@ public struct BrokerCredentialClient: Sendable {
         }
         if credentials.isEmpty {
             let minted = try await post(
-                "\(baseUrl)/api/relay/token", headers: authed,
+                base: baseUrl, path: "/api/relay/token", headers: authed,
                 body: ["endpointId": .string(endpointId)], step: "relay token")
             if let list = minted["relayCredentials"]?.arrayValue {
                 credentials = list.compactMap { entry in
@@ -440,6 +440,7 @@ public struct BrokerCredentialClient: Sendable {
         {
             credentials.swapAt(0, index)
         }
+        credentials = try validatedCredentials(credentials)
         if TransportDebugLog.enabled {
             let first = credentials[0]
             TransportDebugLog.broker.notice(
@@ -463,7 +464,7 @@ public struct BrokerCredentialClient: Sendable {
         switch authentication {
         case .password(let stackBase, let projectId, let pck, let email, let password):
             let signIn = try await post(
-                "\(stackBase)/api/v1/auth/password/sign-in",
+                base: stackBase, path: "/api/v1/auth/password/sign-in",
                 headers: [
                     "content-type": "application/json",
                     "x-stack-project-id": projectId,
@@ -504,20 +505,9 @@ public struct BrokerCredentialClient: Sendable {
     }
 
     private func post(
-        _ url: String, headers: [String: String], body: [String: JSONValue], step: String
+        base: String, path: String, headers: [String: String], body: [String: JSONValue], step: String
     ) async throws -> [String: JSONValue] {
-        // Only absolute http(s) URLs may carry the auth headers; anything
-        // else (a mangled base URL, a scheme-less fragment) is a typed
-        // error instead of a force-unwrap crash.
-        guard let requestUrl = URL(string: url),
-            let scheme = requestUrl.scheme?.lowercased(),
-            scheme == "http" || scheme == "https",
-            let host = requestUrl.host,
-            scheme == "https" || Self.isLoopbackHost(host)
-        else {
-            throw BrokerError.malformedURL(
-                step: step, url: String(url.prefix(while: { $0 != "?" })))
-        }
+        let requestUrl = try Self.originURL(base: base, path: path, step: step)
         var request = URLRequest(url: requestUrl)
         request.httpMethod = "POST"
         for (name, value) in headers {
@@ -558,6 +548,71 @@ public struct BrokerCredentialClient: Sendable {
     private static func isLoopbackHost(_ host: String) -> Bool {
         let normalized = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
+    }
+
+    /// Builds a request URL from a clean origin and a fixed API path. Query,
+    /// fragment, userinfo, and embedded base paths are rejected so caller
+    /// configuration cannot redirect authenticated requests or expose URL
+    /// credentials.
+    private static func originURL(base: String, path: String, step: String) throws -> URL {
+        guard let baseURL = URL(string: base),
+            var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+            let scheme = components.scheme?.lowercased(),
+            (scheme == "http" || scheme == "https"),
+            let host = components.host,
+            scheme == "https" || isLoopbackHost(host),
+            components.user == nil,
+            components.password == nil,
+            components.query == nil,
+            components.fragment == nil,
+            components.path.isEmpty || components.path == "/",
+            path.hasPrefix("/"),
+            !path.contains("?") && !path.contains("#")
+        else {
+            throw BrokerError.malformedURL(
+                step: step, url: String(base.prefix(while: { $0 != "?" && $0 != "#" })))
+        }
+        components.path = path
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else {
+            throw BrokerError.malformedURL(step: step, url: base)
+        }
+        return url
+    }
+
+    /// Validates broker-issued relay credentials before exposing them to an
+    /// endpoint. Every token must be endpoint-bound to this identity and every
+    /// relay origin must be a clean encrypted (or explicit loopback) URL.
+    private func validatedCredentials(_ credentials: [Credential]) throws -> [Credential] {
+        guard !credentials.isEmpty, credentials.count <= 32 else {
+            throw BrokerError.shape("relay credential count")
+        }
+        let now = Int64(Date().timeIntervalSince1970)
+        var seenURLs = Set<String>()
+        var validated: [Credential] = []
+        validated.reserveCapacity(credentials.count)
+        for credential in credentials {
+            guard let url = URL(string: credential.relayUrl),
+                let scheme = url.scheme?.lowercased(),
+                let host = url.host,
+                (scheme == "https" || (scheme == "http" && Self.isLoopbackHost(host))),
+                url.user == nil,
+                url.password == nil,
+                url.query == nil,
+                url.fragment == nil,
+                !credential.token.isEmpty,
+                credential.token.utf8.count <= 16 * 1024,
+                IrohSubstrate.tokenEndpointId(credential.token) == identity.publicKeyData,
+                let expiry = credential.expiresAt,
+                expiry > now,
+                seenURLs.insert(credential.relayUrl).inserted
+            else {
+                throw BrokerError.shape("invalid relay credential")
+            }
+            validated.append(credential)
+        }
+        return validated
     }
 
     static let alreadyBoundCode = "endpoint_already_bound"

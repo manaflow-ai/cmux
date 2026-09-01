@@ -154,6 +154,10 @@ public final class NextTransportDialClient {
     /// A relay-only attempt that failed steers the next attempt back to the
     /// full address list.
     private var relayOnlyAttemptFailed = false
+    /// The admission result that the owner is about to publish as `.ready`.
+    /// It is kept separate from `sessionID` so a transient `.connecting` state
+    /// cannot erase the identifier before the UI observes readiness.
+    private var pendingAdmittedSessionID: String?
     /// Holds only a weak reference to the client, so the loop ends on its
     /// own at the tick after the client is released (no deinit needed; a
     /// MainActor deinit cannot touch isolated state under Swift 6).
@@ -288,6 +292,8 @@ public final class NextTransportDialClient {
         grant = parsed.grant
         dialAttemptIndex = 0
         relayOnlyAttemptFailed = false
+        pendingAdmittedSessionID = nil
+        sessionID = nil
     }
 
     public func connect() async {
@@ -328,6 +334,7 @@ public final class NextTransportDialClient {
         }
         dialState = .idle
         sessionID = nil
+        pendingAdmittedSessionID = nil
     }
 
     /// The live admitted connection, for the graduation facade to open
@@ -502,6 +509,7 @@ public final class NextTransportDialClient {
                         }
                         switch outcome {
                         case .admitted(let sessionID):
+                            await self.noteAdmitted(sessionID: sessionID, generation: gen)
                             await self.log(
                                 "admitted as \(sessionID) in \(Self.elapsedMs(since: dialStart))ms")
                             return .admitted(conn, sessionID: sessionID)
@@ -558,13 +566,14 @@ public final class NextTransportDialClient {
                     switch state {
                     case .ready:
                         self.dialState = .ready
-                        self.sessionID = nil
+                        self.sessionID = self.pendingAdmittedSessionID
                     case .connecting: self.dialState = .connecting
                     case .idle: self.dialState = .idle
                     case .degraded: self.dialState = .degraded
                     case .closed(let reason):
                         let denial = DenialCode(rawValue: reason.code)
                         self.dialState = .closed(code: reason.code, denial: denial)
+                        self.sessionID = nil
                         if let denial { self.lastDenial = denial }
                     }
                     self.log("state: \(self.state)")
@@ -572,6 +581,14 @@ public final class NextTransportDialClient {
             }
         }
         log("reconnect owner up")
+    }
+
+    /// Retains the most recent admitted session until the owner publishes its
+    /// corresponding ready state. The lifecycle generation fence prevents a
+    /// late result from a disconnected client from becoming visible.
+    private func noteAdmitted(sessionID: String, generation: UInt64) {
+        guard !sessionID.isEmpty, lifecycleGeneration == generation else { return }
+        pendingAdmittedSessionID = sessionID
     }
 
     /// Starts one dial attempt: refreshes hints between attempts (never on

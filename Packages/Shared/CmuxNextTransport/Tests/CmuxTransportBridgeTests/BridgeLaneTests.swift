@@ -73,26 +73,38 @@ struct BridgeLaneLiveTests {
 
             let server = try await IrohSubstrate.endpoint(identity: mac, minimalLoopback: true)
             let client = try await IrohSubstrate.endpoint(identity: phone, minimalLoopback: true)
+            var clientConn: IrohPeerConnection?
+            var serverConn: IrohPeerConnection?
+            do {
+                async let accepted = IrohSubstrate.acceptOne(endpoint: server)
+                let connectedClient = try await IrohSubstrate.dial(
+                    endpoint: client, to: IrohSubstrate.directAddr(of: server))
+                clientConn = connectedClient
+                guard let acceptedConnection = try await accepted else {
+                    throw TransportError.pipeClosed
+                }
+                serverConn = acceptedConnection
+                async let serving: Void = host.serve(
+                    connection: acceptedConnection, now: now)
+                let outcome = try await TransportClient.connect(
+                    connection: connectedClient, identity: phone, grant: grant)
+                guard case .admitted = outcome else { throw TransportError.pipeClosed }
+                await serving
+                guard await host.activeSession(for: acceptedConnection) != nil else {
+                    throw TransportError.pipeClosed
+                }
 
-            async let accepted = IrohSubstrate.acceptOne(endpoint: server)
-            let clientConn = try await IrohSubstrate.dial(
-                endpoint: client, to: IrohSubstrate.directAddr(of: server))
-            guard let serverConn = try await accepted else {
-                throw TransportError.pipeClosed
+                let acceptor = await BridgeLaneAcceptor.attached(to: acceptedConnection)
+                return Rig(
+                    signer: signer, host: host, server: server, client: client,
+                    serverConn: acceptedConnection, clientConn: connectedClient, acceptor: acceptor)
+            } catch {
+                await clientConn?.closeAll(reason: nil)
+                await serverConn?.closeAll(reason: nil)
+                try? await server.close()
+                try? await client.close()
+                throw error
             }
-            async let serving: Void = host.serve(connection: serverConn, now: now)
-            let outcome = try await TransportClient.connect(
-                connection: clientConn, identity: phone, grant: grant)
-            guard case .admitted = outcome else { throw TransportError.pipeClosed }
-            await serving
-            guard await host.activeSession(for: serverConn) != nil else {
-                throw TransportError.pipeClosed
-            }
-
-            let acceptor = await BridgeLaneAcceptor.attached(to: serverConn)
-            return Rig(
-                signer: signer, host: host, server: server, client: client,
-                serverConn: serverConn, clientConn: clientConn, acceptor: acceptor)
         }
 
         func tearDown() async {

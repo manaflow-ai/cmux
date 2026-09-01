@@ -55,7 +55,7 @@ struct BrokerSessionModeTests {
 
     /// The standard three-leg script: challenge, register, relay token.
     private static func standardScript(
-        _ request: URLRequest
+        _ request: URLRequest, identity: PeerIdentity
     ) -> (Int, String) {
         switch request.url!.path {
         case "/api/devices/iroh/challenge":
@@ -63,25 +63,43 @@ struct BrokerSessionModeTests {
         case "/api/devices/iroh/register":
             return (200, "{}")
         case "/api/relay/token":
+            let token = Self.token(for: identity)
             return (
                 200,
-                #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"tok-r1","expiresAt":1234},{"relayUrl":"https://r2.relay/","token":"tok-r2"}]}"#
+                #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"\#(token)","expiresAt":4102444800},{"relayUrl":"https://r2.relay/","token":"\#(token)","expiresAt":4102444800}]}"#
             )
         default:
             return (404, "unexpected \(request.url!.absoluteString)")
         }
     }
 
+    private static func token(for identity: PeerIdentity) -> String {
+        let encode: (Data) -> String = { data in
+            data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let header = encode(Data(#"{"alg":"EdDSA","typ":"JWT"}"#.utf8))
+        let endpoint = HexEncoding.lowercase(identity.publicKeyData)
+        let payload = encode(
+            Data(#"{"endpoint_id":"\#(endpoint)","exp":4102444800}"#.utf8))
+        return "\(header).\(payload).c2ln"
+    }
+
     @Test("Session mint skips Stack sign-in and carries the session pair")
     func sessionMintUsesSessionHeaders() async throws {
-        let script = ScriptedBroker(respond: Self.standardScript)
+        let identity = Self.identity()
+        let script = ScriptedBroker { request in
+            Self.standardScript(request, identity: identity)
+        }
         let client = BrokerCredentialClient(
             sessionConfig: Self.sessionConfig(),
             tokens: {
                 BrokerCredentialClient.SessionTokens(
                     accessToken: "access-1", refreshToken: "refresh-1")
             },
-            identity: Self.identity(),
+            identity: identity,
             transport: script.transport)
 
         let credentials = try await client.mint(preferredUrl: "https://r2.relay/")
@@ -99,8 +117,8 @@ struct BrokerSessionModeTests {
         }
         // preferredUrl (the ticket's rendezvous relay) is served first.
         #expect(credentials.map(\.relayUrl) == ["https://r2.relay/", "https://r1.relay/"])
-        #expect(credentials.first?.token == "tok-r2")
-        #expect(credentials.last?.expiresAt == 1234)
+        #expect(credentials.first?.token == Self.token(for: identity))
+        #expect(credentials.last?.expiresAt == 4_102_444_800)
     }
 
     @Test("Signed out fails closed before any network call")
@@ -118,10 +136,46 @@ struct BrokerSessionModeTests {
         #expect(script.requests.isEmpty)
     }
 
+    @Test("Mint rejects credentials bound to another endpoint key")
+    func mintRejectsWrongEndpointToken() async throws {
+        let identity = Self.identity()
+        let other = Self.identity()
+        let script = ScriptedBroker { request in
+            switch request.url!.path {
+            case "/api/devices/iroh/challenge":
+                return (200, #"{"challenge_id":"c-1","nonce":"n-1"}"#)
+            case "/api/devices/iroh/register":
+                return (200, "{}")
+            case "/api/relay/token":
+                let token = Self.token(for: other)
+                return (
+                    200,
+                    #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"\#(token)","expiresAt":4102444800}]}"#
+                )
+            default:
+                return (404, "unexpected")
+            }
+        }
+        let client = BrokerCredentialClient(
+            sessionConfig: Self.sessionConfig(),
+            tokens: {
+                BrokerCredentialClient.SessionTokens(
+                    accessToken: "access-1", refreshToken: "refresh-1")
+            },
+            identity: identity,
+            transport: script.transport)
+
+        await #expect(throws: BrokerCredentialClient.BrokerError.self) {
+            _ = try await client.mint(preferredUrl: nil)
+        }
+    }
+
     @Test("Register transcript is signed by the minting identity's own key")
     func registerSignatureBindsIdentity() async throws {
         let identity = Self.identity()
-        let script = ScriptedBroker(respond: Self.standardScript)
+        let script = ScriptedBroker { request in
+            Self.standardScript(request, identity: identity)
+        }
         let client = BrokerCredentialClient(
             sessionConfig: Self.sessionConfig(),
             tokens: {
@@ -158,6 +212,7 @@ struct BrokerSessionModeTests {
 
     @Test("endpoint_already_bound register is success; tokens still issue")
     func alreadyBoundRegisterStillMints() async throws {
+        let identity = Self.identity()
         let script = ScriptedBroker { request in
             switch request.url!.path {
             case "/api/devices/iroh/challenge":
@@ -165,9 +220,10 @@ struct BrokerSessionModeTests {
             case "/api/devices/iroh/register":
                 return (409, #"{"error":"endpoint_already_bound"}"#)
             case "/api/relay/token":
+                let token = Self.token(for: identity)
                 return (
                     200,
-                    #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"tok-r1"}]}"#
+                    #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"\#(token)","expiresAt":4102444800}]}"#
                 )
             default:
                 return (404, "unexpected")
@@ -179,7 +235,7 @@ struct BrokerSessionModeTests {
                 BrokerCredentialClient.SessionTokens(
                     accessToken: "access-1", refreshToken: "refresh-1")
             },
-            identity: Self.identity(),
+            identity: identity,
             transport: script.transport)
 
         let credentials = try await client.mint(preferredUrl: nil)
@@ -188,7 +244,10 @@ struct BrokerSessionModeTests {
 
     @Test("Each mint re-reads the CURRENT session pair (rotation-safe)")
     func mintRereadsRotatedTokens() async throws {
-        let script = ScriptedBroker(respond: Self.standardScript)
+        let identity = Self.identity()
+        let script = ScriptedBroker { request in
+            Self.standardScript(request, identity: identity)
+        }
         let counter = Counter()
         let client = BrokerCredentialClient(
             sessionConfig: Self.sessionConfig(),
@@ -197,7 +256,7 @@ struct BrokerSessionModeTests {
                 return BrokerCredentialClient.SessionTokens(
                     accessToken: "access-\(n)", refreshToken: "refresh-\(n)")
             },
-            identity: Self.identity(),
+            identity: identity,
             transport: script.transport)
 
         _ = try await client.mint(preferredUrl: nil)
@@ -211,6 +270,7 @@ struct BrokerSessionModeTests {
 
     @Test("Password mode still signs in to Stack first")
     func passwordModeSignsInFirst() async throws {
+        let identity = Self.identity()
         let script = ScriptedBroker { request in
             switch request.url!.path {
             case "/api/v1/auth/password/sign-in":
@@ -220,9 +280,10 @@ struct BrokerSessionModeTests {
             case "/api/devices/iroh/register":
                 return (200, "{}")
             case "/api/relay/token":
+                let token = Self.token(for: identity)
                 return (
                     200,
-                    #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"tok-r1"}]}"#
+                    #"{"relayCredentials":[{"relayUrl":"https://r1.relay/","token":"\#(token)","expiresAt":4102444800}]}"#
                 )
             default:
                 return (404, "unexpected")
@@ -236,7 +297,7 @@ struct BrokerSessionModeTests {
                 email: "dev@example.com", password: "pw",
                 deviceId: "device-1", appInstanceId: "device-1",
                 tag: "next-transport-ios", platform: "ios"),
-            identity: Self.identity(),
+            identity: identity,
             transport: script.transport)
 
         _ = try await client.mint(preferredUrl: nil)

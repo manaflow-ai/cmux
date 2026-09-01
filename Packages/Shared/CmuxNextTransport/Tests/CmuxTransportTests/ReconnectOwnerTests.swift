@@ -17,8 +17,10 @@ struct ReconnectOwnerTests {
         let now: Int64 = 1_000_000
 
         init() throws {
+            let fixedNow = now
             host = TransportHost(
-                verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData))
+                verifier: GrantVerifier(serverPublicKeyData: signer.publicKeyData),
+                epochNow: { fixedNow })
             identity = PeerIdentity.generate(appIdentity: "dev.cmux.lite", deviceID: "ro-1")
             grant = try signer.mint(
                 accountID: "a", deviceID: identity.deviceID,
@@ -153,6 +155,39 @@ struct ReconnectOwnerTests {
         #expect(await owner.dialsStarted == 1)
         #expect(await rig.host.counters.closesByCode["superseded"] == 1)
     }
+
+    @Test("An ambiguous peer close fails closed instead of redialing")
+    func ambiguousPeerCloseDoesNotRedial() async throws {
+        let peer = AmbiguousPeerConnection()
+        let owner = ReconnectOwner {
+            .admitted(peer, sessionID: "s1")
+        }
+        await owner.endpointReady(true)
+        await owner.trigger(.automatic(trigger: "launch"))
+        await waitFor(owner) {
+            $0 == .closed(CloseReason(origin: .remote, code: "connection-lost"))
+        }
+        #expect(await owner.dialsStarted == 1)
+    }
+}
+
+/// Minimal peer whose substrate cannot classify a rendered application-close
+/// reason. It verifies the reconnect owner's ambiguity fence independently of
+/// the concrete iroh FFI object.
+final class AmbiguousPeerConnection: PeerConnection {
+    var authenticatedRemoteKey: Data? { nil }
+
+    func lane(_ name: String) async -> any TransportLane {
+        DeadLane(name: name)
+    }
+
+    func closeAll(reason: ConnectionTermination?) async {}
+
+    func termination() async -> ConnectionTermination? {
+        ConnectionTermination(code: "connection-lost", authority: .ambiguous)
+    }
+
+    var isClosed: Bool { get async { true } }
 }
 
 /// Models a silent peer (half-open QUIC): a local closeAll never reaches the
@@ -160,15 +195,21 @@ struct ReconnectOwnerTests {
 /// tasks die on stop() even when the wire cannot deliver the close.
 final class HalfOpenConnection: PeerConnection {
     private let inner: LoopbackConnectionEnd
+    private let receiveProbe: ReceiveProbe?
 
-    init(_ inner: LoopbackConnectionEnd) { self.inner = inner }
+    init(_ inner: LoopbackConnectionEnd, receiveProbe: ReceiveProbe? = nil) {
+        self.inner = inner
+        self.receiveProbe = receiveProbe
+    }
 
     var authenticatedRemoteKey: Data? {
         inner.authenticatedRemoteKey
     }
 
     func lane(_ name: String) async -> any TransportLane {
-        await inner.lane(name)
+        let lane = await inner.lane(name)
+        guard let receiveProbe else { return lane }
+        return ProbedLane(base: lane, probe: receiveProbe)
     }
 
     func closeAll(reason: ConnectionTermination?) async {}  // never lands
@@ -179,6 +220,40 @@ final class HalfOpenConnection: PeerConnection {
 
     var isClosed: Bool {
         get async { await inner.isClosed }
+    }
+}
+
+/// Records whether a lane receive starts after the owner has been stopped.
+/// The probe is test-only and sits at the consumption boundary, not merely at
+/// the callback that publishes frames.
+actor ReceiveProbe {
+    private var stopped = false
+    private(set) var postStopReceives = 0
+
+    func markStopped() { stopped = true }
+
+    func recordReceiveStart() {
+        if stopped { postStopReceives += 1 }
+    }
+}
+
+private struct ProbedLane: TransportLane {
+    let base: any TransportLane
+    let probe: ReceiveProbe
+
+    var name: String { base.name }
+
+    func send(_ frame: Frame) async throws {
+        try await base.send(frame)
+    }
+
+    func receive() async -> Frame? {
+        await probe.recordReceiveStart()
+        return await base.receive()
+    }
+
+    var backpressureStalls: Int {
+        get async { await base.backpressureStalls }
     }
 }
 
@@ -259,7 +334,8 @@ extension ReconnectOwnerShutdownTests {
     /// One loopback dial whose admitted connection is half-open: the client
     /// side's closeAll never reaches the wire.
     private func connectOnceHalfOpen(
-        _ rig: ReconnectOwnerTests.Rig
+        _ rig: ReconnectOwnerTests.Rig,
+        receiveProbe: ReceiveProbe? = nil
     ) async throws -> ConnectAttemptResult {
         let (client, hostEnd) = LoopbackWire().makeEnds(
             authenticatedClientKey: rig.identity.publicKeyData)
@@ -269,7 +345,9 @@ extension ReconnectOwnerShutdownTests {
         await serving
         switch outcome {
         case .admitted(let sessionID):
-            return .admitted(HalfOpenConnection(client), sessionID: sessionID)
+            return .admitted(
+                HalfOpenConnection(client, receiveProbe: receiveProbe),
+                sessionID: sessionID)
         case .denied(let code):
             return .denied(code)
         }
@@ -279,8 +357,11 @@ extension ReconnectOwnerShutdownTests {
     func stopCancelsWatchLoopOnHalfOpenConnection() async throws {
         let rig = try ReconnectOwnerTests.Rig()
         let collector = ControlFrameCollector()
+        let receiveProbe = ReceiveProbe()
         let owner = ReconnectOwner(
-            connectOnce: { [rig] in try await self.connectOnceHalfOpen(rig) },
+            connectOnce: { [rig] in
+                try await self.connectOnceHalfOpen(rig, receiveProbe: receiveProbe)
+            },
             onControlFrame: { await collector.append($0) })
         await owner.endpointReady(true)
         await owner.trigger(.automatic(trigger: "launch"))
@@ -299,6 +380,7 @@ extension ReconnectOwnerShutdownTests {
         #expect(await collector.count == 1)
 
         await owner.stop()
+        await receiveProbe.markStopped()
         // The peer is half-open: the owner's close never reached the wire, so
         // the host still sees a live session and pushes again. A stopped
         // owner's watch loop must be gone — nothing may surface (or silently
@@ -307,13 +389,18 @@ extension ReconnectOwnerShutdownTests {
             await rig.host.pushRelayCredential(
                 deviceID: rig.identity.deviceID, appIdentity: rig.identity.appIdentity,
                 url: "https://relay-2.example", token: "tok-2"))
-        // Poll for the failure mode (a second surfaced frame) until well past
-        // any plausible delivery latency; a dead watch loop surfaces nothing.
+        // Poll for the failure mode (a second surfaced frame or any new read)
+        // until well past plausible delivery latency; a dead watch loop
+        // consumes and surfaces nothing after shutdown.
         let deadline = ContinuousClock.now + .milliseconds(200)
-        while await collector.count < 2, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
+        while await collector.count < 2,
+            await receiveProbe.postStopReceives == 0,
+            ContinuousClock.now < deadline
+        {
+            await Task.yield()
         }
         #expect(await collector.count == 1)
+        #expect(await receiveProbe.postStopReceives == 0)
     }
 
     @Test("An explicit redial's losing attempt never leaves an orphaned live connection")

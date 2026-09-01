@@ -184,7 +184,7 @@ public struct SessionStateMachine: Sendable {
             return []
 
         case .closeRequested(let reason):
-            guard !state.isClosed else {
+            guard !closedTerminally else {
                 return [.invalidEventRecorded("closeRequested while already closed")]
             }
             var effects: [SessionEffect] = []
