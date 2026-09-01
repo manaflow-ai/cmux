@@ -3,7 +3,10 @@
 //! Detection semantics derived from herdr (https://github.com/herdrdev/herdr),
 //! Apache-2.0, commit `7b675f42af35508eab66ac42fe1598628597a893`, especially
 //! `src/detect/mod.rs` and `src/pane/agent_detection.rs`, modified by
-//! manaflow.
+//! manaflow. First-acquisition OSC retention follows herdr commit
+//! `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` (`src/pane.rs`), adapted here
+//! as a local metadata fence because the generic host API does not let a
+//! plugin clear terminal OSC state.
 //!
 //! The plugin watches every PTY's output stream; when a terminal goes quiet
 //! (debounced), the foreground process name selects a herdr-derived manifest
@@ -169,6 +172,40 @@ impl PendingIdle {
     }
 }
 
+/// Whether retained OSC metadata may be used without a new PTY revision.
+/// Herdr clears the host's OSC fields when leaving an identified agent. The
+/// cmux host API is deliberately generic and cannot perform that reset for a
+/// plugin, so the plugin models the same boundary locally.
+#[derive(Debug, Clone, Copy, Default)]
+enum OscMetadataState {
+    /// No agent has been identified on this terminal yet. The first agent may
+    /// have emitted its title or progress before process inspection caught up.
+    #[default]
+    FirstAcquisition,
+    /// A replacement or confirmed exit occurred. A revision is optional for
+    /// older hosts; when absent, the compatibility path remains open because
+    /// the plugin has no evidence on which to compare generations.
+    Fenced { identity_revision: Option<u64> },
+}
+
+impl OscMetadataState {
+    fn is_fresh(self, stream_revision: Option<u64>) -> bool {
+        let Self::Fenced { identity_revision } = self else {
+            return true;
+        };
+        let (Some(identity_revision), Some(stream_revision)) =
+            (identity_revision, stream_revision)
+        else {
+            return true;
+        };
+        stream_revision > identity_revision
+    }
+
+    fn fence(&mut self, stream_revision: Option<u64>) {
+        *self = Self::Fenced { identity_revision: stream_revision };
+    }
+}
+
 /// One state transition the scanner must journal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenDetectEmission {
@@ -207,11 +244,10 @@ struct TrackedTerminal {
     foreground_process_group: Option<u32>,
     /// Deadline for the stale-screen guard after an agent identity edge.
     startup_grace_until: Option<Instant>,
-    /// Output revision observed when the current foreground identity was
-    /// established. The generic host retains OSC metadata across processes;
-    /// a revision change is the userland proof that retained metadata can be
-    /// from the current process.
-    foreground_identity_revision: Option<u64>,
+    /// First acquisition accepts retained evidence. A replacement or confirmed
+    /// exit changes this to `Fenced`, so a later process cannot inherit the
+    /// prior process's metadata.
+    osc_metadata_state: OscMetadataState,
     /// Consecutive process probes that did not identify an agent. A positive
     /// probe resets this counter, so a transient inspection miss cannot close
     /// a live row.
@@ -319,12 +355,10 @@ impl ScreenDetectTracker {
         let Some(entry) = self.terminals.get(terminal_id) else {
             return true;
         };
-        let (Some(identity_revision), Some(stream_revision)) =
-            (entry.foreground_identity_revision, stream_revision)
-        else {
-            return true;
-        };
-        stream_revision > identity_revision
+        // Match herdr's first-acquisition rule. A newly recognized agent may
+        // have emitted its OSC title or progress before the process probe
+        // caught up, so do not discard that evidence on the first edge.
+        entry.osc_metadata_state.is_fresh(stream_revision)
     }
 
     /// True when this terminal previously journaled a screen-derived state
@@ -377,9 +411,10 @@ impl ScreenDetectTracker {
     }
 
     /// Record a foreground identity edge and the host stream revision seen at
-    /// that edge. The revision lets the userland detector reject OSC title or
-    /// progress retained from the previous process without adding agent
-    /// semantics to the host metadata API.
+    /// that edge. On replacement edges, the revision lets the userland
+    /// detector reject OSC title or progress retained from the previous
+    /// process without adding agent semantics to the host metadata API. The
+    /// first acquisition keeps evidence that may have arrived before probing.
     pub(crate) fn note_foreground_job_at_with_revision(
         &mut self,
         terminal_id: &str,
@@ -409,10 +444,24 @@ impl ScreenDetectTracker {
                     // revision after the identity was established. Anchor it
                     // once, so retained metadata is fenced as soon as the
                     // host provides the evidence needed to fence it.
-                    if entry.foreground_identity_revision.is_none() {
-                        entry.foreground_identity_revision = stream_revision;
+                    if let OscMetadataState::Fenced { identity_revision } =
+                        &mut entry.osc_metadata_state
+                    {
+                        if identity_revision.is_none() {
+                            *identity_revision = stream_revision;
+                        }
                     }
                     return false;
+                }
+                // A first acquisition keeps OSC evidence already emitted by
+                // the process. Once any agent was identified, a replacement
+                // must wait for a newer stream revision, including after a
+                // confirmed exit where the host could not clear its state.
+                let first_acquisition = entry.foreground_agent.is_none()
+                    && entry.emitted.is_none()
+                    && matches!(entry.osc_metadata_state, OscMetadataState::FirstAcquisition);
+                if !first_acquisition {
+                    entry.osc_metadata_state.fence(stream_revision);
                 }
             }
             None => {
@@ -427,11 +476,14 @@ impl ScreenDetectTracker {
                 // The identity is actually gone. Clear the counter before
                 // publishing the edge so a later agent starts cleanly.
                 entry.foreground_misses = 0;
+                // The host cannot clear its retained OSC fields on this edge.
+                // Preserve a fence so the next acquisition cannot inherit the
+                // first agent's metadata.
+                entry.osc_metadata_state.fence(stream_revision);
             }
         }
         entry.foreground_agent = agent.map(str::to_string);
         entry.foreground_process_group = agent.and(process_group_id);
-        entry.foreground_identity_revision = agent.and(stream_revision);
         entry.identity_presence_needed = agent.is_some();
         entry.startup_grace_until =
             agent.map(|_| now + Duration::from_millis(AGENT_STARTUP_GRACE_MS));
@@ -553,9 +605,11 @@ impl ScreenDetectTracker {
         if process_exited {
             // A terminal exit is authoritative. Do not retain the identity
             // or its startup grace when the PTY has gone away.
+            if entry.foreground_agent.is_some() {
+                entry.osc_metadata_state.fence(Some(entry.revision));
+            }
             entry.foreground_agent = None;
             entry.foreground_process_group = None;
-            entry.foreground_identity_revision = None;
             entry.foreground_misses = 0;
             entry.startup_grace_until = None;
             entry.identity_presence_needed = false;

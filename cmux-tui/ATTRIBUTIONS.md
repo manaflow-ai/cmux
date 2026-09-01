@@ -9,6 +9,7 @@
 - Detector source reference commit: `7b675f42af35508eab66ac42fe1598628597a893`
 - Pi bundled-launcher correction commit: `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 - Manifest snapshot commit: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
+- First-acquisition OSC retention commit: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
 
 Derived material and vendored material:
 
@@ -26,9 +27,10 @@ Derived material and vendored material:
   detection semantics (state model, edge-triggered transitions,
   foreground-process identification, quiescence sampling) derived from
   `src/detect/mod.rs`, `src/pane/agent_detection.rs`, and `src/pane.rs`.
-  These files are a userland plugin. The output-revision fence for retained
-  OSC metadata is a cmux adaptation. Core only supervises the process and
-  folds its generic events.
+  These files are a userland plugin. Herdr's first-acquisition OSC retention
+  fix (`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`) is adapted as a local
+  output-revision fence for replacement agents. Core only supervises the
+  process and folds its generic events.
 - `bindings/examples/rust-agent-screen-detection/src/process.rs`: bounded
   foreground process-group discovery and wrapper handling derived from
   herdr's platform and detector modules, with platform fallbacks and stricter
@@ -54,8 +56,12 @@ Derived material and vendored material:
   generic custom title and keeps explicit braille-spinner activity stronger.
 
 The capability audit was rerun against herdr revision
-`99c23cd1ea7468bd3661f6483c7105396503b417`. No detector or manifest change
-after the pinned revisions needs another port. Later upstream commits
+`99c23cd1ea7468bd3661f6483c7105396503b417`. The first-acquisition OSC
+retention fix in `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the
+userland tracker with a local revision fence. The foreground group-leader CWD
+fix in `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the
+generic `foreground_cwd` resource, so no herdr-specific CWD policy is copied.
+Later upstream commits
 `5158adab10b6dcfea9370782043392f80fa0643c`,
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
 `da8c7b05f9ef7898cfb7494989df8a533b947bb9`, and

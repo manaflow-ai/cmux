@@ -6,6 +6,7 @@ The files under `manifests/` are derived from the herdr project:
 * Detector source reference revision: `7b675f42af35508eab66ac42fe1598628597a893`
 * Pi bundled-launcher correction: `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 * Manifest snapshot revision: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
+* First-acquisition OSC retention: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
 * Unchanged vendored material: 17 of the 21 `manifests/*.toml` files, copied
   from `src/detect/manifests/` at the manifest snapshot revision. The Claude,
@@ -19,7 +20,13 @@ The files under `manifests/` are derived from the herdr project:
 
 The attribution and capability audit was rerun against herdr revision
 `99c23cd1ea7468bd3661f6483c7105396503b417` after the pinned snapshot. It found
-no newer detector or manifest change to copy. Later upstream commits
+the first-acquisition OSC retention fix in
+`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`; `src/detect.rs` ports that policy
+with a local revision fence because the generic host API cannot clear OSC
+state. It also found foreground group-leader CWD selection in
+`3a3792622e59c7f2dc20f9c0236167161e4a5035`; cmux's generic
+`foreground_cwd` resource already resolves the group leader, so no
+herdr-specific CWD code is copied. Later upstream commits
 `5158adab10b6dcfea9370782043392f80fa0643c`,
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
 `da8c7b05f9ef7898cfb7494989df8a533b947bb9`, and
@@ -55,9 +62,11 @@ public-process fallback.
 `src/pane/agent_detection.rs` debounce, identity-edge, miss-confirmation, and
 flowing-output signals. The one-second max-evaluation pacer, deterministic
 activity-expiry debt, and same-name process-group replacement edge are
-manaflow changes. The output-revision fence for retained OSC title and
-progress metadata is also a manaflow change; it keeps that generic host
-metadata from being attributed across an agent identity edge.
+manaflow changes. Herdr's first-acquisition OSC retention fix from
+`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted as a local
+output-revision fence for replacement agents; it keeps that generic host
+metadata from being attributed across an agent identity edge while preserving
+evidence emitted before the first process probe.
 
 `src/manifest_update.rs` follows herdr's `src/detect/manifest_update.rs`
 versioned update and status concepts.

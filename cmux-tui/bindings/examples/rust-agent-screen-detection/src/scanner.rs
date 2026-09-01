@@ -625,12 +625,15 @@ fn scan_terminal(
     let manifest = manifest.expect("checked above");
     // The daemon exposes OSC title and progress as generic terminal
     // metadata. It can retain those values across a foreground-process
-    // change, so the userland plugin must wait for a post-edge output
-    // revision before attributing them to the new agent. Older daemons do
-    // not expose revisions, and the tracker keeps the compatibility path.
+    // change, so the userland plugin fences replacement agents until a
+    // post-edge output revision. The first acquisition deliberately keeps
+    // evidence already emitted by the new agent, matching herdr's behavior.
+    // Older daemons do not expose revisions, and the tracker keeps the
+    // compatibility path.
     // A screen read can carry the first revision on hosts whose catalog
-    // snapshot did not. Enrich the identity after the read before consulting
-    // OSC fields, closing that compatibility race without a daemon change.
+    // snapshot did not. Enrich a replacement fence after the read before
+    // consulting OSC fields, closing that compatibility race without a daemon
+    // change. First acquisition remains intentionally unfenced.
     let _ = state.tracker.note_foreground_job_at_with_revision(
         &terminal_id,
         Some(agent),
