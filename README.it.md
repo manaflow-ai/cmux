@@ -69,7 +69,7 @@ La barra laterale mostra il branch git, lo stato/numero della PR collegata, la d
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> crea un workspace per una macchina remota. I pannelli del browser vengono instradati attraverso la rete remota, quindi localhost funziona direttamente. Trascina un'immagine in una sessione remota per caricarla via scp.
+<code>cmux ssh user@remote</code> crea un workspace per una macchina remota. Passa <code>--command 'omp "investigate auth"'</code> per eseguire un comando iniziale una sola volta nel suo primo terminale remoto. I pannelli del browser vengono instradati attraverso la rete remota, quindi localhost funziona direttamente. Trascina un'immagine in una sessione remota per caricarla via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 Al primo avvio, macOS potrebbe chiederti di confermare l'apertura di un'app da uno sviluppatore identificato. Fai clic su **Apri** per procedere.
+
+### Completamento della shell
+
+Il cask di Homebrew installa il completamento per zsh, bash e fish. Apri una nuova shell dopo l'installazione. Se non viene caricato, verifica che le directory di completamento di Homebrew siano collegate alla tua shell (vedi [la documentazione di Homebrew sul completamento della shell](https://docs.brew.sh/Shell-Completion)).
+
+Se hai installato cmux in un altro modo, aggiungi la riga corrispondente al file di avvio della tua shell, poi apri una nuova shell:
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## Perché cmux?
 

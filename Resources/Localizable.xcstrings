@@ -4206,6 +4206,31 @@
         }
       }
     },
+    "cli.agentHook.error.journalAppend": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل إلحاق سجل خطاف الوكيل لـ %@ %@." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dodavanje u dnevnik agentske kuke nije uspjelo za %@ %@." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tilføjelse til agent-hook-journalen mislykkedes for %@ %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das Anhängen an das Agent-Hook-Journal ist für %@ %@ fehlgeschlagen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Agent hook journal append failed for %@ %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo anexar al diario del hook del agente para %@ %@." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de l’ajout au journal du hook d’agent pour %@ %@." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile aggiungere al journal dell’hook dell’agente per %@ %@." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ %@ のエージェントフックジャーナルへの追記に失敗しました。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការបន្ថែមទៅកំណត់ហេតុ agent hook បានបរាជ័យសម្រាប់ %@ %@។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@ %@에 대한 에이전트 훅 저널 추가에 실패했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tillegg til agent-hook-journalen mislyktes for %@ %@." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się dodać wpisu do dziennika haka agenta dla %@ %@." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha ao adicionar ao diário do hook do agente para %@ %@." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось добавить запись в журнал хука агента для %@ %@." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มข้อมูลลงบันทึก agent hook สำหรับ %@ %@ ไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ %@ için aracı kancası günlüğüne ekleme yapılamadı." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося додати запис до журналу хука агента для %@ %@." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法为 %@ %@ 追加代理钩子日志。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法為 %@ %@ 附加代理程式掛鉤日誌。" } }
+      }
+    },
     "cli.agentHook.error.notificationDelivery": {
       "extractionState": "manual",
       "localizations": {
@@ -34678,6 +34703,106 @@
         }
       }
     },
+    "cli.command.completion.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اطبع برنامج إكمال الصدفة لـ cmux." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ispišite skriptu za dovršavanje ljuske za cmux." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Udskriv et shell-fuldførelsesscript til cmux." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ein Shell-Vervollständigungsskript für cmux ausgeben." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Print a shell completion script for cmux." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Imprime un script de finalización de shell para cmux." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Affiche un script de complétion du shell pour cmux." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Stampa uno script di completamento della shell per cmux." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux のシェル補完スクリプトを出力します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បោះពុម្ពស្គ្រីបបំពេញសែលសម្រាប់ cmux ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux용 셸 자동 완성 스크립트를 출력합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skriv ut et shell-fullføringsskript for cmux." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wypisz skrypt uzupełniania powłoki dla cmux." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Imprime um script de conclusão do shell para cmux." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Вывести сценарий автодополнения оболочки для cmux." } },
+        "th": { "stringUnit": { "state": "translated", "value": "พิมพ์สคริปต์การเติมคำสั่งของเชลล์สำหรับ cmux" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux için kabuk tamamlama betiğini yazdır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вивести сценарій автодоповнення оболонки для cmux." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打印 cmux 的 Shell 补全脚本。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "列印 cmux 的 Shell 補全指令碼。" } }
+      }
+    },
+    "cli.command.completion.discussion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "أضف السطر المطابق إلى ملف بدء تشغيل الصدفة:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Dodajte odgovarajući red u datoteku za pokretanje ljuske:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tilføj den tilsvarende linje til din shells opstartsfil:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Füge die passende Zeile zu deiner Shell-Startdatei hinzu:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Add the matching line to your shell startup file:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Añade la línea correspondiente al archivo de inicio de tu shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ajoutez la ligne correspondante au fichier de démarrage de votre shell :\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Aggiungi la riga corrispondente al file di avvio della shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "次の行をシェルの起動ファイルに追加してください:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បន្ថែមបន្ទាត់ដែលត្រូវគ្នាទៅឯកសារចាប់ផ្តើមសែលរបស់អ្នក៖\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "셸 시작 파일에 해당 줄을 추가하세요:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Legg til den tilsvarende linjen i oppstartsfilen for skallet ditt:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Dodaj odpowiedni wiersz do pliku startowego powłoki:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Adicione a linha correspondente ao arquivo de inicialização do shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Добавьте соответствующую строку в файл запуска оболочки:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เพิ่มบรรทัดที่ตรงกันลงในไฟล์เริ่มต้นของเชลล์:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Eşleşen satırı kabuk başlangıç dosyanıza ekleyin:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Додайте відповідний рядок до файлу запуску оболонки:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将相应的行添加到 Shell 启动文件中：\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "將對應行新增到 Shell 啟動檔案中：\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source" } }
+      }
+    },
+    "cli.command.completion.shell.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الصدفة التي سيُنشأ لها البرنامج النصي." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ljuska za koju se generira skripta." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Shellen, der skal genereres et script til." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Shell, für die ein Skript erstellt werden soll." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Shell to generate a script for." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Shell para la que se generará un script." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Shell pour lequel générer un script." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Shell per cui generare uno script." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スクリプトを生成するシェル。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សែលដែលត្រូវបង្កើតស្គ្រីបសម្រាប់។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "스크립트를 생성할 셸입니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skallet det skal genereres et skript for." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Powłoka, dla której należy wygenerować skrypt." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Shell para o qual gerar um script." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Оболочка, для которой нужно создать сценарий." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เชลล์ที่จะสร้างสคริปต์ให้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Betik oluşturulacak kabuk." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Оболонка, для якої потрібно створити сценарій." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "要为其生成脚本的 Shell。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "要為其產生指令碼的 Shell。" } }
+      }
+    },
+    "cli.command.completion.unsupportedShell": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الصدفة '%@' غير مدعومة. المدعوم: bash وzsh وfish." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nepodržana ljuska '%@'. Podržano: bash, zsh, fish." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ikke-understøttet shell '%@'. Understøttet: bash, zsh, fish." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nicht unterstützte Shell '%@'. Unterstützt: bash, zsh, fish." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Unsupported shell '%@'. Supported: bash, zsh, fish." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Shell no compatible '%@'. Compatibles: bash, zsh, fish." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Shell non pris en charge « %@ ». Pris en charge : bash, zsh, fish." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Shell '%@' non supportata. Supportate: bash, zsh, fish." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポートされていないシェル '%@' です。対応: bash、zsh、fish。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សែល '%@' មិនត្រូវបានគាំទ្រទេ។ គាំទ្រ៖ bash, zsh, fish។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "지원되지 않는 셸 '%@'입니다. 지원: bash, zsh, fish." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Shell '%@' støttes ikke. Støttet: bash, zsh, fish." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nieobsługiwana powłoka '%@'. Obsługiwane: bash, zsh, fish." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Shell '%@' não suportado. Compatíveis: bash, zsh, fish." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Оболочка '%@' не поддерживается. Поддерживаются: bash, zsh, fish." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่รองรับเชลล์ '%@' รองรับ: bash, zsh, fish" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Desteklenmeyen kabuk '%@'. Desteklenenler: bash, zsh, fish." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Оболонка '%@' не підтримується. Підтримуються: bash, zsh, fish." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "不支持 Shell '%@'。支持：bash、zsh、fish。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "不支援 Shell '%@'。支援：bash、zsh、fish。" } }
+      }
+    },
     "canvas.commandScrollHint": {
       "extractionState": "manual",
       "localizations": {
@@ -35458,7 +35583,49 @@
     "cli.browser.designMode.help": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
@@ -35469,7 +35636,98 @@
             "state": "translated",
             "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+          }
         }
+      }
+    },
+    "cli.browser.legacyAlias.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الاسم المستعار القديم لـ 'cmux browser %@'. شغّل 'cmux browser --help' للتفاصيل." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Naslijeđeni alias za 'cmux browser %@'. Pokrenite 'cmux browser --help' za detalje." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ældre alias for 'cmux browser %@'. Kør 'cmux browser --help' for detaljer." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Veralteter Alias für 'cmux browser %@'. Führe 'cmux browser --help' für Details aus." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Legacy alias for 'cmux browser %@'. Run 'cmux browser --help' for details." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Alias heredado para 'cmux browser %@'. Ejecuta 'cmux browser --help' para más detalles." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Alias historique pour 'cmux browser %@'. Exécutez 'cmux browser --help' pour plus de détails." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Alias legacy per 'cmux browser %@'. Esegui 'cmux browser --help' per i dettagli." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' の互換エイリアスです。詳細は 'cmux browser --help' を実行してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ឈ្មោះហៅកាត់ចាស់សម្រាប់ 'cmux browser %@'។ រត់ 'cmux browser --help' សម្រាប់ព័ត៌មានលម្អិត។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "'cmux browser %@'의 레거시 별칭입니다. 자세한 내용은 'cmux browser --help'를 실행하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Eldre alias for 'cmux browser %@'. Kjør 'cmux browser --help' for detaljer." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Starszy alias dla 'cmux browser %@'. Uruchom 'cmux browser --help', aby poznać szczegóły." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Alias legado para 'cmux browser %@'. Execute 'cmux browser --help' para obter detalhes." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Устаревший псевдоним для 'cmux browser %@'. Выполните 'cmux browser --help' для подробностей." } },
+        "th": { "stringUnit": { "state": "translated", "value": "นามแฝงแบบเดิมสำหรับ 'cmux browser %@' เรียกใช้ 'cmux browser --help' เพื่อดูรายละเอียด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' için eski takma ad. Ayrıntılar için 'cmux browser --help' çalıştırın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Застарілий псевдонім для 'cmux browser %@'. Виконайте 'cmux browser --help' для подробиць." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' 的旧版别名。运行 'cmux browser --help' 查看详细信息。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "'cmux browser %@' 的舊版別名。執行 'cmux browser --help' 以取得詳細資訊。" } }
       }
     },
     "cli.browser.designMode.rpcExpectedModes": {
@@ -35863,7 +36121,49 @@
     "cli.browser.profile.option": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "[--profile <name|uuid>]"
@@ -35873,6 +36173,447 @@
           "stringUnit": {
             "state": "translated",
             "value": "[--profile <名前|UUID>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[--profile <name|uuid>]"
+          }
+        }
+      }
+    },
+    "cli.docs.completion.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نصوص إكمال الأوامر لـ zsh وbash وfish."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skripte za automatsko dovršavanje za zsh, bash i fish."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completion-scripts til zsh, bash og fish."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell-Completion-Skripte für zsh, bash und fish."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts de autocompletado de shell para zsh, bash y fish."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts de complétion shell pour zsh, bash et fish."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script di completamento della shell per zsh, bash e fish."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zsh、bash、fish 用のシェル補完スクリプト。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្គ្រីបបំពេញបញ្ជីពាក្យបញ្ជាសម្រាប់ zsh, bash, និង fish។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zsh, bash, fish용 셸 자동 완성 스크립트."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skallfullføringsskript for zsh, bash og fish."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrypty uzupełniania powłoki dla zsh, bash i fish."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts de autocompletar do shell para zsh, bash e fish."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипты автодополнения оболочки для zsh, bash и fish."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สคริปต์เติมคำสั่งอัตโนมัติสำหรับ zsh, bash และ fish"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zsh, bash ve fish için kabuk tamamlama betikleri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипти автодоповнення оболонки для zsh, bash і fish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于 zsh、bash 和 fish 的 shell 补全脚本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用於 zsh、bash 和 fish 的 shell 補全指令碼。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.topics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបប្រើ: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]"
+          }
+        }
+      }
+    },
+    "cli.docs.completion.cliContractLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عقد CLI"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ugovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Vertrag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI contract"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato de la CLI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrat de la CLI"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contratto della CLI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិច្ចសន្យា CLI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 계약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrakt CLI"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato da CLI"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อตกลง CLI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI sözleşmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契约"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
           }
         }
       }
@@ -38267,16 +39008,124 @@
     "cli.error.dismissNotificationSelector": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب dismiss-notification واحدًا فقط من --id أو --all-read"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification zahtijeva tačno jedan od --id ili --all-read"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification kræver præcis én af --id eller --all-read"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification erfordert genau eines von --id oder --all-read"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "dismiss-notification requires exactly one of --id or --all-read"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification requiere exactamente uno de --id o --all-read"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification nécessite exactement un de --id ou --all-read"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification richiede esattamente uno tra --id o --all-read"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "dismiss-notification には --id または --all-read のどちらか一方だけを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification ត្រូវការតែមួយក្នុងចំណោម --id ឬ --all-read"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification에는 --id 또는 --all-read 중 정확히 하나가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification krever nøyaktig én av --id eller --all-read"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification wymaga dokładnie jednej z opcji --id lub --all-read"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification requer exatamente um de --id ou --all-read"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification требует ровно одного из --id или --all-read"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification ต้องการ --id หรือ --all-read เพียงอย่างใดอย่างหนึ่งเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification, --id veya --all-read seçeneklerinden tam olarak birini gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification вимагає рівно одного з --id або --all-read"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification 需要 --id 或 --all-read 中的恰好一个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dismiss-notification 需要 --id 或 --all-read 中的恰好一個"
           }
         }
       }
@@ -38335,10 +39184,52 @@
     "cli.error.markNotificationReadSelector": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب mark-notification-read محددًا واحدًا فقط: --id أو --workspace أو --all"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read zahtijeva tačno jedan selektor: --id, --workspace ili --all"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read kræver præcis én vælger: --id, --workspace eller --all"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read erfordert genau einen Selektor: --id, --workspace oder --all"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "mark-notification-read requires exactly one selector: --id, --workspace, or --all"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read requiere exactamente un selector: --id, --workspace o --all"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read nécessite exactement un sélecteur : --id, --workspace ou --all"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read richiede esattamente un selettore: --id, --workspace o --all"
           }
         },
         "ja": {
@@ -38346,22 +39237,196 @@
             "state": "translated",
             "value": "mark-notification-read には --id、--workspace、--all のいずれか一つだけを指定してください"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read ត្រូវការឧបករណ៍ជ្រើសរើសតែមួយ៖ --id, --workspace ឬ --all"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read에는 정확히 하나의 선택자가 필요합니다: --id, --workspace 또는 --all"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read krever nøyaktig én velger: --id, --workspace eller --all"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read wymaga dokładnie jednego selektora: --id, --workspace lub --all"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read requer exatamente um seletor: --id, --workspace ou --all"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read требует ровно одного селектора: --id, --workspace или --all"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read ต้องการตัวเลือกเพียงหนึ่งเดียว: --id, --workspace หรือ --all"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read tam olarak bir seçici gerektirir: --id, --workspace veya --all"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read вимагає рівно одного селектора: --id, --workspace або --all"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read 需要恰好一个选择器：--id、--workspace 或 --all"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark-notification-read 需要恰好一個選擇器：--id、--workspace 或 --all"
+          }
         }
       }
     },
     "cli.error.markNotificationReadSurfaceRequiresWorkspace": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --surface وجود --workspace"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface zahtijeva --workspace"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface kræver --workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface erfordert --workspace"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "--surface requires --workspace"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface requiere --workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface nécessite --workspace"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface richiede --workspace"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "--surface には --workspace が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ត្រូវការ --workspace"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface에는 --workspace가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface krever --workspace"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface wymaga --workspace"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface requer --workspace"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface требует --workspace"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ต้องการ --workspace"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface, --workspace gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface вимагає --workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要 --workspace"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要 --workspace"
           }
         }
       }
@@ -39082,13 +40147,121 @@
     "cli.help.ios": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
@@ -39641,6 +40814,31 @@
         }
       }
     },
+    "cli.root.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تحكم في cmux عبر مقبس Unix." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upravljajte cmuxom putem Unix utičnice." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Styr cmux via Unix-sokkel." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Steuere cmux über einen Unix-Socket." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Control cmux via Unix socket." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Controla cmux mediante un socket Unix." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Contrôlez cmux via un socket Unix." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Controlla cmux tramite un socket Unix." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Unix ソケット経由で cmux を操作します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "គ្រប់គ្រង cmux តាមរយៈរន្ធ Unix ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Unix 소켓을 통해 cmux를 제어합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kontroller cmux via en Unix-sokkel." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Steruj cmux za pomocą gniazda Unix." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Controle o cmux por meio de um soquete Unix." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Управляйте cmux через сокет Unix." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ควบคุม cmux ผ่านซ็อกเก็ต Unix" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux'u Unix soketi üzerinden denetleyin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Керуйте cmux через сокет Unix." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "通过 Unix 套接字控制 cmux。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "透過 Unix socket 控制 cmux。" } }
+      }
+    },
     "cli.help.openNotification": {
       "extractionState": "manual",
       "localizations": {
@@ -39928,13 +41126,121 @@
     "cli.help.simulator": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "simulator <subcommand> [args] [--surface <id|ref|index>]"

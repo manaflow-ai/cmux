@@ -1,0 +1,220 @@
+import ArgumentParser
+import Foundation
+
+/// Routes VM and remote facade declarations through the established CLI implementation.
+private protocol LegacyVMCommand: SharedLegacyFacadeCommand {}
+
+private protocol VMIDCommand: LegacyVMCommand {}
+
+extension VMIDCommand {
+    static var vmID: CompletionKind {
+        .custom(CompletionCandidates.vms)
+    }
+}
+
+struct VMCommand: LegacyVMCommand {
+    // No catch-all argument here: ArgumentParser already generates a rest-argument
+    // spec to dispatch into `subcommands`, and a second one on this struct produces
+    // an invalid duplicate `_arguments` spec in the generated zsh completion script.
+    // `defaultSubcommand` absorbs anything that doesn't name a declared subcommand.
+    static let configuration = CommandConfiguration(
+        commandName: "vm",
+        subcommands: [
+            VMBaseCommand.self,
+            VMNewCommand.self,
+            VMListCommand.self,
+            VMStatusCommand.self,
+            VMSnapshotCommand.self,
+            VMForkCommand.self,
+            VMRestoreCommand.self,
+            VMRemoveCommand.self,
+            VMExecCommand.self,
+            VMShellCommand.self,
+            VMSSHCommand.self,
+            VMSSHInfoCommand.self,
+            VMToolsCommand.self,
+            VMPortsCommand.self,
+            VMHandoffCommand.self,
+            VMPromoteTemplateCommand.self,
+            VMSSHAttachCommand.self,
+        ],
+        defaultSubcommand: VMListCommand.self,
+        helpNames: [],
+        aliases: ["cloud"]
+    )
+}
+
+struct VMBaseCommand: LegacyVMCommand {
+    // See VMCommand's comment: no catch-all argument alongside `subcommands`.
+    static let configuration = CommandConfiguration(
+        commandName: "base",
+        subcommands: [VMBaseOpenCommand.self, VMBaseResetCommand.self],
+        defaultSubcommand: VMBaseOpenCommand.self,
+        helpNames: []
+    )
+}
+
+struct VMBaseOpenCommand: LegacyVMCommand {
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "open", helpNames: [])
+}
+
+struct VMBaseResetCommand: LegacyVMCommand {
+    @Option(name: .customLong("reason")) var reason: String?
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "reset", helpNames: [])
+}
+
+struct VMNewCommand: LegacyVMCommand {
+    @Option(name: .customLong("image")) var image: String?
+    @Option(name: .customLong("provider")) var provider: String?
+    @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "new", helpNames: [], aliases: ["create"])
+}
+
+struct VMListCommand: LegacyVMCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "ls", helpNames: [], aliases: ["list"])
+}
+
+struct VMStatusCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "status", helpNames: [], aliases: ["info"])
+}
+
+struct VMSnapshotCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Option(name: .customLong("name")) var name: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "snapshot", helpNames: [], aliases: ["checkpoint"])
+}
+
+struct VMForkCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Option(name: .customLong("name")) var name: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "fork", helpNames: [])
+}
+
+struct VMRestoreCommand: LegacyVMCommand {
+    @Argument var snapshotID: String?
+    @Option(name: .customLong("provider")) var provider: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "restore", helpNames: [])
+}
+
+struct VMRemoveCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "rm", helpNames: [], aliases: ["destroy", "delete"])
+}
+
+struct VMExecCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .captureForPassthrough) var command: [String] = []
+    static let configuration = CommandConfiguration(commandName: "exec", helpNames: [])
+}
+
+struct VMShellCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "shell", helpNames: [], aliases: ["attach"])
+}
+
+struct VMSSHCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "ssh", helpNames: [])
+}
+
+struct VMSSHInfoCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "ssh-info", helpNames: [])
+}
+
+struct VMToolsCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "tools", helpNames: [], aliases: ["tool-inspector"])
+}
+
+struct VMPortsCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "ports", helpNames: [])
+}
+
+struct VMHandoffCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "handoff", helpNames: [])
+}
+
+struct VMPromoteTemplateCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "promote-template", helpNames: [])
+}
+
+/// Retains the undocumented legacy command so VM routing remains transparent.
+struct VMSSHAttachCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "ssh-attach", shouldDisplay: false, helpNames: [])
+}
+
+struct RemotesCommand: LegacyVMCommand {
+    // See VMCommand's comment: no catch-all argument alongside `subcommands`.
+    static let configuration = CommandConfiguration(
+        commandName: "remotes",
+        subcommands: [RemotesListCommand.self, RemotesAddCommand.self, RemotesRemoveCommand.self],
+        defaultSubcommand: RemotesListCommand.self,
+        helpNames: [],
+        aliases: ["remote"]
+    )
+}
+
+struct RemotesListCommand: LegacyVMCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [], aliases: ["ls"])
+}
+
+struct RemotesAddCommand: LegacyVMCommand {
+    @Argument var name: String?
+    @Option(name: .customLong("route")) var routes: [String] = []
+    @Option(name: .customLong("tag")) var tag: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "add", helpNames: [])
+}
+
+struct RemotesRemoveCommand: LegacyVMCommand {
+    @Argument var target: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "remove", helpNames: [], aliases: ["rm", "delete"])
+}
+
+struct RemoteDaemonStatusCommand: LegacyVMCommand {
+    @Option(name: .customLong("os")) var operatingSystem: String?
+    @Option(name: .customLong("arch")) var architecture: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+
+    // The legacy parser deliberately prints status for --help.
+    static let configuration = CommandConfiguration(commandName: "remote-daemon-status", helpNames: [])
+}
