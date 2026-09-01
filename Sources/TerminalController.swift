@@ -132,6 +132,7 @@ class TerminalController {
     /// Actor-isolated ten-minute cache for mobile task model discovery.
     nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
+    private let externalNavigationHandler = BrowserExternalNavigationHandler()
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
     /// The shared auth coordinator + account flow, injected once via
     /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
@@ -234,12 +235,9 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
-    private nonisolated static let socketListenerFailureCaptureLock = NSLock()
-    private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
@@ -515,7 +513,15 @@ class TerminalController {
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(
                 target: serverEventTarget,
-                markerStore: socketPathMarkerStore
+                markerStore: socketPathMarkerStore,
+                failureCaptureGate: SocketListenerFailureCaptureGate(
+                    // Deleted /tmp dev sockets are routine on dev machines
+                    // (cleanup scripts) and the path monitor self-heals, so
+                    // debug builds keep path.missing as breadcrumbs only.
+                    capturesPathMissingFailures: !SocketControlSettings.isDebugLikeBundleIdentifier(
+                        socketMarkerBundleIdentifier
+                    )
+                )
             )
         )
         self.socketServer = socketServer
@@ -619,7 +625,7 @@ class TerminalController {
         switch request.command {
         case .toggle, .show, .focus:
             return true
-        case .setMode(_, let focus):
+        case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             return focus
         case .hide, .getState:
             return false
@@ -914,29 +920,12 @@ class TerminalController {
         transport.isProcessDescendant(pid, of: myPid)
     }
 
-    private nonisolated static func shouldCaptureSocketListenerFailure(
-        message: String,
-        stage: String,
-        path: String,
-        errnoCode: Int32?
-    ) -> Bool {
-        let key = "\(message)|\(stage)|\(path)|\(errnoCode.map(String.init) ?? "none")"
-        let now = Date()
-        socketListenerFailureCaptureLock.lock()
-        defer { socketListenerFailureCaptureLock.unlock() }
-        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
-           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
-            return false
-        }
-        socketListenerFailureLastCapturedAt[key] = now
-        return true
-    }
-
     /// Builds the package server's host-callback seam. `target` is filled in
     /// at the end of `init`; no listener event can fire before `start`.
     private nonisolated static func makeSocketServerEvents(
         target: ServerEventTarget,
-        markerStore: SocketPathMarkerStore
+        markerStore: SocketPathMarkerStore,
+        failureCaptureGate: SocketListenerFailureCaptureGate
     ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, data in
@@ -944,7 +933,7 @@ class TerminalController {
             },
             failure: { message, stage, errnoCode, data in
                 sentryBreadcrumb(message, category: "socket", data: data)
-                guard shouldCaptureSocketListenerFailure(
+                guard failureCaptureGate.shouldCapture(
                     message: message,
                     stage: stage,
                     path: data["path"] as? String ?? "",
@@ -956,6 +945,7 @@ class TerminalController {
             },
             listenerDidStart: { path, _ in
                 // @MainActor closure, invoked synchronously inside start().
+                failureCaptureGate.listenerDidStart()
                 target.controller?.socketListenerDidStart(path: path)
             },
             recordLastSocketPath: { path in
@@ -2865,9 +2855,19 @@ class TerminalController {
             "vm.terminal_open",
             "vm.terminal_new",
             "vm.workspace_new",
+            "vm.workspace_open",
+            "vm.workspace_close",
+            "vm.workspace_delete",
+            "vm.workspace_rename",
+            "vm.terminal_close",
+            "vm.terminal_write",
+            "vm.terminal_read",
+            "vm.terminal_wait",
             "vm.desktop_open",
             "vm.port_open",
             "vm.link_socket",
+            "vm.cloud_agent_open",
+            "vm.cloud_prompt",
             "surface.catalog",
             "surface.project",
             "surface.new_terminal",
@@ -3895,14 +3895,26 @@ class TerminalController {
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
                 // can then return a stable non-zero auth-required failure
-                // instead of presenting a generic backend error.
-                return v2Error(
-                    id: id,
-                    code: "auth_required",
-                    message: String(
+                // instead of presenting a generic backend error. A server 401
+                // means the app still holds a session the service rejects, so
+                // `cmux auth login` alone would short-circuit on "already
+                // signed in" — the fix is sign out, then sign in.
+                let message: String
+                if case .httpStatus = vmError {
+                    message = String(
+                        localized: "socket.cloudVM.sessionRejected",
+                        defaultValue: "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+                    )
+                } else {
+                    message = String(
                         localized: "socket.cloudVM.authRequired",
                         defaultValue: "Cloud VM access requires sign-in. Run `cmux auth login`, then retry."
                     )
+                }
+                return v2Error(
+                    id: id,
+                    code: "auth_required",
+                    message: message
                 )
             }
             return v2Error(
@@ -7278,38 +7290,41 @@ class TerminalController {
             }
             if let url,
                respectExternalOpenRules,
-               preferredProfileID == nil,
-               BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                guard NSWorkspace.shared.open(url) else {
+               preferredProfileID == nil {
+                switch externalNavigationHandler.openConfiguredExternallyResult(url) {
+                case .notConfigured:
+                    break
+                case .failed:
                     result = .err(
                         code: "external_open_failed",
                         message: "Failed to open URL externally",
                         data: ["url": url.absoluteString]
                     )
                     return
+                case .opened:
+                    let windowId = v2BrowserWindowID(
+                        for: container.host,
+                        tabManager: tabManager
+                    )
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": container.ownerID.uuidString,
+                        "workspace_ref": v2Ref(
+                            kind: .workspace,
+                            uuid: container.ownerID
+                        ),
+                        "pane_id": v2OrNull(nil),
+                        "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                        "surface_id": v2OrNull(nil),
+                        "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                        "created_split": false,
+                        "placement_strategy": "external",
+                        "opened_externally": true,
+                        "url": url.absoluteString
+                    ])
+                    return
                 }
-                let windowId = v2BrowserWindowID(
-                    for: container.host,
-                    tabManager: tabManager
-                )
-                result = .ok([
-                    "window_id": v2OrNull(windowId?.uuidString),
-                    "window_ref": v2Ref(kind: .window, uuid: windowId),
-                    "workspace_id": container.ownerID.uuidString,
-                    "workspace_ref": v2Ref(
-                        kind: .workspace,
-                        uuid: container.ownerID
-                    ),
-                    "pane_id": v2OrNull(nil),
-                    "pane_ref": v2Ref(kind: .pane, uuid: nil),
-                    "surface_id": v2OrNull(nil),
-                    "surface_ref": v2Ref(kind: .surface, uuid: nil),
-                    "created_split": false,
-                    "placement_strategy": "external",
-                    "opened_externally": true,
-                    "url": url.absoluteString
-                ])
-                return
             }
             v2MaybeFocusWindow(for: tabManager)
             switch container {
