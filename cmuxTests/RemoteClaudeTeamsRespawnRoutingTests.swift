@@ -259,6 +259,64 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
         #expect(closed == [oldSessionID])
     }
 
+    @Test
+    func endedPersistentRemotePTYStillRespawnsRemotely() throws {
+        let fixture = try Fixture(remoteTerminalTransport: .ssh)
+        defer { fixture.tearDown() }
+        let sessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: fixture.workspace.id,
+            panelId: fixture.panelID
+        )
+        let outcome = fixture.workspace.markRemotePTYAttachEnded(
+            surfaceId: fixture.panelID,
+            sessionID: sessionID
+        )
+        #expect(outcome.clearedRemotePTYSession)
+        #expect(!fixture.workspace.activeRemoteTerminalSurfaceIds.contains(fixture.panelID))
+        #expect(fixture.workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(fixture.panelID))
+
+        let raw = "cd \(remoteWorkingDirectory) && \(remoteExecutable) --agent-id ended"
+        let result = TerminalController.shared.controlSurfaceRespawn(
+            routing: fixture.routing(surfaceID: fixture.panelID),
+            inputs: fixture.respawnInputs(
+                surfaceID: fixture.panelID,
+                command: raw,
+                tmuxStartCommand: raw,
+                workingDirectory: remoteWorkingDirectory
+            )
+        )
+        guard case .respawned = result else {
+            Issue.record("Expected an ended persistent PTY to respawn remotely: \(result)")
+            return
+        }
+        let replacement = try #require(fixture.workspace.terminalPanel(for: fixture.panelID))
+        let launchCommand = try #require(replacement.surface.debugInitialCommand())
+        #expect(launchCommand.contains("ssh-pty-attach"))
+        #expect(!launchCommand.contains(raw))
+        #expect(fixture.workspace.activeRemoteTerminalSurfaceIds.contains(fixture.panelID))
+        #expect(!fixture.workspace.endedPersistentRemotePTYAttachSurfaceIds.contains(fixture.panelID))
+    }
+
+    @Test
+    func respawnPlanHonorsExplicitRemoteWorkingDirectory() throws {
+        let fixture = try Fixture(remoteTerminalTransport: .ssh)
+        defer { fixture.tearDown() }
+        let plan = try #require(fixture.workspace.remotePTYRespawnPlan(
+            panelId: fixture.panelID,
+            rawCommand: "claude --agent-id t1@team",
+            remoteWorkingDirectory: "/data00/it's here"
+        ))
+        #expect(plan.remoteCommand == "cd '/data00/it'\\''s here' && claude --agent-id t1@team")
+        #expect(plan.rawCommand == "claude --agent-id t1@team")
+        #expect(plan.bridgeCommand.contains("ssh-pty-attach"))
+
+        let bare = try #require(fixture.workspace.remotePTYRespawnPlan(
+            panelId: fixture.panelID,
+            rawCommand: "claude --agent-id t1@team"
+        ))
+        #expect(bare.remoteCommand == "claude --agent-id t1@team")
+    }
+
     @MainActor
     private struct Fixture {
         let appDelegate: AppDelegate
@@ -276,9 +334,21 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
             let registeredWindowID = delegate.registerMainWindowContextForTesting(tabManager: manager)
             AppDelegate.shared = delegate
             delegate.tabManager = manager
+            let resolvedWorkspace: Workspace
+            let resolvedPanelID: UUID
             do {
-                workspace = try #require(manager.selectedWorkspace)
-                panelID = try #require(workspace.focusedPanelId)
+                resolvedWorkspace = try #require(manager.selectedWorkspace)
+                resolvedPanelID = try #require(resolvedWorkspace.focusedPanelId)
+                if let remoteTerminalTransport {
+                    let configuration = Self.remoteConfiguration(
+                        remoteTerminalTransport: remoteTerminalTransport
+                    )
+                    try #require(
+                        resolvedWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+                    )
+                    resolvedWorkspace.panelDirectories[resolvedPanelID] = "/data00/cmux-11049/remote-only/leader"
+                    resolvedWorkspace.trackRemoteTerminalSurface(resolvedPanelID)
+                }
             } catch {
                 // A throwing `#require` must not leak the shared-state
                 // mutations above into later tests: roll them back before
@@ -288,33 +358,34 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
                 AppDelegate.shared = restoredAppDelegate
                 throw error
             }
+            workspace = resolvedWorkspace
+            panelID = resolvedPanelID
             previousAppDelegate = restoredAppDelegate
             appDelegate = delegate
             previousTabManager = restoredTabManager
             windowID = registeredWindowID
+        }
 
-            if let remoteTerminalTransport {
-                let configuration = WorkspaceRemoteConfiguration(
-                    transport: .ssh,
-                    terminalTransport: remoteTerminalTransport,
-                    destination: "tiny@remote-only",
-                    port: 22,
-                    identityFile: nil,
-                    sshOptions: [],
-                    localProxyPort: nil,
-                    relayPort: 22049,
-                    relayID: "cmux-11049",
-                    relayToken: String(repeating: "a", count: 64),
-                    localSocketPath: nil,
-                    terminalStartupCommand: "cmux remote-shell",
-                    preserveAfterTerminalExit: true,
-                    persistentDaemonSlot: "cmux-11049",
-                    skipDaemonBootstrap: false
-                )
-                #expect(workspace.configureRemoteConnection(configuration, autoConnect: false))
-                workspace.panelDirectories[panelID] = "/data00/cmux-11049/remote-only/leader"
-                workspace.trackRemoteTerminalSurface(panelID)
-            }
+        private static func remoteConfiguration(
+            remoteTerminalTransport: WorkspaceRemoteTerminalTransport
+        ) -> WorkspaceRemoteConfiguration {
+            WorkspaceRemoteConfiguration(
+                transport: .ssh,
+                terminalTransport: remoteTerminalTransport,
+                destination: "tiny@remote-only",
+                port: 22,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 22049,
+                relayID: "cmux-11049",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: nil,
+                terminalStartupCommand: "cmux remote-shell",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "cmux-11049",
+                skipDaemonBootstrap: false
+            )
         }
 
         func routing(surfaceID: UUID) -> ControlRoutingSelectors {

@@ -7882,6 +7882,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if state == .connected,
            (remoteSessionController != nil || !reconnectWasInFlight) {
             _ = reattachPersistentRemotePTYPanels()
+            drainPendingRemotePTYSessionCleanups()
         }
         applyBrowserRemoteWorkspaceStatusToPanels()
 

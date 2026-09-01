@@ -273,7 +273,8 @@ extension TerminalController {
         case .persistentSSH:
             guard let plan = ws.remotePTYRespawnPlan(
                 panelId: surfaceId,
-                rawCommand: inputs.command
+                rawCommand: inputs.command,
+                remoteWorkingDirectory: inputs.workingDirectory
             ) else {
                 return .respawnFailed(surfaceId)
             }

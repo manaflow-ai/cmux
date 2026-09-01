@@ -16,6 +16,10 @@ struct RemotePTYRespawnPlan: Equatable {
     let previousSessionID: String?
     let viewerWorkingDirectory: String
     let rawCommand: String
+    /// The command actually delivered to the remote daemon: the raw command,
+    /// prefixed with a `cd` when the respawn carried an explicit remote
+    /// working directory.
+    let remoteCommand: String
 }
 
 @MainActor
@@ -39,13 +43,25 @@ extension Workspace {
     /// of the local Ghostty executable slot.
     func remotePTYRespawnPlan(
         panelId: UUID,
-        rawCommand: String
+        rawCommand: String,
+        remoteWorkingDirectory: String? = nil
     ) -> RemotePTYRespawnPlan? {
         guard remotePTYRespawnRouting(panelId: panelId) == .persistentSSH else {
             return nil
         }
         let trimmedCommand = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
+        // `respawn-pane -c <dir>` names a directory in the remote namespace:
+        // honor it on the daemon side rather than dropping it (the viewer's
+        // local cwd stays the home fallback either way).
+        let trimmedRemoteWorkingDirectory = remoteWorkingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteCommand: String
+        if let trimmedRemoteWorkingDirectory, !trimmedRemoteWorkingDirectory.isEmpty {
+            remoteCommand = "cd \(Self.shellSingleQuoted(trimmedRemoteWorkingDirectory)) && \(trimmedCommand)"
+        } else {
+            remoteCommand = trimmedCommand
+        }
 
         // The parser accepts the stable `ssh-<workspace>-<panel>` shape. A
         // fresh synthetic panel UUID gives every respawn a new daemon session
@@ -55,14 +71,19 @@ extension Workspace {
         return RemotePTYRespawnPlan(
             bridgeCommand: remotePTYAttachStartupCommand(
                 sessionID: sessionID,
-                remoteCommand: trimmedCommand,
+                remoteCommand: remoteCommand,
                 requireExisting: false
             ),
             sessionID: sessionID,
             previousSessionID: previousSessionID,
             viewerWorkingDirectory: Self.remotePTYViewerWorkingDirectory(),
-            rawCommand: trimmedCommand
+            rawCommand: trimmedCommand,
+            remoteCommand: remoteCommand
         )
+    }
+
+    private nonisolated static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Replaces a remote-owned panel with a local viewer for a fresh remote PTY.
@@ -184,7 +205,11 @@ extension Workspace {
     private func isRemotePTYOwnedSurface(_ panelId: UUID) -> Bool {
         activeRemoteTerminalSurfaceIds.contains(panelId) ||
             remoteDisconnectPlaceholderPanelIds.contains(panelId) ||
-            pendingRemoteTerminalChildExitSurfaceIds.contains(panelId)
+            pendingRemoteTerminalChildExitSurfaceIds.contains(panelId) ||
+            // An ended persistent PTY untracks the surface but the panel is
+            // still remote-owned: a respawn must mint a fresh remote session,
+            // never fall through to a local exec of the remote command.
+            endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
     }
 
     private func remotePTYSessionIDForRespawnCleanup(panelId: UUID) -> String? {
