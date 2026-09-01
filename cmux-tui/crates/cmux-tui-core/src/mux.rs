@@ -6230,7 +6230,15 @@ impl Mux {
         updated_at_ms: u64,
     ) -> anyhow::Result<()> {
         const ECHO_ORIGIN: &str = "agent-report-echo";
-        use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
+        use crate::journal_reducers::{
+            DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT, SOCKET_REPORT_ADAPTER,
+            SOCKET_REPORT_NATIVE_EVENT,
+        };
+        let (adapter_id, native_event) = if source == AgentSource::Socket {
+            (SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT)
+        } else {
+            (DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT)
+        };
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
             manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
@@ -6244,13 +6252,13 @@ impl Mux {
             sensitivity: Some(crate::JournalSensitivity::Sensitive),
             payload: serde_json::json!({
                 "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
-                "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
-                "native_event": SOCKET_REPORT_NATIVE_EVENT,
+                "adapter": {"id": adapter_id, "version": 1},
+                "native_event": native_event,
                 "normalized": {
                     "state": state.as_str(),
-                    // The journal adapter is the socket trust boundary.
-                    // Never let a caller promote a direct report to hook or
-                    // screen authority by supplying a stronger source label.
+                    // Socket echoes are forced to socket authority in the
+                    // reducer. Non-socket direct reports use the dedicated
+                    // direct adapter so their explicit source survives.
                     "source": source.as_str(),
                     "source_session": session,
                     // The direct commit's timestamp, so the roster mirrors

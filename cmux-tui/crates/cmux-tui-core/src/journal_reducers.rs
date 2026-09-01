@@ -37,6 +37,8 @@ pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 4;
 /// the fold never has to guess a semantic mapping for it.
 pub(crate) const SOCKET_REPORT_ADAPTER: &str = "socket";
 pub(crate) const SOCKET_REPORT_NATIVE_EVENT: &str = "StateReport";
+pub(crate) const DIRECT_REPORT_ADAPTER: &str = "direct";
+pub(crate) const DIRECT_REPORT_NATIVE_EVENT: &str = "DirectReport";
 
 fn agent_state_from_str(value: &str) -> Option<AgentState> {
     Some(match value {
@@ -185,6 +187,19 @@ impl AgentRoster {
             let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
                 return Vec::new();
             };
+            // Socket echoes are a trust boundary. Ignore any source label a
+            // caller supplied and keep them below hook and screen authority.
+            let source = AgentSource::Socket;
+            let updated_at_ms = event
+                .normalized("updated_at_ms")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(event.committed_at_ms);
+            let session = event.normalized("source_session").map(str::to_string);
+            (state, source, session, None, updated_at_ms)
+        } else if event.native_event() == Some(DIRECT_REPORT_NATIVE_EVENT) {
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
             let source = event
                 .normalized("source")
                 .and_then(agent_source_from_str)
@@ -213,9 +228,12 @@ impl AgentRoster {
         if source == AgentSource::Hook
             && let Some(ended_session) = self.ended_hook_sessions.get(terminal_id)
         {
+            // A session-start event opens a new lifecycle. When the adapter
+            // has no native session id, the projector's sequence fence is the
+            // only available generation proof, so the reducer must allow the
+            // new start instead of permanently blocking that terminal.
             let is_new_session = event.kind == "agent.session.started"
-                && session.is_some()
-                && session.as_deref() != ended_session.as_deref();
+                && (session.is_none() || session.as_deref() != ended_session.as_deref());
             if is_new_session {
                 self.ended_hook_sessions.remove(terminal_id);
             } else {
@@ -405,6 +423,14 @@ mod tests {
             roster.apply(&hook_event(3, "agent.state.changed", &subjects, &socket_payload));
         assert!(deltas.is_empty());
         assert_eq!(roster.entries["term_a"].source, "hook");
+
+        let spoofed_socket = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {"state": "working", "source": "hook"},
+        });
+        let mut isolated = AgentRoster::default();
+        isolated.apply(&hook_event(4, "agent.state.changed", &subjects, &spoofed_socket));
+        assert_eq!(isolated.entries["term_a"].source, "socket");
     }
 
     #[test]
