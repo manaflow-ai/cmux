@@ -470,6 +470,35 @@ import Testing
         #expect(fixture.deliveries.count == AgentApprovalNotificationCoordinator.maxTrackedPanes)
     }
 
+    @Test func dismissedApprovalDoesNotResurfaceFromLateDuplicate() throws {
+        let fixture = Fixture()
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+        let delivery = try #require(fixture.deliveries.first)
+
+        #expect(fixture.coordinator.dismissDelivered(correlationKey: delivery.correlationKey) == Self.surfaceID)
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "late duplicate",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.clears.isEmpty)
+    }
+
     @Test func laterRequestsDoNotPostponeAnOlderBlockingApproval() {
         let fixture = Fixture()
 

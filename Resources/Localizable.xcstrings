@@ -38396,13 +38396,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--approval-id=ID|--approval-scope=SCOPE|--correlation-key=UUID]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+            "value": "clear_notifications [--tab=X] [--panel=ID] [--approval-id=ID|--approval-scope=SCOPE|--correlation-key=UUID]"
           }
         }
       }

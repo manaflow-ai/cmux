@@ -270,9 +270,22 @@ final class AgentApprovalNotificationCoordinator {
             return nil
         }
         let surfaceID = match.key
+        let timestamp = now()
+        pruneTombstones(at: timestamp)
         let state = panes.removeValue(forKey: surfaceID)
         state?.cancelScheduled?()
         state?.cancelEpisodeExpiry?()
+        if let state {
+            // A dismissed banner must not be recreated by a delayed duplicate
+            // hook. Fence every approval that was part of the dismissed episode
+            // for the same bounded tombstone window.
+            let expiry = timestamp + tombstoneLifetime
+            for candidate in state.candidates.values {
+                exactResolutionTombstones[
+                    ResolutionKey(surfaceID: surfaceID, value: candidate.approvalID.rawValue)
+                ] = expiry
+            }
+        }
         return surfaceID
     }
 

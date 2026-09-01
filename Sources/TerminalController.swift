@@ -13288,12 +13288,12 @@ class TerminalController {
             return "OK"
         }
         let parsed = parseOptions(trimmed)
+        let usage = String(
+            localized: "cli.error.clearNotificationsUsage",
+            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--approval-id=ID|--approval-scope=SCOPE|--correlation-key=UUID]"
+        )
         guard let tabOption = parsed.options["tab"],
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            let usage = String(
-                localized: "cli.error.clearNotificationsUsage",
-                defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--approval-id=ID|--approval-scope=SCOPE|--correlation-key=UUID]"
-            )
             return "ERROR: Usage: \(usage)"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
