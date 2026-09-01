@@ -772,11 +772,11 @@ extension CMUXCLI {
                                                               tabs of the focused (or --pane) pane ("Open All in New Tabs").
           cmux vm workspace rename <machine> <workspace-id> <name>
                                                               Rename a machine workspace.
-          cmux vm workspace close <machine> <workspace-id>    Close a machine workspace; its terminals keep
-                                                              running and detach into the Terminals pool.
-          cmux vm workspace rm <machine> <workspace-id>       Delete a machine workspace AND kill every
-                                                              terminal in it (the sidebar's "Delete Workspace
-                                                              and Terminals…"). Permanent.
+          cmux vm workspace rm <machine> <workspace-id>       Close a machine workspace AND kill every
+                                                              terminal in it (the sidebar's "Close
+                                                              Workspace…"). Permanent.
+          cmux vm workspace close <machine> <workspace-id>    CLI-only: close the workspace but keep its
+                                                              terminals running in the Terminals pool.
 
         Workspace ids come from `cmux vm tree`. Add --json for the raw result.
         """

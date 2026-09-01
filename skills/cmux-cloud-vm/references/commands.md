@@ -16,8 +16,8 @@ cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the
 cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane (CLI placement)
 cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
 cmux vm workspace rename <id> <ws-id> <name>   # rename that workspace (the row's "Rename…")
-cmux vm workspace close <id> <ws-id>   # close that workspace; its terminals KEEP RUNNING and detach into the Terminals pool
-cmux vm workspace rm <id> <ws-id>      # delete that workspace AND kill every terminal in it (the row's "Delete Workspace and Terminals…"). Permanent.
+cmux vm workspace close <id> <ws-id>   # CLI-only: close that workspace but keep its terminals running in the Terminals pool
+cmux vm workspace rm <id> <ws-id>      # close that workspace AND kill every terminal in it (the row's "Close Workspace…" / hover ×). Permanent.
 cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×); its local panes close too
 cmux vm terminal send <id> <term-id> [text] [--keys enter,ctrl+c,…]   # type into the terminal headlessly (as-is, no newline), then press named keys (chords join with +); no pane, no focus
 cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + rows, cols, cursor)

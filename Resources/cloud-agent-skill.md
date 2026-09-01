@@ -60,8 +60,8 @@ Machine workspaces, terminals, and panes (everything the Cloud sidebar does):
 cmux vm workspace new <id> [--name <n>]     # create a workspace on the machine (its ⌘N) and open it here
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]
 cmux vm workspace rename <id> <ws> <name>
-cmux vm workspace close <id> <ws>           # keep terminals: they detach into the Terminals pool
-cmux vm workspace rm <id> <ws>              # delete the workspace AND kill every terminal in it
+cmux vm workspace rm <id> <ws>              # close the workspace AND kill every terminal in it (the sidebar's Close Workspace…)
+cmux vm workspace close <id> <ws>           # CLI-only: close the workspace but keep its terminals running in the Terminals pool
 cmux vm terminal close <id> <term>          # end one terminal (the process and its tab)
 cmux vm terminal send <id> <term> 'bun test' --keys enter   # type into a terminal headlessly, then press keys (no pane, no focus)
 cmux vm terminal wait <id> <term> --pattern 'pass|fail' [--timeout 120]   # block until the screen matches; exit 1 on timeout

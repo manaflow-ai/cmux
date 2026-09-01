@@ -954,4 +954,15 @@ struct MachinesPanelListProblemTests {
             MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .unreachable
         )
     }
+
+    /// No "detached" pill anywhere (austin, 2026-08-31): a pool terminal with no
+    /// view is just a row, one view is the normal state, and only several views
+    /// earn a badge (a multiplier).
+    func testPoolRowBadgeOnlyReadsAsMultiplier() {
+        XCTAssertNil(CloudTreeTerminalRowContent.multiplierBadge(nil), "pointer rows and local terminals carry no badge")
+        XCTAssertNil(CloudTreeTerminalRowContent.multiplierBadge(0), "zero views is not called out")
+        XCTAssertNil(CloudTreeTerminalRowContent.multiplierBadge(1), "one view is the normal state")
+        XCTAssertEqual(CloudTreeTerminalRowContent.multiplierBadge(2), 2)
+        XCTAssertEqual(CloudTreeTerminalRowContent.multiplierBadge(5), 5)
+    }
 }

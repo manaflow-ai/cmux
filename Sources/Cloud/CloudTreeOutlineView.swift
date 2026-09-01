@@ -573,8 +573,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
                     .separator(),
-                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace (Keep Terminals)")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace.id) },
-                    item(String(localized: "cloudTree.menu.deleteWorkspace", defaultValue: "Delete Workspace and Terminals\u{2026}")) { [nodeActions] in nodeActions.deleteWorkspace(machine, workspace) },
+                    // One close verb, same path as the row's hover ×: the workspace and
+                    // its terminals go together (nothing lingers as a pool row).
+                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace\u{2026}")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace) },
                 ]
             case .localWorkspace(let row):
                 var items = [
