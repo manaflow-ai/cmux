@@ -44,7 +44,7 @@ struct KeyboardShortcutContextSwiftTests {
             ).context
         )
 
-        #expect(context.focusState.browser)
+        #expect(!context.focusState.browser)
         #expect(!KeyboardShortcutSettings.Action.browserReload.shortcutContext.isAvailable(context))
         #expect(!KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.shortcutContext.isAvailable(context))
     }
