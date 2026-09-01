@@ -203,6 +203,19 @@ public protocol ControlWorkspaceTodoContext: AnyObject {
         items: [ControlWorkspaceTodoSetItemParam]
     ) -> ControlWorkspaceTodoSetResolution
 
+    /// Validates an owner-scoped checklist reconciliation without mutating the
+    /// workspace. The returned success snapshot is the candidate checklist;
+    /// failures use the same atomic validation errors as the real mutation.
+    ///
+    /// This preview lets callers coordinate a durable/telemetry projection
+    /// before committing either side when the checklist cap could reject it.
+    func controlWorkspaceTodoReconcilePreview(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution
+
     /// Opens (or focuses) the workspace's todo pane for
     /// `workspace.todo.open`.
     ///

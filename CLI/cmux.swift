@@ -4758,6 +4758,20 @@ final class ClaudeHookSessionStore {
         _ body: (inout ClaudeHookSessionStoreFile) throws -> T
     ) throws -> T {
         let previousLockDeadlineUptime = lockDeadlineUptime
+        if let deadline {
+            guard Date.now < deadline else {
+                throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
+            }
+            let deadlineUptime = ProcessInfo.processInfo.systemUptime
+                + max(0, deadline.timeIntervalSinceNow)
+            lockDeadlineUptime = min(
+                previousLockDeadlineUptime ?? deadlineUptime,
+                deadlineUptime
+            )
+        }
+        defer { lockDeadlineUptime = previousLockDeadlineUptime }
+        try checkLockDeadline()
+
         let lockPath = statePath + ".lock"
         // The lock file is opened before the state is ever saved, so the first
         // store access on a fresh HOME must create the state directory itself.
@@ -4771,24 +4785,23 @@ final class ClaudeHookSessionStore {
             throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
         }
         defer { Darwin.close(fd) }
-        if let deadline {
-            while flock(fd, LOCK_EX | LOCK_NB) != 0 {
-                guard errno == EWOULDBLOCK || errno == EAGAIN, Date.now < deadline else {
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK || errno == EAGAIN else {
+                throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+            }
+            if let lockDeadlineUptime {
+                guard ProcessInfo.processInfo.systemUptime < lockDeadlineUptime else {
                     throw CLIError(message: "Timed out locking Claude hook state: \(lockPath)")
                 }
+            } else if deadline == nil {
+                // No caller deadline: preserve the historical blocking lock
+                // semantics while still using the non-blocking loop above for
+                // hooks that installed a monotonic budget.
                 usleep(5_000)
+                continue
             }
-            let deadlineUptime = ProcessInfo.processInfo.systemUptime
-                + max(0, deadline.timeIntervalSinceNow)
-            lockDeadlineUptime = min(
-                previousLockDeadlineUptime ?? deadlineUptime,
-                deadlineUptime
-            )
-        } else if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+            usleep(5_000)
         }
-        defer { lockDeadlineUptime = previousLockDeadlineUptime }
-        try checkLockDeadline()
         defer { _ = flock(fd, LOCK_UN) }
 
         if let deadline, Date.now >= deadline {

@@ -35,10 +35,28 @@ extension TerminalController {
         }
     }
 
+    func controlWorkspaceTodoReconcilePreview(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution {
+        controlWorkspaceTodoBatchMutation(
+            routing: routing,
+            workspaceID: workspaceID,
+            items: items,
+            markFeatureUsed: false
+        ) { workspace, replacements in
+            var candidate = workspace.todoState.checklist
+            return candidate.reconcileChecklist(ownerID: ownerID, with: replacements)
+        }
+    }
+
     private func controlWorkspaceTodoBatchMutation(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?,
         items: [ControlWorkspaceTodoSetItemParam],
+        markFeatureUsed: Bool = true,
         mutation: (
             Workspace,
             [WorkspaceChecklistReplacementItem]
@@ -60,7 +78,9 @@ extension TerminalController {
             case .failure(.tooManyItems(let count)):
                 return .tooManyItems(count: count)
             case .success:
-                WorkspaceTodoFeature.markUsed()
+                if markFeatureUsed {
+                    WorkspaceTodoFeature.markUsed()
+                }
                 return .resolved(
                     windowID: AppDelegate.shared?.windowId(for: tabManager),
                     checklist: todoChecklistSnapshot(for: workspace)

@@ -1132,9 +1132,11 @@ struct ClaudeTaskSyncHookTests {
         // The workspace reconciliation rejects the 51-item projection. Feed
         // must not advance first, or the two task views would diverge.
         #expect(deliveries.feed.wait(timeout: .now() + 0.25) == .timedOut)
-        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.validation.wait(timeout: .now() + 5) == .success)
         #expect(context.state.snapshot().compactMap(feedEvent).isEmpty)
-        let request = try #require(reconcileRequests(in: context).last)
+        let request = try #require(
+            ClaudeHookLiveDeliveryHarness.taskSyncReconcileValidationRequests(in: context).last
+        )
         let items = try #require(request["items"] as? [[String: Any]])
         #expect(items.count == 51)
     }

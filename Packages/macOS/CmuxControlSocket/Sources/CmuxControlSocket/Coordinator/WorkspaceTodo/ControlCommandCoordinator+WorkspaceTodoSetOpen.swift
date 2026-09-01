@@ -118,7 +118,10 @@ extension ControlCommandCoordinator {
     /// `workspace.todo.reconcile` — atomically replaces one owner's items
     /// while preserving user entries and other owners' entries. A
     /// `workspace_ids` array batches up to 64 destinations into one socket
-    /// round trip and reports each workspace independently.
+    /// round trip and reports each workspace independently. `validate_only`
+    /// performs the same validation against a candidate copy without mutating
+    /// any checklist, allowing callers to avoid publishing a paired snapshot
+    /// that the checklist cap would reject.
     func workspaceTodoReconcile(_ params: [String: JSONValue]) -> ControlCallResult {
         guard let context else {
             return workspaceTodoSetResult(.tabManagerUnavailable)
@@ -146,6 +149,7 @@ extension ControlCommandCoordinator {
         case .items(let parsed):
             items = parsed
         }
+        let validateOnly = bool(params, "validate_only") ?? false
         if hasNonNull(params, "workspace_ids") {
             let workspaceStrings = context.controlWorkspaceStrings()
             guard case .array(let rawWorkspaceIDs)? = params["workspace_ids"],
@@ -183,17 +187,30 @@ extension ControlCommandCoordinator {
             }
             let routing = routingSelectors(params)
             let results = destinations.map { destination -> JSONValue in
-                let result = workspaceTodoSetResult(context.controlWorkspaceTodoReconcile(
-                    routing: routing,
-                    workspaceID: destination.workspaceID,
-                    ownerID: ownerID,
-                    items: items
-                ))
+                let resolution = validateOnly
+                    ? context.controlWorkspaceTodoReconcilePreview(
+                        routing: routing,
+                        workspaceID: destination.workspaceID,
+                        ownerID: ownerID,
+                        items: items
+                    )
+                    : context.controlWorkspaceTodoReconcile(
+                        routing: routing,
+                        workspaceID: destination.workspaceID,
+                        ownerID: ownerID,
+                        items: items
+                    )
+                let result = workspaceTodoSetResult(resolution)
                 var payload: [String: JSONValue] = [
                     "workspace_id": .string(destination.rawID),
                 ]
                 switch result {
                 case .ok:
+                    payload["ok"] = .bool(true)
+                case .err("not_found", _, _) where validateOnly:
+                    // A preview is only a capacity/validation gate. A closed
+                    // destination is harmless here; the real reconciliation
+                    // below will report it and retire that workspace proof.
                     payload["ok"] = .bool(true)
                 case .err(let code, let message, let data):
                     var error: [String: JSONValue] = [
@@ -208,12 +225,20 @@ extension ControlCommandCoordinator {
             }
             return .ok(.object(["results": .array(results)]))
         }
-        return workspaceTodoSetResult(context.controlWorkspaceTodoReconcile(
-            routing: routingSelectors(params),
-            workspaceID: uuid(params, "workspace_id"),
-            ownerID: ownerID,
-            items: items
-        ))
+        let resolution = validateOnly
+            ? context.controlWorkspaceTodoReconcilePreview(
+                routing: routingSelectors(params),
+                workspaceID: uuid(params, "workspace_id"),
+                ownerID: ownerID,
+                items: items
+            )
+            : context.controlWorkspaceTodoReconcile(
+                routing: routingSelectors(params),
+                workspaceID: uuid(params, "workspace_id"),
+                ownerID: ownerID,
+                items: items
+            )
+        return workspaceTodoSetResult(resolution)
     }
 
     /// `workspace.todo.open` — open (or focus) the workspace's todo pane.

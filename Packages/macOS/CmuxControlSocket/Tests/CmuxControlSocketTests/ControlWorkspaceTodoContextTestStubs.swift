@@ -90,6 +90,13 @@ extension ControlWorkspaceTodoContext {
         items: [ControlWorkspaceTodoSetItemParam]
     ) -> ControlWorkspaceTodoSetResolution { .tabManagerUnavailable }
 
+    func controlWorkspaceTodoReconcilePreview(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution { .tabManagerUnavailable }
+
     func controlWorkspaceTodoOpen(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?,

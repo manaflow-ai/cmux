@@ -71,6 +71,7 @@ enum ClaudeHookLiveDeliveryHarness {
     struct TaskSyncDeliverySignals {
         let feed = DispatchSemaphore(value: 0)
         let reconciliation = DispatchSemaphore(value: 0)
+        let validation = DispatchSemaphore(value: 0)
     }
 
     static func makeContext(name: String) throws -> Context {
@@ -254,10 +255,15 @@ enum ClaudeHookLiveDeliveryHarness {
                 ])
             case "workspace.todo.reconcile":
                 let items = params["items"] as? [[String: Any]] ?? []
+                let validateOnly = params["validate_only"] as? Bool == true
                 if items.count > 50 {
                     let destinationCount = (params["workspace_ids"] as? [String])?.count ?? 1
                     for _ in 0..<destinationCount {
-                        deliveries.reconciliation.signal()
+                        if validateOnly {
+                            deliveries.validation.signal()
+                        } else {
+                            deliveries.reconciliation.signal()
+                        }
                     }
                     return v2Response(
                         id: id,
@@ -267,8 +273,15 @@ enum ClaudeHookLiveDeliveryHarness {
                 }
                 if let destinationWorkspaceIDs = params["workspace_ids"] as? [String] {
                     let results: [[String: Any]] = destinationWorkspaceIDs.map { workspaceID in
-                        deliveries.reconciliation.signal()
+                        if validateOnly {
+                            deliveries.validation.signal()
+                        } else {
+                            deliveries.reconciliation.signal()
+                        }
                         if missingWorkspaceIDs.contains(workspaceID) {
+                            if validateOnly {
+                                return ["workspace_id": workspaceID, "ok": true]
+                            }
                             return [
                                 "workspace_id": workspaceID,
                                 "ok": false,
@@ -279,9 +292,16 @@ enum ClaudeHookLiveDeliveryHarness {
                     }
                     return v2Response(id: id, ok: true, result: ["results": results])
                 }
-                deliveries.reconciliation.signal()
+                if validateOnly {
+                    deliveries.validation.signal()
+                } else {
+                    deliveries.reconciliation.signal()
+                }
                 if let destinationWorkspaceID = params["workspace_id"] as? String,
                    missingWorkspaceIDs.contains(destinationWorkspaceID) {
+                    if validateOnly {
+                        return v2Response(id: id, ok: true, result: [:])
+                    }
                     return v2Response(
                         id: id,
                         ok: false,
@@ -306,7 +326,11 @@ enum ClaudeHookLiveDeliveryHarness {
                   request["method"] as? String == "workspace.todo.reconcile" else {
                 return nil
             }
-            return request["params"] as? [String: Any]
+            guard let params = request["params"] as? [String: Any],
+                  params["validate_only"] as? Bool != true else {
+                return nil
+            }
+            return params
         }.flatMap { params -> [[String: Any]] in
             guard let workspaceIDs = params["workspace_ids"] as? [String] else {
                 return [params]
@@ -317,6 +341,27 @@ enum ClaudeHookLiveDeliveryHarness {
                 expanded["workspace_id"] = workspaceID
                 return expanded
             }
+        }
+    }
+
+    static func taskSyncReconcileValidationRequests(in context: Context) -> [[String: Any]] {
+        context.state.snapshot().compactMap { command -> [String: Any]? in
+            guard let request = jsonObject(command),
+                  request["method"] as? String == "workspace.todo.reconcile",
+                  let params = request["params"] as? [String: Any],
+                  params["validate_only"] as? Bool == true else {
+                return nil
+            }
+            return params
+        }.flatMap { params -> [[String: Any]] in
+            if let workspaceIDs = params["workspace_ids"] as? [String] {
+                return workspaceIDs.map { workspaceID in
+                    var copy = params
+                    copy["workspace_id"] = workspaceID
+                    return copy
+                }
+            }
+            return [params]
         }
     }
 

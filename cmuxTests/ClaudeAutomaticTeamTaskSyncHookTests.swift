@@ -691,10 +691,12 @@ struct ClaudeAutomaticTeamTaskSyncHookTests {
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let rawReconcileRequests = context.state.snapshot().compactMap { line -> [String: Any]? in
             guard let request = ClaudeHookLiveDeliveryHarness.jsonObject(line),
-                  request["method"] as? String == "workspace.todo.reconcile" else {
+                  request["method"] as? String == "workspace.todo.reconcile",
+                  let params = request["params"] as? [String: Any],
+                  params["validate_only"] as? Bool != true else {
                 return nil
             }
-            return request["params"] as? [String: Any]
+            return params
         }
         #expect(rawReconcileRequests.count == 1)
         let rawReconcileRequest = try #require(rawReconcileRequests.first)

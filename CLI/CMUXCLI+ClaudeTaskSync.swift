@@ -688,13 +688,15 @@ extension CMUXCLI {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
                     }
-                    guard sendClaudeTaskFeedSnapshot(
-                        snapshot.todos,
+                    guard let delivery = deliverClaudeTaskSnapshot(
+                        snapshot,
+                        taskStoreIdentity: taskStoreIdentity,
                         client: client,
                         telemetry: telemetry,
                         parsedInput: parsedInput,
                         workspaceId: resolvedTarget.workspaceId,
                         surfaceId: resolvedTarget.surfaceId,
+                        reconciliationWorkspaceIDs: destinationWorkspaceIDs,
                         socketPassword: socketPassword,
                         deadlineUptime: hookDeadlineUptime
                     ) else {
@@ -711,14 +713,6 @@ extension CMUXCLI {
                         )
                         return
                     }
-                    guard let delivery = reconcileClaudeTaskSnapshot(
-                        snapshot,
-                        taskStoreIdentity: taskStoreIdentity,
-                        client: client,
-                        telemetry: telemetry,
-                        reconciliationWorkspaceIDs: destinationWorkspaceIDs,
-                        deadlineUptime: hookDeadlineUptime
-                    ) else { return }
                     guard taskSyncIsLatest() else {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
@@ -875,13 +869,15 @@ extension CMUXCLI {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
                     }
-                    guard sendClaudeTaskFeedSnapshot(
-                        snapshot.todos,
+                    guard let delivery = deliverClaudeTaskSnapshot(
+                        snapshot,
+                        taskStoreIdentity: taskStoreIdentity,
                         client: client,
                         telemetry: telemetry,
                         parsedInput: parsedInput,
                         workspaceId: resolvedTarget.workspaceId,
                         surfaceId: resolvedTarget.surfaceId,
+                        reconciliationWorkspaceIDs: teamWorkspaceIDs,
                         socketPassword: socketPassword,
                         deadlineUptime: hookDeadlineUptime
                     ) else {
@@ -899,14 +895,6 @@ extension CMUXCLI {
                         )
                         return
                     }
-                    guard let delivery = reconcileClaudeTaskSnapshot(
-                        snapshot,
-                        taskStoreIdentity: taskStoreIdentity,
-                        client: client,
-                        telemetry: telemetry,
-                        reconciliationWorkspaceIDs: teamWorkspaceIDs,
-                        deadlineUptime: hookDeadlineUptime
-                    ) else { return }
                     guard taskSyncIsLatest() else {
                         telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                         return
@@ -1162,13 +1150,15 @@ extension CMUXCLI {
                     telemetry.breadcrumb("claude-hook.task-sync.coalesced")
                     return
                 }
-                guard sendClaudeTaskFeedSnapshot(
-                    sessionSnapshot.todos,
+                guard let delivery = deliverClaudeTaskSnapshot(
+                    sessionSnapshot,
+                    taskStoreIdentity: taskStoreIdentity,
                     client: client,
                     telemetry: telemetry,
                     parsedInput: parsedInput,
                     workspaceId: resolvedTarget.workspaceId,
                     surfaceId: resolvedTarget.surfaceId,
+                    reconciliationWorkspaceIDs: [resolvedTarget.workspaceId],
                     socketPassword: socketPassword,
                     deadlineUptime: hookDeadlineUptime
                 ) else {
@@ -1187,15 +1177,6 @@ extension CMUXCLI {
                     )
                     return
                 }
-                let delivery = reconcileClaudeTaskSnapshot(
-                    sessionSnapshot,
-                    taskStoreIdentity: taskStoreIdentity,
-                    client: client,
-                    telemetry: telemetry,
-                    reconciliationWorkspaceIDs: [resolvedTarget.workspaceId],
-                    deadlineUptime: hookDeadlineUptime
-                )
-                guard let delivery else { return }
                 let retainedPersonalWorkspaceIDs = delivery.workspaceItemsAreEmpty
                     && delivery.reconciliationSucceeded
                     ? []
@@ -1865,7 +1846,13 @@ extension CMUXCLI {
         }
     }
 
-    /// Publishes one authoritative task snapshot to Feed and workspace todos.
+    /// Validates and publishes one authoritative task snapshot to Feed and
+    /// workspace todos.
+    ///
+    /// The preview uses the same owner-scoped reconciliation code as the real
+    /// mutation but does not commit it. This prevents an over-cap checklist
+    /// rejection from advancing Feed first and leaving the two projections at
+    /// different revisions.
     private func deliverClaudeTaskSnapshot(
         _ snapshot: ClaudeTaskSnapshot,
         taskStoreIdentity: ClaudeTaskStoreIdentity,
@@ -1882,9 +1869,26 @@ extension CMUXCLI {
         workspaceItemsAreEmpty: Bool,
         retainedWorkspaceIDs: [String]
     )? {
-        let todos = snapshot.todos
+        let validation = reconcileClaudeTaskSnapshot(
+            snapshot,
+            taskStoreIdentity: taskStoreIdentity,
+            client: client,
+            telemetry: telemetry,
+            reconciliationWorkspaceIDs: reconciliationWorkspaceIDs,
+            deadlineUptime: deadlineUptime,
+            validateOnly: true
+        )
+        // A closed destination is already a valid cleanup outcome; let the
+        // real reconciliation retire it and preserve the existing Feed path.
+        // Any retained destination means validation found a mutation error
+        // (most importantly the combined checklist cap), so do not advance
+        // Feed before that rejection is surfaced.
+        guard let validation,
+              validation.reconciliationSucceeded || validation.retainedWorkspaceIDs.isEmpty else {
+            return nil
+        }
         guard sendClaudeTaskFeedSnapshot(
-            todos,
+            snapshot.todos,
             client: client,
             telemetry: telemetry,
             parsedInput: parsedInput,
@@ -1900,7 +1904,8 @@ extension CMUXCLI {
             client: client,
             telemetry: telemetry,
             reconciliationWorkspaceIDs: reconciliationWorkspaceIDs,
-            deadlineUptime: deadlineUptime
+            deadlineUptime: deadlineUptime,
+            validateOnly: false
         )
     }
 
@@ -1911,7 +1916,8 @@ extension CMUXCLI {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
         reconciliationWorkspaceIDs: [String],
-        deadlineUptime: TimeInterval
+        deadlineUptime: TimeInterval,
+        validateOnly: Bool = false
     ) -> (
         reconciliationSucceeded: Bool,
         workspaceItemsAreEmpty: Bool,
@@ -1943,7 +1949,8 @@ extension CMUXCLI {
             client: client,
             telemetry: telemetry,
             workspaceIDs: reconciliationWorkspaceIDs,
-            deadlineUptime: deadlineUptime
+            deadlineUptime: deadlineUptime,
+            validateOnly: validateOnly
         )
         return (
             reconciliation.succeeded,
@@ -2054,7 +2061,8 @@ extension CMUXCLI {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
         workspaceIDs: [String],
-        deadlineUptime: TimeInterval
+        deadlineUptime: TimeInterval,
+        validateOnly: Bool = false
     ) -> (succeeded: Bool, retainedWorkspaceIDs: [String]) {
         let destinationWorkspaceIDs = Set(workspaceIDs.compactMap {
             let workspaceID = $0.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2071,14 +2079,18 @@ extension CMUXCLI {
             return (false, destinationWorkspaceIDs)
         }
         let response: [String: Any]
+        var requestParams: [String: Any] = [
+            "workspace_ids": destinationWorkspaceIDs,
+            "owner_id": checklistOwnerID,
+            "items": checklistItems,
+        ]
+        if validateOnly {
+            requestParams["validate_only"] = true
+        }
         do {
             response = try client.sendV2(
                 method: "workspace.todo.reconcile",
-                params: [
-                    "workspace_ids": destinationWorkspaceIDs,
-                    "owner_id": checklistOwnerID,
-                    "items": checklistItems,
-                ],
+                params: requestParams,
                 responseTimeout: min(5, remainingSeconds)
             )
         } catch {

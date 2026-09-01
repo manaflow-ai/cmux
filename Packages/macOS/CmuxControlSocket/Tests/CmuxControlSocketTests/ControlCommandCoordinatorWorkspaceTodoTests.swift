@@ -14,6 +14,7 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var checklistResolution: ControlWorkspaceTodoChecklistResolution = .tabManagerUnavailable
     var mutationResolution: ControlWorkspaceTodoMutationResolution = .tabManagerUnavailable
     var setResolution: ControlWorkspaceTodoSetResolution = .tabManagerUnavailable
+    var previewResolution: ControlWorkspaceTodoSetResolution = .tabManagerUnavailable
     var openResolution: ControlWorkspaceTodoOpenResolution = .tabManagerUnavailable
 
     var lastStatusSetRaw: String??
@@ -22,6 +23,7 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var lastRemove: (itemID: UUID?, itemIndex: Int?)?
     var lastSetItems: [ControlWorkspaceTodoSetItemParam]?
     var lastReconcile: (ownerID: String, items: [ControlWorkspaceTodoSetItemParam])?
+    var lastReconcilePreview: (ownerID: String, items: [ControlWorkspaceTodoSetItemParam])?
     var reconciledWorkspaceIDs: [UUID?] = []
     var reconcileResolutionsByWorkspaceID: [UUID: ControlWorkspaceTodoSetResolution] = [:]
     var lastOpenRequestedFocus: Bool?
@@ -121,6 +123,17 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
             return resolution
         }
         return setResolution
+    }
+
+    func controlWorkspaceTodoReconcilePreview(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution {
+        lastWorkspaceID = workspaceID
+        lastReconcilePreview = (ownerID, items)
+        return previewResolution
     }
 
     func controlWorkspaceTodoOpen(
