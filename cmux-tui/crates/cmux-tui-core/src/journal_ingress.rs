@@ -27,6 +27,7 @@ const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
 const JOURNAL_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(100);
 const JOURNAL_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
+const JOURNAL_NONRETRYABLE_RETRY_DELAY: Duration = Duration::from_millis(10);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
@@ -1031,8 +1032,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                                 continue;
                             }
                             let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay);
-                            delay = (delay * 2).min(JOURNAL_RETRY_MAX_DELAY);
+                            mux.wait_for_journal_event(epoch, JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining));
                             continue;
                         } else if batch[0].completion.is_none() {
                             let failure = receivers.state.fail(format!(
@@ -1246,6 +1246,8 @@ mod tests {
             assert_eq!(delay.as_millis(), expected);
             delay = (delay * 2).min(JOURNAL_RETRY_MAX_DELAY);
         }
+        let remaining = Duration::from_millis(3);
+        assert_eq!(JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining), remaining);
     }
 
     #[test]
