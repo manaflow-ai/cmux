@@ -505,6 +505,10 @@ describe("cloud work user setup", () => {
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("command -v sudo >/dev/null 2>&1");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apt-get install -y -qq --no-install-recommends sudo");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apk add --no-cache sudo");
+    // A failed install is exposed (breadcrumb + nonzero exit), not swallowed; the
+    // next bootstrap or daemon restart retries automatically.
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("sudo-install-failed");
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("exit 1");
   });
 
   test("user-facing exec runs as the work user, root only via legacy volume, missing view, or sudo", () => {

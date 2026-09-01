@@ -160,19 +160,24 @@ export const CMUX_CLOUD_USER_SETUP_COMMAND = [
 // Installing bindfs on an old image does an apt round-trip; give it minutes, not the
 // default exec timeout. Everything else in the setup returns instantly.
 const CMUX_USER_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
-// Baked images before 2026-08-31-r12 ship no sudo binary. Installed detached so an
-// apt run never delays attach; the sudoers policy above is already in place when it
-// lands. Gated on the image stamp so exactly one process owns package installs per
-// machine: stamped images never run the provision script (it exits on the stamp), so
-// this heal is free to apt; unstamped stock images get sudo from the provision
-// script's own package list instead, and running a second apt here would race it for
-// the dpkg lock and silently lose.
+// Baked images before 2026-08-31-r12 ship no sudo binary. Awaited (bounded) at every
+// bootstrap and daemon restart, so a machine is not declared ready while its promised
+// passwordless escalation is still missing; on current images the stamp+binary checks
+// return instantly. Gated on the image stamp so exactly one process owns package
+// installs per machine: stamped images never run the provision script (it exits on
+// the stamp), so this heal is free to apt; unstamped stock images get sudo from the
+// provision script's own package list instead, and running a second apt here would
+// race it for the dpkg lock and silently lose. A failed install leaves a breadcrumb
+// in the VM and a nonzero exit; every later bootstrap or daemon restart retries.
 export const CMUX_SUDO_INSTALL_COMMAND =
   "[ -f /etc/cmux/image-stamp ] || exit 0; " +
+  "command -v sudo >/dev/null 2>&1 && exit 0; " +
+  "export DEBIAN_FRONTEND=noninteractive; " +
+  "{ apt-get update -qq && apt-get install -y -qq --no-install-recommends sudo; } 2>/dev/null" +
+  " || apk add --no-cache sudo 2>/dev/null || true; " +
   "command -v sudo >/dev/null 2>&1" +
-  " || { export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq --no-install-recommends sudo; }" +
-  " || apk add --no-cache sudo 2>/dev/null || true";
-const CMUX_SUDO_INSTALL_PROCESS_NAME = "cmux-sudo-install";
+  " || { mkdir -p /etc/cmux 2>/dev/null; printf '%s sudo-install-failed\n' \"$(date -u +%FT%TZ)\" >> /etc/cmux/root-session-fallback; exit 1; }";
+const CMUX_SUDO_INSTALL_TIMEOUT_MS = 3 * 60 * 1000;
 
 // "The volume is mounted but its identity view is not": the fail-over state where
 // sessions must run as root homed on the backing path, because the rootfs dir at
@@ -719,11 +724,8 @@ export class BlaxelProvider implements VMProvider {
         await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
         await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
       })(),
-      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-        name: CMUX_SUDO_INSTALL_PROCESS_NAME,
-        command: CMUX_SUDO_INSTALL_COMMAND,
-        waitForCompletion: false,
-      }).catch(() => undefined),
+      timedStep("sudo_heal", () =>
+        this.sandboxExec(sandboxUrl, CMUX_SUDO_INSTALL_COMMAND, CMUX_SUDO_INSTALL_TIMEOUT_MS).catch(() => undefined)),
       (async () => {
         await blaxelFetch("PUT", `${sandboxUrl}/filesystem/${CMUX_PROVISION_SCRIPT_PATH}`, { content: CMUX_PROVISION_SCRIPT, permissions: "0755" });
         await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
@@ -811,11 +813,7 @@ export class BlaxelProvider implements VMProvider {
       // Same heal as create/resurrect bootstrap: a still-alive sandbox from a stamped
       // pre-r12 image has the user and sudoers policy but no sudo binary, and without
       // this its cmux sessions would have no escalation path after a daemon restart.
-      await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
-        name: CMUX_SUDO_INSTALL_PROCESS_NAME,
-        command: CMUX_SUDO_INSTALL_COMMAND,
-        waitForCompletion: false,
-      }).catch(() => undefined);
+      await this.sandboxExec(sandboxUrl, CMUX_SUDO_INSTALL_COMMAND, CMUX_SUDO_INSTALL_TIMEOUT_MS).catch(() => undefined);
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
       // needs the process started; a pin change or a fresh volume re-runs the install.
       const installed = await this.sandboxExec(
