@@ -1147,6 +1147,25 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_tracker_rejects_osc_metadata_from_before_identity_edge() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            Some(41),
+            t0,
+        ));
+        assert!(!tracker.metadata_is_fresh("term_a", Some(41)));
+        assert!(tracker.metadata_is_fresh("term_a", Some(42)));
+        // An older daemon has no revision. Keep its metadata usable because
+        // the plugin cannot prove that it predates the identity edge.
+        assert!(tracker.metadata_is_fresh("term_a", None));
+    }
+
+    #[test]
     fn screen_detect_tracker_emits_idle_presence_when_the_first_screen_asserts_nothing() {
         let mut tracker = ScreenDetectTracker::default();
         // First evaluation right after spawn hits a viewer/unknown screen:
