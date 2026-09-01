@@ -120,7 +120,7 @@ struct GhosttyDECCKMArrowKeyTests {
     }
 
     @Test
-    func windowKeyEquivalentMacTextEditingChordsReachShell() throws {
+    func macTextEditingChordsReachShell() throws {
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
         let captureReadyMarker = "CMUX_EDIT_READY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -195,10 +195,19 @@ struct GhosttyDECCKMArrowKeyTests {
                     keyCode: item.keyCode
                 ))
 
-                #expect(
-                    window.performKeyEquivalent(with: event),
-                    "Terminal \(item.name) should be consumed by the editing route"
-                )
+                if item.flags.contains(.command) {
+                    // AppKit offers Command delete chords to the window's menu
+                    // equivalent path first. This is the route cmux repairs.
+                    #expect(
+                        window.performKeyEquivalent(with: event),
+                        "Terminal \(item.name) should be consumed by the editing route"
+                    )
+                } else {
+                    // Option-only delete chords use the normal responder
+                    // keyDown path on macOS. Exercise that path directly so
+                    // this test does not depend on AppKit's menu heuristics.
+                    surfaceView.keyDown(with: event)
+                }
             }
         }
 

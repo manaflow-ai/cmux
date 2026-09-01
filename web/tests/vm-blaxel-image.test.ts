@@ -155,24 +155,20 @@ describe("Blaxel baked image template", () => {
   });
 
   test("macOS line and word delete bytes have delete actions in ble.sh", () => {
-    // Ghostty emits C-u/C-k for Command delete and ESC DEL/ESC d for Option
-    // delete. Remote clients can also decode the equivalent meta key names.
+    // Ghostty emits ESC DEL for Option+Backspace and ESC d for
+    // Option+ForwardDelete. ble.sh already owns C-u/C-k/M-d, so this contract
+    // only replaces the alternate Meta-Delete spellings whose stock actions
+    // copy instead of deleting.
     for (const bind of [
-      "ble-bind -m emacs -f 'C-u' kill-backward-line",
-      "ble-bind -m emacs -f 'C-k' kill-forward-line",
       "ble-bind -m emacs -f 'M-C-?' kill-backward-cword",
       "ble-bind -m emacs -f 'M-C-h' kill-backward-cword",
       "ble-bind -m emacs -f 'M-DEL' kill-backward-cword",
       "ble-bind -m emacs -f 'M-BS' kill-backward-cword",
-      "ble-bind -m emacs -f 'M-d' kill-forward-cword",
       "ble-bind -m emacs -f 'M-delete' kill-forward-cword",
-      "ble-bind -m vi_imap -f 'C-u' kill-backward-line",
-      "ble-bind -m vi_imap -f 'C-k' kill-forward-line",
       "ble-bind -m vi_imap -f 'M-C-?' kill-backward-cword",
       "ble-bind -m vi_imap -f 'M-C-h' kill-backward-cword",
       "ble-bind -m vi_imap -f 'M-DEL' kill-backward-cword",
       "ble-bind -m vi_imap -f 'M-BS' kill-backward-cword",
-      "ble-bind -m vi_imap -f 'M-d' kill-forward-cword",
       "ble-bind -m vi_imap -f 'M-delete' kill-forward-cword",
     ]) {
       expect(bashrc).toContain(bind);

@@ -19140,6 +19140,45 @@ private extension NSWindow {
             return false
         }
         if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
+
+        // AppKit can consume Command+Backspace and Command+ForwardDelete as
+        // Edit-menu equivalents before Ghostty sees them. Keep this route
+        // terminal-first, while preserving configured cmux shortcuts and
+        // native text fields.
+        let terminalOwnsDeleteEquivalent = firstResponderGhosttyView != nil
+            && firstResponderWebView == nil
+            && firstResponderOmnibarPanelId == nil
+            && !firstResponderIsCommandPaletteFieldEditor
+            && !firstResponderIsTextBoxInput
+            && !firstResponderIsStandaloneEditableTextView
+        if let firstResponderGhosttyView,
+           shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+               keyCode: event.keyCode,
+               firstResponderIsTerminal: terminalOwnsDeleteEquivalent,
+               firstResponderHasMarkedText: firstResponderGhosttyView.hasMarkedText(),
+               flags: event.modifierFlags
+           ) {
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+                return true
+            }
+            if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+#if DEBUG
+                cmuxDebugLog("  → terminal delete equivalent routed before mainMenu")
+#endif
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(
+                event,
+                to: firstResponderGhosttyView,
+                reason: "terminal delete equivalent"
+            ) {
+                return true
+            }
+            // The replay guard says this event is already in flight. Keep it
+            // away from AppKit's destructive menu path on re-entry.
+            return true
+        }
+
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(

@@ -964,6 +964,7 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadCmuxDefaultMacTextEditingKeybinds(fallbackConfig)
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
@@ -1109,6 +1110,24 @@ class GhosttyApp {
         )
     }
 
+    private func loadCmuxDefaultMacTextEditingKeybinds(_ config: ghostty_config_t) {
+        // Keep the common macOS editing chords available in every terminal,
+        // including when Ghostty falls back after an invalid user config.
+        // Loading this before user files lets an explicit user keybind or
+        // `keybind = clear` retain priority.
+        loadInlineGhosttyConfig(
+            #"""
+            keybind = super+backspace=text:\x15
+            keybind = super+delete=text:\x0b
+            keybind = alt+backspace=text:\x1b\x7f
+            keybind = alt+delete=text:\x1b\x64
+            """#,
+            into: config,
+            prefix: "cmux-default-mac-text-editing",
+            logLabel: "default mac text editing"
+        )
+    }
+
     private func loadStartupPreviewProfile(
         _ profile: GhosttyStartupAppearancePreviewProfile,
         into config: ghostty_config_t,
@@ -1193,6 +1212,11 @@ class GhosttyApp {
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
+
+        // Install cmux's small set of macOS editing defaults before any profile
+        // or user files. Explicit user bindings, including `keybind = clear`,
+        // therefore retain precedence in every loading mode.
+        loadCmuxDefaultMacTextEditingKeybinds(config)
 
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
