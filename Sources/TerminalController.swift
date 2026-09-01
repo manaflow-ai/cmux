@@ -2192,7 +2192,10 @@ class TerminalController {
                         message: Self.agentPromptAsyncDispatchRequiredMessage
                     )
                 }
-                return v2MainSync(commandKey: request.method) {
+                // The guard above proves this compatibility path is already on
+                // the main thread. Execute inline so an accidental worker
+                // caller cannot block on the main actor.
+                return MainActor.assumeIsolated {
                     self.v2Result(
                         id: request.id.map(\.foundationObject),
                         self.v2WorkspaceAgentSubmit(
@@ -2510,7 +2513,9 @@ class TerminalController {
                     message: Self.agentPromptAsyncDispatchRequiredMessage
                 )
             }
-            return v2MainSync(commandKey: method) {
+            // This branch is reachable only for an already-main in-process
+            // caller; keep the synchronous compatibility seam non-blocking.
+            return MainActor.assumeIsolated {
                 self.v2Result(
                     id: id,
                     self.v2WorkspaceAgentSubmit(params: params)
