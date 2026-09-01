@@ -70,7 +70,12 @@ public actor IrxServerSessionRegistry {
         code: IrxCloseCode,
         matching shouldClose: @Sendable (_ remoteEndpointIDHex: String) -> Bool
     ) async {
-        for (deviceID, entry) in sessionsByDevice
+        // Snapshot before awaiting connection shutdown. Actor reentrancy can
+        // admit or replace sessions while a close is in flight, and mutating
+        // the live dictionary during iteration would otherwise invalidate the
+        // collection and skip entries.
+        let entries = Array(sessionsByDevice)
+        for (deviceID, entry) in entries
         where shouldClose(entry.connection.remoteEndpointIDHex) {
             journal.record(
                 "registry", "list-enforced-close",
