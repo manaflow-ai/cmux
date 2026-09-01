@@ -36,15 +36,18 @@ describe("VM usage reporting", () => {
     expect(result.overageComputeHours).toBe(2.25);
     // Stripe meter values are whole units. The meter is configured with Last
     // aggregation so each report replaces the cumulative period value.
-    expect(create).toHaveBeenCalledWith({
-      event_name: VM_USAGE_METER_EVENT_NAME,
-      payload: {
-        stripe_customer_id: "cus_usage",
-        value: "3",
-      },
-      identifier: expect.stringContaining("cmux-vm-usage:sub_usage:"),
-      timestamp: Math.floor(now.getTime() / 1_000),
-    });
+    const calls = (create as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls.length).toBe(1);
+    const event = calls[0]?.[0] as {
+      event_name: string;
+      payload: { stripe_customer_id: string; value: string };
+      identifier: string;
+      timestamp: number;
+    };
+    expect(event.event_name).toBe(VM_USAGE_METER_EVENT_NAME);
+    expect(event.payload).toEqual({ stripe_customer_id: "cus_usage", value: "3" });
+    expect(event.identifier.startsWith("cmux-vm-usage:sub_usage:")).toBe(true);
+    expect(event.timestamp).toBe(Math.floor(now.getTime() / 1_000));
 
     await reportVmUsageForSubscription(subscription(), {
       enabled: true,
@@ -52,8 +55,9 @@ describe("VM usage reporting", () => {
       now,
       stripeClient: { billing: { meterEvents: { create } } },
     });
-    const firstCall = create.mock.calls[0]?.[0] as { identifier?: string } | undefined;
-    const secondCall = create.mock.calls[1]?.[0] as { identifier?: string } | undefined;
+    const repeatCalls = (create as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const firstCall = repeatCalls[0]?.[0] as { identifier?: string } | undefined;
+    const secondCall = repeatCalls[1]?.[0] as { identifier?: string } | undefined;
     expect(secondCall?.identifier).toBe(firstCall?.identifier);
   });
 
