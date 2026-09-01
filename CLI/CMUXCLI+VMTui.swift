@@ -785,7 +785,7 @@ extension CMUXCLI {
         Usage:
           cmux vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>]
                                                               Type text into the terminal (as-is, no newline), then press
-                                                              named keys: enter, tab, escape, ctrl-c, up, down… Nothing is
+                                                              named keys: enter, tab, escape, up, down, ctrl+c (chords join with +)… Nothing is
                                                               attached or focused. `--keys enter` alone presses Enter.
           cmux vm terminal read <machine> <terminal-id>       Print the terminal's visible screen (--json adds cursor/size).
           cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]

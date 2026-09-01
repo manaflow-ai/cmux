@@ -280,7 +280,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         _ = try await link.run(arguments: CloudTuiCommandLine.writeArguments(socketPath: connected.socketPath, terminalID: terminalID, text: text))
     }
 
-    /// Press named keys (`enter`, `ctrl-c`, …) in the remote terminal, in order.
+    /// Press named keys (`enter`, `ctrl+c`, …) in the remote terminal, in order.
     func sendKeys(terminalID: String, keys: [String]) async throws {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
