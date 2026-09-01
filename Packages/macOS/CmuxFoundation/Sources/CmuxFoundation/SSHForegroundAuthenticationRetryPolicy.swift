@@ -213,7 +213,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               [ -n "$cmux_ssh_auth_pending_line" ] || continue
               printf '%s\n' "$cmux_ssh_auth_pending_line" >> "$cmux_ssh_auth_owned" || return 1
             done < "$cmux_ssh_auth_pending"
-            : > "$cmux_ssh_auth_pending"
+            : > "$cmux_ssh_auth_pending" || return 1
           }
 
           cmux_ssh_auth_resume_file() {
@@ -400,11 +400,21 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # `live` came from the confirming snapshot and contains only stable,
           # stopped identities. Do not fall back to a raw PID list if that
           # snapshot was unavailable.
+          cmux_ssh_auth_kill_failed=0
           while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_state cmux_started; do
             case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
-            kill -KILL "$cmux_pid" >/dev/null 2>&1 || true
+            if ! kill -KILL "$cmux_pid" >/dev/null 2>&1; then
+              # A process can exit between the confirming snapshot and this
+              # builtin call. Retry once, then leave the EXIT rollback armed
+              # if the PID still refuses the signal.
+              if ! kill -KILL "$cmux_pid" >/dev/null 2>&1; then
+                cmux_ssh_auth_kill_failed=1
+              fi
+            fi
           done < "$cmux_ssh_auth_live"
-          cmux_ssh_auth_cleanup_complete=1
+          if [ "$cmux_ssh_auth_kill_failed" = 0 ]; then
+            cmux_ssh_auth_cleanup_complete=1
+          fi
         )
         """#
     }

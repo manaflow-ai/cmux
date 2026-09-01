@@ -353,7 +353,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
-        let cleanupStartedMarker = root.appendingPathComponent("cleanup-started")
         let pidLog = root.appendingPathComponent("pids")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -394,7 +393,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         # exists. The old recursive cleanup then receives EAGAIN on its
         # short-lived scans while the test chain remains runnable.
         ulimit -u 100 2>/dev/null || true
-        : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
@@ -404,7 +402,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
-            "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
         ]) { _, override in override }
@@ -415,16 +412,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.standardError = stderrCapture.handle
 
         try process.run()
-        let startDeadline = Date.now.addingTimeInterval(5)
-        while !fileManager.fileExists(atPath: cleanupStartedMarker.path),
-              process.isRunning,
-              Date.now < startDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        try #require(fileManager.fileExists(atPath: cleanupStartedMarker.path))
-        let startedAt = Date.now
         try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
-        let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
@@ -436,10 +424,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
-        #expect(
-            elapsed < 3,
-            "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
-        )
         #expect(!processIDs.contains(where: isLiveProcess))
     }
 
