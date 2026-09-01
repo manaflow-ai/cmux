@@ -490,8 +490,8 @@ final class AgentApprovalNotificationCoordinator {
             title: candidate.title,
             subtitle: candidate.subtitle,
             body: candidate.body,
-            correlationKey: correlationKey,
             agent: candidate.agent,
+            correlationKey: correlationKey,
             producerCorrelationKey: candidate.producerCorrelationKey
         ))
     }
