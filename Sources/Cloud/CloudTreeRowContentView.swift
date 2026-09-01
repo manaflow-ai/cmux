@@ -35,7 +35,7 @@ enum CloudTreeIconPalette {
 
 /// Display-only SwiftUI content for one Cloud outline row, rendered in the
 /// given ``CloudTreeStyle``. The hosting cell passes every pointer event
-/// through to the outline (selection, drag, double-click, context menu), so
+/// through to the outline (selection, drag, clicks, context menu), so
 /// nothing here is interactive.
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
@@ -75,7 +75,9 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount):
+        case .workspace(_, let workspace, let terminalCount, _):
+            // No open marker here (none on any row since #11069); the row's open
+            // verb reads "Go to Workspace" when it is already showing locally.
             CloudTreeLeafRow(
                 style: style,
                 icon: "folder.fill",
@@ -520,7 +522,7 @@ struct CloudTreeMachineBand<Content: View>: View {
 
 /// The machine row's display content: activity dot, name, and — in the two-line
 /// layout — subtitle plus optional stats. Hover buttons and menus live in the
-/// outline cell, and double-click in the outline.
+/// outline cell, and click handling in the outline.
 struct CloudTreeMachineRowContent: View {
     let machine: MachineSnapshot
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -540,18 +542,30 @@ struct CloudTreeMachineRowContent: View {
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                    } else {
+                        // This row is another computer: the same outline cloud as the
+                        // titlebar Cloud button, dimmed so it doesn't compete with the name.
+                        Image(systemName: "cloud")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
                     }
-                    Text(machine.displayName)
-                        .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if let fact = Self.inlineFact(machine) {
-                        Text(fact)
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                            .foregroundStyle(.tertiary)
+                    // Name and fact differ in point size, so they share a
+                    // baseline (like the group and session rows above); the
+                    // glyph stays centered against the row in the outer stack.
+                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+                        Text(machine.displayName)
+                            .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
+                            .foregroundStyle(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                        if let fact = Self.inlineFact(machine, style: style) {
+                            Text(fact)
+                                .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
                     Spacer(minLength: CloudTreeRowGrid.trailingGap)
                 }
@@ -566,6 +580,11 @@ struct CloudTreeMachineRowContent: View {
                 if machine.freeAccess == .expired {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                } else {
+                    Image(systemName: "cloud")
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
                 }
@@ -651,10 +670,16 @@ struct CloudTreeMachineRowContent: View {
     }
 
     /// The single-line layout's one dim fact: "Locked" when expired, else nothing.
-    static func inlineFact(_ machine: MachineSnapshot) -> String? {
-        machine.freeAccess == .expired
-            ? String(localized: "machines.row.locked", defaultValue: "Locked")
-            : nil
+    static func inlineFact(_ machine: MachineSnapshot, style: CloudTreeStyle) -> String? {
+        if machine.freeAccess == .expired {
+            return String(localized: "machines.row.locked", defaultValue: "Locked")
+        }
+        // Single-line rows carry the live reading inline: the same CPU/Mem/Disk
+        // line the two-line card shows, dimmed after the name.
+        if style.showsMachineStats, let stats = machine.stats, let line = statsLine(stats) {
+            return line
+        }
+        return nil
     }
 
     static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -701,7 +726,7 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
             }
-        case .workspace(let machine, let workspace, _):
+        case .workspace(let machine, let workspace, _, _):
             HStack(spacing: 4) {
                 plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
                     nodeActions.newTerminal(machine, workspace.id)
