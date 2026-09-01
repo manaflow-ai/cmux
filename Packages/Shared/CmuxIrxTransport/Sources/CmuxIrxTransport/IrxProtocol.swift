@@ -18,6 +18,11 @@ public enum IrxProtocol {
     /// keeping worst-case detection-plus-redial inside single-digit seconds.
     public static let keepaliveInterval: Duration = .seconds(5)
     public static let keepaliveDeadline: Duration = .seconds(2)
+    /// Consecutive pong misses before the connection is declared dead. One
+    /// transient stall (relay hiccup, brief peer pause) must never sever a
+    /// healthy session; a re-ping fires immediately after a miss, so real
+    /// death still detects in ~strikeLimit x deadline.
+    public static let keepaliveStrikeLimit = 2
 }
 
 /// Machine-readable close/denial codes. The code travels in the QUIC
@@ -114,15 +119,16 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
 }
 
 /// Client -> server admission request, first frame on the control stream.
-/// The grant is the broker-signed pair grant; everything the server needs to
-/// judge admission is in the grant plus the TLS-authenticated key, so
-/// admission is one round trip and needs no backend call.
+/// List-auth hellos carry NO grant: the server judges the TLS-authenticated
+/// key against its device-list snapshot, so admission stays one round trip
+/// with no backend call. The grant field remains OPTIONAL on the wire so an
+/// old peer's grant-bearing hello still parses (the list judge ignores it).
 public struct IrxHello: Codable, Equatable, Sendable {
     public var v: Int
     public var proto: String
-    public var grant: String
+    public var grant: String?
 
-    public init(grant: String) {
+    public init(grant: String? = nil) {
         v = IrxProtocol.version
         proto = IrxProtocol.alpn
         self.grant = grant

@@ -3,21 +3,15 @@ import {
   jsonResponse,
   notFoundVm,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
   vmCreateLikeErrorResponse,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
 import {
   isVmNotFoundError,
 } from "../../../../../services/vms/errors";
-import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../../services/vms/entitlements";
 import { forkVm, runVmWorkflow } from "../../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
@@ -66,18 +60,9 @@ export async function POST(
         if (!refreshedUser) return unauthorized();
         user = refreshedUser;
       }
-      let entitlements;
-      try {
-        entitlements = resolveVmEntitlements(user, process.env, {
-          requestedBillingTeamId,
-        });
-      } catch (err) {
-        if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
-        throw err;
-      }
-      if (isVmProGateBlocked(entitlements)) {
-        return vmRequiresProResponse();
-      }
+      const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
+      if (!account.ok) return account.response;
+      const entitlements = account.entitlements;
       const idempotencyKey = idempotencyKeyFromRequest(request);
       const name = stringField(body, "name");
       setSpanAttributes(span, {

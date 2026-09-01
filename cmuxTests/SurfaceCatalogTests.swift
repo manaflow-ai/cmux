@@ -195,6 +195,40 @@ struct SurfaceCatalogTests {
         #expect(catalog.projections(of: term.id).count == 2)
     }
 
+    @Test func `Workspace-scoped reuse ignores panes in other workspaces`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "display_like")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        var focused: [SurfaceProjection] = []
+        catalog.focusProjection = { focused.append($0) }
+
+        let wsA = UUID()
+        let wsB = UUID()
+        let a = try await catalog.project(term.id, into: .workspace(id: wsA, placement: .split), reuseInWorkspace: wsA)
+        #expect(!a.reused)
+
+        // A pane in wsA neither satisfies wsB's scoped open nor steals focus:
+        // the resource materializes in wsB (the workspace-Desktop-row bug).
+        let b = try await catalog.project(term.id, into: .workspace(id: wsB, placement: .split), reuseInWorkspace: wsB)
+        #expect(!b.reused)
+        #expect(b.projection.workspaceID == wsB)
+        #expect(provider.materialized.count == 2)
+        #expect(focused.isEmpty, "no jump to the other workspace's pane")
+
+        // Scoped reuse still reuses within its own workspace…
+        let again = try await catalog.project(term.id, into: .workspace(id: wsB, placement: .split), reuseInWorkspace: wsB)
+        #expect(again.reused)
+        #expect(again.projection == b.projection)
+        #expect(focused == [b.projection])
+
+        // …and an unscoped call keeps the global open-or-focus jump.
+        let global = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .tab))
+        #expect(global.reused)
+        #expect(provider.materialized.count == 2)
+    }
+
     @Test func `Concurrent reuse waits for the in-flight materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
