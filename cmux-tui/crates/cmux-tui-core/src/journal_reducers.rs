@@ -984,6 +984,38 @@ mod tests {
     }
 
     #[test]
+    fn invalid_newer_session_start_does_not_clear_retirement_tombstone() {
+        let subjects = terminal_subject("term_a");
+        let active_payload = json!({
+            "adapter": {"id": "claude", "version": 1},
+            "normalized": {"agent_session_id": "active-session"}
+        });
+        let new_payload = json!({
+            "adapter": {"id": "claude", "version": 1},
+            "normalized": {"agent_session_id": "new-session"}
+        });
+        let mut roster = AgentRoster::default();
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &active_payload));
+
+        // A stale snapshot can contain both fences while it is being
+        // reconciled. The live hook generation makes this newer start
+        // invalid because it attempts to replace an active session.
+        roster.retired_terminals.insert("term_a".into(), 2);
+        roster.hook_fences.insert(
+            "term_a".into(),
+            RosterFence { session_id: "active-session".into(), sequence: 3, ended: false },
+        );
+
+        assert!(
+            roster
+                .apply(&hook_event(4, "agent.session.started", &subjects, &new_payload))
+                .is_empty()
+        );
+        assert!(roster.is_retired("term_a"));
+        assert_eq!(roster.entries["term_a"].session.as_deref(), Some("active-session"));
+    }
+
+    #[test]
     fn retirement_cursor_only_moves_forward() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});
