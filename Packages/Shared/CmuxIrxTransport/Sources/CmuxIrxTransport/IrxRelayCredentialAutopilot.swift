@@ -125,19 +125,23 @@ public actor IrxRelayCredentialAutopilot {
             }
             guard outcome != .stopped else { return }
             guard !Task.isCancelled else { return }
-            // The outer kick task owns the `loop` handle. A distinct token
-            // prevents the nested run's defer from clearing that handle while
-            // this task is still executing.
-            await self.run(generation: generation &+ 1)
+            // The outer kick task owns the `loop` handle; the nested run must
+            // not clear it while this task is still executing.
+            await self.run(generation: generation, clearsLoop: false)
         }
         journal.record("credential-autopilot", "hint-refresh-kicked")
     }
 
     private func run(
         bypassRefreshDeadlineOnce: Bool = false,
-        generation: UInt64
+        generation: UInt64,
+        clearsLoop: Bool = true
     ) async {
-        defer { clearLoopIfCurrent(generation: generation) }
+        defer {
+            if clearsLoop {
+                clearLoopIfCurrent(generation: generation)
+            }
+        }
         var bypassRefreshDeadlineOnce = bypassRefreshDeadlineOnce
         var failureCounts = FailureCounts()
         while !Task.isCancelled {
