@@ -10,7 +10,7 @@ private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "local-lin
 
 /// DEBUG harness: a Ghostty surface driven end to end by the embedded iSH
 /// kernel (Alpine i386 userland, vendor/ish) with no Mac attached. Mounted
-/// from the root scene when the process launches with `--cmux-local-linux`.
+/// from the root scene when the process launches with CMUX_LOCAL_LINUX=1.
 struct LocalLinuxDebugView: View {
     var body: some View {
         LocalLinuxDebugRepresentable()
