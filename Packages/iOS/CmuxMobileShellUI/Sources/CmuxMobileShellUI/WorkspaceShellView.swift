@@ -15,7 +15,7 @@ import AppKit
 
 #if os(iOS)
 private struct WorkspaceRootToolbarContentWidthKey: EnvironmentKey {
-    static let defaultValue: CGFloat = WorkspaceRootToolbarSizing.maximumPickerWidth
+    static let defaultValue: CGFloat = WorkspaceRootToolbarSizing().maximumPickerWidth
 }
 
 private struct WorkspaceRootToolbarRenderContext: Equatable {
@@ -47,17 +47,17 @@ extension EnvironmentValues {
     }
 }
 
-private enum WorkspaceRootToolbarSizing {
+private struct WorkspaceRootToolbarSizing {
     /// Low enough that the picker survives the narrowest sidebar instead of
     /// being culled by the bar: the label truncates, the item stays.
-    static let minimumPickerWidth: CGFloat = 44
-    static let maximumPickerWidth: CGFloat = 124
+    let minimumPickerWidth: CGFloat = 44
+    let maximumPickerWidth: CGFloat = 124
     /// Horizontal air between the picker and its neighboring toolbar items,
     /// applied outside the pill so the picker never sits flush against them.
-    static let pickerBreathingRoom: CGFloat = 8
-    private static let nonPickerWidth: CGFloat = 277
+    let pickerBreathingRoom: CGFloat = 8
+    private let nonPickerWidth: CGFloat = 277
 
-    static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
+    func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
         min(
             maximumPickerWidth,
             max(minimumPickerWidth, contentWidth - nonPickerWidth - 2 * pickerBreathingRoom)
@@ -70,6 +70,7 @@ private enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+    private let sizing = WorkspaceRootToolbarSizing()
 
     let openSettings: () -> Void
     let openDevices: () -> Void
@@ -97,7 +98,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     selection: selection,
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
-                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
+                    labelWidth: sizing.pickerWidth(for: contentWidth),
                     statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
@@ -106,7 +107,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 )
             )
             .equatable()
-            .padding(.horizontal, WorkspaceRootToolbarSizing.pickerBreathingRoom)
+            .padding(.horizontal, sizing.pickerBreathingRoom)
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
