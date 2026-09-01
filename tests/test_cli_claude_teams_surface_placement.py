@@ -15,6 +15,7 @@ from claude_teams_surface_placement_test_support import (
     FakeState,
     OTHER_WORKSPACE_ID,
     PANE_ID,
+    run_targetless_window_action_regressions,
     TEAMMATE_SURFACE_ID,
     WORKSPACE_ID,
     run_cli,
@@ -410,6 +411,7 @@ def main() -> int:
             thread.join(timeout=2)
 
     try:
+        run_targetless_window_action_regressions(cli_path)
         run_alias_freshness_regressions(cli_path)
         run_concurrent_alias_write_regression(cli_path)
         run_alias_persistence_failure_regression(cli_path)
