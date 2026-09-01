@@ -119,6 +119,7 @@ nonisolated struct AutomationPayloadRedactor: Sendable {
     private func isSensitiveURLQueryKey(_ key: String) -> Bool {
         let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
         return isSensitiveKey(key)
+            || normalized == "key"
             || normalized == "auth"
             || normalized == "authcode"
             || normalized == "authentication"
