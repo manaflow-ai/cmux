@@ -462,10 +462,8 @@ fn known_package_agent(effective: &str, argv: &[String]) -> Option<String> {
 }
 
 fn known_package_path_agent(path: &str) -> Option<String> {
-    let raw_components = path
-        .split(['/', '\\'])
-        .filter(|component| !component.is_empty())
-        .collect::<Vec<_>>();
+    let raw_components =
+        path.split(['/', '\\']).filter(|component| !component.is_empty()).collect::<Vec<_>>();
     let ends_with = |suffix: &[&str]| {
         raw_components.len() >= suffix.len()
             && raw_components[raw_components.len() - suffix.len()..]
@@ -477,27 +475,20 @@ fn known_package_path_agent(path: &str) -> Option<String> {
     // bundled CLI entrypoint. Compare raw components here. Normalizing file
     // extensions first would turn `cli.exe` into `cli` and accept an invalid
     // executable as a live agent.
-    if ends_with(&[
-        "node_modules",
-        "@earendil-works",
-        "pi-coding-agent",
-        "dist",
-        "cli.js",
-    ]) || ends_with(&[
-        "node_modules",
-        "@earendil-works",
-        "pi-coding-agent",
-        "dist",
-        "bundle",
-        "cli.js",
-    ]) {
+    if ends_with(&["node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"])
+        || ends_with(&[
+            "node_modules",
+            "@earendil-works",
+            "pi-coding-agent",
+            "dist",
+            "bundle",
+            "cli.js",
+        ])
+    {
         return Some("pi".into());
     }
 
-    let components = raw_components
-        .into_iter()
-        .map(normalized_name)
-        .collect::<Vec<_>>();
+    let components = raw_components.into_iter().map(normalized_name).collect::<Vec<_>>();
     for window in components.windows(5) {
         if window == ["node_modules", "@qwen-code", "qwen-code", "dist", "index"] {
             return Some("qwen".into());
@@ -1267,14 +1258,8 @@ mod tests {
     #[test]
     fn known_package_launchers_require_the_real_cli_entrypoint() {
         for (pid, script) in [
-            (
-                7,
-                r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\cli.js",
-            ),
-            (
-                8,
-                r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js",
-            ),
+            (7, r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\cli.js"),
+            (8, r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js"),
         ] {
             let pi = ForegroundJob {
                 process_group_id: pid,
@@ -1284,31 +1269,16 @@ mod tests {
         }
 
         for (pid, script) in [
-            (
-                9,
-                r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\scripts\build.js",
-            ),
+            (9, r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\scripts\build.js"),
             (
                 10,
                 r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\bundle\update.js",
             ),
             (11, r"C:\workspace\dist\bundle\cli.js"),
-            (
-                12,
-                r"C:\workspace\node_modules\other-package\dist\bundle\cli.js",
-            ),
-            (
-                13,
-                r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\cli.exe",
-            ),
-            (
-                14,
-                r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\cli.js\other.js",
-            ),
-            (
-                15,
-                r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.exe",
-            ),
+            (12, r"C:\workspace\node_modules\other-package\dist\bundle\cli.js"),
+            (13, r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\cli.exe"),
+            (14, r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\cli.js\other.js"),
+            (15, r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.exe"),
             (
                 16,
                 r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js\other.js",
@@ -1318,7 +1288,10 @@ mod tests {
                 process_group_id: pid,
                 processes: vec![process(pid, "node.exe", &["node.exe", script])],
             };
-            assert!(identify_job(ManifestSet::bundled(), &build_script).is_none(), "script: {script}");
+            assert!(
+                identify_job(ManifestSet::bundled(), &build_script).is_none(),
+                "script: {script}"
+            );
         }
     }
 
