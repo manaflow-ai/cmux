@@ -78,7 +78,7 @@ enum AppFocusState {
         if let overrideIsFocused {
             return overrideIsFocused
         }
-        return isCurrentApplicationFrontmost(
+        return ApplicationFrontmostPolicy().isCurrentApplicationFrontmost(
             appIsActive: NSApp.isActive,
             frontmostProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier,
             currentProcessIdentifier: ProcessInfo.processInfo.processIdentifier
@@ -89,7 +89,7 @@ enum AppFocusState {
         if let overrideIsFocused {
             return overrideIsFocused
         }
-        guard isCurrentApplicationFrontmost(
+        guard ApplicationFrontmostPolicy().isCurrentApplicationFrontmost(
             appIsActive: NSApp.isActive,
             frontmostProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier,
             currentProcessIdentifier: ProcessInfo.processInfo.processIdentifier
@@ -101,17 +101,6 @@ enum AppFocusState {
             return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
         }
         return false
-    }
-
-    /// AppKit can leave `NSApp.isActive` true for a Stage Manager stage after
-    /// another application owns key events. The system frontmost process is
-    /// the authoritative boundary for notification suppression and dismissal.
-    static func isCurrentApplicationFrontmost(
-        appIsActive: Bool,
-        frontmostProcessIdentifier: pid_t?,
-        currentProcessIdentifier: pid_t
-    ) -> Bool {
-        appIsActive && frontmostProcessIdentifier == currentProcessIdentifier
     }
 
 }

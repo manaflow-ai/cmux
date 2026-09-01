@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2076,28 +2077,38 @@ final class MenuBarIconRendererTests: XCTestCase {
 }
 
 final class AppFocusStateTests: XCTestCase {
+    deinit {}
+
     func testStageManagerUsesTheFrontmostProcessForNotificationFocus() {
         let cmuxProcessID: pid_t = 42
         let otherAppProcessID: pid_t = 84
+        let policy = ApplicationFrontmostPolicy()
 
         XCTAssertFalse(
-            AppFocusState.isCurrentApplicationFrontmost(
+            policy.isCurrentApplicationFrontmost(
                 appIsActive: true,
                 frontmostProcessIdentifier: otherAppProcessID,
                 currentProcessIdentifier: cmuxProcessID
             )
         )
         XCTAssertTrue(
-            AppFocusState.isCurrentApplicationFrontmost(
+            policy.isCurrentApplicationFrontmost(
                 appIsActive: true,
                 frontmostProcessIdentifier: cmuxProcessID,
                 currentProcessIdentifier: cmuxProcessID
             )
         )
         XCTAssertFalse(
-            AppFocusState.isCurrentApplicationFrontmost(
+            policy.isCurrentApplicationFrontmost(
                 appIsActive: true,
                 frontmostProcessIdentifier: nil,
+                currentProcessIdentifier: cmuxProcessID
+            )
+        )
+        XCTAssertFalse(
+            policy.isCurrentApplicationFrontmost(
+                appIsActive: false,
+                frontmostProcessIdentifier: cmuxProcessID,
                 currentProcessIdentifier: cmuxProcessID
             )
         )
