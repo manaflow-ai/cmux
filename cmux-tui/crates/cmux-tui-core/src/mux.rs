@@ -2797,6 +2797,10 @@ impl Mux {
     /// so screen-detection deltas repair durable projections before exposing
     /// the restored session. Hook projections are restored separately.
     fn rebuild_agent_roster_projections(&self) {
+        // Startup repair shares the live fold's lock order. The journal
+        // ingress thread starts before resource materialization, so a fresh
+        // callback can otherwise race this replay and overtake its deltas.
+        let _fold = self.agent_roster_fold.lock().unwrap();
         let (needs_rebuild, pending) = {
             let mut host = self.agent_roster.lock().unwrap();
             if !host.needs_projection_rebuild {
