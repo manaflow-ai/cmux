@@ -797,10 +797,11 @@ final class CmuxWebView: WKWebView {
             return finish(true)
         }
 
-        // Panel-less browser web views (standalone popups or transiently
-        // rebinding panes) have no BrowserPanel action owner. Offer browser-
-        // scoped shortcuts to WebKit directly so the app router cannot beep or
-        // accidentally apply another panel's action to the page.
+        // Standalone popup web views have no BrowserPanel action owner. Offer
+        // browser-scoped shortcuts to WebKit directly so the app router cannot
+        // beep or accidentally apply another panel's action to the popup. A
+        // transiently rebinding pane is intentionally not in this path; its
+        // ownership must settle through the normal browser-panel resolver.
         if AppDelegate.shared?.shouldYieldPanelLessBrowserShortcut(event) == true {
             if cmuxBrowserWebKitKeyDownDispatchIsActive() {
                 return finish(true)

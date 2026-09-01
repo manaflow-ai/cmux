@@ -17969,10 +17969,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for event: NSEvent,
         webView expectedWebView: CmuxWebView? = nil
     ) -> Bool {
-        guard KeyboardShortcutSettingsObserver.shared.browserKeyboardShortcutCaptureEnabled else {
-            return false
-        }
-
         // Do not resolve or associate browser ownership for ordinary
         // unmodified text. Space is the one supported bare shortcut key, and
         // an active chord prefix can make an otherwise plain key relevant.
@@ -18014,6 +18010,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let cache = event.cmuxBrowserWebViewCache,
            let captureDecision = cache.captureDecision {
             return captureDecision
+        }
+
+        // Read this setting only after the event has proven itself shortcut-
+        // shaped and a browser web view owns the responder chain. UserDefaults
+        // posts a process-wide firehose notification, so caching this value via
+        // an injected NotificationCenter would both wake the hot path for
+        // unrelated writes and risk missing the standard center's updates.
+        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
+            event.cmuxBrowserWebViewCache?.captureDecision = false
+            return false
         }
 
         guard let window = webView.window,
@@ -18219,17 +18225,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Returns whether a browser web view without a resolved ``BrowserPanel``
-    /// owner has a browser-scoped shortcut that should be offered to WebKit
-    /// instead of the app router. This covers standalone popups and transient
-    /// panel-rebinding windows without applying the action to another panel.
+    /// Returns whether a standalone popup web view has a browser-scoped
+    /// shortcut that should be offered to WebKit instead of the app router.
+    /// Panel-less states caused by transient pane rebinding deliberately do not
+    /// yield here: they must continue through normal ownership resolution.
     func shouldYieldPanelLessBrowserShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             return false
         }
 
         let focusContext = shortcutEventFocusContext(event)
-        guard focusContext.browserWebViewFocused,
+        guard focusContext.browserPopupWebViewFocused,
               focusContext.browserPanel == nil else {
             return false
         }

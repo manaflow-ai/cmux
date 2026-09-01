@@ -51,8 +51,6 @@ final class KeyboardShortcutSettingsObserver {
 
     private(set) var revision: UInt64 = 0
     private(set) var globalSearchShortcut: StoredShortcut
-    @ObservationIgnored
-    private(set) var browserKeyboardShortcutCaptureEnabled: Bool
     let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
     private let notificationCenter: NotificationCenter
     private let distributedNotificationCenter: DistributedNotificationCenter
@@ -64,8 +62,6 @@ final class KeyboardShortcutSettingsObserver {
     private var recorderObserver: NSObjectProtocol?
     @ObservationIgnored
     private var inputSourceObserver: NSObjectProtocol?
-    @ObservationIgnored
-    private var defaultsObserver: NSObjectProtocol?
     @ObservationIgnored
     // A fixed-size ring keeps one snapshot per recently used window/config
     // without retaining an unbounded set of per-window entries.
@@ -84,7 +80,6 @@ final class KeyboardShortcutSettingsObserver {
         self.distributedNotificationCenter = distributedNotificationCenter
         self.shortcutProvider = shortcutProvider
         globalSearchShortcut = shortcutProvider(.globalSearch)
-        browserKeyboardShortcutCaptureEnabled = KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled()
         rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
             shortcutProvider: shortcutProvider
         )
@@ -118,15 +113,6 @@ final class KeyboardShortcutSettingsObserver {
                 self?.reloadCachedShortcuts()
             }
         }
-        defaultsObserver = notificationCenter.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            Self.deliverOnMainActor { [weak self] in
-                self?.reloadBrowserCaptureSetting()
-            }
-        }
     }
 
     deinit {
@@ -139,22 +125,13 @@ final class KeyboardShortcutSettingsObserver {
         if let inputSourceObserver {
             distributedNotificationCenter.removeObserver(inputSourceObserver)
         }
-        if let defaultsObserver {
-            notificationCenter.removeObserver(defaultsObserver)
-        }
     }
 
     private func reloadCachedShortcuts() {
         globalSearchShortcut = shortcutProvider(.globalSearch)
-        reloadBrowserCaptureSetting()
         revision &+= 1
         rightSidebarModeShortcutMatcher.reload()
         invalidateBrowserCaptureMatcherSnapshots()
-    }
-
-    private func reloadBrowserCaptureSetting() {
-        browserKeyboardShortcutCaptureEnabled =
-            KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled()
     }
 
     private func invalidateBrowserCaptureMatcherSnapshots() {

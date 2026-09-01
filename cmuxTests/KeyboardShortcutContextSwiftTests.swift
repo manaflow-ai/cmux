@@ -38,7 +38,7 @@ struct KeyboardShortcutContextSwiftTests {
             simulatorFocused: false,
             rightSidebarFocused: false,
             shortcutContext: ShortcutFocusState(
-                browser: true,
+                browser: false,
                 markdown: false,
                 sidebar: false
             ).context
@@ -47,6 +47,23 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(!context.focusState.browser)
         #expect(!KeyboardShortcutSettings.Action.browserReload.shortcutContext.isAvailable(context))
         #expect(!KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.shortcutContext.isAvailable(context))
+
+        let popupContext = ShortcutEventFocusContext(
+            browserPanel: nil,
+            browserWebViewFocused: true,
+            browserPopupWebViewFocused: true,
+            markdownPanel: nil,
+            filePreviewTextEditorFocused: false,
+            simulatorFocused: false,
+            rightSidebarFocused: false,
+            shortcutContext: ShortcutFocusState(
+                browser: true,
+                markdown: false,
+                sidebar: false
+            ).context
+        )
+
+        #expect(popupContext.focusState.browser)
     }
 
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
