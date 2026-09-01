@@ -606,6 +606,21 @@ def test_ghosttykit_checksum_pin_runs_macos() -> None:
     assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
 
 
+def test_app_change_skips_networked_ghostty_guard() -> None:
+    result, outputs = run_detect_step_for_paths(["Sources/AppDelegate.swift"])
+
+    assert "Resolved areas: macos=true" in result.stdout
+    assert outputs[-1] == "ghosttykit_guard=false"
+
+
+def test_ghosttykit_release_check_is_provenance_scoped() -> None:
+    block = workflow_job_block("ghosttykit-release-check")
+
+    assert "      - changes" not in block
+    assert "    needs: changes" in block
+    assert "needs.changes.outputs.ghosttykit_guard == 'true'" in block
+
+
 def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     # The classifier remains macOS-aware for manual/full CI routing above, but
     # a checksum-only pull request takes the dedicated release-check path before
