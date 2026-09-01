@@ -44,6 +44,10 @@ const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or 
 const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HELPER_BYTES: u64 = 128 * 1024 * 1024;
 const COMMAND_HOOK_TIMEOUT_SECONDS: u64 = 5;
+/// codex caps SessionEnd hook timeouts at 3s and warns on every session exit
+/// when hooks.json asks for more (`clamping SessionEnd hook timeout to 3s`),
+/// so the installer writes the cap instead of the generic 5s.
+const CODEX_SESSION_END_TIMEOUT_SECONDS: u64 = 3;
 const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
@@ -1230,6 +1234,7 @@ fn rewrite_json_hooks(
     }
     for event in provider.events {
         let command = hook_command(provider.id, event);
+        let timeout = installed_hook_timeout(provider, event, timeout);
         let entry = if nested {
             let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. }) {
                 json!({"type":"command","command":command,"timeout":timeout,"async":true})
@@ -1410,6 +1415,20 @@ fn visit_strings(value: &Value, predicate: &mut impl FnMut(&str) -> bool) -> boo
         Value::Array(values) => values.iter().any(|value| visit_strings(value, predicate)),
         Value::Object(values) => values.values().any(|value| visit_strings(value, predicate)),
         _ => false,
+    }
+}
+
+/// Per-event override of the provider-wide timeout. Only codex SessionEnd
+/// differs: codex clamps it to 3s, so writing more only produces a warning.
+fn installed_hook_timeout(provider: Provider, event: &str, timeout: u64) -> u64 {
+    if provider.id == "codex" { codex_hook_timeout(event) } else { timeout }
+}
+
+fn codex_hook_timeout(event: &str) -> u64 {
+    if event == "SessionEnd" {
+        CODEX_SESSION_END_TIMEOUT_SECONDS
+    } else {
+        COMMAND_HOOK_TIMEOUT_SECONDS
     }
 }
 
@@ -1609,7 +1628,7 @@ fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
         .iter()
         .map(|event| {
             let label = codex_event_state_label(event)?;
-            Ok(codex_trust_hash(label, &hook_command("codex", event), COMMAND_HOOK_TIMEOUT_SECONDS))
+            Ok(codex_trust_hash(label, &hook_command("codex", event), codex_hook_timeout(event)))
         })
         .collect()
 }
@@ -2232,7 +2251,8 @@ mod tests {
             "subagent_stop",
             "sha256:37436a4778c90ed5ab0e207b2922d3e1151dedfa26c33489c9faef7c990e8866",
         ),
-        // SessionEnd hashes the clamped 3s timeout, not the configured 5s.
+        // SessionEnd is installed at codex's 3s cap; the hash is identical to
+        // the one codex computed for a clamped 5s, so older installs stay trusted.
         ("session_end", "sha256:8366ef19df8ee745ecc7acbd8f72f7109478a583dfd5d06b61537b8e8d19e088"),
     ];
 
@@ -2288,7 +2308,18 @@ mod tests {
                 codex_normalized_timeout(label, Some(timeout)),
                 "{event}: codex must not clamp or floor the installed timeout"
             );
+            if *event == "SessionEnd" {
+                assert_eq!(timeout, CODEX_SESSION_END_TIMEOUT_SECONDS);
+            } else {
+                assert_eq!(timeout, COMMAND_HOOK_TIMEOUT_SECONDS, "{event}");
+            }
         }
+        // A pre-existing install written with the generic 5s stays owned: codex
+        // hashed the clamped value, which is what the installer now writes.
+        assert_eq!(
+            codex_trust_hash("session_end", &hook_command("codex", "SessionEnd"), 5),
+            codex_trust_hash("session_end", &hook_command("codex", "SessionEnd"), 3),
+        );
     }
 
     #[test]
