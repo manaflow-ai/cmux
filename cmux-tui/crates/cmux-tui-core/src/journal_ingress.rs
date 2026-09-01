@@ -1010,8 +1010,14 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             return;
                         }
                         if retryable_sqlite_error(&error) {
-                            let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay.min(remaining));
+                            let journal = mux.shared_journal_handle();
+                            let epoch = journal.epoch();
+                            drop(mux);
+                            // Keep the retry wake independent from the owning
+                            // mux so a blocked writer cannot keep shutdown
+                            // alive. The journal kernel receives the same
+                            // commit and shutdown notifications.
+                            journal.wait(epoch, delay.min(remaining));
                             delay = (delay * 2).min(Duration::from_secs(1));
                             continue;
                         }
@@ -1028,8 +1034,10 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             if receivers.state.pause_nonretryable_failure_for_test() {
                                 continue;
                             }
-                            let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay);
+                            let journal = mux.shared_journal_handle();
+                            let epoch = journal.epoch();
+                            drop(mux);
+                            journal.wait(epoch, delay);
                             delay = (delay * 2).min(Duration::from_secs(1));
                             continue;
                         } else if batch[0].completion.is_none() {
