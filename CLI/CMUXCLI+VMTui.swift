@@ -850,11 +850,84 @@ extension CMUXCLI {
             return
         }
         let verb = rest[0]
-        let (nameOpt, tail) = parseOption(Array(rest.dropFirst()), name: "--name")
-        let positional = tail.filter { !$0.hasPrefix("-") }
+        var positional: [String] = []
+        var nameOpt: String?
+        var localWorkspace: String?
+        var pane: String?
+        var direction: String?
+        var here = false
+        var tabs = false
+        var index = 1
+        while index < rest.count {
+            let arg = rest[index]
+            if let equals = arg.firstIndex(of: "=") {
+                let flag = String(arg[..<equals])
+                let value = String(arg[arg.index(after: equals)...])
+                if ["--name", "--workspace", "--pane"].contains(flag) {
+                    guard !value.isEmpty, !value.hasPrefix("-") else {
+                        throw CLIError(message: "vm workspace \(verb): \(flag) requires a value\n\n\(Self.vmWorkspaceUsage)")
+                    }
+                    if flag == "--name" {
+                        guard verb == "new", nameOpt == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                        nameOpt = value
+                    } else if flag == "--workspace" {
+                        guard verb == "open", localWorkspace == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                        localWorkspace = value
+                    } else {
+                        guard verb == "open", pane == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                        pane = value
+                    }
+                    index += 1
+                    continue
+                }
+            }
+            switch arg {
+            case "--json":
+                index += 1
+            case "--name", "--workspace", "--pane":
+                guard index + 1 < rest.count, !rest[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: "vm workspace \(verb): \(arg) requires a value\n\n\(Self.vmWorkspaceUsage)")
+                }
+                let value = rest[index + 1]
+                if arg == "--name" {
+                    guard verb == "new", nameOpt == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                    nameOpt = value
+                } else if arg == "--workspace" {
+                    guard verb == "open", localWorkspace == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                    localWorkspace = value
+                } else {
+                    guard verb == "open", pane == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                    pane = value
+                }
+                index += 2
+            case "--here":
+                guard verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                here = true
+                index += 1
+            case "--tabs":
+                guard verb == "open" else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                tabs = true
+                index += 1
+            case "--left", "--right", "--up", "--down":
+                guard verb == "open", direction == nil else { throw CLIError(message: Self.vmWorkspaceUsage) }
+                direction = String(arg.dropFirst(2))
+                index += 1
+            default:
+                guard !arg.hasPrefix("-") else {
+                    throw CLIError(message: "vm workspace \(verb): unknown flag '\(arg)'\n\n\(Self.vmWorkspaceUsage)")
+                }
+                positional.append(arg)
+                index += 1
+            }
+        }
         guard let machine = positional.first, !machine.isEmpty else { throw CLIError(message: Self.vmWorkspaceUsage) }
         switch verb {
         case "new":
+            guard positional.count == 1 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            guard localWorkspace == nil, pane == nil, direction == nil, !here, !tabs else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            if let nameOpt, nameOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw CLIError(message: Self.vmWorkspaceUsage)
+            }
             var params: [String: Any] = ["id": machine]
             if let nameOpt, !nameOpt.isEmpty { params["name"] = nameOpt }
             let response = try client.sendV2(method: "vm.workspace_new", params: params, responseTimeout: 240)
@@ -863,20 +936,11 @@ extension CMUXCLI {
             let local = (response["workspace_id"] as? String) ?? "?"
             print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
         case "open":
-            guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]
             // "Open All Here" / "Open All in New Tabs" / a drop on a pane edge: the same
             // destination flags `surface open` takes, on top of the remote workspace.
-            let (localWorkspace, r1) = parseOption(tail, name: "--workspace")
-            let (pane, r2) = parseOption(r1, name: "--pane")
-            let sides: [String: String] = ["--left": "left", "--right": "right", "--up": "up", "--down": "down"]
-            let direction = r2.compactMap { sides[$0] }.first
-            let tabs = hasFlag(r2, name: "--tabs")
-            let here = hasFlag(r2, name: "--here") || tabs || pane != nil || localWorkspace != nil
-            let known = Set(sides.keys).union(["--here", "--tabs", "--json"])
-            if let unknown = r2.first(where: { $0.hasPrefix("-") && !known.contains($0) }) {
-                throw CLIError(message: "vm workspace open: unknown flag '\(unknown)'\n\n\(Self.vmWorkspaceUsage)")
-            }
+            here = here || tabs || pane != nil || localWorkspace != nil
             if direction != nil, pane == nil {
                 throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
             }
@@ -893,12 +957,12 @@ extension CMUXCLI {
             let opened = (response["opened"] as? Int) ?? 0
             print("OK workspace=\(local) opened=\(opened) machine=\(machine)\(here ? " here" : "")")
         case "close":
-            guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             let response = try client.sendV2(method: "vm.workspace_close", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
             print("OK closed workspace \(positional[1]) on \(machine) (terminals kept; see Terminals pool)")
         case "rename":
-            guard positional.count >= 3 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            guard positional.count == 3 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             let response = try client.sendV2(
                 method: "vm.workspace_rename",
                 params: ["id": machine, "workspace_id": positional[1], "name": positional[2]],
@@ -907,7 +971,7 @@ extension CMUXCLI {
             if jsonOutput { print(jsonString(response)); return }
             print("OK renamed workspace \(positional[1]) to \"\(positional[2])\" on \(machine)")
         case "rm", "delete":
-            guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             let response = try client.sendV2(method: "vm.workspace_delete", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
             let killed = (response["terminals_closed"] as? Int) ?? 0
@@ -950,6 +1014,7 @@ extension CMUXCLI {
         let terminalID = args[1]
         switch verb {
         case "close":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
             let response = try client.sendV2(method: "vm.terminal_close", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
             print("OK closed terminal \(terminalID) on \(machine)")
@@ -967,10 +1032,12 @@ extension CMUXCLI {
             let wrote = (response["wrote"] as? Int) ?? 0
             print("OK sent \(wrote) char\(wrote == 1 ? "" : "s")\(keys.isEmpty ? "" : " + keys " + keys.joined(separator: ",")) to \(terminalID) on \(machine)")
         case "read", "screen":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
             let response = try client.sendV2(method: "vm.terminal_read", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
             print((response["text"] as? String) ?? "")
         case "wait":
+            guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
             guard let pattern = patternOpt, !pattern.isEmpty else {
                 throw CLIError(message: "vm terminal wait: --pattern <regex> is required\n\n\(Self.vmTerminalUsage)")
             }
@@ -990,11 +1057,16 @@ extension CMUXCLI {
             // A timeout is a failure in every output mode: the JSON still prints, and the
             // exit code says the pattern never appeared.
             if !matched {
-                throw CLIError(message: "timed out after \(seconds)s waiting for /\(pattern)/ on \(terminalID) (screen: \(((response["text"] as? String) ?? "").suffix(200)))")
+                // Screen contents can contain source code, credentials, or other private
+                // terminal output. Keep the timeout diagnostic bounded to request context.
+                throw CLIError(message: "timed out after \(seconds)s waiting for /\(pattern)/ on \(terminalID)")
             }
         case "rename":
-            guard args.count >= 3 else { throw CLIError(message: Self.vmTerminalUsage) }
-            let name = Array(args.dropFirst(2)).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            // A quoted shell argument is already one token. Requiring one token prevents
+            // accidental unquoted words from being silently reassembled into a different
+            // name and keeps the command grammar positional and unambiguous.
+            guard args.count == 3, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let name = args[2].trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
             let response = try client.sendV2(
                 method: "vm.terminal_rename",

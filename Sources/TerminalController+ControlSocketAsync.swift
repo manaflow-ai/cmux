@@ -57,13 +57,19 @@ extension TerminalController {
                 return errorResponse
             }
             let authorizedRequest = relayAuthorization.request
-            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
+        let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
             return await withSocketCommandPolicyAsync(
                 commandKey: authorizedRequest.method,
                 isV2: true,
                 params: authorizedRequest.params
             ) {
                 if policy.runsOnSocketWorker {
+                    // Terminal rename performs an awaited cloud-link mutation. Keep the
+                    // actual socket connection task asynchronous instead of parking a
+                    // worker thread behind the legacy semaphore bridge.
+                    if authorizedRequest.method == "vm.terminal_rename" {
+                        return await self.socketWorkerVMTerminalRenameResponseAsync(authorizedRequest)
+                    }
                     return await self.socketWorkerV2ResponseAsync(authorizedRequest)
                 }
                 return await self.processParsedV2CommandAsync(authorizedRequest)

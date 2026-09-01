@@ -274,6 +274,20 @@ struct CmuxTuiSnapshotParser: Sendable {
         return result
     }
 
+    /// User labels for tabs in the snapshot. An absent entry means the tab has no
+    /// user label (or only whitespace), which lets rename compensation restore the
+    /// daemon's unnamed state with an empty value.
+    static func tabNames(fromSnapshot snapshot: [String: Any]) -> [String: String] {
+        var result: [String: String] = [:]
+        for tab in (snapshot["tabs"] as? [[String: Any]]) ?? [] {
+            guard let id = tab["id"] as? String, !id.isEmpty,
+                  let name = tab["name"] as? String else { continue }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { result[id] = trimmed }
+        }
+        return result
+    }
+
     /// The workspace and first terminal a `workspace create` mutation made
     /// (`{value: {workspace_id, terminal_id, …}}`).
     static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {

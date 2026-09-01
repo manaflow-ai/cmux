@@ -257,11 +257,15 @@ extension TerminalController {
         guard let vmID = WorkspaceCloudVMBinding.normalizedVMID(v2RawString(params, "vm_id")) else {
             return .err(code: "invalid_params", message: "vm_id is required", data: ["workspace_id": workspaceId.uuidString])
         }
-        let isBase = v2Bool(params, "base") ?? false
+        let previousBinding = workspace.cloudVMBinding
+        let sameMachine = previousBinding?.vmID == vmID
+        let isBase = v2Bool(params, "base") ?? (sameMachine ? (previousBinding?.isBase ?? false) : false)
         // Optional: which cmux-tui workspace on the machine this local workspace stands
         // for. A rebind that omits it keeps the recorded one (Base re-opens rebind).
         let remoteRaw = v2RawString(params, "remote_workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let remoteWorkspaceID = remoteRaw?.isEmpty == false ? remoteRaw : workspace.cloudVMBinding?.remoteWorkspaceID
+        let remoteWorkspaceID = remoteRaw?.isEmpty == false
+            ? remoteRaw
+            : (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase, remoteWorkspaceID: remoteWorkspaceID)
         return .ok([
             "workspace_id": workspaceId.uuidString,

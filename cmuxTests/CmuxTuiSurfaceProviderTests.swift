@@ -81,6 +81,10 @@ import Testing
             ["id": "tab_3", "pane_id": "pane_1", "content_kind": "browser", "content_id": "browser_1"],
             ["id": "tab_4", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_build"],
         ]
+        snapshot["terminals"] = [
+            ["id": "term_build", "tab_id": "tab_1", "tab_ids": ["tab_1", "tab_4"], "title": "cargo test", "cwd": "/root/work/app", "lifecycle": "running", "running": true],
+            ["id": "term_shell", "tab_id": "tab_2", "tab_ids": ["tab_2"], "title": "bash", "lifecycle": "running", "running": true],
+        ]
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
 
         // `tab rename` (the tree's Rename…, any TUI client) sets the tab's `name`,
@@ -88,9 +92,10 @@ import Testing
         let build = try #require(resources.first { $0.id.key == "term_build" })
         #expect(build.title == "build loop")
 
-        // An empty or absent name keeps the PTY title (here: none).
+        // An empty or absent name keeps the PTY title.
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
-        #expect(shell.title == "")
+        #expect(shell.title == "bash")
+        #expect(CmuxTuiSnapshotParser.tabNames(fromSnapshot: snapshot) == ["tab_1": "build loop"])
     }
 
     @Test func cloudRenameWriteThroughTargetsAndNames() throws {
@@ -112,8 +117,10 @@ import Testing
         #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
         #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
 
-        // The open path's "<machine>: " prefix drops; plain titles pass through; blank clears propagate nothing.
+        // Legacy projection fallback drops the generated prefix; a bound workspace keeps
+        // an intentional prefix as part of the user's exact title.
         #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
+        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine, stripGeneratedPrefix: false) == "vivid-newt: api")
         #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
         #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
     }

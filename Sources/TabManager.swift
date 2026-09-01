@@ -460,6 +460,12 @@ class TabManager: ObservableObject {
     private var selectionSideEffectsGeneration: UInt64 = 0
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
+    /// Cloud rename requests are serialized per remote resource. UI title edits are
+    /// synchronous, while the daemon call is not; keeping the tail here prevents an
+    /// older response from overwriting a newer local edit and gives failures one owner
+    /// for rollback.
+    var cloudRenameTasks: [String: Task<Void, Never>] = [:]
+    var cloudRenameGenerations: [String: UInt64] = [:]
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
@@ -730,6 +736,9 @@ class TabManager: ObservableObject {
         }
         observers.removeAll()
         workspaceCycleCooldownTask?.cancel()
+        for task in cloudRenameTasks.values { task.cancel() }
+        cloudRenameTasks.removeAll()
+        cloudRenameGenerations.removeAll()
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this

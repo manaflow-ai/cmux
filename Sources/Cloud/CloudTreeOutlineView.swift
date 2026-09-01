@@ -617,7 +617,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     items.append(.separator())
                     // The name rides the terminal's daemon tab, so a zero-view pool
                     // terminal has nothing to rename until it is projected somewhere.
-                    if row.resource.remoteViewCount > 0 {
+                    if row.resource.remoteViews?.isEmpty == false {
                         items.append(item(String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameTerminal(row.resource) })
                     }
                     items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })

@@ -196,6 +196,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// mutation, so two local panes racing on the same pool row must share one remote view.
     // Internal so the manual-mirror extension can share the provider-owned task map.
     var remoteTerminalProjectionTasks: [String: Task<Void, Error>] = [:]
+    /// User labels from the last authoritative snapshot, used to compensate a
+    /// multi-view rename if a later tab mutation fails.
+    private var tabNameByID: [String: String] = [:]
 
     init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
         machineID = summary.id
@@ -235,7 +238,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Re-syncs from the machine. A sleeping machine is never woken to be listed: it keeps
     /// its screen (opening it wakes the machine) and nothing else.
-    func refresh(force: Bool) async {
+    @discardableResult
+    func refresh(force: Bool) async -> Bool {
         let machine = self.machine
         var resources: [SurfaceResource] = []
         if summary.resolvedKind.hasDesktop {
@@ -244,7 +248,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard isAwake, let client = VMClient.shared else {
             info = Self.info(from: summary, linkState: .asleep, linkError: nil, stats: nil)
             catalog.replaceResources(resources, on: machine, info: info)
-            return
+            return false
         }
         // The display opens over the HTTPS preview and never needs the link, so a
         // machine with no resources yet gets it published before the link attempt —
@@ -259,17 +263,20 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
+        var snapshotSucceeded = false
         do {
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             watchChanges(link: link)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                snapshotSucceeded = true
                 resources = CmuxTuiSnapshotParser.mergingDisplays(
                     pool: resources,
                     parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
                 )
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
+                tabNameByID = CmuxTuiSnapshotParser.tabNames(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             }
             let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
@@ -321,6 +328,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
         catalog.replaceResources(resources, on: machine, info: info)
         reprojectRestoredPanes()
+        return snapshotSucceeded
     }
 
     /// Runs one close-family command, reconnecting and retrying ONCE when the attempt
@@ -580,23 +588,68 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the TUI tab bar), and the tree prefers it over the PTY title. A zero-view terminal
     /// has no tab to carry a name.
     func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty else {
+            throw SurfaceCatalogError.unsupported(
+                String(localized: "cloudTree.error.renameTerminalEmptyName", defaultValue: "A terminal name cannot be empty.")
+            )
+        }
+
+        // Creation and rename can arrive back-to-back. Read the daemon snapshot now,
+        // before selecting tabs, so this operation never relies on the debounced cache.
+        guard await refresh(force: true) else {
+            throw SurfaceCatalogError.unsupported(
+                String(localized: "cloudTree.error.renameTerminalUnavailable", defaultValue: "The terminal state could not be refreshed. Try again.")
+            )
+        }
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let resource = catalog.snapshot.resources(on: machine).first { $0.id == id }
-        var tabIDs = resource?.remoteViews?.map(\.tabID) ?? []
-        if tabIDs.isEmpty, let fallback = tabByTerminal[id.key] { tabIDs = [fallback] }
-        guard !tabIDs.isEmpty else {
-            throw SurfaceCatalogError.unsupported("renaming a terminal with no view (\(id.key))")
+        guard let resource = catalog.snapshot.resources(on: machine).first(where: { $0.id == id }),
+              let views = resource.remoteViews,
+              !views.isEmpty else {
+            throw SurfaceCatalogError.unsupported(
+                String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
+            )
         }
-        for tabID in tabIDs {
-            _ = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(socketPath: connected.socketPath, tabID: tabID, name: name))
+
+        let tabIDs = views.map(\.tabID)
+        let previousNames = Dictionary(uniqueKeysWithValues: tabIDs.map { ($0, tabNameByID[$0] ?? "") })
+        var renamedTabIDs: [String] = []
+        do {
+            for tabID in tabIDs {
+                try Task.checkCancellation()
+                _ = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
+                    socketPath: connected.socketPath, tabID: tabID, name: normalizedName
+                ))
+                renamedTabIDs.append(tabID)
+            }
+        } catch {
+            // A terminal can disappear from one workspace while the other tab is being
+            // renamed. Restore completed tabs, then read the daemon as the authority.
+            for tabID in renamedTabIDs.reversed() {
+                do {
+                    _ = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
+                        socketPath: connected.socketPath, tabID: tabID, name: previousNames[tabID] ?? ""
+                    ))
+                } catch {
+                    #if DEBUG
+                    cmuxDebugLog("cloud.rename.terminal.compensationFailed machine=\(machineID) tab=\(tabID) error=\(String(reflecting: error))")
+                    #endif
+                }
+            }
+            let refreshed = await refresh(force: true)
+            if !refreshed { catalog.upsert(resource) }
+            throw error
         }
-        // Optimistic: show the new name now; the next snapshot re-sync is authoritative.
-        if var renamed = resource {
-            renamed.title = name
+
+        // Re-read immediately so the local tree reflects the persisted daemon result and
+        // other views are reconciled without a timing-based debounce.
+        let refreshed = await refresh(force: true)
+        if !refreshed {
+            var renamed = resource
+            renamed.title = normalizedName
             catalog.upsert(renamed)
         }
-        scheduleRefresh()
     }
 
     /// The terminal lives in the machine's session; only the local pane went away.

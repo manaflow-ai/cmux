@@ -2452,12 +2452,9 @@ extension Workspace {
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
 
-/// Workspace represents a sidebar tab.
-/// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
-@MainActor
 /// A cloud machine bound to a workspace through the cmux-tui remote daemon
 /// (`cmux vm shell`/`vm new`/`vm base open`). See `Workspace.cloudVMBinding`.
-struct WorkspaceCloudVMBinding: Equatable, Sendable {
+nonisolated struct WorkspaceCloudVMBinding: Equatable, Sendable {
     let vmID: String
     /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
     let isBase: Bool
@@ -2483,6 +2480,8 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
     }
 }
 
+/// Workspace represents a sidebar tab.
+/// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
     enum BrowserPanelCreationPolicy {
         case userInitiated
@@ -5297,7 +5296,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// `.auto` writes are rejected when a user-set title exists, and `.auto`
     /// never clears. Returns whether the write landed.
     @discardableResult
-    func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
+    func setPanelCustomTitle(
+        panelId: UUID,
+        title: String?,
+        source: CustomTitleSource = .user,
+        propagateToRemoteTmux: Bool = true,
+        propagateToCloud: Bool = true
+    ) -> Bool {
         guard panels[panelId] != nil else { return false }
         let previousWorkspaceTitle = self.title
         defer {
@@ -5337,7 +5342,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror {
+        if propagateToRemoteTmux, isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )
@@ -5346,17 +5351,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // machine's daemon tab name (`tab rename`): persisted there, broadcast, and
         // shown by every attached client (tree rows, other Macs, TUI tab bars).
         // Clearing only reverts the local override; the daemon name stays.
-        if source == .user, !trimmed.isEmpty,
+        if propagateToCloud, source == .user, !trimmed.isEmpty,
            let resource = cloudProjectedResource(forPanel: panelId), resource.kind == .terminal,
            let provider = SurfaceCatalog.shared.provider(for: resource.machine) {
-            Task { @MainActor in
-                do { try await provider.renameTerminal(resource.id, name: trimmed) }
-                catch {
-                    #if DEBUG
-                    cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelId) error=\(String(describing: error))")
-                    #endif
-                }
-            }
+            CloudWorkspaceRenameWriteThrough.propagateTerminalRename(
+                workspace: self,
+                panelID: panelId,
+                resource: resource,
+                name: trimmed,
+                previousCustomTitle: previous
+            )
         }
         return true
     }

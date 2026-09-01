@@ -61263,6 +61263,57 @@
         }
       }
     },
+    "cloudTree.error.renameTerminalNoView": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is not open in a remote workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルはリモートワークスペースで開かれていません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalEmptyName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A terminal name cannot be empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル名を空にすることはできません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameTerminalUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal state could not be refreshed. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの状態を更新できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
     "cloudTree.rename.confirm": {
       "extractionState": "manual",
       "localizations": {

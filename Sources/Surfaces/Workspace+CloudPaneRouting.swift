@@ -152,32 +152,97 @@ enum CloudWorkspaceRenameWriteThrough {
         return (found.0, found.1)
     }
 
-    /// The daemon-side name for a local title: the "<machine>: " prefix the open path
-    /// added is dropped, so renaming "quick-swan: api" writes "api", not the prefix.
-    static func remoteName(fromLocalTitle title: String, machine: SurfaceMachineID) -> String? {
+    /// The daemon-side name for a local title. Legacy projection fallback titles carry
+    /// a generated "<machine>: " prefix; a bound workspace preserves the exact user text.
+    static func remoteName(
+        fromLocalTitle title: String,
+        machine: SurfaceMachineID,
+        stripGeneratedPrefix: Bool = true
+    ) -> String? {
         var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefix = "\(machine.rawValue): "
-        if name.hasPrefix(prefix) {
+        if stripGeneratedPrefix, name.hasPrefix(prefix) {
             name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return name.isEmpty ? nil : name
     }
 
-    /// Best-effort write-through of a local workspace rename: the daemon persists and
-    /// broadcasts the rename, and the next snapshot re-sync is authoritative either way.
+    /// Enqueues a local workspace rename. Requests for one workspace run in order; a
+    /// failed request rolls the local title back only when no newer edit replaced it.
     @MainActor
-    static func propagate(workspace: Workspace, localTitle: String?) {
+    static func propagate(workspace: Workspace, localTitle: String?, previousCustomTitle: String?) {
         guard let localTitle, !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let catalog = SurfaceCatalog.shared
-        let projected = catalog.projectionRecords(forWorkspace: workspace.id).compactMap { catalog.resources[$0.resource] }
+        // A persisted binding is authoritative. Avoid scanning and sorting every
+        // projection on the common bound path; the projection fallback is only for
+        // legacy workspaces that predate the binding id.
+        let projected: [SurfaceResource]
+        if workspace.cloudVMBinding?.remoteWorkspaceID != nil {
+            projected = []
+        } else {
+            projected = catalog.resourcesProjected(inWorkspace: workspace.id)
+        }
         guard let target = remoteTarget(binding: workspace.cloudVMBinding, projectedResources: projected),
-              let name = remoteName(fromLocalTitle: localTitle, machine: target.machine),
+              let name = remoteName(
+                  fromLocalTitle: localTitle,
+                  machine: target.machine,
+                  stripGeneratedPrefix: workspace.cloudVMBinding?.remoteWorkspaceID == nil
+              ),
               let provider = catalog.provider(for: target.machine) else { return }
-        Task { @MainActor in
+        let expectedTitle = workspace.customTitle
+        let key = "workspace:\(workspace.id.uuidString)"
+        let enqueue = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+        guard let enqueue else { return }
+        enqueue.enqueueCloudRename(key: key) { [weak workspace, weak enqueue] in
             do { try await provider.renameRemoteWorkspace(id: target.remoteWorkspaceID, name: name) }
             catch {
+                guard let workspace,
+                      workspace.customTitle == expectedTitle,
+                      let enqueue else { return }
+                _ = enqueue.setCustomTitle(
+                    tabId: workspace.id,
+                    title: previousCustomTitle,
+                    source: .user,
+                    propagateToRemoteTmux: false,
+                    propagateToCloud: false
+                )
                 #if DEBUG
                 cmuxDebugLog("cloud.rename.workspace.failed ws=\(workspace.id) error=\(String(describing: error))")
+                #endif
+            }
+        }
+    }
+
+    /// Enqueues a local pane rename to the daemon tab behind it. A failed request
+    /// restores the prior local override when the user has not edited the pane again.
+    @MainActor
+    static func propagateTerminalRename(
+        workspace: Workspace,
+        panelID: UUID,
+        resource: SurfaceResource,
+        name: String,
+        previousCustomTitle: String?
+    ) {
+        let expectedTitle = workspace.panelCustomTitles[panelID]
+        let key = "terminal:\(resource.id.rawValue)"
+        let enqueue = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+        guard let enqueue,
+              let provider = SurfaceCatalog.shared.provider(for: resource.machine) else { return }
+        enqueue.enqueueCloudRename(key: key) { [weak workspace, weak enqueue] in
+            do { try await provider.renameTerminal(resource.id, name: name) }
+            catch {
+                guard let workspace,
+                      workspace.panelCustomTitles[panelID] == expectedTitle,
+                      let enqueue else { return }
+                _ = workspace.setPanelCustomTitle(
+                    panelId: panelID,
+                    title: previousCustomTitle,
+                    source: .user,
+                    propagateToRemoteTmux: false,
+                    propagateToCloud: false
+                )
+                #if DEBUG
+                cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelID) error=\(String(describing: error))")
                 #endif
             }
         }
@@ -190,10 +255,12 @@ enum CloudWorkspaceRenameWriteThrough {
         guard let vmID = machine.cloudMachineID,
               let manager = AppDelegate.shared?.tabManagerFor(tabId: localWorkspaceID),
               let workspace = manager.workspacesById[localWorkspaceID] else { return }
+        let previousBinding = workspace.cloudVMBinding
+        let sameMachine = previousBinding?.vmID == vmID
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: vmID,
-            isBase: workspace.cloudVMBinding?.isBase ?? false,
-            remoteWorkspaceID: remoteWorkspaceID ?? workspace.cloudVMBinding?.remoteWorkspaceID
+            isBase: sameMachine ? (previousBinding?.isBase ?? false) : false,
+            remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         )
     }
 }

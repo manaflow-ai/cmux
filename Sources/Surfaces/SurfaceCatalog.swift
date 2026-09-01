@@ -729,6 +729,16 @@ final class SurfaceCatalog {
             .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
+    /// Returns the current resources projected in a workspace in one pass. Rename
+    /// fallback logic only needs membership, not the stable panel ordering exposed by
+    /// `projectionRecords(forWorkspace:)`.
+    func resourcesProjected(inWorkspace workspaceID: UUID) -> [SurfaceResource] {
+        projections.compactMap { projection in
+            guard projection.workspaceID == workspaceID else { return nil }
+            return resources[projection.resource]
+        }
+    }
+
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
         for (record, workspaceID) in pendingRestoredProjections where record.resource.machine == machine {
             guard resources[record.resource] != nil else { continue }

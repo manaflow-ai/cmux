@@ -410,6 +410,41 @@ extension TerminalController {
         }
     }
 
+    /// Async socket counterpart for `vm.terminal_rename`. The legacy synchronous
+    /// entrypoint remains for in-process callers, while real socket connections use
+    /// this method so the worker pool stays available during the cloud round trip.
+    @MainActor
+    func socketWorkerVMTerminalRenameResponseAsync(_ request: ControlRequest) async -> String {
+        let params = request.params.mapValues(\.foundationObject)
+        let id = request.id?.foundationObject
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `id` and `terminal_id`.")
+        }
+        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires a non-empty `name`.")
+        }
+        do {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            try await provider.renameTerminal(
+                SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+                name: name
+            )
+            return v2Ok(id: id, result: [
+                "machine": machine.rawValue,
+                "terminal_id": terminalID,
+                "name": name,
+                "renamed": true,
+            ])
+        } catch {
+            return v2Error(id: id, code: "vm_error", message: String(describing: error))
+        }
+    }
+
     /// `vm.terminal_close {id, terminal_id}` → ends that terminal on the machine.
     nonisolated func socketWorkerVMTerminalCloseResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
