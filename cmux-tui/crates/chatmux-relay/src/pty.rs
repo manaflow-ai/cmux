@@ -418,6 +418,10 @@ struct ViewerSink {
 /// fans output out to every attachment (multi-viewer, tmux-style).
 struct ShellSession {
     control: Arc<dyn PtyControl>,
+    /// Existing-session opens that have selected this session but have not
+    /// published their viewer yet. Cancellation cleanup must not kill the
+    /// session while one of these opens can still attach.
+    pending_viewers: AtomicUsize,
     /// Serializes pause ownership transitions before touching the shared PTY.
     flow_lock: Mutex<()>,
     /// Serializes output delivery with paused-viewer replay.
@@ -551,7 +555,9 @@ fn remove_cached_shell_if_same_without_viewers(
     // Serialize with viewer start. A concurrent opener may have cloned this
     // session but cannot publish its viewer while this dispatch lock is held.
     let _dispatch = target.dispatch_lock.lock().expect("shell dispatch lock");
-    if !target.inner.lock().expect("shell inner lock").viewers.is_empty() {
+    if !target.inner.lock().expect("shell inner lock").viewers.is_empty()
+        || target.pending_viewers.load(Ordering::Acquire) != 0
+    {
         return false;
     }
     let mut shells = inner.shell_sessions.lock().expect("shell lock");
@@ -2339,34 +2345,27 @@ impl Inner {
             )
             .await
             else {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
             if listed.get("ok").and_then(Value::as_bool) != Some(true) {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             let Some(data) = listed.get("data").and_then(Value::as_object) else {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             };
             if !data.get("workspaces").is_some_and(Value::is_array) {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             if !workspace_shape_valid(listed.get("data")) {
-                control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
             }
             let tabs = match collect_pty_tabs_strict(listed.get("data")) {
                 Ok(tabs) => tabs,
                 Err(_) => {
-                    control.end();
                     return Err("cannot inspect existing daemon surfaces".to_owned());
                 }
             };
             if tabs.len() > MAX_ENUM_TERMINALS || (tabs.is_empty() && !ensured.created) {
-                control.end();
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
             }
             for tab in tabs {
@@ -2381,23 +2380,19 @@ impl Inner {
                 )
                 .await
                 else {
-                    control.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
                 };
                 if info.get("ok").and_then(Value::as_bool) != Some(true) {
-                    control.end();
                     return Err("cannot inspect existing surface cwd".to_owned());
                 }
                 let Some(actual) =
                     info.get("data").and_then(|v| v.get("cwd")).and_then(Value::as_str)
                 else {
-                    control.end();
                     return Err(
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
                 };
                 if actual.is_empty() || !Path::new(actual).is_absolute() {
-                    control.end();
                     return Err(
                         "cannot prove existing surface cwd is within allowed roots".to_owned()
                     );
@@ -2410,7 +2405,6 @@ impl Inner {
                 )
                 .is_err()
                 {
-                    control.end();
                     return Err("existing surface cwd is outside allowed roots".to_owned());
                 }
             }
@@ -2472,6 +2466,7 @@ impl Inner {
         open_permit: &OpenPermit,
     ) -> Result<Opened, String> {
         let mut created = false;
+        let mut pending_viewer = false;
         let shell_session = loop {
             if let Some(existing) =
                 self.shell_sessions.lock().expect("shell lock").get(session).cloned()
@@ -2482,6 +2477,8 @@ impl Inner {
                     return Err("cannot reattach existing shell under scoped roots".to_owned());
                 }
                 existing.control.resize(cols, rows);
+                existing.pending_viewers.fetch_add(1, Ordering::AcqRel);
+                pending_viewer = true;
                 break existing;
             }
             let (notify, owner, waiter) = {
@@ -2546,6 +2543,7 @@ impl Inner {
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
                     control,
+                    pending_viewers: AtomicUsize::new(0),
                     flow_lock: Mutex::new(()),
                     dispatch_lock: Mutex::new(()),
                     banner,
@@ -2671,6 +2669,11 @@ impl Inner {
 
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
+            // This open has reached its publication callback. It no longer
+            // counts as a pending viewer for cancellation cleanup.
+            if pending_viewer {
+                start_session.pending_viewers.fetch_sub(1, Ordering::AcqRel);
+            }
             let (banner, replay, alive, delivery_lock) = {
                 let _dispatch = start_session.dispatch_lock.lock().expect("shell dispatch lock");
                 let _flow = start_session.flow_lock.lock().expect("shell flow lock");
