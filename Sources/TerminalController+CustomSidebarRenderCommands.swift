@@ -61,6 +61,11 @@ extension TerminalController {
     /// Prepares a render off the main actor, then suspends until the main
     /// actor has mounted and captured the sidebar. The response is encoded
     /// after the await on the socket connection task.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func v2CustomSidebarRenderAsync(request: ControlRequest) async -> String {
         let bridgedParams = request.params.mapValues(\.foundationObject)
         let result: ControlCallResult
