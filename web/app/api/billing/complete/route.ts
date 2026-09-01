@@ -5,6 +5,7 @@ import {
   trustedNativeCallbackScheme,
   validatedNativeCallbackScheme,
 } from "../../../lib/native-callback";
+import { requestOrigin } from "../../../lib/request-origin";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isCmuxCheckoutSession,
@@ -97,10 +98,10 @@ export function makeBillingCompleteHandler(
           }
           if (session.metadata?.plan === "team") {
             return NextResponse.redirect(
-              new URL("/dashboard/billing?welcome=team", request.nextUrl.origin),
+              new URL("/dashboard/billing?welcome=team", requestOrigin(request)),
             );
           }
-          const success = new URL("/billing/success", request.nextUrl.origin);
+          const success = new URL("/billing/success", requestOrigin(request));
           success.searchParams.set("session_id", session.id);
           success.searchParams.set("cmux_scheme", scheme);
           return NextResponse.redirect(success);

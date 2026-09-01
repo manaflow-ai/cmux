@@ -3,6 +3,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
+import { requestOrigin } from "../../../lib/request-origin";
 import {
   CHECKOUT_RELAY_EXPIRES_PARAM,
   CHECKOUT_RELAY_SIGNATURE_PARAM,
@@ -166,9 +167,9 @@ async function stripeProCheckout(
     }
 
     const successUrl =
-      `${request.nextUrl.origin}/api/billing/complete` +
+      `${requestOrigin(request)}/api/billing/complete` +
       `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    const cancelUrl = new URL("/pricing?billing=cancelled", requestOrigin(request));
     cancelUrl.searchParams.set("interval", interval);
     const metadata = {
       stackUserId,
@@ -248,9 +249,9 @@ async function stripeTeamCheckout(
     }
 
     const successUrl =
-      `${request.nextUrl.origin}/api/billing/complete` +
+      `${requestOrigin(request)}/api/billing/complete` +
       `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
-    const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+    const cancelUrl = new URL("/pricing?billing=cancelled", requestOrigin(request));
     cancelUrl.searchParams.set("interval", interval);
     const metadata = {
       stackTeamId: resolvedTeamId,

@@ -1,27 +1,35 @@
 import { describe, expect, test } from "bun:test";
-import { shouldTrustDirectDevBackendHost } from "../app/lib/direct-dev-backend-host";
+import type { NextRequest } from "next/server";
+import { requestOrigin } from "../app/lib/request-origin";
+
+function request(origin: string): NextRequest {
+  return { nextUrl: { origin } } as unknown as NextRequest;
+}
 
 describe("direct dev backend host forwarding", () => {
-  test("trusts the forwarded host only for the direct backend transport", () => {
+  test("uses the configured Tailscale origin for direct transport", () => {
     expect(
-      shouldTrustDirectDevBackendHost({
+      requestOrigin(request("https://0.0.0.0:3916"), {
         CMUX_DEV_BACKEND_TRANSPORT: "direct",
+        CMUX_WWW_ORIGIN: "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
       }),
-    ).toBe(true);
+    ).toBe("https://cmux-dev-backend-1.tail137216.ts.net:3916");
   });
 
-  test("does not trust the forwarded host for the SSH transport", () => {
+  test("keeps the Next origin for the SSH transport", () => {
     expect(
-      shouldTrustDirectDevBackendHost({
+      requestOrigin(request("http://127.0.0.1:3916"), {
         CMUX_DEV_BACKEND_TRANSPORT: "ssh",
       }),
-    ).toBe(false);
+    ).toBe("http://127.0.0.1:3916");
   });
 
-  test("does not trust a missing or malformed transport value", () => {
-    expect(shouldTrustDirectDevBackendHost({})).toBe(false);
+  test("rejects a malformed configured origin", () => {
     expect(
-      shouldTrustDirectDevBackendHost({ CMUX_DEV_BACKEND_TRANSPORT: "DIRECT " }),
-    ).toBe(false);
+      requestOrigin(request("http://127.0.0.1:3916"), {
+        CMUX_DEV_BACKEND_TRANSPORT: "direct",
+        CMUX_WWW_ORIGIN: "https://other.example:3916/",
+      }),
+    ).toBe("http://127.0.0.1:3916");
   });
 });

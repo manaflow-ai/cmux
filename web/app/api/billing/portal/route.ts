@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import type * as StackLib from "../../../lib/stack";
+import { requestOrigin } from "../../../lib/request-origin";
 
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
       customer: customerId,
       return_url: new URL(
         team ? "/dashboard/billing" : "/pricing",
-        request.nextUrl.origin,
+        requestOrigin(request),
       ).toString(),
     });
     if (!session.url) {
