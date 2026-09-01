@@ -47,7 +47,7 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v10 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key is a stable legacy alias for the terminal-host-v4 message catalog; the protocol domain row uses the current v4 identity. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v10 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key remains a stable legacy alias for the terminal-host-v4 daemon message catalog. The protocol-domain row and [`terminal-host.md`](terminal-host.md) describe that daemon v4 contract; the current cross-language renderer is v3. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result` |
 | PTY keyboard | `send-key` emits semantic keyboard input for PTYs | Preserve this route and add negotiated key capability discovery |
 | PTY mouse and focus | Native TUI encodes mouse/focus bytes locally | `send-mouse` and `send-focus`, with current terminal modes in render state |
-| Terminal-host resize | The terminal-host v4 decoder accepts the negotiated v1-v4 payload layouts, including the length-prefixed replay and version-specific Kitty state | Keep producer-consumer and cross-language fixtures current, and complete typed SDK coverage before promoting this family to complete |
+| Terminal-host resize | The current renderer defaults to protocol v3 and decodes negotiated v1-v3 payload layouts, including the length-prefixed replay and version-specific Kitty state. The daemon v4 decoder accepts v1-v4 and keeps the v3 payload unchanged | Keep producer-consumer and cross-language fixtures current, and complete typed SDK coverage before promoting this family to complete |
 | PTY selection | Native selection is frontend-local and `copy selection` cannot reconstruct it remotely | `extract-text` by absolute range; optional frontend-local selection adapter |
 | Terminal search | Clients page scrollback and search themselves | Cursor-based `search-scrollback` with revision and match ranges |
 | Process outcome | `terminal.process.get`, `terminal.wait_exit`, and `TerminalSnapshot.exit` expose one durable child outcome per terminal | Separate execution IDs and lifecycle events for multiple sequential processes in one terminal |
@@ -101,7 +101,7 @@ The inventory assigns each command to one disjoint authority group. Generated SD
 | `local-admin` | `control` plus the `local-admin` group on a trusted Unix-classified transport, including the current stdio relay |
 | `provider-authority` | `control` plus the `provider-authority` group after separate authority authentication |
 | `machine-provider` | Separate provider v0/v1 client and server types |
-| `terminal-renderer` | Separate terminal-host frame types with a minted capability; the current remote renderer consumes v4 only, so grants for adopted v1-v3 hosts are not renderable until version negotiation is added |
+| `terminal-renderer` | Separate terminal-host frame types with a minted capability. The current remote renderer defaults to v3 and decodes negotiated v1-v3 payloads. Newly launched daemon hosts mint v4-pinned grants, so renderer version negotiation is required before a v4 grant can be consumed |
 
 An SDK must refuse a profile when the selected transport cannot satisfy its trust boundary.
 

@@ -1131,7 +1131,7 @@
       "id": "terminal-rendering",
       "wire_status": "partial",
       "programmability": "partial",
-      "route": "render attach is implemented; terminal-host-v4 resize replay supports negotiated v1-v4 payloads; typed SDK parity is incomplete"
+      "route": "render attach is implemented; the current remote renderer defaults to terminal-host-v3 and decodes negotiated v1-v3 resize replay. Newly launched daemon hosts use v4, whose decoder accepts v1-v4. Typed SDK parity is incomplete"
     },
     {
       "id": "terminal-selection-search-history",
