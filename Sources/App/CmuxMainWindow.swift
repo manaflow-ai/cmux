@@ -105,15 +105,20 @@ final class CmuxMainWindow: NSWindow {
     /// (observed live: the window at 29,000 points wide, growing every
     /// pass). The user sizes this window; layout does not.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        let frame = styleMask.contains(.fullScreen)
-            ? frameRect
-            : Self.frameByCappingOversizedDimensions(
-                frameRect,
-                displayFrames: NSScreen.screens.map {
-                    (frame: $0.frame, visibleFrame: $0.visibleFrame)
-                }
-            )
-        super.setFrame(frame, display: flag)
+        guard !styleMask.contains(.fullScreen) else {
+            super.setFrame(frameRect, display: flag)
+            return
+        }
+        let capped = Self.frameByCappingOversizedDimensions(
+            frameRect,
+            displayFrames: NSScreen.screens.map {
+                (frame: $0.frame, visibleFrame: $0.visibleFrame)
+            }
+        )
+        super.setFrame(
+            Self.frameByRaisingUndersizedDimensions(capped, minimumSize: Self.minimumContentSize),
+            display: flag
+        )
     }
 
     /// Caps runaway content-derived dimensions to the display union while
@@ -156,6 +161,26 @@ final class CmuxMainWindow: NSWindow {
         )
         capped.origin.y = clampedMaxY - capped.height
         return capped
+    }
+
+    /// Raises undersized dimensions to the policy floor. `minSize` and
+    /// `contentMinSize` bound only USER resizes; a programmatic `setFrame`
+    /// (session restore math, display reconfiguration, automation) can still
+    /// deliver a frame below the floor, where the sidebar footer, update
+    /// pill, and tab bar overlap and clip. The raise keeps the top edge put —
+    /// frames are bottom-left anchored, so added height extends the window
+    /// downward, leaving the titlebar where the user can grab it. Frames that
+    /// already fit are returned byte-for-byte.
+    nonisolated static func frameByRaisingUndersizedDimensions(
+        _ proposedFrame: NSRect,
+        minimumSize: NSSize
+    ) -> NSRect {
+        var raised = proposedFrame
+        raised.size.width = max(raised.width, minimumSize.width)
+        raised.size.height = max(raised.height, minimumSize.height)
+        guard raised.size != proposedFrame.size else { return proposedFrame }
+        raised.origin.y = proposedFrame.maxY - raised.height
+        return raised
     }
 
     static var minimumContentSize: NSSize {

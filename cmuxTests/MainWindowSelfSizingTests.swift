@@ -226,4 +226,19 @@ final class MainWindowSelfSizingTests: XCTestCase {
             "Raising an undersized frame must keep the top edge put and extend the window downward"
         )
     }
+
+    /// Ordinary frames must flow through the undersized raise untouched so
+    /// user-owned placement (partial off-screen, multi-display) is never
+    /// perturbed by the floor.
+    func testFrameRaiseReturnsFittingFramesByteForByte() {
+        let fitting = NSRect(x: -120.5, y: 33.25, width: 901.5, height: 612.75)
+        XCTAssertEqual(
+            CmuxMainWindow.frameByRaisingUndersizedDimensions(
+                fitting,
+                minimumSize: CmuxMainWindow.minimumContentSize
+            ),
+            fitting,
+            "A frame at or above the minimum must be returned unchanged"
+        )
+    }
 }
