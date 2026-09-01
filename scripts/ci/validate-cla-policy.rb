@@ -21,7 +21,7 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
-CLA_ACTION = "manaflow-ai/cla-github-action@537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a"
+CLA_ACTION = "manaflow-ai/cla-github-action@5749bd2e5867b7545e66b55ac44acf616595bde3"
 CLA_RUNNER = "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
 CLA_RUNNER_PATH = /\Ajobs\.(?:CLACommentGate|CLAAssistant|CLALedgerWriter|CLACompatibility|RerunFailedCLA|LockMergedPullRequest)\.runs-on\z/
 # The privileged workflow is an explicit reviewed policy, not an extensible
@@ -31,7 +31,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "1a928da913f61d6a203fdd38f6795b424c188df3f30c3a75be7417ba69b2eea8"
+EXPECTED_GUARD_SCRIPT_DIGEST = "8af51413cbb503fc1cc4aa306f85932dd6ba37b1b58ecd4bfddb06d19e2735a9"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -185,7 +185,7 @@ GUARD_VALIDATE_RUN_HASH = "759f3978ae0a2e0620eb2630cd4c1ec2cbff8f9bcc9a37f76b330
 CLA_SIGN_PHRASE = "I have read the CLA Document v2.2 and I hereby sign the CLA"
 CLA_RECHECK_PHRASE = "recheck"
 CLA_DOCUMENT_INPUT = "https://github.com/${{ github.repository }}/blob/${{ github.workflow_sha }}/CLA.md"
-CLA_LIFECYCLE_ACTIONS = %w[opened edited reopened synchronize].freeze
+CLA_LIFECYCLE_ACTIONS = %w[opened edited reopened synchronize ready_for_review].freeze
 CLA_TRUSTED_ASSOCIATIONS = %w[OWNER MEMBER COLLABORATOR].freeze
 POSITIVE_ID = /\A[1-9][0-9]*\z/
 CLA_WRITER_CONDITION = <<~'EXPRESSION'.gsub(/\s+/, " ").strip.freeze
@@ -198,7 +198,8 @@ CLA_WRITER_CONDITION = <<~'EXPRESSION'.gsub(/\s+/, " ").strip.freeze
         github.event.action == 'opened' ||
         github.event.action == 'edited' ||
         github.event.action == 'reopened' ||
-        github.event.action == 'synchronize'
+        github.event.action == 'synchronize' ||
+        github.event.action == 'ready_for_review'
       )
     ) ||
     (
@@ -1281,7 +1282,7 @@ def validate_workflow(raw)
   target = triggers["pull_request_target"]
   fail!("pull_request_target is malformed") unless target.is_a?(Hash)
   fail!("pull_request_target must target main only") unless target["branches"] == ["main"]
-  expected_types = %w[opened closed edited reopened synchronize]
+  expected_types = %w[opened closed edited reopened synchronize ready_for_review]
   fail!("pull_request_target event set is unsafe") unless target["types"] == expected_types
   fail!("top-level permissions must be empty") unless document["permissions"] == {}
 
@@ -1633,6 +1634,8 @@ def validate_guard_script(raw)
     "run_environment_regression_matrix!",
     "run_runner_regression_matrix!",
     "run_trusted_review_regression_matrix!",
+    "CLA_LIFECYCLE_ACTIONS",
+    "ready_for_review",
     "collect_latest_trusted_review!",
     "def workflow_digest",
     "Digest::SHA256.hexdigest(raw)",
