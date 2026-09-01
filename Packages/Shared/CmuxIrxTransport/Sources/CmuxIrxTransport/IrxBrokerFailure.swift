@@ -196,6 +196,59 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
 
 }
 
+private extension IrxBrokerFailure {
+    /// Broker error identifiers that are stable enough to cross the diagnostic
+    /// boundary. The broker's `error` field is otherwise free-form and may carry
+    /// opaque tokens or response text; unknown values fall back to HTTP status.
+    static let knownDiagnosticErrorCodes: Set<String> = [
+        "account_budget",
+        "account_mismatch",
+        "attestation_rate_limited",
+        "auth_provider",
+        "auth_refresh_transient",
+        "auth_required",
+        "binding_request_proof_required",
+        "binding_replacement_requires_revocation",
+        "challenge_rate_limited",
+        "connectivity",
+        "cooldown:rate_limited",
+        "cooldown:relay_rate_limited",
+        "device_budget",
+        "device_registration_hour_quota",
+        "discovery_cursor_stale",
+        "forbidden",
+        "ingress_ip",
+        "invalid_authentication",
+        "invalid_base_url",
+        "invalid_binding_request_proof",
+        "invalid_endpoint_binding",
+        "invalid_identity",
+        "invalid_request",
+        "invalid_response",
+        "invalid_token",
+        "missing_authentication",
+        "no_credentials_issued",
+        "non_http_response",
+        "not_found",
+        "not_registered",
+        "pair_grant_hour_quota",
+        "rate_limited",
+        "rate_limited:account_budget",
+        "rate_limited:auth_provider",
+        "rate_limited:device_budget",
+        "rate_limited:ingress_ip",
+        "relay_policy_unavailable",
+        "relay_rate_limited",
+        "slow_down",
+        "target_not_pairable",
+        "token_expired",
+        "too_early",
+        "unauthorized",
+        "unknown_relay_url",
+        "unavailable",
+    ]
+}
+
 /// Classifies an HTTP broker rejection without retaining its response body.
 private func irxBrokerFailureKind(
     operation: IrxBrokerOperation,
@@ -242,17 +295,14 @@ private func irxSanitizedBrokerErrorCode(
     _ code: String?,
     statusCode: Int?
 ) -> String {
-    guard let code,
-          (1 ... 128).contains(code.utf8.count),
-          code.unicodeScalars.allSatisfy({ scalar in
-              (48 ... 57).contains(scalar.value)
-                  || (65 ... 90).contains(scalar.value)
-                  || (97 ... 122).contains(scalar.value)
-                  || [45, 46, 58, 95].contains(scalar.value)
-          }) else {
+    guard let code else {
         return statusCode.map { "http_\($0)" } ?? "unknown"
     }
-    return code.lowercased()
+    let normalized = code.lowercased()
+    guard IrxBrokerFailure.knownDiagnosticErrorCodes.contains(normalized) else {
+        return statusCode.map { "http_\($0)" } ?? "unknown"
+    }
+    return normalized
 }
 
 extension IrxBrokerFailure: DiagnosticFailureProviding {

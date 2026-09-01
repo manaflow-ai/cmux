@@ -42,7 +42,18 @@ extension MobileIrxRuntimeComposition {
             ),
             identity: identity,
             tokenSource: auth.accountPinnedIrohBrokerTokenSource(
-                accountID: session.accountID
+                accountID: session.accountID,
+                onForceRefreshStart: { [weak self] in
+                    await self?.markBrokerAuthenticationRefreshStarted(
+                        session: session
+                    )
+                },
+                onForceRefreshCompletion: { [weak self] requiresReauthentication in
+                    await self?.completeBrokerAuthenticationRefresh(
+                        session: session,
+                        requiresReauthentication: requiresReauthentication
+                    )
+                }
             ),
             journal: Self.journal
         )

@@ -83,6 +83,11 @@ public actor MobileIrxRuntimeComposition {
     /// supersedes the task. This is independent of the auth generation because
     /// the coordinator may publish nil while reporting the rejection itself.
     var provisioningOwnerToken = UUID()
+    /// Marks the short window in which a broker force-refresh may synchronously
+    /// clear AuthCoordinator before the broker failure reaches its lifecycle
+    /// handler. The identity observer waits for that handoff instead of
+    /// invalidating the rejected owner's fence first.
+    var pendingBrokerAuthenticationRefreshOwnerToken: UUID?
     var provisioningTask: Task<Void, Never>?
     var provisionInFlight: Task<IrxBrokerService, any Error>?
     var backgroundProvisioningTask: Task<Void, Never>?

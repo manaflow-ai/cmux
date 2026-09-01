@@ -9,7 +9,9 @@ import CmuxIrohTransport
 @MainActor
 extension AuthCoordinator {
     func accountPinnedIrohBrokerTokenSource(
-        accountID: String
+        accountID: String,
+        onForceRefreshStart: (@Sendable () async -> Void)? = nil,
+        onForceRefreshCompletion: (@Sendable (_ requiresReauthentication: Bool) async -> Void)? = nil
     ) -> CmxIrohBrokerTokenSource {
         .accountPinned(
             to: accountID,
@@ -32,13 +34,18 @@ extension AuthCoordinator {
                 guard let self else {
                     throw CmxIrohBrokerTokenRecoveryError.transient
                 }
+                await onForceRefreshStart?()
                 do {
                     _ = try await self.forceRefreshAccessToken()
+                    await onForceRefreshCompletion?(false)
                 } catch AuthError.unauthorized {
+                    await onForceRefreshCompletion?(true)
                     throw CmxIrohBrokerTokenRecoveryError.authenticationRequired
                 } catch is CancellationError {
+                    await onForceRefreshCompletion?(false)
                     throw CancellationError()
                 } catch {
+                    await onForceRefreshCompletion?(false)
                     throw CmxIrohBrokerTokenRecoveryError.transient
                 }
             }

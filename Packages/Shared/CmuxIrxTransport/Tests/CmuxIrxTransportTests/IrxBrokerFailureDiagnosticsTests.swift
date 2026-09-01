@@ -44,4 +44,30 @@ struct IrxBrokerFailureDiagnosticsTests {
         #expect(failure.diagnosticErrorCode == "http_401")
         #expect(failure.journalAttributes["error_code"] == "http_401")
     }
+
+    @Test("an unknown token-shaped broker code falls back to status")
+    func tokenShapedUnknownCodeIsNotPublished() {
+        let failure = IrxBrokerFailure(
+            operation: .discover,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 502,
+                code: "tok_01J9QX5V8P7R4M2N"
+            )
+        )
+
+        #expect(failure.diagnosticErrorCode == "http_502")
+    }
+
+    @Test("known broker codes remain available to diagnostics")
+    func knownBrokerCodeIsPublished() {
+        let failure = IrxBrokerFailure(
+            operation: .mint,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 429,
+                code: "rate_limited:account_budget"
+            )
+        )
+
+        #expect(failure.diagnosticErrorCode == "rate_limited:account_budget")
+    }
 }

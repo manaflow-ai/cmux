@@ -43,13 +43,20 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
             let writer: IrxStreamWriter
             do {
                 writer = try await openedWriter()
-            } catch is MobileHostIrxEventWriterOpenError {
-                // reset()/close() can supersede an open after the QUIC lane
-                // has been created. The creator owns finishing that lane; one
-                // sender may immediately establish the replacement lane.
-                guard !supersededOpen else { throw CancellationError() }
-                supersededOpen = true
-                continue
+            } catch let error as MobileHostIrxEventWriterOpenError {
+                switch error {
+                case .superseded:
+                    // reset() can supersede an open after the QUIC lane has
+                    // been created. The creator owns finishing that lane; one
+                    // sender may immediately establish the replacement lane.
+                    guard !supersededOpen else { throw CancellationError() }
+                    supersededOpen = true
+                    continue
+                case .closed, .writeTimedOut:
+                    // close() is terminal and a deadline is a completed
+                    // failure. Neither condition may reopen this lane.
+                    throw error
+                }
             }
             do {
                 try await sendWithDeadline(framedData, writer: writer)

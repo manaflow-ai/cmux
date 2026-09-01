@@ -83,6 +83,40 @@ extension MobileIrxRuntimeComposition {
         authenticationStatusContinuations[id] = nil
     }
 
+    /// Fences the owner before AuthCoordinator's force-refresh path can publish
+    /// a signed-out identity. The marker is cleared by the matching completion
+    /// callback or by a newer provisioning owner.
+    func markBrokerAuthenticationRefreshStarted(
+        session: AuthenticatedSessionSnapshot
+    ) {
+        guard provisionedAccountID == session.accountID,
+              provisionedSessionGeneration == session.generation else { return }
+        pendingBrokerAuthenticationRefreshOwnerToken = provisioningOwnerToken
+    }
+
+    /// Completes the force-refresh handoff. A definitive rejection is marked
+    /// before the identity observer can tear down the captured owner; transient
+    /// and successful refreshes release the marker and let a signed-out
+    /// transition finish its ordinary teardown.
+    func completeBrokerAuthenticationRefresh(
+        session: AuthenticatedSessionSnapshot,
+        requiresReauthentication: Bool
+    ) async {
+        guard pendingBrokerAuthenticationRefreshOwnerToken == provisioningOwnerToken,
+              provisionedAccountID == session.accountID,
+              provisionedSessionGeneration == session.generation else { return }
+        pendingBrokerAuthenticationRefreshOwnerToken = nil
+        if requiresReauthentication {
+            reauthenticationRequired = true
+            publishAuthenticationState()
+            return
+        }
+        guard !reauthenticationRequired,
+              let auth,
+              await auth.authenticatedSessionIdentity == nil else { return }
+        await resetForSignOut()
+    }
+
     func publishAuthenticationState() {
         let state = reauthenticationRequired
             ? CmxIrxAuthenticationState.reauthenticationRequired
@@ -99,6 +133,12 @@ extension MobileIrxRuntimeComposition {
         _ identity: AuthenticatedSessionIdentity?
     ) async {
         guard let identity else {
+            if pendingBrokerAuthenticationRefreshOwnerToken == provisioningOwnerToken {
+                // A force-refresh rejection clears AuthCoordinator before its
+                // broker failure callback can run. Leave the captured owner
+                // intact until that callback records the definitive state.
+                return
+            }
             if reauthenticationRequired
                 || broker != nil
                 || provisionedAccountID != nil
@@ -425,6 +465,7 @@ extension MobileIrxRuntimeComposition {
         endpointSupervisor = nil
         broker = nil
         identity = nil
+        pendingBrokerAuthenticationRefreshOwnerToken = nil
         provisionedAccountID = retainedAccountID
         provisionedSessionGeneration = retainedGeneration
         reauthenticationRequired = preserveReauthentication
