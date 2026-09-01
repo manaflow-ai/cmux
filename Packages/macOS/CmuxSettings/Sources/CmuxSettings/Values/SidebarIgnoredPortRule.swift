@@ -78,6 +78,8 @@ public struct SidebarIgnoredPortRule: Sendable, Equatable {
     }
 }
 
+// SettingCodable requires type-level codec witnesses; these static members are
+// protocol entry points, not a namespace or shared runtime state.
 extension SidebarIgnoredPortRule: SettingCodable {
     /// Decodes a persisted exact port or inclusive range.
     public static func decodeFromUserDefaults(_ raw: Any?) -> Self? {

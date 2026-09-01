@@ -2964,6 +2964,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var remoteHeartbeatCount: Int = 0
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
+    // Workspace remains an ObservableObject; this presentation projection uses
+    // its existing publisher until the planned Workspace observation migration.
     @Published private(set) var sidebarVisibleListeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     var remoteSessionController: RemoteSessionCoordinator?
