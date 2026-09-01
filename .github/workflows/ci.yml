@@ -1707,6 +1707,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWorkspaceEnvironment
             CMUXAgentLaunch
             CmuxAgentJournal
           )
