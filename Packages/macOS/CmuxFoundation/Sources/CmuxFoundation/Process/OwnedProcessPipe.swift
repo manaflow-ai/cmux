@@ -28,18 +28,30 @@ final class OwnedProcessPipe: @unchecked Sendable {
     }
 
     func closeAll() {
-        let endpoints = state.withLock { state -> (Bool, Bool) in
-            let endpoints = (state.isReadOpen, state.isWriteOpen)
+        closeRead()
+        closeWrite()
+    }
+
+    /// Closes only the parent read endpoint. A process that uses this pipe as
+    /// stdin keeps the child-side duplicate alive, while the parent writer
+    /// remains available until the input producer reaches EOF.
+    func closeRead() {
+        let shouldClose = state.withLock { state -> Bool in
+            guard state.isReadOpen else { return false }
             state.isReadOpen = false
+            return true
+        }
+        if shouldClose { try? pipe.fileHandleForReading.close() }
+    }
+
+    /// Closes only the parent write endpoint.
+    func closeWrite() {
+        let shouldClose = state.withLock { state -> Bool in
+            guard state.isWriteOpen else { return false }
             state.isWriteOpen = false
-            return endpoints
+            return true
         }
-        if endpoints.0 {
-            try? pipe.fileHandleForReading.close()
-        }
-        if endpoints.1 {
-            try? pipe.fileHandleForWriting.close()
-        }
+        if shouldClose { try? pipe.fileHandleForWriting.close() }
     }
 
     private static func markCloseOnExec(_ descriptor: Int32) throws {

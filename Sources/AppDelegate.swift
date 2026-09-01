@@ -1427,6 +1427,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
         }
         CmuxTuiSurfaceProviderRegistry.shared.start(catalog: .shared)
+        // Resolve the bundled client's pipe-IO capability during launch. The
+        // first terminal creation can then choose the manual surface without
+        // synchronously probing a binary on the main actor.
+        TuiTerminalAttachBridge.shared.warmManualIOCapabilityProbe()
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(

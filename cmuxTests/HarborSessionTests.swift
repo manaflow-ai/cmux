@@ -79,6 +79,7 @@ struct HarborProbeOutputParserTests {
         #expect(sessions.count == 1)
         #expect(sessions[0].windows.count == 1)
         #expect(sessions[0].windows[0].terminals[0].shortID == "%9")
+        #expect(sessions[0].windows[0].terminals[0].title == "claude")
         #expect(sessions[0].windows[0].terminals[0].isActive)
         #expect(sessions[0].windows[0].terminals[0].leaf == .tmuxPane(
             host: .local, sessionName: "dev", windowID: 4, paneID: 9
@@ -89,6 +90,7 @@ struct HarborProbeOutputParserTests {
         let paneJSON = #"{"result":{"panes":[{"pane_id":"w1:p2","workspace_id":"w1","terminal_title":"codex","cwd":"/tmp/demo","agent":"codex","agent_status":"blocked","message":"needs input","priority":1}]}}"#
         let workspaceJSON = #"{"result":{"workspaces":[{"workspace_id":"w1","label":"Review","number":2}]}}"#
         let output = """
+        C\therdr\tcontrol\t1
         S\therdr\tdefault\trunning\t
         J\therdr\tdefault\tpane-list\t\(paneJSON)
         J\therdr\tdefault\tworkspace-list\t\(workspaceJSON)
@@ -103,10 +105,33 @@ struct HarborProbeOutputParserTests {
         #expect(terminal.cwd == "/tmp/demo")
     }
 
+    @Test func decodesHerdrJSONCatalogWithoutSplittingPaths() {
+        let catalog = #"{"sessions":[{"default":false,"name":"review","running":true,"session_dir":"/tmp/with spaces/review","socket_path":"/tmp/with spaces/review/herdr.sock"},{"default":true,"name":"default","running":false,"session_dir":"/tmp/default","socket_path":"/tmp/default/herdr.sock"}]}"#
+        let output = """
+        C\therdr\tcontrol\t1
+        J\therdr\t__catalog__\tsession-list\t\(catalog)
+        """
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: output, host: .local)
+        #expect(sessions.map(\.name) == ["review", "default"])
+        #expect(sessions[0].state == .running)
+        #expect(sessions[0].detail == "/tmp/with spaces/review/herdr.sock")
+        #expect(sessions[1].state == .stopped)
+    }
+
+    @Test func herdrCapabilityParserRequiresExactCapabilityRecord() {
+        let output = """
+        C\therdr\tcontrol\t1
+        C\therdr\tother\t1
+        """
+        #expect(HarborProbeOutputParser.capability("control", for: .herdr, fromProbeOutput: output) == true)
+        #expect(HarborProbeOutputParser.capability("missing", for: .herdr, fromProbeOutput: output) == nil)
+    }
+
     @Test func parsesHerdrAgentNameFromAgentList() {
         let paneJSON = #"{"result":{"panes":[{"pane_id":"w1:p2","workspace_id":"w1","terminal_title":"codex","agent_status":"working"}]}}"#
         let agentJSON = #"{"result":{"agents":[{"pane_id":"w1:p2","agent":"codex","name":"reviewer","agent_status":"working"}]}}"#
         let output = """
+        C\therdr\tcontrol\t1
         S\therdr\tdefault\trunning\t
         J\therdr\tdefault\tpane-list\t\(paneJSON)
         J\therdr\tdefault\tagent-list\t\(agentJSON)
@@ -122,6 +147,7 @@ struct HarborProbeOutputParserTests {
         let paneJSON = #"{"result":{"panes":[{"pane_id":"w1:p2","workspace_id":"w1","terminal_id":"term_abc","terminal_title":"codex"}]}}"#
         let workspaceJSON = #"{"result":{"workspaces":[{"workspace_id":"w1","label":"Review","number":1}]}}"#
         let output = """
+        C\therdr\tcontrol\t1
         S\therdr\tdefault\trunning\t
         J\therdr\tdefault\tpane-list\t\(paneJSON)
         J\therdr\tdefault\tworkspace-list\t\(workspaceJSON)
@@ -139,6 +165,7 @@ struct HarborProbeOutputParserTests {
     @Test func keepsHerdrPaneWhenWorkspaceWasNotListed() {
         let paneJSON = #"{"result":{"panes":[{"pane_id":"w9:p1","workspace_id":"w9","terminal_id":"term_orphan"}]}}"#
         let output = """
+        C\therdr\tcontrol\t1
         S\therdr\tdefault\trunning\t
         J\therdr\tdefault\tpane-list\t\(paneJSON)
         """
@@ -167,6 +194,73 @@ struct HarborProbeOutputParserTests {
         #expect(sessions[0].windows.count == 1)
         #expect(sessions[0].windows[0].terminals.map(\.shortID) == ["term_live"])
     }
+
+    @Test func hidesDirectLeavesWhenProbeReportsUnsupportedControlProtocol() {
+        let paneJSON = #"{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1","terminal_id":"term_old","terminal_title":"shell"}]}}"#
+        let workspaceJSON = #"{"result":{"workspaces":[{"workspace_id":"w1","label":"Work"}]}}"#
+        let output = """
+        C\therdr\tcontrol\t0
+        S\therdr\tdefault\trunning\t
+        J\therdr\tdefault\tpane-list\t\(paneJSON)
+        J\therdr\tdefault\tworkspace-list\t\(workspaceJSON)
+        """
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: output, host: .local)
+        #expect(sessions[0].windows[0].terminals[0].leaf == nil)
+    }
+
+    @Test func hidesDirectLeavesWhenCapabilityMetadataIsMissing() {
+        let paneJSON = #"{"result":{"panes":[{"pane_id":"w1:p1","workspace_id":"w1","terminal_id":"term_unknown","terminal_title":"shell"}]}}"#
+        let workspaceJSON = #"{"result":{"workspaces":[{"workspace_id":"w1","label":"Work"}]}}"#
+        let output = """
+        S\therdr\tdefault\trunning\t
+        J\therdr\tdefault\tpane-list\t\(paneJSON)
+        J\therdr\tdefault\tworkspace-list\t\(workspaceJSON)
+        """
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: output, host: .local)
+        #expect(sessions[0].windows[0].terminals[0].leaf == nil)
+    }
+
+    @Test func hidesTuiLeavesWhenProbeReportsPipeIOUnsupported() {
+        let terminalJSON = #"[{"id":"term_old","title":"shell","tab_id":"tab_1","running":true}]"#
+        let workspaceJSON = #"[{"id":"ws_1","name":"Work","index":0}]"#
+        let tabJSON = #"[{"id":"tab_1","tab_id":"tab_1","workspace_id":"ws_1","focused":true}]"#
+        let output = """
+        C\tcmux-tui\tpipe-io\t0
+        S\tcmux-tui\tdev\trunning\t/tmp/dev.sock
+        J\tcmux-tui\tdev\tworkspace-list\t\(workspaceJSON)
+        J\tcmux-tui\tdev\ttab-list\t\(tabJSON)
+        J\tcmux-tui\tdev\tterminal-list\t\(terminalJSON)
+        """
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: output, host: .local)
+        #expect(sessions[0].windows[0].terminals[0].leaf == nil)
+    }
+
+    @Test func parsesZellijPaneTopologyAndDirectLeaf() {
+        let paneJSON = #"[{"id":7,"is_plugin":false,"is_focused":true,"is_suppressed":false,"title":"shell","exited":false,"tab_id":2,"tab_position":1,"tab_name":"Work","pane_command":"zsh","pane_cwd":"/tmp","is_selectable":true}]"#
+        let output = """
+        C\tzellij\tsubscribe\t1
+        S\tzellij\tdev\tdetached\t
+        J\tzellij\tdev\tpane-list\t\(paneJSON)
+        """
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: output, host: .local)
+        #expect(sessions.count == 1)
+        #expect(sessions[0].windows.count == 1)
+        #expect(sessions[0].windows[0].label == "2: Work")
+        #expect(sessions[0].windows[0].terminals[0].leaf == .zellijPane(
+            host: .local, sessionName: "dev", paneID: "terminal_7"
+        ))
+        #expect(sessions[0].windows[0].terminals[0].cwd == "/tmp")
+    }
+
+    @Test func hidesZellijLeavesWithoutSubscribeCapability() {
+        let paneJSON = #"[{"id":7,"is_plugin":false,"is_focused":false,"exited":false,"tab_id":0,"tab_position":0,"tab_name":"Main","title":"shell"}]"#
+        let output = """
+        S\tzellij\tdev\tdetached\t
+        J\tzellij\tdev\tpane-list\t\(paneJSON)
+        """
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: output, host: .local)
+        #expect(sessions[0].windows[0].terminals[0].leaf == nil)
+    }
 }
 
 @Suite("Harbor attach command construction")
@@ -186,6 +280,21 @@ struct HarborAttachCommandTests {
         #expect(HarborAttachCommand.shellCommand(for: session(.zmx)) == "exec zmx attach 'dev'")
         #expect(HarborAttachCommand.shellCommand(for: session(.herdr)) == "exec herdr session attach 'dev'")
         #expect(HarborAttachCommand.shellCommand(for: session(.cmuxTui)) == "exec cmux-tui attach --session 'dev'")
+    }
+
+    @Test("cmux-tui session attach preserves the discovered socket")
+    func cmuxTuiSessionUsesExactSocket() {
+        let value = HarborSession(
+            source: .local,
+            tool: .cmuxTui,
+            name: "dev",
+            state: .running,
+            detail: "/tmp/cmux-tui-501/dev.sock"
+        )
+        #expect(
+            HarborAttachCommand.shellCommand(for: value)
+                == "exec cmux-tui --socket '/tmp/cmux-tui-501/dev.sock' attach --session 'dev'"
+        )
     }
 
     @Test func screenUsesJoinWhenAttachedElsewhere() {

@@ -62,6 +62,15 @@ extension TerminalSurface {
         guard let surface = liveSurfaceForGhosttyAccess(reason: refreshReason) else {
             return
         }
-        ghostty_surface_refresh(surface)
+        // Manual surfaces have one native owner, the remote-output lane. A
+        // direct refresh here could overtake a queued output or geometry
+        // operation and render a partially applied frame. Process-owned
+        // surfaces retain the synchronous refresh behavior needed by the
+        // existing AppKit lifecycle.
+        if ioMode.usesManualIO {
+            _ = enqueueManualRefresh(to: surface)
+        } else {
+            ghostty_surface_refresh(surface)
+        }
     }
 }

@@ -190,6 +190,7 @@ extension TerminalSurface {
 
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        resetManualGeometryStateForRuntimeTransition()
         surface = nil
         retiredRemoteOutputLane.drainSynchronouslyForTesting()
         ghostty_surface_free(surfaceToFree)

@@ -119,6 +119,41 @@ struct TuiTerminalAttachSpikeTests {
     // MARK: - New-terminal provisioning gate
 
     @Test
+    func manualAttachmentStatesRequireCurrentPipeIOCapability() {
+        #expect(TuiTerminalAttachPolicy.manualIOAttachment(
+            requestedReattachTerminalID: "term_saved",
+            provisionedTerminalID: nil,
+            provisioningPending: false,
+            manualIOAvailable: true
+        ) == .ready(terminalID: "term_saved"))
+        #expect(TuiTerminalAttachPolicy.manualIOAttachment(
+            requestedReattachTerminalID: "term_saved",
+            provisionedTerminalID: nil,
+            provisioningPending: false,
+            manualIOAvailable: false
+        ) == .unavailable)
+        #expect(TuiTerminalAttachPolicy.manualIOAttachment(
+            requestedReattachTerminalID: nil,
+            provisionedTerminalID: "term_new",
+            provisioningPending: false,
+            manualIOAvailable: true
+        ) == .ready(terminalID: "term_new"))
+        #expect(TuiTerminalAttachPolicy.manualIOAttachment(
+            requestedReattachTerminalID: nil,
+            provisionedTerminalID: nil,
+            provisioningPending: true,
+            manualIOAvailable: true
+        ) == .pending)
+        // Empty identities are invalid input, never a pending marker.
+        #expect(TuiTerminalAttachPolicy.manualIOAttachment(
+            requestedReattachTerminalID: "   ",
+            provisionedTerminalID: "",
+            provisioningPending: false,
+            manualIOAvailable: true
+        ) == .unavailable)
+    }
+
+    @Test
     func provisionsOnlyPlainLocalTerminals() {
         #expect(TuiTerminalAttachPolicy.shouldProvisionNewTerminal(
             flagEnabled: true,
@@ -271,6 +306,75 @@ struct TuiTerminalAttachSpikeTests {
             "--headless",
             "--term", "xterm-ghostty",
         ])
+        #expect(TuiTerminalAttachPolicy.daemonStartArguments(
+            sessionName: "cmux-tuispk",
+            socketPath: "/tmp/cmux-tui-501/cmux-tuispk.sock"
+        ) == [
+            "server", "start",
+            "--session", "cmux-tuispk",
+            "--headless",
+            "--term", "xterm-ghostty",
+            "--socket", "/tmp/cmux-tui-501/cmux-tuispk.sock",
+        ])
+    }
+
+    @Test
+    func daemonEnsureUsesTheCanonicalExplicitSocketTransaction() {
+        #expect(TuiTerminalAttachPolicy.daemonEnsureArguments(
+            sessionName: "cmux-tuispk",
+            socketPath: "/tmp/cmux-tui-501/cmux-tuispk.sock"
+        ) == [
+            "--json",
+            "--session", "cmux-tuispk",
+            "--socket", "/tmp/cmux-tui-501/cmux-tuispk.sock",
+            "server", "ensure",
+        ])
+    }
+
+    @Test
+    func daemonEnsureRejectsMalformedOrMismatchedSuccess() {
+        let valid = #"{"status":"started","session":"cmux-tuispk","socket":"/tmp/cmux.sock","pid":42,"generation":"g1"}"#
+        #expect(TuiTerminalAttachPolicy.classifyDaemonEnsureResult(
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil,
+            stdout: valid,
+            stderr: nil,
+            expectedSession: "cmux-tuispk",
+            expectedSocket: "/tmp/cmux.sock"
+        ) == .ready)
+        #expect(TuiTerminalAttachPolicy.classifyDaemonEnsureResult(
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil,
+            stdout: valid.replacingOccurrences(of: "cmux.sock", with: "other.sock"),
+            stderr: nil,
+            expectedSession: "cmux-tuispk",
+            expectedSocket: "/tmp/cmux.sock"
+        ) == .failed)
+        #expect(TuiTerminalAttachPolicy.classifyDaemonEnsureResult(
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil,
+            stdout: "server help",
+            stderr: nil,
+            expectedSession: "cmux-tuispk",
+            expectedSocket: "/tmp/cmux.sock"
+        ) == .failed)
+    }
+
+    @Test
+    func daemonEnsureRecognizesAnOlderClientExplicitly() {
+        let output = #"{"code":"usage.invalid","message":"unknown server action \"ensure\".","retryable":false}"#
+        #expect(TuiTerminalAttachPolicy.classifyDaemonEnsureResult(
+            exitStatus: 2,
+            timedOut: false,
+            executionError: nil,
+            stdout: output,
+            stderr: nil,
+            expectedSession: "cmux-tuispk",
+            expectedSocket: "/tmp/cmux.sock"
+        ) == .unsupported)
     }
 
     @Test
@@ -281,7 +385,37 @@ struct TuiTerminalAttachSpikeTests {
         // user config), so the value must also be non-empty.
         let env = TuiTerminalAttachBridge.bridgeEnvironment
         #expect(env["CMUX_TUI_CONFIG"] == TuiTerminalAttachBridge.bridgeConfigPath)
+        #expect(env["CMUX_TUI_TERM"] == TuiTerminalAttachPolicy.childShellTerm)
         #expect(TuiTerminalAttachBridge.bridgeConfigPath.isEmpty == false)
+    }
+
+    @Test
+    func bridgeSubprocessEnvironmentRejectsAmbientSessionCapabilities() {
+        let env = TuiTerminalAttachBridge.sanitizedBridgeEnvironment(
+            base: [
+                "PATH": "/usr/bin",
+                "CMUX_TUI_SOCKET": "/tmp/stale.sock",
+                "CMUX_MUX_SOCKET": "/tmp/legacy.sock",
+                "CMUX_TUI_TERMINAL_ID": "term-stale",
+                "CMUX_TUI_SESSION_ID": "session-stale",
+                "CMUX_TUI_HOOK": "1",
+                "CMUX_SIDEBAR": "1",
+            ],
+            configPath: "/tmp/cmux-bridge.json"
+        )
+        #expect(env["PATH"] == "/usr/bin")
+        #expect(env["CMUX_TUI_CONFIG"] == "/tmp/cmux-bridge.json")
+        #expect(env["CMUX_TUI_TERM"] == TuiTerminalAttachPolicy.childShellTerm)
+        for key in [
+            "CMUX_TUI_SOCKET",
+            "CMUX_MUX_SOCKET",
+            "CMUX_TUI_TERMINAL_ID",
+            "CMUX_TUI_SESSION_ID",
+            "CMUX_TUI_HOOK",
+            "CMUX_SIDEBAR",
+        ] {
+            #expect(env[key] == nil)
+        }
     }
 
     @Test

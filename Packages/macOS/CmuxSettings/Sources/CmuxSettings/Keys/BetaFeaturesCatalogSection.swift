@@ -128,13 +128,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.beta.tuiBackend.manualIO"
     )
 
-    /// Path to the cmux-tui binary used by the `tuiTerminalBackend` spike.
-    /// Dev-only setting with a spike-only default pointing at a locally
-    /// installed npm binary; there is no bundled artifact yet (that is build
-    /// item 1 in the migration plan).
+    /// Optional override for the cmux-tui binary used by the
+    /// `tuiTerminalBackend` spike. An empty value selects the executable
+    /// bundled in the app at `Contents/Resources/bin/cmux-tui`; development
+    /// builds can opt into an explicit `CMUX_TUI_CLIENT` environment path.
+    /// There is no user-specific default path because that would bind a
+    /// release to one developer's machine and can select a client without the
+    /// required `--pipe-io` capability.
     public let tuiTerminalBackendBinaryPath = DefaultsKey<String>(
         id: "terminal.beta.tuiBackend.binaryPath",
-        defaultValue: "/Users/lawrence/.local/bin/cmux-tui-npm",
+        defaultValue: "",
         userDefaultsKey: "terminal.beta.tuiBackend.binaryPath"
     )
 

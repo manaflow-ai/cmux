@@ -28,12 +28,18 @@ final class CommandExecution: @unchecked Sendable {
     let cancellationSignal: PipeCancellationSignal
     let stdoutReadDescriptor: OwnedFileDescriptor
     let stderrReadDescriptor: OwnedFileDescriptor
+    private let standardInputData: Data?
+    private let standardInputPipe: OwnedProcessPipe?
+    private let standardInputWriteDescriptor: OwnedFileDescriptor?
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     init(
         executableURL: URL,
         arguments: [String],
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        environmentOverrides: [String: String]? = nil,
+        standardInputData: Data? = nil
     ) throws {
         let stdoutPipe = try OwnedProcessPipe()
         let stderrPipe: OwnedProcessPipe
@@ -75,11 +81,46 @@ final class CommandExecution: @unchecked Sendable {
             throw error
         }
 
+        let standardInputPipe: OwnedProcessPipe?
+        let standardInputWriteDescriptor: OwnedFileDescriptor?
+        if standardInputData != nil {
+            let inputPipe: OwnedProcessPipe
+            do {
+                inputPipe = try OwnedProcessPipe()
+            } catch {
+                stdoutReadDescriptor.close()
+                stdoutPipe.closeAll()
+                stderrPipe.closeAll()
+                cancellationSignal.closeAll()
+                throw error
+            }
+            do {
+                standardInputWriteDescriptor = try OwnedFileDescriptor(
+                    duplicating: inputPipe.pipe.fileHandleForWriting.fileDescriptor
+                )
+            } catch {
+                inputPipe.closeAll()
+                stdoutReadDescriptor.close()
+                stderrReadDescriptor.close()
+                stdoutPipe.closeAll()
+                stderrPipe.closeAll()
+                cancellationSignal.closeAll()
+                throw error
+            }
+            standardInputPipe = inputPipe
+        } else {
+            standardInputPipe = nil
+            standardInputWriteDescriptor = nil
+        }
+
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
         process.currentDirectoryURL = currentDirectoryURL
-        process.standardInput = FileHandle.nullDevice
+        process.environment = baseEnvironment.merging(environmentOverrides ?? [:]) {
+            _, override in override
+        }
+        process.standardInput = standardInputPipe?.pipe.fileHandleForReading ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe.pipe
         process.standardError = stderrPipe.pipe
         self.process = process
@@ -88,6 +129,9 @@ final class CommandExecution: @unchecked Sendable {
         self.cancellationSignal = cancellationSignal
         self.stdoutReadDescriptor = stdoutReadDescriptor
         self.stderrReadDescriptor = stderrReadDescriptor
+        self.standardInputData = standardInputData
+        self.standardInputPipe = standardInputPipe
+        self.standardInputWriteDescriptor = standardInputWriteDescriptor
     }
 
     deinit {
@@ -97,6 +141,8 @@ final class CommandExecution: @unchecked Sendable {
         cancellationSignal.closeAll()
         stdoutPipe.closeAll()
         stderrPipe.closeAll()
+        standardInputWriteDescriptor?.close()
+        standardInputPipe?.closeAll()
     }
 
     func run(timeout: TimeInterval?) async -> CommandResult {
@@ -130,6 +176,8 @@ final class CommandExecution: @unchecked Sendable {
         } catch {
             stdoutPipe.closeAll()
             stderrPipe.closeAll()
+            standardInputWriteDescriptor?.close()
+            standardInputPipe?.closeAll()
             cancellationSignal.cancelReaders()
             state.withLock { state in
                 if state.endReason == nil {
@@ -147,6 +195,15 @@ final class CommandExecution: @unchecked Sendable {
         // Foundation handles, so close them before waiting for callbacks.
         stdoutPipe.closeAll()
         stderrPipe.closeAll()
+        // The writer owns a duplicated descriptor. Close the original parent
+        // write endpoint now, or the child will never observe EOF after the
+        // bounded writer finishes.
+        standardInputPipe?.closeWrite()
+        if let standardInputData {
+            startInputWriter(standardInputData)
+        } else {
+            standardInputPipe?.closeWrite()
+        }
 
         let deadlineTimer = timeout.map { timeout in
             CommandTimer(deadline: .now() + max(0, timeout), queue: Self.timerQueue) {
@@ -169,6 +226,25 @@ final class CommandExecution: @unchecked Sendable {
             terminateRunningProcess()
         }
         completeIfReady()
+    }
+
+    /// Writes finite standard input from a utility queue. The descriptor is
+    /// non-blocking and `poll` is interrupted by the same cancellation signal
+    /// used by the output readers, so a child that stops reading cannot block
+    /// the caller or keep timeout/cancellation teardown alive.
+    private func startInputWriter(_ data: Data) {
+        guard let descriptor = standardInputWriteDescriptor?.rawValue else { return }
+        let cancellationDescriptor = cancellationSignal.readDescriptor
+        let writer = standardInputWriteDescriptor
+        DispatchQueue.global(qos: .utility).async { [self] in
+            Self.writeStandardInput(
+                data,
+                fileDescriptor: descriptor,
+                cancellationDescriptor: cancellationDescriptor
+            )
+            writer?.close()
+            completeIfReady()
+        }
     }
 
     private func startCaptureReaders() {
@@ -291,6 +367,8 @@ final class CommandExecution: @unchecked Sendable {
         cancellationSignal.closeAll()
         stdoutPipe.closeAll()
         stderrPipe.closeAll()
+        standardInputWriteDescriptor?.close()
+        standardInputPipe?.closeAll()
         process.terminationHandler = nil
         completion.continuation.resume(returning: completion.result)
     }
@@ -304,6 +382,7 @@ final class CommandExecution: @unchecked Sendable {
         stderrReadDescriptor.close()
         process.standardOutput = nil
         process.standardError = nil
+        process.standardInput = nil
     }
 
     private static func result(
@@ -401,6 +480,59 @@ final class CommandExecution: @unchecked Sendable {
                 return data
             } else if errno != EINTR {
                 return data
+            }
+        }
+    }
+
+    private static func writeStandardInput(
+        _ data: Data,
+        fileDescriptor: Int32,
+        cancellationDescriptor: Int32
+    ) {
+        guard !data.isEmpty else { return }
+        let flags = Darwin.fcntl(fileDescriptor, F_GETFL)
+        if flags >= 0 { _ = Darwin.fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK) }
+        _ = Darwin.fcntl(fileDescriptor, F_SETNOSIGPIPE, 1)
+
+        var descriptors = [
+            pollfd(fd: fileDescriptor, events: Int16(POLLOUT | POLLERR | POLLHUP), revents: 0),
+            pollfd(
+                fd: cancellationDescriptor,
+                events: Int16(POLLIN | POLLERR | POLLHUP),
+                revents: 0
+            ),
+        ]
+        let cancellationEvents = Int16(POLLIN | POLLERR | POLLHUP | POLLNVAL)
+        let outputEvents = Int16(POLLOUT | POLLERR | POLLHUP | POLLNVAL)
+        let chunkSize = FileHandle.processPipeReadChunkSize
+        var offset = 0
+
+        while offset < data.count {
+            let pollResult = Darwin.poll(&descriptors, nfds_t(descriptors.count), -1)
+            if pollResult < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+            if descriptors[1].revents & cancellationEvents != 0 { return }
+            guard descriptors[0].revents & outputEvents != 0 else { continue }
+
+            let written = data.withUnsafeBytes { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+                let count = min(chunkSize, rawBuffer.count - offset)
+                return Darwin.write(
+                    fileDescriptor,
+                    baseAddress.advanced(by: offset),
+                    count
+                )
+            }
+            if written > 0 {
+                offset += written
+            } else if written < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK { continue }
+                return
+            } else {
+                return
             }
         }
     }

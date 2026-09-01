@@ -1,46 +1,51 @@
 import Darwin
 import Foundation
+import Dispatch
 
-/// A bounded process-pipe reader that publishes every byte written before exit.
+/// Delivers process-pipe bytes in order and drains the descriptor after the
+/// child reports termination.
 ///
-/// A process termination callback is not an EOF callback. This reader owns a
-/// duplicated, nonblocking descriptor and keeps its read source alive until
-/// EOF. The descriptor and all byte-accounting state are confined to the
-/// source's serial executor; `AsyncStream` is the only cross-task handoff.
-final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
+/// `Process.terminationHandler` is not an EOF notification. The reader keeps
+/// its descriptor source alive until the pipe reaches EOF, and it keeps the
+/// published-but-not-released bytes within a fixed budget. All mutable state
+/// is confined to the source's serial I/O executor.
+final class ControlModeProcessOutputReader: @unchecked Sendable {
     let stream: AsyncStream<Data>
 
     private let continuation: AsyncStream<Data>.Continuation
     private let queue: DispatchQueue
     private let maxPendingBytes: Int
     private let maxReadChunkBytes: Int
-    private let onOverflow: @MainActor @Sendable () -> Void
+    private let onOverflow: @Sendable () -> Void
     private var descriptor: Int32?
-    private var source: DispatchSourceRead?
+    private var source: (any DispatchSourceRead)?
     private var pendingBytes = 0
     private var closed = false
-    private var processExited = false
     private var overflowReported = false
+    private var processExited = false
 
     /// Creates a reader attached to `handle` before the child is launched.
     ///
-    /// The descriptor is duplicated and the dispatch source is resumed before
-    /// this initializer returns. That makes an immediately failing child
-    /// observable without a synchronous queue hop at the launch boundary.
+    /// The descriptor is duplicated and the dispatch source is fully
+    /// configured before it is resumed. After initialization, all mutable
+    /// lifecycle state is owned by `queue`; this avoids a synchronous queue
+    /// hop while still making a short-lived child observable from its first
+    /// byte. The gateway owns the caller's `FileHandle` and closes it after
+    /// `Process.run()`; this reader owns the duplicate.
     convenience init?(
         readingFrom handle: FileHandle,
         label: String,
-        maxPendingChunks: Int,
-        maxPendingBytes: Int,
+        maxPendingChunks: Int = 4096,
+        maxPendingBytes: Int = 8 * 1024 * 1024,
         maxReadChunkBytes: Int = 64 * 1024,
-        onOverflow: @escaping @MainActor @Sendable () -> Void
+        onOverflow: @escaping @Sendable () -> Void = {}
     ) {
-        let duplicated = Darwin.dup(handle.fileDescriptor)
-        guard duplicated >= 0 else { return nil }
-        let flags = fcntl(duplicated, F_GETFL)
-        if flags >= 0 { _ = fcntl(duplicated, F_SETFL, flags | O_NONBLOCK) }
+        let descriptor = Darwin.dup(handle.fileDescriptor)
+        guard descriptor >= 0 else { return nil }
+        let flags = fcntl(descriptor, F_GETFL)
+        if flags >= 0 { _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) }
         self.init(
-            descriptor: duplicated,
+            descriptor: descriptor,
             label: label,
             maxPendingChunks: maxPendingChunks,
             maxPendingBytes: maxPendingBytes,
@@ -55,18 +60,18 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         maxPendingChunks: Int,
         maxPendingBytes: Int,
         maxReadChunkBytes: Int,
-        onOverflow: @escaping @MainActor @Sendable () -> Void
+        onOverflow: @escaping @Sendable () -> Void
     ) {
         let chunkLimit = max(1, maxReadChunkBytes)
-        let byteLimit = max(1, maxPendingBytes)
-        let streamCapacity = max(1, min(maxPendingChunks, byteLimit / chunkLimit + 1))
+        let bufferLimit = max(1, maxPendingBytes)
+        let streamCapacity = max(1, min(maxPendingChunks, bufferLimit / chunkLimit + 1))
         let (stream, continuation) = AsyncStream<Data>.makeStream(
             bufferingPolicy: .bufferingOldest(streamCapacity)
         )
         self.stream = stream
         self.continuation = continuation
         self.queue = DispatchQueue(label: label, qos: .userInitiated)
-        self.maxPendingBytes = byteLimit
+        self.maxPendingBytes = bufferLimit
         self.maxReadChunkBytes = chunkLimit
         self.onOverflow = onOverflow
         self.descriptor = descriptor
@@ -77,13 +82,14 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
             self?.readAvailableOnQueue()
         }
         source.setCancelHandler {}
-        // The source is fully initialized before it is resumed. No caller can
-        // close this reader until the initializer has returned.
+        // Resume only after every stored property and handler is initialized.
+        // The child is not launched until this initializer returns, so no
+        // caller can close the reader while this setup is in progress.
         source.resume()
     }
 
-    /// Marks process termination. The source remains active until EOF drains
-    /// bytes already present in the kernel pipe.
+    /// Marks process termination. The source stays active until all bytes
+    /// already buffered by the kernel have been published and EOF is observed.
     func processDidExit() {
         queue.async { [weak self] in
             guard let self, !self.closed else { return }
@@ -92,16 +98,16 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         }
     }
 
-    /// Cancels delivery without promising unread bytes.
+    /// Stops delivery without promising unread bytes.
     func close() {
         queue.async { [weak self] in
             self?.finishOnQueue()
         }
     }
 
-    /// Releases one chunk after its consumer has admitted it to the parser or
-    /// diagnostics queue. The pending-byte budget therefore covers both the
-    /// stream buffer and consumer work that has not completed yet.
+    /// Releases one chunk after its consumer has admitted it to the gateway
+    /// queue. This makes the byte budget cover both the stream buffer and the
+    /// consumer's in-flight work.
     func release(_ data: Data) {
         guard !data.isEmpty else { return }
         queue.async { [weak self] in
@@ -117,9 +123,9 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
             case .published, .interrupted:
                 continue
             case .wouldBlock:
-                // EAGAIN is an intermediate state, including when termination
-                // beats the final kernel read. The source remains armed for
-                // the EOF event.
+                // A process-exit callback can run before the kernel has made
+                // the final bytes visible. Keep the read source armed; EOF or
+                // another read event is the authoritative completion signal.
                 return
             case .ended:
                 finishOnQueue()
@@ -163,9 +169,7 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         guard !overflowReported else { return }
         overflowReported = true
         finishOnQueue()
-        Task { @MainActor [onOverflow] in
-            onOverflow()
-        }
+        onOverflow()
     }
 
     private func finishOnQueue() {

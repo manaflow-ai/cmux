@@ -1,6 +1,6 @@
 import Foundation
 
-/// A single decoded event from a `tmux -CC` (control mode) gateway stream.
+/// A single decoded event from a tmux control-mode gateway stream.
 ///
 /// The control protocol multiplexes two things on one stream: command
 /// request/response blocks (`%begin` … `%end`/`%error`) and asynchronous
@@ -40,10 +40,19 @@ public enum TmuxControlModeEvent: Equatable, Sendable {
     /// `%pane-mode-changed %<pane>` (copy-mode entered/left server-side).
     case paneModeChanged(pane: String)
 
+    /// `%subscription-changed <name> ... : <value>` from a
+    /// `refresh-client -B` subscription.
+    case subscriptionChanged(name: String, value: String)
+
     /// `%exit [reason]` — the control client is ending.
     case exit(reason: String?)
     /// `%client-detached <client>` — this client detached but the server lives on.
     case clientDetached
+
+    /// The stream violated the control-mode framing contract. The caller must
+    /// discard this connection because command/result correlation is no longer
+    /// provable.
+    case protocolError(reason: String)
 
     /// Any other `%…` notification we do not model explicitly.
     /// `name` excludes the leading `%`.

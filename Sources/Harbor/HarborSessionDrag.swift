@@ -37,8 +37,14 @@ final class HarborSessionDragRegistry {
         guard let item = item(id: id) else { return nil }
         if case .legacySession(let session) = item { return session }
         switch item {
-        case .sessionTUI(let host, let tool, let name, let state):
-            return HarborSession(source: host, tool: tool, name: name, state: state, detail: "")
+        case .sessionTUI(let host, let tool, let name, let state, let socketPath):
+            return HarborSession(
+                source: host,
+                tool: tool,
+                name: name,
+                state: state,
+                detail: socketPath ?? ""
+            )
         case .leaf, .legacySession:
             return nil
         }

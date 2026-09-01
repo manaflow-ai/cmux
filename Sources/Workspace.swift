@@ -8,6 +8,7 @@ import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import CmuxTerminal
 import CmuxTerminalCore
+import CmuxTmuxControlMode
 import SwiftUI
 import AppKit
 import WebKit
@@ -2961,6 +2962,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// daemon-backed panel, captured into `SessionTerminalPanelSnapshot`
     /// so relaunch reattaches instead of spawning fresh.
     var tuiTerminalIDsByPanelId: [UUID: String] = [:]
+    /// Panel ids whose manual surfaces are waiting for the asynchronous
+    /// cmux-tui daemon transaction. The set coalesces Retry presses and keeps
+    /// a late completion from starting two relays for one panel.
+    private var pendingTuiProvisioningPanelIDs: Set<UUID> = []
+    /// The cancellable transaction for each pending panel. Keeping the task
+    /// with the workspace makes panel discard and workspace teardown explicit
+    /// lifecycle boundaries instead of leaving a detached CLI request running
+    /// until its timeout.
+    private var pendingTuiProvisioningTasks: [UUID: Task<Void, Never>] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
@@ -3393,7 +3403,34 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ) else {
             return nil
         }
-        return TuiTerminalAttachBridge.shared.provisionTerminalForNewSurface()
+        // Provisioning is an asynchronous daemon transaction. Mount an
+        // explicit pending lease as soon as the selected binary exists. The
+        // transaction itself performs the capability handshake before it
+        // creates a daemon terminal. This removes the first-creation race where
+        // an asynchronous help probe made otherwise identical surfaces take
+        // different IO paths.
+        guard TuiTerminalAttachBridge.isManualIOEnabled,
+              FileManager.default.isExecutableFile(atPath: TuiTerminalAttachBridge.configuredBinaryPath) else {
+            return nil
+        }
+        return .pending
+    }
+
+    /// Resolves the renderer binding from one provisioning result and one
+    /// capability snapshot. Callers must switch on this value; a pending
+    /// lease is intentionally distinct from a ready terminal id and from the
+    /// normal PTY path.
+    private static func tuiManualIOAttachment(
+        provisionedTerminal: TuiTerminalAttachBridge.ProvisionedTerminal?,
+        requestedReattachTerminalID: String? = nil,
+        manualIOAvailable: Bool
+    ) -> TuiTerminalAttachPolicy.ManualIOAttachment {
+        TuiTerminalAttachPolicy.manualIOAttachment(
+            requestedReattachTerminalID: requestedReattachTerminalID,
+            provisionedTerminalID: provisionedTerminal?.terminalID,
+            provisioningPending: provisionedTerminal?.isPending == true,
+            manualIOAvailable: manualIOAvailable
+        )
     }
 
     /// Builds the app-owned manual-mirror surface for one daemon terminal.
@@ -3406,7 +3443,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String?,
         portOrdinal: Int,
-        terminalID: String
+        terminalID: String? = nil
     ) -> TerminalPanel {
         let pump = TuiTerminalAttachBridge.shared.makeManualIOPump(terminalID: terminalID)
         let surface = TerminalSurface(
@@ -3425,6 +3462,98 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         TuiManualIOPumpRegistry.shared.register(pump, surfaceID: surface.id)
         pump.start(surface: surface)
         return TerminalPanel(workspaceId: workspaceID, surface: surface)
+    }
+
+    /// Starts the daemon transaction for a manual surface that was mounted
+    /// before a terminal id existed. The panel remains the same surface for
+    /// its whole lifetime, so Ghostty never switches IO ownership underneath
+    /// an active renderer. If the panel closes before the transaction commits,
+    /// the newly-created daemon terminal is closed immediately.
+    private func schedulePendingTuiProvisioning(for panel: TerminalPanel) {
+        let panelID = panel.id
+        guard pendingTuiProvisioningPanelIDs.insert(panelID).inserted,
+              let pump = TuiManualIOPumpRegistry.shared.pump(forSurfaceID: panelID) else {
+            return
+        }
+
+        pump.onActivationRetry = { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            self.cancelPendingTuiProvisioning(for: panel.id)
+            self.schedulePendingTuiProvisioning(for: panel)
+        }
+        let task = TuiTerminalAttachBridge.shared.requestTerminalForNewSurface { [weak self, weak panel, weak pump] provisioned in
+            guard let self else {
+                if let terminalID = provisioned?.terminalID {
+                    TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
+                        terminalID: terminalID
+                    )
+                }
+                return
+            }
+            self.pendingTuiProvisioningPanelIDs.remove(panelID)
+            self.pendingTuiProvisioningTasks.removeValue(forKey: panelID)
+            guard let panel,
+                  let pump,
+                  let current = self.panels[panelID] as? TerminalPanel,
+                  current === panel else {
+                if let terminalID = provisioned?.terminalID {
+                    TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
+                        terminalID: terminalID
+                    )
+                }
+                return
+            }
+            guard let provisioned else {
+                pump.failActivation(reason: "cmux-tui could not provision a terminal")
+                return
+            }
+            guard let terminalID = provisioned.terminalID else {
+                pump.failActivation(reason: "cmux-tui returned an invalid terminal identity")
+                return
+            }
+            self.tuiTerminalIDsByPanelId[panelID] = terminalID
+            pump.activate(terminalID: terminalID)
+            self.objectWillChange.send()
+        }
+        pendingTuiProvisioningTasks[panelID] = task
+    }
+
+    /// Cancels a pending daemon transaction before its panel leaves this
+    /// workspace. The bridge task owns rollback of a terminal that completed
+    /// concurrently, so this method only cancels and removes local ownership.
+    func cancelPendingTuiProvisioning(for panelID: UUID) {
+        pendingTuiProvisioningPanelIDs.remove(panelID)
+        pendingTuiProvisioningTasks.removeValue(forKey: panelID)?.cancel()
+    }
+
+    /// Builds a manual surface for a foreign session owner. The source is
+    /// started only after Bonsplit accepts the panel, so a failed layout
+    /// mutation cannot leave a live controller with nowhere to render.
+    private static func makeHarborManualTerminalPanel(
+        workspaceID: UUID,
+        context: ghostty_surface_context_e,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        workingDirectory: String?,
+        portOrdinal: Int,
+        source: any TerminalSessionSource,
+        title: String,
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
+    ) -> (panel: TerminalPanel, controller: HarborManualSessionController) {
+        let controller = HarborManualSessionController(source: source)
+        let surface = TerminalSurface(
+            tabId: workspaceID,
+            context: context,
+            configTemplate: configTemplate,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            ioMode: .manualMirror,
+            manualInputHandler: controller.makeManualInputHandler(),
+            manualInputKeyNameResolver: keyNameResolver
+        )
+        let panel = TerminalPanel(workspaceId: workspaceID, surface: surface)
+        panel.updateTitle(title)
+        panel.installManualSessionController(controller)
+        return (panel, controller)
     }
 
     nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
@@ -3988,18 +4117,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 remotePTYSessionID: nil,
                 isRemoteWorkspace: false
             )
-            let initialTuiManualIOTerminalID = TuiTerminalAttachBridge.shared.isManualIOAvailable()
-                ? initialTuiProvisionedTerminal?.terminalID
-                : nil
+            let initialTuiManualIOAttachment = Self.tuiManualIOAttachment(
+                provisionedTerminal: initialTuiProvisionedTerminal,
+                manualIOAvailable: TuiTerminalAttachBridge.shared.isManualIOAvailable()
+            )
             let terminalPanel: TerminalPanel
-            if let initialTuiManualIOTerminalID {
+            if initialTuiManualIOAttachment.usesManualSurface {
                 terminalPanel = Self.makeTuiManualIOTerminalPanel(
                     workspaceID: self.id,
                     context: GHOSTTY_SURFACE_CONTEXT_TAB,
                     configTemplate: resolvedConfigTemplate,
                     workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
                     portOrdinal: portOrdinal,
-                    terminalID: initialTuiManualIOTerminalID
+                    terminalID: initialTuiManualIOAttachment.terminalID
                 )
             } else {
                 terminalPanel = TerminalPanel(
@@ -4028,8 +4158,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
             panels[terminalPanel.id] = terminalPanel
             panelTitles[terminalPanel.id] = terminalPanel.displayTitle
-            if let initialTuiProvisionedTerminal {
-                tuiTerminalIDsByPanelId[terminalPanel.id] = initialTuiProvisionedTerminal.terminalID
+            if let terminalID = initialTuiProvisionedTerminal?.terminalID {
+                tuiTerminalIDsByPanelId[terminalPanel.id] = terminalID
             }
 
             // Create initial tab in bonsplit and store the mapping
@@ -4062,12 +4192,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 panels.removeValue(forKey: terminalPanel.id)
                 panelTitles.removeValue(forKey: terminalPanel.id)
                 tuiTerminalIDsByPanelId.removeValue(forKey: terminalPanel.id)
-                if initialTuiManualIOTerminalID != nil {
+                if initialTuiManualIOAttachment.usesManualSurface {
+                    cancelPendingTuiProvisioning(for: terminalPanel.id)
                     TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: terminalPanel.id)
                 }
-                if let initialTuiProvisionedTerminal {
+                if let terminalID = initialTuiProvisionedTerminal?.terminalID {
                     TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
-                        terminalID: initialTuiProvisionedTerminal.terminalID
+                        terminalID: terminalID
                     )
                 }
                 terminalPanel.surface.teardownSurface()
@@ -4190,6 +4321,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
     deinit {
+        for task in pendingTuiProvisioningTasks.values {
+            task.cancel()
+        }
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -4623,6 +4757,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             terminalPanel.showTextBoxInputWhenAvailable()
         }
         configureTerminalPanel(terminalPanel)
+        // A pending manual pump is registered by the panel factory before
+        // this configuration hook. Start its asynchronous daemon transaction
+        // from this shared entrypoint so every creation path gets identical
+        // ownership and cleanup semantics.
+        if let pump = TuiManualIOPumpRegistry.shared.pump(forSurfaceID: terminalPanel.id),
+           !pump.isActivated {
+            schedulePendingTuiProvisioning(for: terminalPanel)
+        }
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
@@ -7304,6 +7446,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let pump = TuiManualIOPumpRegistry.shared.pump(forSurfaceID: surfaceId) {
             return pump.overlayPresentation
         }
+        if let panel = panels[surfaceId] as? TerminalPanel {
+            return panel.manualSessionOverlayPresentation
+        }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
@@ -8633,9 +8778,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: effectiveRemotePTYSessionID,
             isRemoteWorkspace: remoteConfiguration != nil
         )
-        let tuiManualIOTerminalID = TuiTerminalAttachBridge.shared.isManualIOAvailable()
-            ? tuiProvisionedTerminal?.terminalID
-            : nil
+        let tuiManualIOAttachment = Self.tuiManualIOAttachment(
+            provisionedTerminal: tuiProvisionedTerminal,
+            manualIOAvailable: TuiTerminalAttachBridge.shared.isManualIOAvailable()
+        )
 #if DEBUG
         dlog(
             "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -8658,7 +8804,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         // Create the new terminal panel.
         let newPanel: TerminalPanel
-        if let tuiManualIOTerminalID {
+        if tuiManualIOAttachment.usesManualSurface {
             newPanel = Self.makeTuiManualIOTerminalPanel(
                 workspaceID: id,
                 panelID: newPanelID,
@@ -8666,7 +8812,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 configTemplate: inheritedConfig,
                 workingDirectory: splitWorkingDirectory,
                 portOrdinal: portOrdinal,
-                terminalID: tuiManualIOTerminalID
+                terminalID: tuiManualIOAttachment.terminalID
             )
         } else {
             newPanel = TerminalPanel(
@@ -8687,8 +8833,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if let tuiProvisionedTerminal {
-            tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        if let terminalID = tuiProvisionedTerminal?.terminalID {
+            tuiTerminalIDsByPanelId[newPanel.id] = terminalID
         }
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
@@ -8735,12 +8881,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            if tuiManualIOTerminalID != nil {
+            if tuiManualIOAttachment.usesManualSurface {
+                cancelPendingTuiProvisioning(for: newPanel.id)
                 TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
             }
-            if let tuiProvisionedTerminal {
+            if let terminalID = tuiProvisionedTerminal?.terminalID {
                 TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
-                    terminalID: tuiProvisionedTerminal.terminalID
+                    terminalID: terminalID
                 )
             }
             return nil
@@ -8838,6 +8985,152 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             tuiManualIOReattachTerminalID: tuiManualIOReattachTerminalID
         ).panel
+    }
+
+    /// Inserts a direct Harbor source into an existing pane. The panel is a
+    /// manual mirror, while the source remains the sole owner of the foreign
+    /// terminal process and protocol.
+    @discardableResult
+    func newHarborManualTerminalSurface(
+        inPane paneId: PaneID,
+        source: any TerminalSessionSource,
+        title: String,
+        focus: Bool? = nil,
+        workingDirectory: String? = nil,
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
+    ) -> TerminalPanel? {
+        guard !isRetiredFromOwningTabManager else {
+            source.stop()
+            return nil
+        }
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let assembled = Self.makeHarborManualTerminalPanel(
+            workspaceID: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            source: source,
+            title: title,
+            keyNameResolver: keyNameResolver
+        )
+        let newPanel = assembled.panel
+        configureNewTerminalPanel(newPanel, allowTextBoxFocusDefault: shouldFocusNewTab)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = title
+
+        guard let newTabId = bonsplitController.createTab(
+            title: title,
+            icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal.rawValue,
+            isDirty: newPanel.isDirty,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            assembled.controller.stop()
+            return nil
+        }
+
+        bindSurface(newTabId, toPanelId: newPanel.id)
+        assembled.controller.start(surface: newPanel.surface)
+        publishCmuxSurfaceCreated(
+            newPanel.id,
+            paneId: paneId,
+            kind: "terminal",
+            origin: "harbor_direct_source",
+            focused: shouldFocusNewTab
+        )
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            newPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: newPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+        rememberTerminalConfigInheritanceSource(newPanel)
+        return newPanel
+    }
+
+    /// Splits a destination pane and places a direct Harbor source in the new
+    /// pane. This is separate from the ordinary terminal split path because a
+    /// foreign source must not trigger cmux-tui provisioning or PTY startup.
+    @discardableResult
+    func splitPaneWithHarborManualTerminal(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        source: any TerminalSessionSource,
+        title: String,
+        workingDirectory: String? = nil,
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
+    ) -> TerminalPanel? {
+        guard !isRetiredFromOwningTabManager else {
+            source.stop()
+            return nil
+        }
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let assembled = Self.makeHarborManualTerminalPanel(
+            workspaceID: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            source: source,
+            title: title,
+            keyNameResolver: keyNameResolver
+        )
+        let newPanel = assembled.panel
+        configureNewTerminalPanel(newPanel)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = title
+
+        let newTab = Bonsplit.Tab(
+            title: title,
+            icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal.rawValue,
+            isDirty: newPanel.isDirty,
+            isPinned: false
+        )
+        bindSurface(newTab.id, toPanelId: newPanel.id)
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
+            assembled.controller.stop()
+            return nil
+        }
+
+        assembled.controller.start(surface: newPanel.surface)
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: newPanel.id,
+            kind: "terminal",
+            origin: "harbor_direct_source",
+            focused: true
+        )
+        bonsplitController.selectTab(newTab.id)
+        newPanel.focus()
+        rememberTerminalConfigInheritanceSource(newPanel)
+        return newPanel
     }
 
     /// Like ``newTerminalSurface(inPane:focus:workingDirectory:initialCommand:tmuxStartCommand:initialInput:startupRestoreAgent:startupEnvironment:autoRefreshMetadata:preserveFocusWhenUnfocused:remotePTYSessionID:suppressWorkspaceRemoteStartupCommand:)``
@@ -8968,9 +9261,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         // Manual-IO variant: the surface runs in Ghostty's manual-mirror IO
         // mode and a pump relays daemon bytes; there is no surface command.
-        let tuiManualIOTerminalID: String? = tuiManualIOReattachTerminalID
-            ?? (TuiTerminalAttachBridge.shared.isManualIOAvailable() ? tuiProvisionedTerminal?.terminalID : nil)
-        let effectiveStartupCommand = (tuiManualIOTerminalID == nil ? tuiProvisionedTerminal?.attachCommand : nil)
+        let manualIOAvailable = TuiTerminalAttachBridge.shared.isManualIOAvailable()
+        let tuiManualIOAttachment = Self.tuiManualIOAttachment(
+            provisionedTerminal: tuiProvisionedTerminal,
+            requestedReattachTerminalID: tuiManualIOReattachTerminalID,
+            manualIOAvailable: manualIOAvailable
+        )
+        // A persisted daemon terminal must remain usable when the current
+        // cmux-tui artifact does not advertise --pipe-io. In that case use
+        // the normal attach client as the explicit fallback. Passing the
+        // stale id only to the manual surface would produce an empty pane and
+        // the misleading "terminal session ended" overlay.
+        let reattachFallbackCommand = !manualIOAvailable
+            ? tuiManualIOReattachTerminalID.map { TuiTerminalAttachBridge.shared.attachCommand(terminalID: $0) }
+            : nil
+        let effectiveStartupCommand = reattachFallbackCommand
+            ?? (!tuiManualIOAttachment.usesManualSurface ? tuiProvisionedTerminal?.attachCommand : nil)
             ?? startupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let newPanelID = restoredSurfaceId ?? UUID()
@@ -9009,7 +9315,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Swift-side UUID), so a session's terminal binding survives relaunch
         // and restore. The caller only passes an id it has verified is free.
         let newPanel: TerminalPanel
-        if let tuiManualIOTerminalID {
+        if tuiManualIOAttachment.usesManualSurface {
             newPanel = Self.makeTuiManualIOTerminalPanel(
                 workspaceID: id,
                 panelID: newPanelID,
@@ -9017,7 +9323,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 configTemplate: inheritedConfig,
                 workingDirectory: requestedWorkingDirectory,
                 portOrdinal: portOrdinal,
-                terminalID: tuiManualIOTerminalID
+                terminalID: tuiManualIOAttachment.terminalID
             )
         } else {
             newPanel = TerminalPanel(
@@ -9044,8 +9350,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if let tuiProvisionedTerminal {
-            tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        if let terminalID = tuiProvisionedTerminal?.terminalID {
+            tuiTerminalIDsByPanelId[newPanel.id] = terminalID
         } else if let tuiManualIOReattachTerminalID {
             tuiTerminalIDsByPanelId[newPanel.id] = tuiManualIOReattachTerminalID
         }
@@ -9074,14 +9380,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            if tuiManualIOTerminalID != nil {
+            if tuiManualIOAttachment.usesManualSurface {
+                cancelPendingTuiProvisioning(for: newPanel.id)
                 TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
             }
-            if let tuiProvisionedTerminal {
+            if let terminalID = tuiProvisionedTerminal?.terminalID {
                 // The daemon terminal was created before Bonsplit accepted
                 // the tab. Roll it back when tab creation rejects the panel.
                 TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
-                    terminalID: tuiProvisionedTerminal.terminalID
+                    terminalID: terminalID
                 )
             }
             return nil
@@ -11543,18 +11850,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: nil,
             isRemoteWorkspace: remoteConfiguration != nil
         )
-        let tuiManualIOTerminalID = TuiTerminalAttachBridge.shared.isManualIOAvailable()
-            ? tuiProvisionedTerminal?.terminalID
-            : nil
+        let tuiManualIOAttachment = Self.tuiManualIOAttachment(
+            provisionedTerminal: tuiProvisionedTerminal,
+            manualIOAvailable: TuiTerminalAttachBridge.shared.isManualIOAvailable()
+        )
         let newPanel: TerminalPanel
-        if let tuiManualIOTerminalID {
+        if tuiManualIOAttachment.usesManualSurface {
             newPanel = Self.makeTuiManualIOTerminalPanel(
                 workspaceID: id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: replacementConfig,
                 workingDirectory: currentDirectory,
                 portOrdinal: portOrdinal,
-                terminalID: tuiManualIOTerminalID
+                terminalID: tuiManualIOAttachment.terminalID
             )
         } else {
             newPanel = TerminalPanel(
@@ -11569,8 +11877,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if let tuiProvisionedTerminal {
-            tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        if let terminalID = tuiProvisionedTerminal?.terminalID {
+            tuiTerminalIDsByPanelId[newPanel.id] = terminalID
         }
         if pendingRemoteDisconnect != nil {
             remoteDisconnectPlaceholderPanelIds.insert(newPanel.id)
@@ -11590,12 +11898,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             tuiTerminalIDsByPanelId.removeValue(forKey: newPanel.id)
-            if tuiManualIOTerminalID != nil {
+            if tuiManualIOAttachment.usesManualSurface {
+                cancelPendingTuiProvisioning(for: newPanel.id)
                 TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
             }
-            if let tuiProvisionedTerminal {
+            if let terminalID = tuiProvisionedTerminal?.terminalID {
                 TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
-                    terminalID: tuiProvisionedTerminal.terminalID
+                    terminalID: terminalID
                 )
             }
             newPanel.surface.teardownSurface()
@@ -12715,21 +13024,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 isRemoteWorkspace: remoteConfiguration != nil
             )
             : nil
-        let tuiManualIOTerminalID = tuiManualIOReattachTerminalID
-            ?? (TuiTerminalAttachBridge.shared.isManualIOAvailable() ? tuiProvisionedTerminal?.terminalID : nil)
+        let manualIOAvailable = TuiTerminalAttachBridge.shared.isManualIOAvailable()
+        let tuiManualIOAttachment = Self.tuiManualIOAttachment(
+            provisionedTerminal: tuiProvisionedTerminal,
+            requestedReattachTerminalID: tuiManualIOReattachTerminalID,
+            manualIOAvailable: manualIOAvailable
+        )
+        let reattachFallbackCommand = !manualIOAvailable
+            ? tuiManualIOReattachTerminalID.map { TuiTerminalAttachBridge.shared.attachCommand(terminalID: $0) }
+            : nil
 
         // Manual-IO split destination (Harbor drops): mirrors the reattach
         // branch of `newTerminalSurfaceLocal` — the surface runs in Ghostty's
         // manual-mirror IO mode and a pump relays the daemon terminal's bytes.
         let newPanel: TerminalPanel
-        if let tuiManualIOTerminalID {
+        if tuiManualIOAttachment.usesManualSurface {
             newPanel = Self.makeTuiManualIOTerminalPanel(
                 workspaceID: id,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                 configTemplate: inheritedConfig,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
-                terminalID: tuiManualIOTerminalID
+                terminalID: tuiManualIOAttachment.terminalID
             )
         } else {
             newPanel = TerminalPanel(
@@ -12738,7 +13054,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 configTemplate: inheritedConfig,
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
-                initialCommand: tuiProvisionedTerminal?.attachCommand ?? startupCommand,
+                initialCommand: reattachFallbackCommand
+                    ?? tuiProvisionedTerminal?.attachCommand
+                    ?? startupCommand,
                 initialInput: initialInput,
                 additionalEnvironment: effectiveStartupEnvironment,
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
@@ -12751,8 +13069,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if let tuiProvisionedTerminal {
-            tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        if let terminalID = tuiProvisionedTerminal?.terminalID {
+            tuiTerminalIDsByPanelId[newPanel.id] = terminalID
         } else if let tuiManualIOReattachTerminalID {
             tuiTerminalIDsByPanelId[newPanel.id] = tuiManualIOReattachTerminalID
         }
@@ -12778,13 +13096,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if remoteCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            if tuiManualIOTerminalID != nil {
+            if tuiManualIOAttachment.usesManualSurface {
+                cancelPendingTuiProvisioning(for: newPanel.id)
                 TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
                 tuiTerminalIDsByPanelId.removeValue(forKey: newPanel.id)
             }
-            if let tuiProvisionedTerminal {
+            if let terminalID = tuiProvisionedTerminal?.terminalID {
                 TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
-                    terminalID: tuiProvisionedTerminal.terminalID
+                    terminalID: terminalID
                 )
             }
             return nil
@@ -14280,17 +14599,18 @@ extension Workspace: BonsplitDelegate {
                         isRemoteWorkspace: remoteConfiguration != nil
                     )
                     let replacementPanel: TerminalPanel
-                    let tuiManualIOTerminalID = TuiTerminalAttachBridge.shared.isManualIOAvailable()
-                        ? tuiProvisionedTerminal?.terminalID
-                        : nil
-                    if let tuiManualIOTerminalID {
+                    let tuiManualIOAttachment = Self.tuiManualIOAttachment(
+                        provisionedTerminal: tuiProvisionedTerminal,
+                        manualIOAvailable: TuiTerminalAttachBridge.shared.isManualIOAvailable()
+                    )
+                    if tuiManualIOAttachment.usesManualSurface {
                         replacementPanel = Self.makeTuiManualIOTerminalPanel(
                             workspaceID: id,
                             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                             configTemplate: inheritedConfig,
                             workingDirectory: nil,
                             portOrdinal: portOrdinal,
-                            terminalID: tuiManualIOTerminalID
+                            terminalID: tuiManualIOAttachment.terminalID
                         )
                     } else {
                         replacementPanel = TerminalPanel(
@@ -14305,8 +14625,8 @@ extension Workspace: BonsplitDelegate {
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
-                    if let tuiProvisionedTerminal {
-                        tuiTerminalIDsByPanelId[replacementPanel.id] = tuiProvisionedTerminal.terminalID
+                    if let terminalID = tuiProvisionedTerminal?.terminalID {
+                        tuiTerminalIDsByPanelId[replacementPanel.id] = terminalID
                     }
                     bindSurface(replacementTab.id, toPanelId: replacementPanel.id)
 
@@ -14382,18 +14702,19 @@ extension Workspace: BonsplitDelegate {
             remotePTYSessionID: nil,
             isRemoteWorkspace: remoteConfiguration != nil
         )
-        let tuiManualIOTerminalID = TuiTerminalAttachBridge.shared.isManualIOAvailable()
-            ? tuiProvisionedTerminal?.terminalID
-            : nil
+        let tuiManualIOAttachment = Self.tuiManualIOAttachment(
+            provisionedTerminal: tuiProvisionedTerminal,
+            manualIOAvailable: TuiTerminalAttachBridge.shared.isManualIOAvailable()
+        )
         let newPanel: TerminalPanel
-        if let tuiManualIOTerminalID {
+        if tuiManualIOAttachment.usesManualSurface {
             newPanel = Self.makeTuiManualIOTerminalPanel(
                 workspaceID: id,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                 configTemplate: inheritedConfig,
                 workingDirectory: nil,
                 portOrdinal: portOrdinal,
-                terminalID: tuiManualIOTerminalID
+                terminalID: tuiManualIOAttachment.terminalID
             )
         } else {
             newPanel = TerminalPanel(
@@ -14408,8 +14729,8 @@ extension Workspace: BonsplitDelegate {
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if let tuiProvisionedTerminal {
-            tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        if let terminalID = tuiProvisionedTerminal?.terminalID {
+            tuiTerminalIDsByPanelId[newPanel.id] = terminalID
         }
 
         guard let newTabId = bonsplitController.createTab(
@@ -14423,12 +14744,13 @@ extension Workspace: BonsplitDelegate {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             tuiTerminalIDsByPanelId.removeValue(forKey: newPanel.id)
-            if tuiManualIOTerminalID != nil {
+            if tuiManualIOAttachment.usesManualSurface {
+                cancelPendingTuiProvisioning(for: newPanel.id)
                 TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
             }
-            if let tuiProvisionedTerminal {
+            if let terminalID = tuiProvisionedTerminal?.terminalID {
                 TuiTerminalAttachBridge.shared.closeProvisionedHarborTerminal(
-                    terminalID: tuiProvisionedTerminal.terminalID
+                    terminalID: terminalID
                 )
             }
             return

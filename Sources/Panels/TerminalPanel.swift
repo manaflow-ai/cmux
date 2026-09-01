@@ -60,6 +60,11 @@ final class TerminalPanel: Panel, ObservableObject {
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
     private var isClosingPanel = false
     private var didDiscardTextBoxContentForClose = false
+    /// Strong ownership of a direct Harbor session. The panel is the UI
+    /// lifetime owner, while the controller owns the foreign transport. A
+    /// weak closure here would release the controller immediately after
+    /// insertion and leave a live renderer with no source.
+    private var manualSessionController: HarborManualSessionController?
 #if DEBUG
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
@@ -160,6 +165,15 @@ final class TerminalPanel: Panel, ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    func installManualSessionController(_ controller: HarborManualSessionController) {
+        manualSessionController?.stop()
+        manualSessionController = controller
+    }
+
+    var manualSessionOverlayPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
+        manualSessionController?.overlayPresentation
     }
 
     /// Create a new terminal panel with a fresh surface
@@ -655,6 +669,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        manualSessionController?.stop()
+        manualSessionController = nil
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id

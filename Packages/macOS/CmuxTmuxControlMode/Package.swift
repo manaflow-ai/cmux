@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CmuxTmuxControlMode"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxTerminalCore"),
+    ],
     targets: [
         .target(
             name: "CmuxTmuxControlMode",
+            dependencies: [
+                .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -24,7 +30,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxTmuxControlModeTests",
-            dependencies: ["CmuxTmuxControlMode"],
+            dependencies: [
+                "CmuxTmuxControlMode",
+                .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

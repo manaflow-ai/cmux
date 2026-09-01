@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxTmuxControlMode
 import Foundation
 #if DEBUG
 import CMUXDebugLog
@@ -42,7 +43,11 @@ enum TuiManualIOPumpPolicy {
         // binary without --pipe-io support also exits 2 (usage error), and
         // that must not read as an endlessly-retryable daemon outage.
         case (2, "daemon-lost"): return .daemonLost
-        case (0, _): return .terminalEnded
+        // A compliant pipe relay always emits an explicit reason. Treat a bare
+        // zero as a protocol failure, not as a terminal exit. Assuming that
+        // every status-0 process ended the terminal hides bad binaries and was
+        // the direct cause of the misleading "Terminal session ended" state.
+        case (0, _): return .failure
         default: return .failure
         }
     }
@@ -87,6 +92,18 @@ enum TuiManualIOPumpPolicy {
         line.append(Data(#""}"#.utf8))
         line.append(0x0A)
         return line
+    }
+
+    /// Splits a paste into bounded JSON records while preserving byte order.
+    /// The relay protocol has no continuation field, so each record is a
+    /// complete input command and the FIFO writer is the ordering boundary.
+    static func inputLines(bytes: Data, maximumBytesPerRecord: Int = 64 * 1024) -> [Data] {
+        guard !bytes.isEmpty else { return [] }
+        let chunkSize = max(1, maximumBytesPerRecord)
+        return stride(from: 0, to: bytes.count, by: chunkSize).map { start in
+            let end = min(start + chunkSize, bytes.count)
+            return inputLine(bytes: Data(bytes[start..<end]))
+        }
     }
 
     /// One stdin line driving the daemon-side viewer size.
@@ -154,7 +171,10 @@ enum TuiManualIOPumpPolicy {
             ].joined(separator: " ")
             // BatchMode: a relay respawn loop must fail fast, never wedge on
             // an interactive auth prompt it has no TTY to show.
-            return ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", destination, remote]
+            // The relay carries JSONL on stdin/stdout. Make the no-pty
+            // contract explicit so a user's SSH config cannot add terminal
+            // line discipline to the protocol.
+            return ["-T", "-o", "EscapeChar=none", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", destination, remote]
         }
     }
 
@@ -171,11 +191,6 @@ enum TuiManualIOPumpPolicy {
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
-
-    /// Emitted into the surface before a respawned relay's replay: the
-    /// replay REPLACES terminal state, and only the pump knows whether this
-    /// surface already rendered a previous attach.
-    static let resyncReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A]) // ESC c, CSI 3 J
 
     /// Overlay presentation for one pump state, in the same visual family
     /// as the cloud terminal reconnect overlay.
@@ -233,41 +248,55 @@ enum TuiManualIOPumpPolicy {
 /// Lock-guarded because `manualInputHandler` must not touch the main actor.
 final class TuiManualIOInputChannel: @unchecked Sendable {
     private let lock = NSLock()
-    private var handle: FileHandle?
-    private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
+    private var writer: ControlModeProcessInputWriter?
+    private var failureHandler: (@Sendable (String, Int) -> Void)?
+
+    func setFailureHandler(_ handler: @escaping @Sendable (String, Int) -> Void) {
+        lock.lock()
+        failureHandler = handler
+        lock.unlock()
+    }
 
     /// Swaps the live relay stdin. `nil` pauses input (dropped, never
     /// queued: replaying stale input into a shell after a reconnect is
     /// worse than losing keystrokes typed into a dead pane).
-    func setHandle(_ newHandle: FileHandle?) {
+    func setHandle(_ newHandle: FileHandle?, generation: Int) {
+        let replacement = newHandle.map { handle in
+            let writer = ControlModeProcessInputWriter(
+                label: "cmux.tuiManualIO.stdin.\(UUID().uuidString)",
+                maxPendingBytes: 8 * 1024 * 1024,
+                onFailure: { [weak self] reason in
+                    self?.lock.lock()
+                    let handler = self?.failureHandler
+                    self?.lock.unlock()
+                    handler?(reason, generation)
+                }
+            )
+            writer.attach(to: handle)
+            return writer
+        }
         lock.lock()
-        handle = newHandle
+        let previous = writer
+        writer = replacement
         lock.unlock()
+        previous?.close()
     }
 
     func send(_ line: Data) {
         lock.lock()
-        let target = handle
+        let target = writer
         lock.unlock()
-        guard let target else { return }
-        queue.async {
-            // A failed write means the relay just died; the pump's
-            // termination handler owns that transition.
-            try? target.write(contentsOf: line)
-        }
+        target?.enqueue(line)
     }
 
     /// Closes and detaches the current handle (relay stdin EOF = clean
     /// detach on the relay side).
     func closeHandle() {
         lock.lock()
-        let target = handle
-        handle = nil
+        let target = writer
+        writer = nil
         lock.unlock()
-        guard let target else { return }
-        queue.async {
-            try? target.close()
-        }
+        target?.close()
     }
 }
 
@@ -283,6 +312,14 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
 /// of the exec attach bridge cannot exist on this path.
 @MainActor
 final class TuiManualIOPump {
+    /// A pump is either waiting for its owner to commit a durable terminal
+    /// lease or bound to exactly one lease. Modeling this as a phase prevents
+    /// an empty string from becoming an accidental terminal identity.
+    enum Binding: Equatable {
+        case pending
+        case bound(terminalID: String)
+    }
+
     enum State: Equatable {
         /// First attach in flight; the pane is empty, no overlay.
         case connecting
@@ -310,7 +347,19 @@ final class TuiManualIOPump {
     /// resynchronization).
     var onStateChange: (() -> Void)?
 
-    let terminalID: String
+    /// The immutable identity phase for this pump. A pending surface never
+    /// starts a relay or claims an arbitrary terminal.
+    private(set) var binding: Binding
+    var isActivated: Bool {
+        if case .bound = binding { return true }
+        return false
+    }
+    /// Compatibility accessor for diagnostics and close bookkeeping. It is
+    /// optional because pending is a real lifecycle state, not an empty id.
+    var terminalID: String? {
+        guard case let .bound(terminalID) = binding else { return nil }
+        return terminalID
+    }
     private let binaryPath: String
     private let target: TuiManualIOPumpPolicy.RelayTarget
     private let environment: [String: String]
@@ -320,15 +369,27 @@ final class TuiManualIOPump {
     private let sleep: @Sendable (Duration) async throws -> Void
 
     private weak var surface: TerminalSurface?
+    /// When the pump is used as a foreign-session source, the bytes go to a
+    /// neutral session delegate instead of directly into a local surface.
+    /// Keeping this mode in the same pump preserves one relay/reconnect
+    /// implementation for app-owned and Harbor-owned cmux-tui terminals.
+    private weak var sourceDelegate: (any TerminalSessionSourceDelegate)?
+    private var sourceMode = false
+    private var sourceNeedsResync = false
+    private var didNotifySourceEnd = false
     private var process: Process?
     private var stdoutReader: RemoteTmuxProcessOutputReader?
     private var stdoutTask: Task<Void, Never>?
+    private var stderrReader: RemoteTmuxProcessOutputReader?
+    private var stderrTask: Task<Void, Never>?
     private var stderrBox = TuiManualIOStderrBox()
     private var retryTask: Task<Void, Never>?
+    private var resizeTask: Task<Void, Never>?
     /// Process termination and stderr EOF race (termination is not EOF);
-    /// classification needs the relay's final stderr line, so it runs only
-    /// once BOTH have arrived for the current generation.
+    /// classification needs the relay's final stderr line and stdout replay,
+    /// so it runs only once all three have arrived for the current generation.
     private var pendingExitStatus: Int32?
+    private var stdoutDrainedGeneration = 0
     private var stderrDrainedGeneration = 0
     /// Fences callbacks from an old relay after a respawn or stop.
     private var generation = 0
@@ -337,11 +398,20 @@ final class TuiManualIOPump {
     private var consecutiveUnexplainedFailures = 0
     private var lastKnownGrid: (cols: Int, rows: Int)?
     private var lastSentGrid: (cols: Int, rows: Int)?
+    /// A surface can report several applied cell grids during one AppKit
+    /// resize. The daemon relay has no reply block that can gate these writes,
+    /// so app-owned pumps use a trailing coalescer. Harbor source adapters
+    /// already coalesce at their session controller and bypass this delay.
+    private static let resizeDebounce = Duration.milliseconds(180)
+
+    /// Called when Retry is pressed before provisioning has produced an id.
+    /// The owner supplies the provisioning transaction.
+    var onActivationRetry: (() -> Void)?
 
     convenience init(
         binaryPath: String,
         sessionName: String,
-        terminalID: String,
+        terminalID: String? = nil,
         environment: [String: String],
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
@@ -358,15 +428,58 @@ final class TuiManualIOPump {
     init(
         binaryPath: String,
         target: TuiManualIOPumpPolicy.RelayTarget,
-        terminalID: String,
+        terminalID: String? = nil,
         environment: [String: String],
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.binaryPath = binaryPath
         self.target = target
-        self.terminalID = terminalID
+        if let terminalID {
+            let normalized = terminalID.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.binding = normalized.isEmpty ? .pending : .bound(terminalID: normalized)
+        } else {
+            self.binding = .pending
+        }
         self.environment = environment
         self.sleep = sleep
+        inputChannel.setFailureHandler { [weak self] reason, generation in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleInputTransportFailure(reason, generation: generation)
+            }
+        }
+    }
+
+    /// Completes an asynchronous provisioning transaction. The identity is
+    /// write-once for a pump, which prevents a late result from retargeting a
+    /// live relay to another daemon terminal.
+    func activate(terminalID: String) {
+        let normalized = terminalID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stopped, !normalized.isEmpty else { return }
+        switch binding {
+        case .pending:
+            binding = .bound(terminalID: normalized)
+        case let .bound(existing) where existing != normalized:
+            log("ignoring terminal identity replacement old=\(existing.prefix(12)) new=\(normalized.prefix(12))")
+            return
+        case .bound:
+            break
+        }
+        consecutiveUnexplainedFailures = 0
+        if state == .failed { state = .connecting }
+        if sourceMode || surface != nil {
+            spawnRelay()
+        }
+    }
+
+    /// Fails a pending transaction without claiming that the daemon terminal
+    /// ended. Retry remains explicit and can start a new provisioning request.
+    func failActivation(reason: String) {
+        guard !stopped, case .pending = binding else { return }
+        retryTask?.cancel()
+        retryTask = nil
+        state = .failed
+        notifySourceTermination(.failed(reason: reason))
     }
 
     /// The surface's `manualInputHandler`: runs on Ghostty's IO thread, so
@@ -376,7 +489,9 @@ final class TuiManualIOPump {
         return { input in
             switch input {
             case .bytes(let bytes):
-                channel.send(TuiManualIOPumpPolicy.inputLine(bytes: bytes))
+                for line in TuiManualIOPumpPolicy.inputLines(bytes: bytes) {
+                    channel.send(line)
+                }
             case .namedKey:
                 // No key-name resolver is installed on this surface, so
                 // Ghostty encodes every key itself; a named key here is a
@@ -393,6 +508,7 @@ final class TuiManualIOPump {
     /// directly when the runtime is (or becomes) ready and attaches
     /// eagerly; a later mount just resizes the daemon terminal.
     func start(surface: TerminalSurface) {
+        guard !sourceMode else { return }
         self.surface = surface
         surface.onManualSizeApplied = { [weak self] sample in
             self?.handleSizingSample(cols: sample.columns, rows: sample.rows)
@@ -406,6 +522,40 @@ final class TuiManualIOPump {
         sampleCurrentGrid(of: surface)
     }
 
+    /// Starts the same pipe-IO relay without creating or owning a daemon
+    /// terminal. Harbor uses this for a terminal that belongs to a foreign
+    /// cmux-tui daemon.
+    func start(
+        initialSize: TerminalSize,
+        delegate: any TerminalSessionSourceDelegate
+    ) {
+        guard !stopped, !sourceMode else { return }
+        sourceMode = true
+        sourceDelegate = delegate
+        lastKnownGrid = (max(1, initialSize.columns), max(1, initialSize.rows))
+        // The daemon terminal owns the rendered grid. Ghostty must not locally
+        // reflow it while a replay or resize frame is in flight.
+        delegate.controlModeSession(didChangeResizePolicy: .preserveScreen)
+        if case .bound = binding {
+            spawnRelay()
+        }
+    }
+
+    /// Sends already-encoded bytes to the relay. This is the source-facing
+    /// counterpart of `makeManualInputHandler`.
+    nonisolated func sendInput(_ bytes: [UInt8]) {
+        guard !bytes.isEmpty else { return }
+        for line in TuiManualIOPumpPolicy.inputLines(bytes: Data(bytes)) {
+            inputChannel.send(line)
+        }
+    }
+
+    /// Drives the foreign daemon's viewer size from the local applied grid.
+    func resize(_ size: TerminalSize) {
+        guard !stopped else { return }
+        handleSizingSample(cols: size.columns, rows: size.rows)
+    }
+
     private func sampleCurrentGrid(of surface: TerminalSurface) {
         guard let sample = surface.rawSizingSample(),
               sample.columns > 1, sample.rows > 1 else { return }
@@ -415,6 +565,11 @@ final class TuiManualIOPump {
     /// The overlay's Reconnect button: skip the remaining backoff, or leave
     /// the failed state for another round of attempts.
     func retryNow() {
+        if case .pending = binding {
+            guard !stopped else { return }
+            onActivationRetry?()
+            return
+        }
         switch state {
         case .reconnecting, .failed:
             guard !stopped else { return }
@@ -435,15 +590,22 @@ final class TuiManualIOPump {
         stopped = true
         retryTask?.cancel()
         retryTask = nil
+        resizeTask?.cancel()
+        resizeTask = nil
         stdoutTask?.cancel()
         stdoutTask = nil
         stdoutReader?.close()
         stdoutReader = nil
+        stderrTask?.cancel()
+        stderrTask = nil
+        stderrReader?.close()
+        stderrReader = nil
         inputChannel.closeHandle()
         generation += 1
         process?.terminationHandler = nil
         process?.terminate()
         process = nil
+        sourceDelegate = nil
     }
 
     var overlayPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
@@ -454,20 +616,57 @@ final class TuiManualIOPump {
 
     private func handleSizingSample(cols: Int, rows: Int) {
         guard !stopped else { return }
-        lastKnownGrid = (cols, rows)
+        let grid = (max(1, cols), max(1, rows))
+        lastKnownGrid = grid
+        guard case .bound = binding else { return }
         if process == nil, retryTask == nil, case .connecting = state {
             spawnRelay()
             return
         }
-        if let sent = lastSentGrid, sent == (cols, rows) { return }
-        lastSentGrid = (cols, rows)
-        inputChannel.send(TuiManualIOPumpPolicy.resizeLine(cols: cols, rows: rows))
+        if let sent = lastSentGrid, sent == grid {
+            resizeTask?.cancel()
+            resizeTask = nil
+            return
+        }
+
+        if sourceMode {
+            // HarborManualSessionController owns the trailing coalescer for
+            // foreign sources. Sending here immediately keeps the source
+            // controller's one debounce window from becoming two.
+            resizeTask?.cancel()
+            resizeTask = nil
+            lastSentGrid = grid
+            inputChannel.send(TuiManualIOPumpPolicy.resizeLine(cols: grid.0, rows: grid.1))
+            return
+        }
+
+        let generation = self.generation
+        resizeTask?.cancel()
+        let sleep = sleep
+        resizeTask = Task { @MainActor [weak self] in
+            do {
+                try await sleep(Self.resizeDebounce)
+            } catch {
+                return
+            }
+            guard let self, !self.stopped, !Task.isCancelled,
+                  self.generation == generation,
+                  let latest = self.lastKnownGrid,
+                  self.process != nil else { return }
+            guard self.lastSentGrid?.cols != latest.cols ||
+                    self.lastSentGrid?.rows != latest.rows else { return }
+            self.resizeTask = nil
+            self.lastSentGrid = latest
+            self.inputChannel.send(
+                TuiManualIOPumpPolicy.resizeLine(cols: latest.0, rows: latest.1)
+            )
+        }
     }
 
     // MARK: - Relay lifecycle
 
     private func spawnRelay() {
-        guard !stopped, let surface else { return }
+        guard !stopped, case let .bound(terminalID) = binding else { return }
         // Terminal states only leave through retryNow (which transitions
         // back to reconnecting first) or teardown; a straggler retry task
         // or sizing sample must not resurrect the relay.
@@ -482,12 +681,12 @@ final class TuiManualIOPump {
         let grid = lastKnownGrid ?? (80, 24)
         lastSentGrid = grid
 
-        // A respawned relay replays the daemon terminal from scratch; reset
-        // the surface first so the replay replaces the stale frame instead
-        // of stacking on it.
-        if everRenderedAttach {
-            surface.processRemoteOutput(TuiManualIOPumpPolicy.resyncReset)
-        }
+        // The pipe-IO relay owns replay framing. It prefixes every replay after
+        // the first with ESC c + erase-scrollback, so the renderer must not
+        // inject a second reset or erase the beginning of the replay.
+        sourceNeedsResync = sourceMode && everRenderedAttach
+        resizeTask?.cancel()
+        resizeTask = nil
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -497,7 +696,12 @@ final class TuiManualIOPump {
             cols: grid.cols,
             rows: grid.rows
         )
-        process.environment = environment
+        // The relay environment is an override set. Replacing the inherited
+        // environment can remove HOME/PATH/locale and make a valid client
+        // fail only when launched from the GUI rather than a shell.
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) {
+            _, override in override
+        }
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
@@ -509,18 +713,10 @@ final class TuiManualIOPump {
         let stderrBox = TuiManualIOStderrBox()
         self.stderrBox = stderrBox
         pendingExitStatus = nil
-        // Blocking drain to EOF on a throwaway queue: it continuously
-        // empties the pipe (a full pipe would wedge the relay) and EOF is
-        // the only signal that the final exit-reason line has landed.
-        let stderrHandle = stderrPipe.fileHandleForReading
-        DispatchQueue(label: "cmux.tuiManualIO.stderr", qos: .utility).async { [weak self] in
-            stderrBox.append(stderrHandle.readDataToEndOfFile())
-            Task { @MainActor [weak self] in
-                self?.handleStderrDrained(generation: spawnGeneration)
-            }
-        }
-
-        let reader = RemoteTmuxProcessOutputReader(
+        stdoutDrainedGeneration = 0
+        stderrDrainedGeneration = 0
+        guard let reader = RemoteTmuxProcessOutputReader(
+            readingFrom: stdoutPipe.fileHandleForReading,
             label: "cmux.tuiManualIO.stdout",
             maxPendingChunks: 512,
             maxPendingBytes: 8 * 1024 * 1024,
@@ -529,60 +725,147 @@ final class TuiManualIOPump {
                 // a respawn resyncs from a bounded replay.
                 self?.handleRelayExit(generation: spawnGeneration, forcedExit: .daemonLost)
             }
-        )
+        ) else {
+            log("stdout reader setup failed")
+            noteUnexplainedFailureThenRetryOrFail()
+            return
+        }
+        guard let diagnosticReader = RemoteTmuxProcessOutputReader(
+            readingFrom: stderrPipe.fileHandleForReading,
+            label: "cmux.tuiManualIO.stderr",
+            maxPendingChunks: 256,
+            maxPendingBytes: 1024 * 1024,
+            onOverflow: { [weak self] in
+                // Diagnostics are bounded too. Losing the final exit record
+                // means the relay result is no longer trustworthy, so retry
+                // through the same transport-recovery path as stdout loss.
+                self?.handleRelayExit(generation: spawnGeneration, forcedExit: .daemonLost)
+            }
+        ) else {
+            reader.close()
+            log("stderr reader setup failed")
+            noteUnexplainedFailureThenRetryOrFail()
+            return
+        }
         stdoutReader?.close()
         stdoutReader = reader
+        stderrReader?.close()
+        stderrReader = diagnosticReader
         stdoutTask?.cancel()
         stdoutTask = Task { @MainActor [weak self] in
             for await chunk in reader.stream {
                 guard let self, self.generation == spawnGeneration, !self.stopped else { break }
                 reader.release(chunk)
-                self.surface?.processRemoteOutput(chunk)
+                if let sourceDelegate = self.sourceDelegate {
+                    let resyncing = self.sourceNeedsResync
+                    let bytes = Array(chunk)
+                    if resyncing { self.sourceNeedsResync = false }
+                    let isSnapshot = !self.everRenderedAttach || resyncing
+                    if isSnapshot {
+                        sourceDelegate.controlModeSession(didProduceSnapshot: bytes)
+                    } else {
+                        sourceDelegate.controlModeSession(didProduceOutput: bytes)
+                    }
+                } else {
+                    self.surface?.processRemoteOutput(chunk)
+                }
                 self.everRenderedAttach = true
                 self.consecutiveUnexplainedFailures = 0
                 if self.state != .live {
                     self.state = .live
                 }
             }
+            self?.handleStdoutDrained(generation: spawnGeneration)
+        }
+        stderrTask?.cancel()
+        stderrTask = Task { @MainActor [weak self] in
+            for await chunk in diagnosticReader.stream {
+                guard let self, self.generation == spawnGeneration, !self.stopped else {
+                    diagnosticReader.release(chunk)
+                    break
+                }
+                stderrBox.append(chunk)
+                diagnosticReader.release(chunk)
+            }
+            self?.handleStderrDrained(generation: spawnGeneration)
         }
 
         process.terminationHandler = { [weak self] finished in
+            // Process termination is not pipe EOF. Ask the shared reader to
+            // drain bytes that the relay wrote immediately before exit, then
+            // let the stream finish. This preserves the final replay frame.
+            reader.processDidExit()
+            diagnosticReader.processDidExit()
             let status = finished.terminationStatus
             Task { @MainActor [weak self] in
                 self?.handleRelayTermination(generation: spawnGeneration, status: status)
             }
         }
 
+        // Publish the process and install both write/read endpoints before
+        // launching it. A relay can fail synchronously (for example, a stale
+        // terminal id); assigning these after `run()` lets its termination
+        // callback finish a reader that has not been attached yet and loses
+        // the final protocol bytes.
+        self.process = process
+        inputChannel.setHandle(stdinPipe.fileHandleForWriting, generation: spawnGeneration)
         do {
             try process.run()
         } catch {
             log("spawn failed: \(error)")
+            process.terminationHandler = nil
+            self.process = nil
+            inputChannel.closeHandle()
             reader.close()
+            diagnosticReader.close()
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
             noteUnexplainedFailureThenRetryOrFail()
             return
         }
-        self.process = process
-        inputChannel.setHandle(stdinPipe.fileHandleForWriting)
-        reader.attach(to: stdoutPipe.fileHandleForReading)
+        // The child owns its inherited stdin endpoint and the input channel
+        // owns a duplicate. Closing this parent reference makes relay EOF
+        // deterministic when the channel is stopped.
+        try? stdinPipe.fileHandleForWriting.close()
+        // `Process` retains the pipe objects, but the parent must not retain
+        // their write ends. The readers use EOF, rather than process
+        // termination, as the protocol boundary. Leaving either write end
+        // open makes a clean relay exit wait forever for a writer that is
+        // still owned by this object.
+        try? stdoutPipe.fileHandleForWriting.close()
+        try? stderrPipe.fileHandleForWriting.close()
+        // Both readers own duplicates. Closing the parent's read endpoints
+        // prevents an accidental local reference from delaying EOF.
+        try? stdoutPipe.fileHandleForReading.close()
+        try? stderrPipe.fileHandleForReading.close()
         log("relay spawned generation=\(spawnGeneration) grid=\(grid.cols)x\(grid.rows)")
     }
 
     private func handleStderrDrained(generation drainedGeneration: Int) {
         guard drainedGeneration == generation, !stopped else { return }
         stderrDrainedGeneration = drainedGeneration
-        if let status = pendingExitStatus {
-            pendingExitStatus = nil
-            handleRelayExit(generation: drainedGeneration, status: status)
-        }
+        finishRelayIfDrained(generation: drainedGeneration)
+    }
+
+    private func handleStdoutDrained(generation drainedGeneration: Int) {
+        guard drainedGeneration == generation, !stopped else { return }
+        stdoutDrainedGeneration = drainedGeneration
+        finishRelayIfDrained(generation: drainedGeneration)
     }
 
     private func handleRelayTermination(generation exitedGeneration: Int, status: Int32) {
         guard exitedGeneration == generation, !stopped else { return }
-        guard stderrDrainedGeneration == exitedGeneration else {
-            pendingExitStatus = status
-            return
-        }
-        handleRelayExit(generation: exitedGeneration, status: status)
+        pendingExitStatus = status
+        finishRelayIfDrained(generation: exitedGeneration)
+    }
+
+    private func finishRelayIfDrained(generation: Int) {
+        guard generation == self.generation,
+              stdoutDrainedGeneration == generation,
+              stderrDrainedGeneration == generation,
+              let status = pendingExitStatus else { return }
+        pendingExitStatus = nil
+        handleRelayExit(generation: generation, status: status)
     }
 
     private func handleRelayExit(
@@ -591,19 +874,37 @@ final class TuiManualIOPump {
         forcedExit: TuiManualIOPumpPolicy.RelayExit? = nil
     ) {
         guard exitedGeneration == generation, !stopped else { return }
-        inputChannel.setHandle(nil)
+        // The reader can report EOF or overflow before Process delivers its
+        // termination callback. End the child explicitly before dropping the
+        // last strong reference, otherwise a failed relay can remain orphaned
+        // while the retry state starts a second one.
+        process?.terminationHandler = nil
+        if process?.isRunning == true { process?.terminate() }
+        inputChannel.closeHandle()
+        resizeTask?.cancel()
+        resizeTask = nil
+        stdoutReader?.close()
+        stdoutReader = nil
+        stdoutTask?.cancel()
+        stdoutTask = nil
+        stderrReader?.close()
+        stderrReader = nil
+        stderrTask?.cancel()
+        stderrTask = nil
         process = nil
         let exit = forcedExit
             ?? TuiManualIOPumpPolicy.relayExit(status: status ?? -1, stderrText: stderrBox.text())
 #if DEBUG
         let stderrTail = (stderrBox.text() ?? "").suffix(300).replacingOccurrences(of: "\n", with: " | ")
-        log("relay exit \(exit) terminal=\(terminalID.prefix(12)) status=\(status.map(String.init) ?? "nil") stderr=\(stderrTail)")
+        let terminalDescription = terminalID ?? "pending"
+        log("relay exit \(exit) terminal=\(terminalDescription.prefix(12)) status=\(status.map(String.init) ?? "nil") stderr=\(stderrTail)")
 #else
         log("relay exit \(exit)")
 #endif
         switch TuiManualIOPumpPolicy.nextAction(after: exit) {
         case .end:
             state = .ended
+            notifySourceTermination(.ended(reason: "cmux-tui terminal ended"))
         case .retry:
             if exit == .failure {
                 noteUnexplainedFailureThenRetryOrFail()
@@ -613,6 +914,15 @@ final class TuiManualIOPump {
         case .ignore:
             break
         }
+    }
+
+    private func handleInputTransportFailure(_ reason: String, generation failedGeneration: Int) {
+        guard !stopped, failedGeneration == generation else { return }
+        log("relay input failed generation=\(failedGeneration): \(reason)")
+        // A closed or overfull stdin cannot be repaired in place. Recycle the
+        // relay so the next attach receives a clean replay and the source's
+        // ordering contract remains intact.
+        handleRelayExit(generation: failedGeneration, forcedExit: .daemonLost)
     }
 
     /// Unexplained failures (spawn failure, usage error, crash) stop
@@ -625,6 +935,7 @@ final class TuiManualIOPump {
             retryTask?.cancel()
             retryTask = nil
             state = .failed
+            notifySourceTermination(.failed(reason: "cmux-tui relay failed"))
             return
         }
         scheduleRetry()
@@ -658,6 +969,120 @@ final class TuiManualIOPump {
 #if DEBUG
         cmuxDebugLog("tuiManualIO.\(message())")
 #endif
+    }
+
+    private func notifySourceTermination(_ termination: TerminalSessionTermination) {
+        guard sourceMode, !didNotifySourceEnd else { return }
+        didNotifySourceEnd = true
+        let delegate = sourceDelegate
+        sourceDelegate = nil
+        delegate?.controlModeSession(didTerminate: termination)
+    }
+}
+
+/// Adapts the main-actor cmux-tui pump to the transport-neutral source
+/// contract. Source calls can arrive from the Ghostty IO thread, so the
+/// adapter uses one bounded FIFO instead of one independent actor task per
+/// call. A sequence such as start → resize → stop therefore cannot reorder
+/// when the main actor is busy.
+final class HarborTuiSessionSourceAdapter: TerminalSessionSource, @unchecked Sendable {
+    private enum Operation: Sendable {
+        case start(initialSize: TerminalSize, delegate: any TerminalSessionSourceDelegate)
+        case input([UInt8])
+        case resize(TerminalSize)
+        case stop
+    }
+
+    private let pump: TuiManualIOPump
+    private let name: String
+    private let continuation: AsyncStream<Operation>.Continuation
+    private let worker: Task<Void, Never>
+    private let stateLock = NSLock()
+    private var closed = false
+    private var overflowReported = false
+    private weak var delegate: (any TerminalSessionSourceDelegate)?
+
+    init(pump: TuiManualIOPump, displayName: String) {
+        self.pump = pump
+        self.name = displayName
+        let (stream, continuation) = AsyncStream<Operation>.makeStream(
+            bufferingPolicy: .bufferingOldest(2048)
+        )
+        self.continuation = continuation
+        self.worker = Task { @MainActor [pump] in
+            for await operation in stream {
+                switch operation {
+                case let .start(initialSize, delegate):
+                    pump.start(initialSize: initialSize, delegate: delegate)
+                case let .input(bytes):
+                    pump.sendInput(bytes)
+                case let .resize(size):
+                    pump.resize(size)
+                case .stop:
+                    pump.stop()
+                    return
+                }
+            }
+        }
+    }
+
+    deinit {
+        stateLock.lock()
+        closed = true
+        stateLock.unlock()
+        continuation.finish()
+        worker.cancel()
+    }
+
+    var displayName: String { name }
+
+    func start(initialSize: TerminalSize, delegate: any TerminalSessionSourceDelegate) {
+        stateLock.lock()
+        self.delegate = delegate
+        stateLock.unlock()
+        enqueue(.start(initialSize: initialSize, delegate: delegate))
+    }
+
+    func sendInput(_ bytes: [UInt8]) {
+        guard !bytes.isEmpty else { return }
+        enqueue(.input(bytes))
+    }
+
+    func resize(_ size: TerminalSize) {
+        enqueue(.resize(size))
+    }
+
+    func stop() {
+        enqueue(.stop)
+    }
+
+    private func enqueue(_ operation: Operation) {
+        stateLock.lock()
+        guard !closed else {
+            stateLock.unlock()
+            return
+        }
+        let result = continuation.yield(operation)
+        var shouldReport = false
+        if case .dropped = result, !overflowReported {
+            overflowReported = true
+            closed = true
+            shouldReport = true
+        }
+        let delegate = self.delegate
+        stateLock.unlock()
+
+        guard shouldReport else { return }
+        continuation.finish()
+        // Dropping a source operation would make the local viewer diverge
+        // from its daemon. Stop the pump and report a typed transport failure
+        // instead of silently losing input or a resize.
+        Task { @MainActor [pump, delegate] in
+            pump.stop()
+            delegate?.controlModeSession(
+                didTerminate: .failed(reason: "cmux-tui source operation queue exceeded its bounded capacity")
+            )
+        }
     }
 }
 

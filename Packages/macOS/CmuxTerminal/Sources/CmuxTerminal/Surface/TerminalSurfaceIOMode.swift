@@ -13,7 +13,10 @@ public enum TerminalSurfaceIOMode: Equatable, Sendable {
     /// output for rendering and encodes only user input.
     case manualMirror
 
-    var usesManualIO: Bool {
+    /// Whether the surface uses the embedder-owned input/output callbacks.
+    /// Keep this public because app-level input routing must select the same
+    /// ownership contract as the terminal runtime.
+    public var usesManualIO: Bool {
         self != .exec
     }
 

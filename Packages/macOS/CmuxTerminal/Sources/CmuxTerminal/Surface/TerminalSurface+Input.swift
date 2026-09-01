@@ -9,6 +9,16 @@ internal import CMUXDebugLog
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
 extension TerminalSurface {
+    /// Routes one normalized wheel event to a source-owned viewport. Sources
+    /// that do not expose semantic scrolling return false and keep Ghostty's
+    /// native path unchanged.
+    @MainActor
+    @discardableResult
+    public func routeManualScroll(_ event: TerminalManualScrollEvent) -> Bool {
+        guard ioMode.usesManualIO, let onManualScroll else { return false }
+        return onManualScroll(event)
+    }
+
     /// Returns the transport-owned name for a physical manual-I/O key, if any.
     @MainActor
     public func manualInputKeyName(for event: ghostty_input_key_s) -> String? {
@@ -670,7 +680,8 @@ extension TerminalSurface {
     @MainActor
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
+        guard !isBootstrappingManualGeometry,
+              let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
             pendingRemoteOutput.append(data)
             if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {
                 pendingRemoteOutput.removeFirst(pendingRemoteOutput.count - maxPendingRemoteOutputBytes)
@@ -687,6 +698,16 @@ extension TerminalSurface {
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
         remoteOutputLane.enqueue(buffered, to: surface)
+    }
+
+    @MainActor
+    @discardableResult
+    func enqueueManualRefresh(to surface: ghostty_surface_t) -> Bool {
+        guard ioMode.usesManualIO else {
+            ghostty_surface_refresh(surface)
+            return true
+        }
+        return remoteOutputLane.enqueueRefresh(to: surface)
     }
 
     static func readText(

@@ -238,6 +238,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onStartupRestoreAdmissionCancelled: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
     @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
+    /// Gives a source that owns a rendered viewport first opportunity to
+    /// handle a wheel event. Returning true means the native Ghostty scroll
+    /// path must not also consume the event.
+    @MainActor public var onManualScroll: (@MainActor (TerminalManualScrollEvent) -> Bool)?
     @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
@@ -255,6 +259,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// FIFO native-output lane for the current runtime surface generation.
     var remoteOutputLane: TerminalSurfaceRemoteOutputLane
     var remoteOutputLaneGeneration: UInt64 = 0
+    /// Last geometry snapshot copied back from the manual surface lane. Manual
+    /// callers read this value instead of touching Ghostty from the main
+    /// actor, so layout decisions cannot race output parsing.
+    @MainActor var manualGeometrySnapshot: TerminalSurfaceManualGeometrySnapshot?
+    @MainActor var manualGeometryRequestSequence: UInt64 = 0
+    @MainActor var manualGeometryAppliedSequence: UInt64 = 0
+    /// Bootstrap geometry is the only manual-surface native mutation allowed
+    /// before the pointer is published to other owners.
+    @MainActor var isBootstrappingManualGeometry = false
 
     /// The explicit startup environment overrides replayed on respawn.
     public var respawnInitialEnvironmentOverrides: [String: String] {

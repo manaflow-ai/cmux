@@ -1,44 +1,107 @@
 import Foundation
+import CmuxFoundation
+import CmuxTmuxControlMode
+
+/// The machine-readable Herdr session catalog. Keep this model separate from
+/// the Harbor tree: the catalog is a discovery boundary, while pane/workspace
+/// records are fetched through the session's JSON API below.
+struct HarborHerdrSessionCatalogEntry: Decodable, Equatable, Sendable {
+    let name: String
+    let isDefault: Bool
+    let running: Bool
+    let sessionDirectory: String
+    let socketPath: String
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case isDefault = "default"
+        case running
+        case sessionDirectory = "session_dir"
+        case socketPath = "socket_path"
+    }
+}
+
+private struct HarborHerdrSessionCatalog: Decodable {
+    let sessions: [HarborHerdrSessionCatalogEntry]
+}
 
 /// Discovers the full session tree on one host by running one POSIX-sh
-/// probe script: locally via `/bin/sh -s`, remotely via `ssh <dest> sh -s`
-/// (one round trip per host, script on stdin).
+/// probe script: locally via `/bin/sh -s`, remotely via `ssh <dest> sh -s`.
+/// Running Herdr sessions then receive bounded structured detail requests;
+/// those requests stay outside the shell grammar so paths and names remain
+/// lossless.
 ///
 /// Line protocol (tab-separated; every stanza tolerates a missing tool):
 ///   `S <tool> <session> <state> <detail>`                       session
 ///   `TW <session> <window_id> <index> <name>`                   tmux window
 ///   `TP <session> <window_id> <pane_id> <active> <command>`     tmux pane
 ///   `J <tool> <session> <kind> <one-line-json>`                 cmux-tui / herdr
+///   `C <tool> <capability> <0|1>`                                protocol capability
 enum HarborSessionProbe {
     static let script = #"""
     #!/bin/sh
     emit() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5"; }
 
-    if command -v tmux >/dev/null 2>&1; then
-      tmux ls -F '#{session_name}	#{?session_attached,attached,detached}	#{session_windows}w' 2>/dev/null |
+    # GUI launches do not promise the interactive shell's PATH. Resolve each
+    # optional tool to an executable path before probing it, while retaining a
+    # PATH fallback for custom installations and remote hosts.
+    resolve_tool() {
+      tool="$1"
+      for candidate in \
+        "${HOME:-}/.local/bin/$tool" \
+        "/opt/homebrew/bin/$tool" \
+        "/usr/local/bin/$tool" \
+        "/opt/local/bin/$tool" \
+        "/usr/bin/$tool" \
+        "/bin/$tool"; do
+        [ -n "$candidate" ] && [ -x "$candidate" ] && { printf '%s' "$candidate"; return 0; }
+      done
+      command -v "$tool" 2>/dev/null || true
+    }
+
+    TMUX_BIN=$(resolve_tool tmux)
+    ZELLIJ_BIN=$(resolve_tool zellij)
+    SCREEN_BIN=$(resolve_tool screen)
+    ZMX_BIN=$(resolve_tool zmx)
+    HERDR_BIN="${CMUX_HARBOR_HERDR_BINARY:-}"
+    if [ -z "$HERDR_BIN" ] || [ ! -x "$HERDR_BIN" ]; then HERDR_BIN=$(resolve_tool herdr); fi
+
+    if [ -n "$TMUX_BIN" ]; then
+      "$TMUX_BIN" ls -F '#{session_name}	#{?session_attached,attached,detached}	#{session_windows}w' 2>/dev/null |
       while IFS='	' read -r n st d; do emit S tmux "$n" "$st" "$d"; done
-      tmux list-windows -a -F 'TW	#{session_name}	#{window_id}	#{window_index}	#{window_name}' 2>/dev/null
-      tmux list-panes -a -F 'TP	#{session_name}	#{window_id}	#{pane_id}	#{pane_active}	#{pane_current_command}' 2>/dev/null
+      "$TMUX_BIN" list-windows -a -F 'TW	#{session_name}	#{window_id}	#{window_index}	#{window_name}' 2>/dev/null
+      "$TMUX_BIN" list-panes -a -F 'TP	#{session_name}	#{window_id}	#{pane_id}	#{pane_active}	#{pane_current_command}' 2>/dev/null
     fi
 
-    if command -v zellij >/dev/null 2>&1; then
-      zellij list-sessions --no-formatting 2>/dev/null |
-      while read -r n rest; do
-        case "$rest" in *EXITED*) st=exited;; *) st=detached;; esac
-        [ -n "$n" ] && emit S zellij "$n" "$st" ""
+    if [ -n "$ZELLIJ_BIN" ]; then
+      if "$ZELLIJ_BIN" subscribe --help 2>&1 | grep -q -- '--format'; then
+        printf 'C\tzellij\tsubscribe\t1\n'
+      else
+        printf 'C\tzellij\tsubscribe\t0\n'
+      fi
+      "$ZELLIJ_BIN" list-sessions --no-formatting 2>/dev/null |
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        case "$line" in *"(EXITED - attach to resurrect)"*) st=exited;; *) st=detached;; esac
+        n="${line%% \[Created*}"
+        if [ -n "$n" ]; then
+          emit S zellij "$n" "$st" ""
+          panes=$("$ZELLIJ_BIN" --session "$n" action list-panes --all --json 2>/dev/null | tr -d '\n')
+          [ -n "$panes" ] && printf 'J\tzellij\t%s\tpane-list\t%s\n' "$n" "$panes"
+        fi
       done
     fi
 
-    if command -v screen >/dev/null 2>&1; then
-      screen -ls 2>/dev/null | sed -n 's/^[[:space:]]\{1,\}\([^[:space:]]*\)[[:space:]]*(\(.*\))/\1	\2/p' |
+    if [ -n "$SCREEN_BIN" ]; then
+      "$SCREEN_BIN" -ls 2>/dev/null | sed -n 's/^[[:space:]]\{1,\}\([^[:space:]]*\)[[:space:]]*(\(.*\))/\1	\2/p' |
       while IFS='	' read -r n st; do
         case "$st" in *ttached*) s=attached;; *) s=detached;; esac
         emit S screen "$n" "$s" ""
       done
     fi
 
-    if command -v zmx >/dev/null 2>&1; then
-      zmx list 2>/dev/null | while read -r line; do
+    if [ -n "$ZMX_BIN" ]; then
+      "$ZMX_BIN" list 2>/dev/null | while IFS= read -r line; do
         n=""; c=""
         for kv in $line; do
           case "$kv" in name=*) n=${kv#name=};; clients=*) c=${kv#clients=};; esac
@@ -49,25 +112,36 @@ enum HarborSessionProbe {
       done
     fi
 
-    if command -v herdr >/dev/null 2>&1; then
-      herdr session list 2>/dev/null | sed '1d' |
-      while read -r n st dir _; do
-        [ -n "$n" ] || continue
-        emit S herdr "$n" "$st" "$dir"
-        if [ "$st" = "running" ]; then
-          for kind in "workspace list" "tab list" "pane list" "agent list"; do
-            j=$(herdr --session "$n" $kind 2>/dev/null | head -1)
-            [ -n "$j" ] && printf 'J\therdr\t%s\t%s\t%s\n' "$n" "$(echo "$kind" | tr ' ' -)" "$j"
-          done
-        fi
+    if [ -n "$HERDR_BIN" ]; then
+      # `--help` is the capability contract. Do not grep for record names:
+      # Herdr's help text is intentionally short and may omit protocol details
+      # while the command remains fully supported.
+      if "$HERDR_BIN" terminal session control --help >/dev/null 2>&1; then
+        printf 'C\therdr\tcontrol\t1\n'
+      else
+        printf 'C\therdr\tcontrol\t0\n'
+      fi
+      catalog=$("$HERDR_BIN" session list --json 2>/dev/null | tr -d '\n')
+      if [ -n "$catalog" ]; then
+        printf 'J\therdr\t__catalog__\tsession-list\t%s\n' "$catalog"
+      else
+        "$HERDR_BIN" session list 2>/dev/null | sed '1d' |
+        while read -r n st _; do
+          [ -n "$n" ] || continue
+          emit S herdr "$n" "$st" ""
       done
+      fi
     fi
 
     CT="${CMUX_HARBOR_TUI_BINARY:-}"
     if [ -n "$CT" ] && [ ! -x "$CT" ]; then CT=""; fi
-    if [ -z "$CT" ] && command -v cmux-tui >/dev/null 2>&1; then CT=cmux-tui
-    elif [ -z "$CT" ] && [ -x "$HOME/.local/bin/cmux-tui" ]; then CT="$HOME/.local/bin/cmux-tui"; fi
+    if [ -z "$CT" ]; then CT=$(resolve_tool cmux-tui); fi
     if [ -n "$CT" ]; then
+      if "$CT" attach --help 2>&1 | grep -q -- '--pipe-io'; then
+        printf 'C\tcmux-tui\tpipe-io\t1\n'
+      else
+        printf 'C\tcmux-tui\tpipe-io\t0\n'
+      fi
       for d in "${TMPDIR:-/tmp}/cmux-tui-$(id -u)" "/tmp/cmux-tui-$(id -u)"; do
         [ -d "$d" ] || continue
         for s in "$d"/*.sock; do
@@ -113,7 +187,13 @@ enum HarborSessionProbe {
         }
         let environment: [String: String]?
         if host.isLocal {
-            environment = ["CMUX_HARBOR_TUI_BINARY": TuiTerminalAttachBridge.configuredBinaryPath]
+            var localEnvironment: [String: String] = [
+                "CMUX_HARBOR_TUI_BINARY": TuiTerminalAttachBridge.configuredBinaryPath
+            ]
+            if let herdr = HerdrControlModeGateway.resolveHerdrExecutable() {
+                localEnvironment["CMUX_HARBOR_HERDR_BINARY"] = herdr
+            }
+            environment = localEnvironment
         } else {
             environment = nil
         }
@@ -123,7 +203,21 @@ enum HarborSessionProbe {
             timeout: timeout,
             environment: environment
         )
-        return HarborProbeOutputParser.sessions(fromProbeOutput: output, host: host, ownSessionName: ownSessionName)
+        let sessions = HarborProbeOutputParser.sessions(
+            fromProbeOutput: output,
+            host: host,
+            ownSessionName: ownSessionName
+        )
+        return await enrichHerdrDetails(
+            sessions,
+            host: host,
+            controlSupported: HarborProbeOutputParser.capability(
+                "control",
+                for: .herdr,
+                fromProbeOutput: output
+            ) == true,
+            timeout: timeout
+        )
     }
 
     /// Compatibility overload for the original session-only panel. Keep the
@@ -156,80 +250,243 @@ enum HarborSessionProbe {
         timeout: TimeInterval,
         environment: [String: String]? = nil
     ) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(with: Result {
-                    try runScriptBlocking(
-                        executable: executable,
-                        arguments: arguments,
-                        timeout: timeout,
-                        environment: environment
-                    )
-                })
+        let result = await CommandRunner().run(
+            directory: NSTemporaryDirectory(),
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            environmentOverrides: environment,
+            standardInput: Data(script.utf8)
+        )
+        if result.timedOut {
+            throw ProbeError.timedOut
+        }
+        if let executionError = result.executionError {
+            _ = executionError
+            throw ProbeError.launchFailed
+        }
+        guard result.exitStatus == 0 else {
+            throw ProbeError.failed(
+                exitCode: result.exitStatus ?? -1,
+                stderr: result.stderr ?? ""
+            )
+        }
+        return result.stdout ?? ""
+    }
+
+    /// Fetches Herdr's structured workspace, pane, and agent records after
+    /// decoding the session catalog. The extra calls are intentional: Herdr
+    /// exposes each resource through its own JSON API, and forcing those
+    /// objects through the shell's whitespace grammar would corrupt paths or
+    /// names. Four sessions are enriched at once to keep a large Harbor
+    /// refresh bounded without serializing every SSH round trip.
+    private static func enrichHerdrDetails(
+        _ sessions: [HarborSessionInfo],
+        host: HarborHostRef,
+        controlSupported: Bool,
+        timeout: TimeInterval
+    ) async -> [HarborSessionInfo] {
+        let running = sessions.filter { $0.tool == .herdr && $0.state == .running }
+        guard !running.isEmpty else { return sessions }
+
+        var detailsBySession: [String: [String: Data]] = [:]
+        let batchSize = 4
+        for start in stride(from: 0, to: running.count, by: batchSize) {
+            let end = min(start + batchSize, running.count)
+            let batch = running[start..<end]
+            await withTaskGroup(of: (String, [String: Data]).self) { group in
+                for session in batch {
+                    group.addTask {
+                        (
+                            session.name,
+                            await herdrDetails(
+                                host: host,
+                                sessionName: session.name,
+                                timeout: min(timeout, 5)
+                            )
+                        )
+                    }
+                }
+                for await (name, details) in group {
+                    detailsBySession[name] = details
+                }
             }
+        }
+
+        return sessions.map { session in
+            guard session.tool == .herdr,
+                  let details = detailsBySession[session.name],
+                  !details.isEmpty else {
+                return session
+            }
+            var synthetic = "C\therdr\tcontrol\t\(controlSupported ? 1 : 0)\n"
+            synthetic += "S\therdr\t\(session.name)\t\(session.state.rawValue)\t\(session.detail)\n"
+            for kind in ["workspace-list", "pane-list", "agent-list"] {
+                guard let data = details[kind],
+                      let json = String(data: data, encoding: .utf8) else {
+                    continue
+                }
+                synthetic += "J\therdr\t\(session.name)\t\(kind)\t\(json)\n"
+            }
+            return HarborProbeOutputParser.sessions(
+                fromProbeOutput: synthetic,
+                host: host
+            ).first ?? session
         }
     }
 
-    private static func runScriptBlocking(
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval,
-        environment: [String: String]? = nil
-    ) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        if let environment {
-            process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
-        }
-        let stdin = Pipe()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardInput = stdin
-        process.standardOutput = stdout
-        process.standardError = stderr
-        let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in finished.signal() }
-        do {
-            try process.run()
-        } catch {
-            throw ProbeError.launchFailed
-        }
-        stdin.fileHandleForWriting.write(Data(script.utf8))
-        try? stdin.fileHandleForWriting.close()
+    private static let herdrDetailCommands: [(kind: String, arguments: [String])] = [
+        ("workspace-list", ["workspace", "list"]),
+        ("pane-list", ["pane", "list"]),
+        ("agent-list", ["agent", "list"]),
+    ]
 
-        // Drain both pipes off-thread so a chatty probe cannot deadlock on a
-        // full pipe buffer before the termination handler fires.
-        let outputBox = HarborProbeOutputBox()
-        let drained = DispatchSemaphore(value: 0)
-        let stdoutHandle = stdout.fileHandleForReading
-        let stderrHandle = stderr.fileHandleForReading
-        DispatchQueue.global(qos: .userInitiated).async {
-            outputBox.storeStdout(stdoutHandle.readDataToEndOfFile())
-            drained.signal()
+    private static func herdrDetails(
+        host: HarborHostRef,
+        sessionName: String,
+        timeout: TimeInterval
+    ) async -> [String: Data] {
+        await withTaskGroup(of: (String, Data?).self, returning: [String: Data].self) { group in
+            for command in herdrDetailCommands {
+                group.addTask {
+                    (
+                        command.kind,
+                        await runHerdrCommand(
+                            host: host,
+                            sessionName: sessionName,
+                            arguments: command.arguments,
+                            timeout: timeout
+                        )
+                    )
+                }
+            }
+            var result: [String: Data] = [:]
+            for await (kind, data) in group {
+                if let data { result[kind] = data }
+            }
+            return result
         }
-        DispatchQueue.global(qos: .userInitiated).async {
-            outputBox.storeStderr(stderrHandle.readDataToEndOfFile())
-            drained.signal()
-        }
-        guard finished.wait(timeout: .now() + timeout) == .success else {
-            process.terminate()
-            throw ProbeError.timedOut
-        }
-        _ = drained.wait(timeout: .now() + 2)
-        _ = drained.wait(timeout: .now() + 2)
-        guard process.terminationStatus == 0 else {
-            throw ProbeError.failed(
-                exitCode: process.terminationStatus,
-                stderr: String(data: outputBox.takeStderr(), encoding: .utf8) ?? ""
+    }
+
+    private static func runHerdrCommand(
+        host: HarborHostRef,
+        sessionName: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) async -> Data? {
+        let result: CommandResult
+        switch host {
+        case .local:
+            let executable = HerdrControlModeGateway.resolveHerdrExecutable() ?? "herdr"
+            result = await CommandRunner().run(
+                directory: NSTemporaryDirectory(),
+                executable: executable,
+                arguments: ["--session", sessionName] + arguments,
+                timeout: timeout
+            )
+        case .ssh(let destination):
+            let remoteCommand = (["herdr", "--session", sessionName] + arguments)
+                .map(shellQuote)
+                .joined(separator: " ")
+            result = await CommandRunner().run(
+                directory: NSTemporaryDirectory(),
+                executable: "/usr/bin/ssh",
+                arguments: [
+                    "-T",
+                    "-o", "EscapeChar=none",
+                    "-o", "BatchMode=yes",
+                    "-o", "ConnectTimeout=6",
+                    "--", destination, remoteCommand,
+                ],
+                timeout: timeout
             )
         }
-        return String(data: outputBox.takeStdout(), encoding: .utf8) ?? ""
+        guard result.executionError == nil,
+              !result.timedOut,
+              result.exitStatus == 0,
+              let stdout = result.stdout,
+              let data = stdout.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let compact = try? JSONSerialization.data(withJSONObject: object) else {
+            return nil
+        }
+        return compact
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
 /// Assembles probe lines into per-session trees.
 enum HarborProbeOutputParser {
+    /// The JSON shape emitted by `zellij action list-panes --all --json`.
+    /// Fields are optional because older Zellij versions omit fields unless a
+    /// corresponding `--all` component is supported. `id` is the only field
+    /// required to address a terminal action.
+    private struct ZellijPaneRecord: Decodable, Sendable {
+        let id: Int
+        let isPlugin: Bool?
+        let isFocused: Bool?
+        let isSuppressed: Bool?
+        let title: String?
+        let exited: Bool?
+        let tabID: Int?
+        let tabPosition: Int?
+        let tabName: String?
+        let paneCommand: String?
+        let terminalCommand: String?
+        let paneCwd: String?
+        let isSelectable: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case isPlugin = "is_plugin"
+            case isFocused = "is_focused"
+            case isSuppressed = "is_suppressed"
+            case title
+            case exited
+            case tabID = "tab_id"
+            case tabPosition = "tab_position"
+            case tabName = "tab_name"
+            case paneCommand = "pane_command"
+            case terminalCommand = "terminal_command"
+            case paneCwd = "pane_cwd"
+            case isSelectable = "is_selectable"
+        }
+    }
+
+    /// Reads one capability record without accepting a missing record as
+    /// support. Discovery uses this to preserve the remote host's advertised
+    /// Herdr control capability while enriching its JSON catalog.
+    static func capability(
+        _ capability: String,
+        for tool: HarborTool,
+        fromProbeOutput output: String
+    ) -> Bool? {
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 4,
+                  fields[0] == "C",
+                  fields[1] == tool.rawValue,
+                  fields[2] == capability else {
+                continue
+            }
+            return fields[3] == "1"
+        }
+        return nil
+    }
+
+    private static func capabilityValue(
+        tool: HarborTool,
+        name: String,
+        capabilities: [String: Bool]
+    ) -> Bool {
+        capabilities["\(tool.rawValue)/\(name)"]
+            ?? capabilities[tool.rawValue]
+            ?? false
+    }
+
     /// Compatibility flattening used by the first Harbor panel revision.
     static func sessions(
         fromProbeOutput output: String,
@@ -257,28 +514,40 @@ enum HarborProbeOutputParser {
         var tmuxWindows: [String: [(id: Int, index: Int, name: String)]] = [:]
         var tmuxPanes: [String: [Int: [(paneID: Int, active: Bool, command: String)]]] = [:]
         var jsonLines: [String: [String: Data]] = [:]
+        var capabilities: [String: Bool] = [:]
+        var herdrCatalogEntries: [HarborHerdrSessionCatalogEntry] = []
 
         func sessionKey(_ tool: HarborTool, _ name: String) -> String { "\(tool.rawValue)/\(name)" }
+
+        func addSession(
+            tool: HarborTool,
+            name: String,
+            state: HarborSessionState,
+            detail: String
+        ) {
+            guard !name.isEmpty else { return }
+            if tool == .cmuxTui,
+               HarborSessionInfo.isCmuxInfrastructureSession(name: name, ownSessionName: ownSessionName) {
+                return
+            }
+            let key = sessionKey(tool, name)
+            if sessions[key] == nil {
+                sessionOrder.append(key)
+            }
+            sessions[key] = (tool, state, detail)
+        }
 
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
             let fields = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
             switch fields.first {
             case "S":
                 guard fields.count >= 4, let tool = HarborTool(rawValue: fields[1]) else { continue }
-                let name = fields[2]
-                guard !name.isEmpty else { continue }
-                if tool == .cmuxTui,
-                   HarborSessionInfo.isCmuxInfrastructureSession(name: name, ownSessionName: ownSessionName) {
-                    continue
-                }
-                let key = sessionKey(tool, name)
-                guard sessions[key] == nil else { continue }
-                sessions[key] = (
-                    tool,
-                    HarborSessionState(rawValue: fields[3]) ?? .unknown,
-                    fields.count > 4 ? fields[4] : ""
+                addSession(
+                    tool: tool,
+                    name: fields[2],
+                    state: HarborSessionState(rawValue: fields[3]) ?? .unknown,
+                    detail: fields.count > 4 ? fields[4] : ""
                 )
-                sessionOrder.append(key)
             case "TW":
                 guard fields.count >= 5,
                       let windowID = tmuxID(fields[2], prefix: "@"),
@@ -288,15 +557,36 @@ enum HarborProbeOutputParser {
                 guard fields.count >= 4,
                       let windowID = tmuxID(fields[2], prefix: "@"),
                       let paneID = tmuxID(fields[3], prefix: "%") else { continue }
-                let active = fields.count > 4 && fields[4].hasPrefix("1")
-                let command = fields.count > 4
-                    ? fields[4].split(separator: "\t").dropFirst().first.map(String.init) ?? ""
-                    : ""
+                // The line parser deliberately stops after four separators so
+                // a session detail can contain tabs. For a TP record, split
+                // the retained tail once more into the active bit and the
+                // command. The old code dropped the command by trying to skip
+                // a tab that had already been retained in `fields[4]`.
+                let tail = fields.count > 4 ? fields[4] : ""
+                let paneFields = tail.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+                let active = paneFields.first == "1"
+                let command = paneFields.count > 1 ? String(paneFields[1]) : ""
                 tmuxPanes[fields[1], default: [:]][windowID, default: []]
                     .append((paneID, active, command))
             case "J":
                 guard fields.count >= 5, let tool = HarborTool(rawValue: fields[1]) else { continue }
+                if tool == .herdr,
+                   fields[2] == "__catalog__",
+                   fields[3] == "session-list",
+                   let data = fields[4].data(using: .utf8),
+                   let catalog = try? JSONDecoder().decode(HarborHerdrSessionCatalog.self, from: data) {
+                    herdrCatalogEntries = catalog.sessions
+                    continue
+                }
                 jsonLines[sessionKey(tool, fields[2]), default: [:]][fields[3]] = Data(fields[4].utf8)
+            case "C":
+                guard fields.count >= 4, HarborTool(rawValue: fields[1]) != nil else { continue }
+                // Keep both the named capability and the legacy tool-only
+                // value. The latter preserves old fixtures; new adapters must
+                // request a specific capability so one tool cannot
+                // accidentally inherit another protocol's result.
+                capabilities["\(fields[1])/\(fields[2])"] = fields[3] == "1"
+                capabilities[fields[1]] = capabilities[fields[1]] ?? (fields[3] == "1")
             default:
                 // Keep accepting the four-column protocol emitted by the
                 // first Harbor build. This is useful for persisted probe
@@ -305,21 +595,25 @@ enum HarborProbeOutputParser {
                 guard fields.count >= 3,
                       let rawTool = fields.first,
                       let tool = HarborTool(rawValue: rawTool) else { continue }
-                let name = fields[1]
-                guard !name.isEmpty else { continue }
-                if tool == .cmuxTui,
-                   HarborSessionInfo.isCmuxInfrastructureSession(name: name, ownSessionName: ownSessionName) {
-                    continue
-                }
-                let key = sessionKey(tool, name)
-                guard sessions[key] == nil else { continue }
-                sessions[key] = (
-                    tool,
-                    HarborSessionState(rawValue: fields[2]) ?? .unknown,
-                    fields.count > 3 ? fields[3] : ""
+                addSession(
+                    tool: tool,
+                    name: fields[1],
+                    state: HarborSessionState(rawValue: fields[2]) ?? .unknown,
+                    detail: fields.count > 3 ? fields[3] : ""
                 )
-                sessionOrder.append(key)
             }
+        }
+
+        // A JSON catalog is authoritative for Herdr identity. Add it after
+        // the line scan so an older helper's S record can be upgraded with
+        // the canonical socket path without duplicating the row.
+        for entry in herdrCatalogEntries {
+            addSession(
+                tool: .herdr,
+                name: entry.name,
+                state: entry.running ? .running : .stopped,
+                detail: entry.socketPath
+            )
         }
 
         return sessionOrder.compactMap { key -> HarborSessionInfo? in
@@ -334,14 +628,35 @@ enum HarborProbeOutputParser {
             case .cmuxTui:
                 return tuiSessionInfo(
                     host: host, name: name, state: base.state, socketPath: base.detail,
-                    json: jsonLines[key] ?? [:]
+                    json: jsonLines[key] ?? [:],
+                    // A direct renderer-less attach is enabled only when the
+                    // probe positively verified the exact client capability.
+                    // Missing capability metadata means an older or truncated
+                    // probe, not proof that the protocol exists.
+                    directAttachSupported: capabilityValue(
+                        tool: .cmuxTui, name: "pipe-io", capabilities: capabilities
+                    )
                 )
             case .herdr:
                 return herdrSessionInfo(
                     host: host, name: name, state: base.state, detail: base.detail,
-                    json: jsonLines[key] ?? [:]
+                    json: jsonLines[key] ?? [:],
+                    directAttachSupported: capabilityValue(
+                        tool: .herdr, name: "control", capabilities: capabilities
+                    )
                 )
-            case .zellij, .screen, .zmx:
+            case .zellij:
+                return zellijSessionInfo(
+                    host: host,
+                    name: name,
+                    state: base.state,
+                    detail: base.detail,
+                    json: jsonLines[key] ?? [:],
+                    directAttachSupported: capabilityValue(
+                        tool: .zellij, name: "subscribe", capabilities: capabilities
+                    )
+                )
+            case .screen, .zmx:
                 return HarborSessionInfo(
                     tool: base.tool, name: name, state: base.state, detail: base.detail,
                     windows: [], looseTerminals: []
@@ -384,12 +699,87 @@ enum HarborProbeOutputParser {
         )
     }
 
+    private static func zellijSessionInfo(
+        host: HarborHostRef,
+        name: String,
+        state: HarborSessionState,
+        detail: String,
+        json: [String: Data],
+        directAttachSupported: Bool
+    ) -> HarborSessionInfo {
+        let decoder = JSONDecoder()
+        let records = (json["pane-list"].flatMap {
+            try? decoder.decode([ZellijPaneRecord].self, from: $0)
+        }) ?? []
+
+        var tabs: [Int: [HarborTerminalInfo]] = [:]
+        var tabLabels: [Int: (position: Int, name: String)] = [:]
+        var loose: [HarborTerminalInfo] = []
+        for record in records {
+            // Harbor lists terminal panes only. Zellij's tab/status plugins
+            // are not user terminals and cannot accept terminal input.
+            guard record.isPlugin != true,
+                  record.isSelectable != false,
+                  record.isSuppressed != true,
+                  record.exited != true else { continue }
+            let paneID = "terminal_\(record.id)"
+            let title = record.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? record.paneCommand
+                ?? record.terminalCommand
+                ?? paneID
+            let info = HarborTerminalInfo(
+                leaf: directAttachSupported ? .zellijPane(
+                    host: host, sessionName: name, paneID: paneID
+                ) : nil,
+                shortID: paneID,
+                title: title,
+                isActive: record.isFocused == true,
+                cwd: record.paneCwd,
+                stableID: paneID
+            )
+            guard let tabID = record.tabID else {
+                loose.append(info)
+                continue
+            }
+            tabs[tabID, default: []].append(info)
+            tabLabels[tabID] = (
+                position: record.tabPosition ?? tabID,
+                name: record.tabName?.isEmpty == false ? record.tabName! : "Tab #\(record.tabPosition ?? tabID + 1)"
+            )
+        }
+
+        let windows = tabs.keys.sorted { lhs, rhs in
+            let left = tabLabels[lhs]?.position ?? lhs
+            let right = tabLabels[rhs]?.position ?? rhs
+            return left == right ? lhs < rhs : left < right
+        }.compactMap { tabID -> HarborWindowInfo? in
+            guard let terminals = tabs[tabID], !terminals.isEmpty else { return nil }
+            let labelInfo = tabLabels[tabID]
+            let position = labelInfo?.position ?? tabID
+            let label = labelInfo?.name ?? "Tab #\(position + 1)"
+            return HarborWindowInfo(
+                id: "tab_\(tabID)",
+                label: "\(position + 1): \(label)",
+                terminals: terminals
+            )
+        }
+        return HarborSessionInfo(
+            tool: .zellij,
+            name: name,
+            state: state,
+            detail: detail,
+            windows: windows,
+            looseTerminals: loose
+        )
+    }
+
     private static func tuiSessionInfo(
         host: HarborHostRef,
         name: String,
         state: HarborSessionState,
         socketPath: String,
-        json: [String: Data]
+        json: [String: Data],
+        directAttachSupported: Bool = false
     ) -> HarborSessionInfo {
         struct TuiWorkspace: Decodable {
             let id: String
@@ -440,10 +830,10 @@ enum HarborProbeOutputParser {
 
         func terminalInfo(_ terminal: TuiTerminal) -> HarborTerminalInfo {
             HarborTerminalInfo(
-                leaf: .tuiTerminal(
+                leaf: directAttachSupported ? .tuiTerminal(
                     host: host, sessionName: name,
                     socketPath: localSocketPath, terminalID: terminal.id
-                ),
+                ) : nil,
                 shortID: String(terminal.id.prefix(12)),
                 title: terminal.title ?? "",
                 isActive: terminal.tab_id.map(focusedTabs.contains) ?? false,
@@ -527,7 +917,8 @@ enum HarborProbeOutputParser {
         name: String,
         state: HarborSessionState,
         detail: String,
-        json: [String: Data]
+        json: [String: Data],
+        directAttachSupported: Bool = false
     ) -> HarborSessionInfo {
         struct Envelope<T: Decodable>: Decodable { let result: T }
         struct WorkspaceList: Decodable {
@@ -608,9 +999,9 @@ enum HarborProbeOutputParser {
                 priority: agentPriority
             )
             let info = HarborTerminalInfo(
-                leaf: pane.terminal_id.map {
+                leaf: directAttachSupported ? pane.terminal_id.map {
                     .herdrTerminal(host: host, sessionName: name, paneID: paneID, terminalID: $0)
-                } ?? .herdrPane(host: host, sessionName: name, paneID: paneID),
+                } ?? .herdrPane(host: host, sessionName: name, paneID: paneID) : nil,
                 shortID: paneID,
                 title: pane.terminal_title ?? "",
                 isActive: pane.focused ?? false,
@@ -656,36 +1047,5 @@ enum HarborProbeOutputParser {
             message: message,
             priority: priority
         )
-    }
-}
-
-/// Lock-guarded buffers for the off-thread probe pipe drains.
-private final class HarborProbeOutputBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stdout = Data()
-    private var stderr = Data()
-
-    func storeStdout(_ data: Data) {
-        lock.lock()
-        stdout = data
-        lock.unlock()
-    }
-
-    func storeStderr(_ data: Data) {
-        lock.lock()
-        stderr = data
-        lock.unlock()
-    }
-
-    func takeStdout() -> Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return stdout
-    }
-
-    func takeStderr() -> Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return stderr
     }
 }

@@ -492,6 +492,18 @@ bool ghostty_surface_rebuild_renderer(void *surface) {
 }
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
+bool ghostty_surface_set_grid_size(
+    void *surface,
+    uint16_t columns,
+    uint16_t rows,
+    void *resolved
+) {
+    (void)surface;
+    (void)columns;
+    (void)rows;
+    (void)resolved;
+    return false;
+}
 void ghostty_surface_text(void) {}
 void ghostty_surface_text_input(void) {}
 void ghostty_surface_update_config(void *surface, void *raw_config) {

@@ -19,9 +19,6 @@ struct HarborPanelView: View {
             header
                 .rightSidebarChromeBar()
                 .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
-            if !TuiTerminalAttachBridge.isManualIOEnabled {
-                manualIOOffNotice
-            }
             HarborTreeOutlineView(
                 snapshots: viewModel.snapshots,
                 onAttach: attach,
@@ -85,19 +82,6 @@ struct HarborPanelView: View {
             }
         }
         .padding(12)
-    }
-
-    private var manualIOOffNotice: some View {
-        Text(String(
-            localized: "harbor.notice.manualIOOff",
-            defaultValue: "Manual IO beta is off. Harbor drops open in a plain terminal instead of a daemon-backed pane."
-        ))
-        .cmuxFont(size: 11)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.yellow.opacity(0.12))
     }
 
     private func submitNewHost() {
@@ -279,13 +263,8 @@ struct HarborTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            guard let node = item as? HarborTreeNode else { return 24 }
-            switch node.kind {
-            case .host: return 34
-            case .terminal(_, _, let info):
-                return info.agent == nil && info.cwd == nil ? 25 : 34
-            case .session, .windowGroup, .placeholder: return 25
-            }
+            _ = item
+            return 24
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool { true }
@@ -325,10 +304,13 @@ struct HarborTreeOutlineView: NSViewRepresentable {
         }
 
         private func open(_ node: HarborTreeNode) {
-            if let item = node.dragItem {
-                onAttach(item)
-            } else if node.isExpandable {
+            // Disclosure is the primary action for a branch. A session row
+            // also has a fallback attach item, but opening it must not skip
+            // its discovered panes and make the hierarchy feel inert.
+            if node.isExpandable {
                 toggle(node)
+            } else if let item = node.dragItem {
+                onAttach(item)
             }
         }
 
@@ -401,12 +383,24 @@ struct HarborTreeOutlineView: NSViewRepresentable {
                 if let item = node.dragItem {
                     items.append(harborMenuItem(String(localized: "harbor.row.attach", defaultValue: "Attach in Current Workspace")) { [onAttach] in onAttach(item) })
                 } else {
-                    let item = HarborDragItem.sessionTUI(host: host, tool: info.tool, sessionName: info.name, state: info.state)
+                    let item = HarborDragItem.sessionTUI(
+                        host: host,
+                        tool: info.tool,
+                        sessionName: info.name,
+                        state: info.state,
+                        socketPath: info.tool == .cmuxTui ? info.detail : nil
+                    )
                     items.append(harborMenuItem(String(localized: "harbor.menu.attachSession", defaultValue: "Attach Session")) { [onAttach] in onAttach(item) })
                 }
                 items.append(harborMenuItem(String(localized: "harbor.menu.copyCommand", defaultValue: "Copy Attach Command")) {
                     [self] in
-                    self.copy(HarborAttachCommand.shellCommand(host: host, tool: info.tool, name: info.name, state: info.state))
+                    self.copy(HarborAttachCommand.shellCommand(
+                        host: host,
+                        tool: info.tool,
+                        name: info.name,
+                        state: info.state,
+                        socketPath: info.tool == .cmuxTui ? info.detail : nil
+                    ))
                 })
                 return items
             case .terminal(_, _, _):
@@ -570,8 +564,8 @@ final class HarborPassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// Compact two-line row content. Agent state is shown before terminal title so
-/// blocked or working sessions remain visible while the command line changes.
+/// One-line row content. Secondary metadata remains searchable and in the
+/// accessibility tooltip, while the outline stays usable at narrow widths.
 struct HarborTreeRowContent: View {
     let kind: HarborTreeNode.Kind
 
@@ -586,90 +580,69 @@ struct HarborTreeRowContent: View {
     }
 
     private func hostRow(host: HarborHostRef, status: HarborHostSnapshot.Status) -> some View {
-        let subtitle: String
-        switch status {
-        case .loading: subtitle = String(localized: "harbor.refreshing", defaultValue: "Scanning…")
-        case .loaded: subtitle = String(localized: "harbor.host.ready", defaultValue: "Ready")
-        case .unreachable(let reason):
-            subtitle = String(format: String(localized: "harbor.host.unreachable", defaultValue: "Unreachable: %@"), reason)
-        }
-        return HStack(alignment: .top, spacing: 7) {
+        return HStack(spacing: 7) {
             Image(systemName: host.isLocal ? "laptopcomputer" : "network")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(width: 15)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(host.displayName)
-                    .cmuxFont(size: 12, weight: .semibold)
-                    .lineLimit(1)
-                Text(subtitle)
-                    .cmuxFont(size: 10)
-                    .foregroundStyle(statusColor(status))
-                    .lineLimit(1)
-            }
+            Text(host.displayName)
+                .cmuxFont(size: 12, weight: .semibold)
+                .lineLimit(1)
             Spacer(minLength: 0)
+            Circle()
+                .fill(statusColor(status))
+                .frame(width: 6, height: 6)
+                .help(hostStatusDescription(status))
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 2)
         .padding(.trailing, 6)
     }
 
     private func sessionRow(host: HarborHostRef, info: HarborSessionInfo) -> some View {
-        let terminalCount = info.windows.reduce(0) { $0 + $1.terminals.count } + info.looseTerminals.count
-        let detail = terminalCount > 0
-            ? String(format: String(localized: "harbor.session.terminalCount", defaultValue: "%d terminals · %@"), terminalCount, info.state.label)
-            : info.state.label
-        return simpleRow(
-            icon: info.tool.symbolName,
-            tint: toolColor(info.tool),
-            title: info.name,
-            detail: "\(info.tool.displayName) · \(detail)"
-        )
+        _ = host
+        return HStack(spacing: 7) {
+            Image(systemName: info.tool.symbolName)
+                .font(.system(size: 10.5))
+                .foregroundStyle(toolColor(info.tool))
+                .frame(width: 15)
+            Text(info.name)
+                .cmuxFont(size: 12, weight: .regular)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Circle()
+                .fill(sessionStateColor(info.state))
+                .frame(width: 6, height: 6)
+                .help(info.state.label)
+        }
+        .padding(.vertical, 2)
+        .padding(.trailing, 6)
     }
 
     private func terminalRow(host: HarborHostRef, tool: HarborTool, info: HarborTerminalInfo) -> some View {
         let primary = info.agent?.displayName ?? (info.title.isEmpty ? info.shortID : info.title)
-        let secondary: String? = {
-            if let message = info.agent?.message, !message.isEmpty { return message }
-            if let cwd = info.cwd, !cwd.isEmpty { return abbreviated(cwd) }
-            if let agent = info.agent { return agent.state.label }
-            return nil
-        }()
-        return HStack(alignment: .top, spacing: 7) {
+        _ = host
+        return HStack(spacing: 7) {
             Image(systemName: info.isActive ? "terminal.fill" : "terminal")
                 .font(.system(size: 10.5))
                 .foregroundStyle(toolColor(tool))
-                .frame(width: 15, height: 17)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(primary)
-                        .cmuxFont(size: 12, weight: info.agent == nil ? .regular : .medium)
-                        .foregroundStyle(info.agent.map { agentColor($0.state) } ?? Color.primary)
-                        .lineLimit(1)
-                    if let agent = info.agent {
-                        Text(agent.state.label)
-                            .cmuxFont(size: 9)
-                            .foregroundStyle(agentColor(agent.state))
-                            .lineLimit(1)
-                    }
-                }
-                if let secondary {
-                    Text(secondary)
-                        .cmuxFont(size: 10)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
+                .frame(width: 15)
+            Text(primary)
+                .cmuxFont(size: 12, weight: info.agent == nil ? .regular : .medium)
+                .lineLimit(1)
             Spacer(minLength: 0)
-            if info.isActive {
+            if let agent = info.agent {
+                Circle()
+                    .fill(agentColor(agent.state))
+                    .frame(width: 6, height: 6)
+                    .help(agent.state.label)
+            } else if info.isActive {
                 Circle()
                     .fill(Color.green)
                     .frame(width: 6, height: 6)
-                    .padding(.top, 5)
                     .help(String(localized: "harbor.terminal.active", defaultValue: "Active"))
             }
         }
-        .padding(.vertical, secondary == nil ? 3 : 2)
+        .padding(.vertical, 2)
         .padding(.trailing, 6)
     }
 
@@ -693,7 +666,7 @@ struct HarborTreeRowContent: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, detail == nil ? 3 : 2)
+        .padding(.vertical, 2)
         .padding(.trailing, 6)
     }
 
@@ -701,6 +674,29 @@ struct HarborTreeRowContent: View {
         if case .unreachable = status { return .orange }
         if case .loading = status { return .secondary }
         return .green
+    }
+
+    private func hostStatusDescription(_ status: HarborHostSnapshot.Status) -> String {
+        switch status {
+        case .loading:
+            return String(localized: "harbor.refreshing", defaultValue: "Scanning…")
+        case .loaded:
+            return String(localized: "harbor.host.ready", defaultValue: "Ready")
+        case .unreachable(let reason):
+            return String(
+                format: String(localized: "harbor.host.unreachable", defaultValue: "Unreachable: %@"),
+                reason
+            )
+        }
+    }
+
+    private func sessionStateColor(_ state: HarborSessionState) -> Color {
+        switch state {
+        case .attached, .running: return .green
+        case .detached: return .secondary
+        case .exited, .stopped: return .orange
+        case .unknown: return .secondary
+        }
     }
 
     private func toolColor(_ tool: HarborTool) -> Color {
@@ -723,12 +719,6 @@ struct HarborTreeRowContent: View {
         }
     }
 
-    private func abbreviated(_ path: String) -> String {
-        let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
-        if !home.isEmpty, path == home { return "~" }
-        if !home.isEmpty, path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
-        return path
-    }
 }
 
 @MainActor

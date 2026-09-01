@@ -114,7 +114,6 @@ final class RemoteTmuxControlConnection {
 
     private var process: Process?
     var stdinWriter: RemoteTmuxControlPipeWriter?
-    private var stdoutReader: FileHandle?
     private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
     private var stderrPipeReader: RemoteTmuxProcessOutputReader?
     /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
@@ -441,25 +440,39 @@ final class RemoteTmuxControlConnection {
             }
         )
 
-        let stdoutPipeReader = RemoteTmuxProcessOutputReader(
+        guard let stdoutPipeReader = RemoteTmuxProcessOutputReader(
+            readingFrom: outPipe.fileHandleForReading,
             label: "com.cmux.remote-tmux.stdout.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStdoutChunks,
             maxPendingBytes: Self.maxPendingStdoutBytes,
             onOverflow: { [weak self] in
                 self?.handleStdoutBackpressureOverflow()
             }
-        )
-        let reader = outPipe.fileHandleForReading
-        stdoutPipeReader.attach(to: reader)
-        let stderrPipeReader = RemoteTmuxProcessOutputReader(
+        ) else {
+            stdinWriter.close()
+            throw NSError(
+                domain: "com.cmux.RemoteTmuxControlConnection",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "failed to duplicate tmux stdout pipe"]
+            )
+        }
+        guard let stderrPipeReader = RemoteTmuxProcessOutputReader(
+            readingFrom: errPipe.fileHandleForReading,
             label: "com.cmux.remote-tmux.stderr.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStderrChunks,
             maxPendingBytes: Self.maxPendingStderrBytes,
             onOverflow: { [weak self] in
                 self?.handleStderrBackpressureOverflow()
             }
-        )
-        stderrPipeReader.attach(to: errPipe.fileHandleForReading)
+        ) else {
+            stdoutPipeReader.close()
+            stdinWriter.close()
+            throw NSError(
+                domain: "com.cmux.RemoteTmuxControlConnection",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "failed to duplicate tmux stderr pipe"]
+            )
+        }
         // Process termination and pipe EOF are distinct events. Each reader drains
         // its descriptor before ending the stream so final `%exit` or stderr bytes
         // cannot be discarded by a faster termination callback.
@@ -480,9 +493,20 @@ final class RemoteTmuxControlConnection {
             stdinWriter.close()
             throw error
         }
+        // The child owns the inherited write endpoints. The reader and shared
+        // input writer own their duplicated descriptors, so retaining the
+        // parent endpoints would keep EOF from being a reliable lifecycle
+        // signal during detach and reconnect.
+        try? inPipe.fileHandleForWriting.close()
+        try? outPipe.fileHandleForWriting.close()
+        try? errPipe.fileHandleForWriting.close()
+        // The readers own duplicates. Closing the parent's read endpoints
+        // keeps descriptor ownership explicit and prevents a stale local
+        // reference from delaying EOF after the child exits.
+        try? outPipe.fileHandleForReading.close()
+        try? errPipe.fileHandleForReading.close()
         process = proc
         self.stdinWriter = stdinWriter
-        stdoutReader = reader
         self.stdoutPipeReader = stdoutPipeReader
         self.stderrPipeReader = stderrPipeReader
         processGeneration &+= 1
@@ -580,7 +604,6 @@ final class RemoteTmuxControlConnection {
         // consumers are already cancelled).
         stdoutPipeReader?.close()
         stdoutPipeReader = nil
-        stdoutReader = nil
         stderrPipeReader?.close()
         stderrPipeReader = nil
         stdinWriter?.close()

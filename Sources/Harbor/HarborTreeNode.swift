@@ -85,17 +85,22 @@ final class HarborTreeNode: NSObject {
     }
 
     /// What dragging (or clicking) this row means: a direct API attach of one
-    /// inner terminal, or a whole-session TUI attach for zmx (whose client is
-    /// one chromeless terminal). Hosts, groups, view-only terminals and
-    /// placeholders only organize and are not draggable.
+    /// inner terminal, or a whole-session attach when the tool has no
+    /// pane-level renderer protocol. Hosts, groups, and placeholders only
+    /// organize and are not draggable.
     var dragItem: HarborDragItem? {
         switch kind {
         case .terminal(_, _, let info):
             guard let leaf = info.leaf else { return nil }
             return .leaf(leaf, title: info.title.isEmpty ? info.shortID : info.title)
         case .session(let host, let info):
-            guard info.tool == .zmx else { return nil }
-            return .sessionTUI(host: host, tool: info.tool, sessionName: info.name, state: info.state)
+            return .sessionTUI(
+                host: host,
+                tool: info.tool,
+                sessionName: info.name,
+                state: info.state,
+                socketPath: info.tool == .cmuxTui ? info.detail : nil
+            )
         case .host, .windowGroup, .placeholder:
             return nil
         }

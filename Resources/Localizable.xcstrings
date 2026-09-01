@@ -255033,6 +255033,41 @@
         "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルが終了しました。タブを閉じるか、最後の画面を確認するために残せます。" } }
       }
     },
+    "harbor.overlay.ended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal session ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
+      }
+    },
+    "harbor.overlay.ended.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal session ended. Close the tab, or keep the final screen." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました。タブを閉じるか、最後の画面を残せます。" } }
+      }
+    },
+    "harbor.overlay.ended.detailWithReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal session ended: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました：%@" } }
+      }
+    },
+    "harbor.overlay.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal backend unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルバックエンドを利用できません" } }
+      }
+    },
+    "harbor.overlay.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal source failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルソースに失敗しました：%@" } }
+      }
+    },
     "uiTest.bonsplit.action.title": {
       "localizations": {
         "en": {

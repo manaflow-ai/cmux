@@ -1,19 +1,16 @@
+import CmuxTmuxControlMode
 import Foundation
 
-/// Bounded off-main writer for the SSH control client's stdin pipe.
+/// Compatibility façade for the SSH control client's stdin pipe.
 ///
-/// `RemoteTmuxControlConnection` records command FIFO entries on the main actor
-/// before this writer can emit bytes, so tmux `%begin`/`%end` replies cannot
-/// outrun their local correlation slot. The write itself may block on a stalled
-/// SSH pipe; keeping it on this serial queue prevents that from freezing UI.
+/// Command correlation remains owned by `RemoteTmuxControlConnection`, while
+/// byte delivery is delegated to the shared nonblocking writer. Keeping this
+/// façade preserves the main-actor test seam and prevents the legacy remote
+/// mirror from silently using a weaker transport implementation than Harbor.
 @MainActor
 final class RemoteTmuxControlPipeWriter {
-    private let handle: FileHandle
-    private let queue: DispatchQueue
-    private let maxPendingBytes: Int
-    private let onFailure: @MainActor @Sendable () -> Void
+    private let writer: ControlModeProcessInputWriter
     private var closed = false
-    private var pendingBytes = 0
 
     init(
         handle: FileHandle,
@@ -21,46 +18,29 @@ final class RemoteTmuxControlPipeWriter {
         maxPendingBytes: Int,
         onFailure: @escaping @MainActor @Sendable () -> Void
     ) {
-        self.handle = handle
-        self.queue = DispatchQueue(label: label, qos: .userInitiated)
-        self.maxPendingBytes = maxPendingBytes
-        self.onFailure = onFailure
+        self.writer = ControlModeProcessInputWriter(
+            label: label,
+            maxPendingBytes: maxPendingBytes,
+            onFailure: { _ in
+                // The remote connection is main-actor isolated. The shared
+                // writer reports from its worker, so hop explicitly instead
+                // of relying on an accidental queue affinity.
+                Task { @MainActor in
+                    onFailure()
+                }
+            }
+        )
+        self.writer.attach(to: handle)
     }
 
     func enqueue(_ data: Data) -> Bool {
-        guard !data.isEmpty else { return true }
-        guard !closed,
-              data.count <= maxPendingBytes - pendingBytes else {
-            return false
-        }
-        pendingBytes += data.count
-
-        queue.async { [weak self, handle, data] in
-            var didFail = false
-            do {
-                try handle.write(contentsOf: data)
-            } catch {
-                didFail = true
-            }
-            Task { @MainActor [weak self] in
-                self?.finishWrite(byteCount: data.count, didFail: didFail)
-            }
-        }
-        return true
-    }
-
-    private func finishWrite(byteCount: Int, didFail: Bool) {
-        pendingBytes = max(0, pendingBytes - byteCount)
-        if didFail, !closed {
-            onFailure()
-        }
+        guard !closed else { return false }
+        return writer.enqueue(data)
     }
 
     func close() {
         guard !closed else { return }
         closed = true
-        queue.async { [handle] in
-            try? handle.close()
-        }
+        writer.close()
     }
 }

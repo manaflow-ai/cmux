@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTmuxControlMode
 
 /// Compatibility name kept for the first Harbor panel implementation. The
 /// tree model uses `HarborHostRef`, while older pane-drop call sites still
@@ -160,6 +161,9 @@ enum HarborLeaf: Hashable, Sendable {
     /// A cmux-tui daemon terminal. Local daemons are addressed by socket
     /// path; remote ones by session name, reached over ssh stdio.
     case tuiTerminal(host: HarborHostRef, sessionName: String, socketPath: String?, terminalID: String)
+    /// A Zellij terminal pane. Zellij exposes a rendered subscription and
+    /// pane-targeted actions, but it does not expose a raw control stream.
+    case zellijPane(host: HarborHostRef, sessionName: String, paneID: String)
 
     var host: HarborHostRef {
         switch self {
@@ -167,6 +171,7 @@ enum HarborLeaf: Hashable, Sendable {
         case .herdrPane(let host, _, _): return host
         case .herdrTerminal(let host, _, _, _): return host
         case .tuiTerminal(let host, _, _, _): return host
+        case .zellijPane(let host, _, _): return host
         }
     }
 }
@@ -195,7 +200,13 @@ enum HarborDragItem: Hashable, Sendable {
     /// Whole-session attach that runs the tool's own client inside a
     /// terminal. Offered only where no per-terminal API exists and the
     /// client adds no chrome (zmx), or explicitly from a context menu.
-    case sessionTUI(host: HarborHostRef, tool: HarborTool, sessionName: String, state: HarborSessionState)
+    case sessionTUI(
+        host: HarborHostRef,
+        tool: HarborTool,
+        sessionName: String,
+        state: HarborSessionState,
+        socketPath: String? = nil
+    )
     /// Compatibility item used by the original session-only panel while it is
     /// being migrated to terminal rows.
     case legacySession(HarborSession)
@@ -203,7 +214,7 @@ enum HarborDragItem: Hashable, Sendable {
     var title: String {
         switch self {
         case .leaf(_, let title): return title
-        case .sessionTUI(_, _, let sessionName, _): return sessionName
+        case .sessionTUI(_, _, let sessionName, _, _): return sessionName
         case .legacySession(let session): return session.name
         }
     }
@@ -285,7 +296,13 @@ struct HarborHostSnapshot: Sendable {
 /// explicit "Attach as TUI" context-menu action on other tools.
 enum HarborAttachCommand {
     static func shellCommand(for session: HarborSession) -> String {
-        shellCommand(host: session.source, tool: session.tool, name: session.name, state: session.state)
+        shellCommand(
+            host: session.source,
+            tool: session.tool,
+            name: session.name,
+            state: session.state,
+            socketPath: session.tool == .cmuxTui ? session.detail : nil
+        )
     }
 
     static func terminalName(for session: HarborSession) -> String {
@@ -295,7 +312,7 @@ enum HarborAttachCommand {
     static func terminalName(for item: HarborDragItem) -> String {
         switch item {
         case .legacySession(let session): return terminalName(for: session)
-        case .sessionTUI(_, let tool, let sessionName, _):
+        case .sessionTUI(_, let tool, let sessionName, _, _):
             return "harbor:\(tool.rawValue):\(sessionName)"
         case .leaf(let leaf, let title):
             let host = leaf.host.key.replacingOccurrences(of: "/", with: "-")
@@ -307,15 +324,27 @@ enum HarborAttachCommand {
         switch item {
         case .legacySession(let session):
             return shellCommand(for: session)
-        case .sessionTUI(let host, let tool, let sessionName, let state):
-            return shellCommand(host: host, tool: tool, name: sessionName, state: state)
+        case .sessionTUI(let host, let tool, let sessionName, let state, let socketPath):
+            return shellCommand(
+                host: host,
+                tool: tool,
+                name: sessionName,
+                state: state,
+                socketPath: socketPath
+            )
         case .leaf(let leaf, _):
             return leafShellCommand(leaf)
         }
     }
 
-    static func shellCommand(host: HarborHostRef, tool: HarborTool, name: String, state: HarborSessionState) -> String {
-        let local = localAttachCommand(tool: tool, name: name, state: state)
+    static func shellCommand(
+        host: HarborHostRef,
+        tool: HarborTool,
+        name: String,
+        state: HarborSessionState,
+        socketPath: String? = nil
+    ) -> String {
+        let local = localAttachCommand(tool: tool, name: name, state: state, socketPath: socketPath)
         switch host {
         case .local:
             return local
@@ -326,7 +355,12 @@ enum HarborAttachCommand {
         }
     }
 
-    private static func localAttachCommand(tool: HarborTool, name: String, state: HarborSessionState) -> String {
+    private static func localAttachCommand(
+        tool: HarborTool,
+        name: String,
+        state: HarborSessionState,
+        socketPath: String? = nil
+    ) -> String {
         let quoted = shellQuote(name)
         switch tool {
         case .tmux:
@@ -341,6 +375,9 @@ enum HarborAttachCommand {
         case .herdr:
             return "exec herdr session attach \(quoted)"
         case .cmuxTui:
+            if let socketPath, !socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "exec cmux-tui --socket \(shellQuote(socketPath)) attach --session \(quoted)"
+            }
             return "exec cmux-tui attach --session \(quoted)"
         }
     }
@@ -348,15 +385,27 @@ enum HarborAttachCommand {
     private static func leafShellCommand(_ leaf: HarborLeaf) -> String {
         switch leaf {
         case .tmuxPane(let host, let sessionName, let windowID, let paneID):
-            // Attaching to a pane-qualified target makes the terminal open on
-            // the dragged pane instead of only selecting the session.
-            let target = "\(sessionName):@\(windowID).%\(paneID)"
-            return shellCommand(host: host, tool: .tmux, name: target, state: .detached)
+            // A plain tmux client cannot render one pane in isolation. The
+            // pane-qualified target is still the canonical attach identity,
+            // and tmux selects its owning session/window/pane atomically.
+            let target = TmuxAttachTarget.pane(
+                sessionName: sessionName,
+                windowID: windowID,
+                paneID: paneID
+            ).targetExpression
+            let local = "exec tmux attach-session -t \(shellQuote(target))"
+            switch host {
+            case .local:
+                return local
+            case .ssh(let destination):
+                return "exec ssh -t \(shellQuote(destination)) -- \(shellQuote("TERM=xterm-256color " + local))"
+            }
         case .herdrPane(let host, let sessionName, let paneID):
-            // Older Herdr probes exposed only a pane id. Keep the case for
-            // compatibility, but use the same command shape as the terminal
-            // case because Herdr's attach command consumes terminal ids.
-            let local = "exec herdr --session \(shellQuote(sessionName)) terminal attach \(shellQuote(paneID))"
+            // Older Herdr probes exposed only a pane id. The interactive
+            // fallback has no pane-targeted attach command, so attach the
+            // owning session rather than passing a pane id to a terminal-only
+            // command and showing a guaranteed error.
+            let local = "exec herdr session attach \(shellQuote(sessionName))"
             switch host {
             case .local: return local
             case .ssh(let destination):
@@ -372,6 +421,17 @@ enum HarborAttachCommand {
         case .tuiTerminal(let host, let sessionName, let socketPath, let terminalID):
             let local = socketPath.map { "exec cmux-tui --socket \(shellQuote($0)) attach --terminal \(shellQuote(terminalID))" }
                 ?? "exec cmux-tui attach --session \(shellQuote(sessionName)) --terminal \(shellQuote(terminalID))"
+            switch host {
+            case .local:
+                return local
+            case .ssh(let destination):
+                return "exec ssh -t \(shellQuote(destination)) -- \(shellQuote("TERM=xterm-256color " + local))"
+            }
+        case .zellijPane(let host, let sessionName, _):
+            // The native Zellij client is the safe fallback when the
+            // rendered subscription is unavailable. It attaches the owning
+            // session, because the client itself cannot isolate one pane.
+            let local = "exec zellij attach \(shellQuote(sessionName))"
             switch host {
             case .local:
                 return local

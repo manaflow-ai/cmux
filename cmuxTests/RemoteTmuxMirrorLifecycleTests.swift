@@ -213,8 +213,11 @@ struct RemoteTmuxMirrorLifecycleTests {
         let terminalError = Data("no server running on /private/tmp/tmux-501/default\n".utf8)
         try pipe.fileHandleForWriting.write(contentsOf: terminalError)
         // Model the Process termination callback winning the race against the
-        // DispatchSource readability callback. The writer deliberately remains
-        // open: processDidExit must drain the bytes already in the pipe itself.
+        // DispatchSource readability callback. Close the parent endpoint so
+        // the reader can observe the real EOF edge after draining the bytes.
+        // A process exit alone is not EOF when a descendant or parent still
+        // owns a copy of the pipe's write descriptor.
+        try pipe.fileHandleForWriting.close()
         reader.processDidExit()
 
         #expect(await capture.value == terminalError)

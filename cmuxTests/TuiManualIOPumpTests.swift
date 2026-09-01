@@ -45,11 +45,12 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
-    func relayExitTreatsUnknownStatusAsFailureAndBareZeroAsEnded() {
-        // Exit 0 with no reason line: the relay contract says 0 means "do
-        // not respawn", so a missing line must not turn into a retry loop.
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: nil) == .terminalEnded)
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: "garbage") == .terminalEnded)
+    func relayExitTreatsUnknownStatusAndBareZeroAsFailure() {
+        // A compliant relay emits an explicit JSON reason. A bare zero is a
+        // protocol violation, so retry classification must expose a backend
+        // failure instead of claiming that the user's terminal ended.
+        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: nil) == .failure)
+        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: "garbage") == .failure)
         #expect(TuiManualIOPumpPolicy.relayExit(status: 1, stderrText: "usage: ...") == .failure)
         #expect(TuiManualIOPumpPolicy.relayExit(status: -1, stderrText: nil) == .failure)
     }
@@ -90,6 +91,26 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
+    func largeInputIsChunkedWithoutChangingBytes() throws {
+        let input = Data((0..<257).map(UInt8.init))
+        let lines = TuiManualIOPumpPolicy.inputLines(
+            bytes: input,
+            maximumBytesPerRecord: 64
+        )
+        var decoded = Data()
+        for line in lines {
+            let object = try #require(
+                JSONSerialization.jsonObject(
+                    with: Data(line.dropLast())
+                ) as? [String: Any]
+            )
+            let encoded = try #require(object["input"] as? String)
+            decoded.append(try #require(Data(base64Encoded: encoded)))
+        }
+        #expect(decoded == input)
+    }
+
+    @Test
     func resizeLineCarriesClampedGrid() throws {
         let line = TuiManualIOPumpPolicy.resizeLine(cols: 120, rows: 0)
         let text = String(decoding: line, as: UTF8.self)
@@ -119,8 +140,18 @@ struct TuiManualIOPumpTests {
     }
 
     @Test
-    func resyncResetIsFullResetPlusScrollbackErase() {
-        #expect(TuiManualIOPumpPolicy.resyncReset == Data("\u{1B}c\u{1B}[3J".utf8))
+    func remoteRelayArgumentsDisablePTYAndEscapeProcessing() {
+        let arguments = TuiManualIOPumpPolicy.relayArguments(
+            target: .sshSession(destination: "user@host", sessionName: "work space"),
+            terminalID: "term_abc",
+            cols: 100,
+            rows: 30
+        )
+        #expect(arguments == [
+            "-T", "-o", "EscapeChar=none", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--",
+            "user@host",
+            "cmux-tui attach --session 'work space' --terminal 'term_abc' --pipe-io --cols 100 --rows 30",
+        ])
     }
 
     // MARK: - Overlay presentation
