@@ -2014,6 +2014,7 @@
 		469201000000000000000006 /* SessionDragSessionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000005 /* SessionDragSessionSource.swift */; };
 		46920100000000000000000E /* SessionDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000D /* SessionDragSource.swift */; };
 		46920100000000000000000C /* SessionDragSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000B /* SessionDragSourceView.swift */; };
+		112960000000000000000003 /* SessionEntryResumeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000004 /* SessionEntryResumeCoordinator.swift */; };
 		992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230004 /* SessionEntryResumeLaunch.swift */; };
 		992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */; };
 		D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */; };
@@ -2762,6 +2763,7 @@
 		992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */; };
 		112960000000000000000001 /* VaultRestorePathGuaranteeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */; };
 		992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */; };
+		112960000000000000000005 /* VaultSessionDropLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000006 /* VaultSessionDropLauncher.swift */; };
 		F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */; };
 		C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */; };
 		A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */; };
@@ -4984,6 +4986,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		469201000000000000000005 /* SessionDragSessionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSessionSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000D /* SessionDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000B /* SessionDragSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSourceView.swift; sourceTree = "<group>"; };
+		112960000000000000000004 /* SessionEntryResumeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeCoordinator.swift; sourceTree = "<group>"; };
 		992300019923000199230004 /* SessionEntryResumeLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunch.swift; sourceTree = "<group>"; };
 		992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunchTests.swift; sourceTree = "<group>"; };
 		D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexAgentIconImage.swift; sourceTree = "<group>"; };
@@ -5724,6 +5727,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultQueuedRestoreIdentityTests.swift; sourceTree = "<group>"; };
 		112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestorePathGuaranteeTests.swift; sourceTree = "<group>"; };
 		992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestoreRelaunchPersistenceTests.swift; sourceTree = "<group>"; };
+		112960000000000000000006 /* VaultSessionDropLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionDropLauncher.swift; sourceTree = "<group>"; };
 		F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+EmptyAreasAndFooter.swift"; sourceTree = "<group>"; };
 		C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ViewerNavigationKeyRouter.swift; sourceTree = "<group>"; };
@@ -7156,6 +7160,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9090F0019090F0019090F001 /* AgentHibernationPanelState.swift */,
 				9090F0029090F0029090F002 /* AgentHibernationResumePreparation.swift */,
 				F0ACC0E0000000000000002 /* CachedAgentProcessIdentityValidator.swift */,
+				112960000000000000000004 /* SessionEntryResumeCoordinator.swift */,
 				992300019923000199230004 /* SessionEntryResumeLaunch.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
 				F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */,
@@ -8054,6 +8059,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */,
 				CAFE58130000000000000002 /* CampfireLaunchArgumentNormalizer.swift */,
 				B35750000000000000000005 /* VaultAgentProcessScanner.swift */,
+				112960000000000000000006 /* VaultSessionDropLauncher.swift */,
 				B35750000000000000000011 /* VaultAgentProcessScannerDetectRules.swift */,
 				B3575000000000000000000F /* VaultAgentProcessScannerSessionDirectories.swift */,
 				F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */,
@@ -10792,6 +10798,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				469201000000000000000006 /* SessionDragSessionSource.swift in Sources */,
 				46920100000000000000000E /* SessionDragSource.swift in Sources */,
 				46920100000000000000000C /* SessionDragSourceView.swift in Sources */,
+				112960000000000000000003 /* SessionEntryResumeCoordinator.swift in Sources */,
 				992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */,
 				D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */,
 				85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */,
@@ -11339,6 +11346,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					858200000000000000000004 /* VaultAgentRegistry+Kimi.swift in Sources */,
 					B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */,
+				112960000000000000000005 /* VaultSessionDropLauncher.swift in Sources */,
 				F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */,
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */,

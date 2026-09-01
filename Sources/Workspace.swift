@@ -12526,28 +12526,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         entry: SessionEntry,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
-        guard let launch = entry.resumeLaunch else { return false }
-        switch destination {
-        case .insert(let paneId, _):
-            let panel = newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
-            return panel != nil
-        case .split(let paneId, let orientation, let insertFirst):
-            let panel = splitPaneWithNewTerminal(
-                targetPane: paneId,
-                orientation: orientation,
-                insertFirst: insertFirst,
-                workingDirectory: launch.workingDirectory,
-                initialInput: launch.initialInput,
-                startupRestoreAgent: launch.startupRestoreAgent
-            )
-            return panel != nil
-        }
+        VaultSessionDropLauncher().launch(
+            entry: entry,
+            in: self,
+            destination: destination
+        )
     }
 
     func handleFilePreviewDrop(

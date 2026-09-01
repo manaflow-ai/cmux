@@ -132,6 +132,75 @@ struct VaultRestorePathGuaranteeTests {
         )
     }
 
+    @Test
+    func localPaneDropSeedsTheSameRestoreRecordAsResume() throws {
+        let workingDirectory = "/tmp/vault-drop-restore"
+        let manager = TabManager(
+            initialWorkingDirectory: workingDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let entry = Self.entry(for: "codex", cwd: workingDirectory)
+        let baselinePanelIDs = Set(workspace.panels.keys)
+        let handled = workspace.handleSessionDrop(
+            entry: entry,
+            destination: .insert(paneID, 0)
+        )
+
+        #expect(handled)
+        let panelID = try #require(workspace.panels.keys.first { !baselinePanelIDs.contains($0) })
+        let launch = try #require(entry.resumeLaunch)
+        #expect(workspace.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting() == launch.initialInput)
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panelID]?.sessionId == entry.sessionId)
+        let target = ControlSurfaceResumeTarget.workspace(
+            tabManager: manager,
+            workspace: workspace,
+            surfaceID: panelID
+        )
+        let record = try #require(TerminalController.shared.controlSurfaceRestoreRecord(
+            target: target,
+            binding: nil
+        ))
+        #expect(record.kind == "codex")
+        #expect(record.checkpointID == entry.sessionId)
+        #expect(record.workingDirectory == workingDirectory)
+        #expect(record.legacyCommand == nil)
+    }
+
+    @Test
+    func legacyFallbackUsesRemoteHostDialectWithoutLocalShellEnvelope() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "legacy agent",
+            name: "Legacy agent",
+            detect: CmuxVaultAgentDetectRule(processName: "legacy-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let entry = SessionEntry(
+            id: "legacy agent:legacy-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "legacy-session",
+            title: "Legacy session",
+            cwd: "/tmp/legacy-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_103),
+            fileURL: nil,
+            specifics: .registered(registration)
+        )
+        let launch = try #require(entry.resumeLaunch)
+
+        #expect(launch.strategy == .legacyCommand)
+        #expect(launch.legacyFallbackReason == .missingStructuredSnapshot)
+        #expect(
+            launch.startupInput(for: .remoteHost)
+                == (entry.copyResumeCommand ?? "") + "\n"
+        )
+    }
+
     private static func entry(for rawKind: String, cwd: String = "/tmp/vault-project") -> SessionEntry {
         let sessionID = "vault-\(rawKind)-session"
         let specifics: AgentSpecifics

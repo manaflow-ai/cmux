@@ -2,13 +2,21 @@ import CMUXAgentLaunch
 import Foundation
 
 /// The terminal startup plan shared by every Vault resume entry point.
-struct SessionEntryResumeLaunch: Sendable {
+nonisolated struct SessionEntryResumeLaunch: Sendable {
     /// How the terminal starts the selected Vault session.
     enum Strategy: Sendable, Equatable {
         /// Resolve structured argv and environment through `cmux restore`.
         case restoreVerb
         /// Type the quarantined copyable command for an unsupported registration.
         case legacyCommand
+    }
+
+    /// Why a launch had to use the explicitly bounded compatibility command.
+    enum LegacyFallbackReason: String, Sendable, Equatable {
+        /// The persisted registration cannot be represented by a safe restorable kind.
+        case missingStructuredSnapshot
+        /// The registration's template could not produce structured argv.
+        case unavailableStructuredArguments
     }
 
     /// The selected structured or compatibility launch strategy.
@@ -19,6 +27,36 @@ struct SessionEntryResumeLaunch: Sendable {
     let workingDirectory: String?
     /// Lifecycle state used by the restore responder and session persistence.
     let startupRestoreAgent: SessionRestorableAgentSnapshot?
+    /// Non-nil only for the enumerated compatibility strategy.
+    let legacyFallbackReason: LegacyFallbackReason?
+
+    /// The input after selecting the shell that will parse the startup line.
+    /// Restore verbs are bare words and therefore identical in every dialect;
+    /// compatibility commands are POSIX and must be wrapped only for nushell.
+    func startupInput(for dialect: TerminalStartupShellDialect) -> String {
+        let command = posixInitialInput.hasSuffix("\n")
+            ? String(posixInitialInput.dropLast())
+            : posixInitialInput
+        return TerminalStartupTypedShellCommand(dialect: dialect).typedInput(posixCommand: command) + "\n"
+    }
+
+    private let posixInitialInput: String
+
+    init(
+        strategy: Strategy,
+        initialInput: String,
+        posixInitialInput: String,
+        workingDirectory: String?,
+        startupRestoreAgent: SessionRestorableAgentSnapshot?,
+        legacyFallbackReason: LegacyFallbackReason?
+    ) {
+        self.strategy = strategy
+        self.initialInput = initialInput
+        self.posixInitialInput = posixInitialInput
+        self.workingDirectory = workingDirectory
+        self.startupRestoreAgent = startupRestoreAgent
+        self.legacyFallbackReason = legacyFallbackReason
+    }
 }
 
 /// Agent-specific launch fields used to assemble one restorable snapshot.
@@ -40,7 +78,7 @@ extension SessionEntry {
     /// shell command only when their registration cannot produce structured argv.
     var resumeLaunch: SessionEntryResumeLaunch? {
         guard let snapshot = vaultResumeSnapshot else {
-            return legacyResumeLaunch
+            return legacyResumeLaunch(reason: .missingStructuredSnapshot)
         }
         if let preparedArguments = snapshot.preparedResumeArguments(
             launchCommand: snapshot.launchCommand,
@@ -51,25 +89,44 @@ extension SessionEntry {
             return SessionEntryResumeLaunch(
                 strategy: .restoreVerb,
                 initialInput: initialInput,
+                posixInitialInput: initialInput,
                 workingDirectory: resumeWorkingDirectory,
-                startupRestoreAgent: snapshot
+                startupRestoreAgent: snapshot,
+                legacyFallbackReason: nil
             )
         }
 
-        return legacyResumeLaunch
+        return legacyResumeLaunch(reason: .unavailableStructuredArguments)
     }
 
     /// Builds the explicit compatibility launch for an unsupported registration.
     /// The legacy command is a POSIX one-liner typed into the user's shell, so
     /// it goes through the typed-boundary dialect wrap (nushell cannot parse
     /// POSIX; the `restoreVerb` strategy types only bare words and needs none).
-    private var legacyResumeLaunch: SessionEntryResumeLaunch? {
+    /// Maximum startup payload permitted for the compatibility renderer.
+    nonisolated static let maximumLegacyResumeInputBytes = 900
+
+    private func legacyResumeLaunch(
+        reason: SessionEntryResumeLaunch.LegacyFallbackReason
+    ) -> SessionEntryResumeLaunch? {
         guard let legacyCommand = copyResumeCommand else { return nil }
+        let posixInput = legacyCommand + "\n"
+        let initialInput = TerminalStartupTypedShellCommand()
+            .typedInput(posixCommand: legacyCommand) + "\n"
+        guard initialInput.utf8.count <= Self.maximumLegacyResumeInputBytes,
+              posixInput.utf8.count <= Self.maximumLegacyResumeInputBytes,
+              legacyCommand.unicodeScalars.allSatisfy({ scalar in
+                  scalar.value >= 0x20 && scalar.value != 0x7F
+              }) else {
+            return nil
+        }
         return SessionEntryResumeLaunch(
             strategy: .legacyCommand,
-            initialInput: TerminalStartupTypedShellCommand().typedInput(posixCommand: legacyCommand) + "\n",
+            initialInput: initialInput,
+            posixInitialInput: posixInput,
             workingDirectory: resumeWorkingDirectory,
-            startupRestoreAgent: nil
+            startupRestoreAgent: nil,
+            legacyFallbackReason: reason
         )
     }
 
@@ -165,10 +222,11 @@ extension SessionEntry {
                 permissionMode: nil
             )
         case .registered(let registration):
+            let structured = Self.structuredRegistration(registration)
             components = SessionEntryResumeSnapshotComponents(
-                arguments: [registration.defaultExecutable],
-                environment: [:],
-                registration: registration,
+                arguments: [structured.registration.defaultExecutable],
+                environment: structured.environment,
+                registration: structured.registration,
                 permissionMode: nil
             )
         }
@@ -236,5 +294,46 @@ extension SessionEntry {
             return nil
         }
         return value
+    }
+
+    /// Separates a leading, replay-safe `env KEY=value` registration prefix
+    /// from argv. Grok profiles are indexed this way; keeping the value in the
+    /// structured environment prevents the restore planner from dropping it
+    /// when it rebuilds the canonical `grok -r` argv.
+    private static func structuredRegistration(
+        _ registration: CmuxVaultAgentRegistration
+    ) -> (registration: CmuxVaultAgentRegistration, environment: [String: String]) {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(registration.resumeCommand)
+        guard words.first?.value == "env" else {
+            return (registration, [:])
+        }
+
+        let policy = AgentLaunchEnvironmentPolicy()
+        var environment: [String: String] = [:]
+        var index = 1
+        while index < words.count {
+            let token = words[index].value
+            guard let equals = token.firstIndex(of: "=") else { break }
+            let key = String(token[..<equals])
+            let value = String(token[token.index(after: equals)...])
+            guard key.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil,
+                  let safeValue = policy.sanitizedValue(key: key, value: value) else {
+                break
+            }
+            environment[key] = safeValue
+            index += 1
+        }
+        guard !environment.isEmpty, index < words.count else {
+            return (registration, [:])
+        }
+
+        var normalized = registration
+        normalized.resumeCommand = String(
+            registration.resumeCommand[words[index].range.lowerBound...]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.resumeCommand.isEmpty else {
+            return (registration, [:])
+        }
+        return (normalized, environment)
     }
 }
