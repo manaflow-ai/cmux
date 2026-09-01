@@ -23816,6 +23816,64 @@ mod tests {
     }
 
     #[test]
+    fn invalid_agent_roster_snapshot_clears_its_cursor() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-invalid-snapshot-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-invalid-snapshot";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                42,
+                r#"{"entries":{"term_a":{"state":"working","source":"detected","session":null,"agent":null,"updated_at_ms":1}}}"#,
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 0, "an invalid snapshot must not retain its cursor");
+        assert!(host.roster.entries.is_empty());
+        let persisted = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.1, 0, "reset state must clear the persisted cursor");
+
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unreplayable_agent_roster_cursor_fails_closed() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-unreplayable-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-unreplayable";
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        // The snapshot is valid, but its cursor points past the retained
+        // journal head. This is the same fail-closed path as a retention gap.
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                42,
+                r#"{"entries":{"term_a":{"state":"working","source":"hook","session":null,"agent":"claude","updated_at_ms":1}}}"#,
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 0, "an unreplayable cursor must fail closed");
+        assert!(host.roster.entries.is_empty());
+        let persisted = registry
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.1, 0, "the unreplayable cursor must be cleared");
+
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
