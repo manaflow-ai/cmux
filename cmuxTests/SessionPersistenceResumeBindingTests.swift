@@ -2,6 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 import CmuxCore
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
