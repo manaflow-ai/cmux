@@ -3058,7 +3058,18 @@ impl Terminal {
         // A non-null pointer with a zero length tells Ghostty to use an
         // explicitly empty whitespace set instead of its default trim set.
         const EMPTY_WHITESPACE: u32 = 0;
-        self.select_line_screen_with_whitespace(point, &EMPTY_WHITESPACE, 0)
+        let selection = self.select_line_screen_with_whitespace(point, &EMPTY_WHITESPACE, 0)?;
+        if selection.is_some() {
+            return Ok(selection);
+        }
+
+        // Ghostty still returns no value when every cell lacks text. The
+        // validated blank row remains a selectable line for a line-wise drag.
+        let Some(last_column) = self.cols().checked_sub(1) else { return Ok(None) };
+        Ok(Some(SelectionRange {
+            start: SelectionPoint { column: 0, row: point.row },
+            end: SelectionPoint { column: last_column, row: point.row },
+        }))
     }
 
     fn select_line_screen_with_whitespace(
