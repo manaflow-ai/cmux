@@ -1,4 +1,5 @@
 import CMUXMobileCore
+internal import CmuxMobileTerminalKit
 
 extension MobileShellComposite {
     /// Marks every mounted terminal mirror as blank at an intentional teardown

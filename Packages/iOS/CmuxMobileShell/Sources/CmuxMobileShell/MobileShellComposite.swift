@@ -6,6 +6,7 @@ public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
+internal import CmuxMobileTerminalKit
 public import CmuxMobileTransport
 public import Foundation
 import Observation

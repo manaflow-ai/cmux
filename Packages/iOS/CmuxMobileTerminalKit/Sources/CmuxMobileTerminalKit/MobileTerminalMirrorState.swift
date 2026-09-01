@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import Foundation
 
 /// Lifecycle state for one mounted terminal mirror.
 ///
@@ -7,15 +6,19 @@ import Foundation
 /// scrollback hydration and whether its rendered mirror may be reused after a
 /// connection swap. Producer identity and history metadata make the reuse
 /// decision fail closed when the Mac recreated the surface or history moved.
-struct MobileTerminalMirrorState: Sendable {
-    var hydrationNeeded = true
+public struct MobileTerminalMirrorState: Sendable {
+    /// Whether the next authoritative replay must include scrollback rows.
+    public private(set) var hydrationNeeded = true
     var retainedAcrossReconnect = false
     private(set) var renderEpoch: String?
     private(set) var historyRows: UInt64?
     private(set) var rowSpaceRevision: UInt64?
 
+    /// Creates a new mirror state that requires a cold hydration replay.
+    public init() {}
+
     /// Marks the mirror as blank and requiring a full screen-anchored replay.
-    mutating func invalidate() {
+    public mutating func invalidate() {
         hydrationNeeded = true
         retainedAcrossReconnect = false
         renderEpoch = nil
@@ -23,16 +26,19 @@ struct MobileTerminalMirrorState: Sendable {
         rowSpaceRevision = nil
     }
 
-    /// Carries a populated mounted mirror across a connection swap only when
-    /// its last delivered frame proved that hydration had completed.
-    mutating func prepareForReconnect(hasDeliveredFrame: Bool) {
+    /// Carries a populated mounted mirror across a connection swap when the
+    /// last delivered frame proved that hydration had completed.
+    /// - Parameter hasDeliveredFrame: Whether the mounted surface has delivered
+    ///   an authoritative frame that can remain visible during reconnect.
+    public mutating func prepareForReconnect(hasDeliveredFrame: Bool) {
         retainedAcrossReconnect = hasDeliveredFrame && !hydrationNeeded
         hydrationNeeded = !retainedAcrossReconnect
     }
 
-    /// Records producer metadata from a delivered frame. A full frame with no
-    /// retained history still completes hydration; deltas never do.
-    mutating func record(_ frame: MobileTerminalRenderGridFrame) {
+    /// Records producer metadata from a delivered render-grid frame. A full
+    /// frame with no retained history still completes hydration; deltas never do.
+    /// - Parameter frame: The accepted authoritative frame.
+    public mutating func record(_ frame: MobileTerminalRenderGridFrame) {
         if retainedAcrossReconnect && !frame.full {
             return
         }
@@ -50,10 +56,13 @@ struct MobileTerminalMirrorState: Sendable {
         }
     }
 
-    /// Returns whether a provisional zero-row replay is unsafe for this mirror.
+    /// Determines whether a retained mirror must be rehydrated for a response.
     /// A changed producer epoch, history count, or row-space revision means the
     /// local scrollback can no longer be trusted and must be rehydrated.
-    func requiresHydration(for frame: MobileTerminalRenderGridFrame) -> Bool {
+    /// - Parameter frame: The candidate replay frame returned by the producer.
+    /// - Returns: `true` when producer identity or history freshness is unknown
+    ///   or changed; otherwise `false` for a safe zero-row repaint.
+    public func requiresHydration(for frame: MobileTerminalRenderGridFrame) -> Bool {
         guard retainedAcrossReconnect else { return hydrationNeeded }
         guard let renderEpoch,
               let historyRows,
