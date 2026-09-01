@@ -325,11 +325,7 @@ impl FileBrowser {
                 self.visible.iter().position(|index| self.entries[*index].path == path)
             })
             .unwrap_or_else(|| {
-                if self.visible.is_empty() {
-                    0
-                } else {
-                    self.selected.min(self.visible.len() - 1)
-                }
+                if self.visible.is_empty() { 0 } else { self.selected.min(self.visible.len() - 1) }
             });
     }
 }
