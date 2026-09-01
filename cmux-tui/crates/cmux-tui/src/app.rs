@@ -34214,6 +34214,13 @@ mod tests {
         let titles = Arc::new(MuxTitleIngress::default());
         let destination_generation = Arc::new(AtomicU64::new(0));
         let recovery_generation = Arc::new(AtomicU64::new(0));
+        let cancellation = EventCancellation::new();
+        let forwarder_events = SessionEventSender {
+            tx,
+            generation: None,
+            surface_filter: None,
+            cancellation: cancellation.clone(),
+        };
         let forwarder_recovery_generation = recovery_generation.clone();
         let forwarder = std::thread::spawn(move || {
             forward_mux_events(
@@ -34222,7 +34229,7 @@ mod tests {
                 stop_receiver,
                 destination_generation,
                 forwarder_recovery_generation,
-                SessionEventSender::unscoped(tx),
+                forwarder_events,
                 titles,
             );
         });
@@ -34236,13 +34243,15 @@ mod tests {
                     break;
                 }
                 Ok(_) => {}
-                Err(_) => break,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             }
         }
         assert!(recovered, "overflow recovery must install a replacement mailbox");
 
         // The forwarder is blocked on the replacement mailbox here. Closing
         // the currently active receiver must wake it without timer polling.
+        cancellation.cancel();
         stop_for_test.lock().unwrap().take().unwrap().close();
         forwarder.join().unwrap();
     }
