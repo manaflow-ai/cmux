@@ -373,9 +373,13 @@ public actor LocalLinuxScrollbackRing {
         pumpGeneration = generation
         pumpTask = Task { [weak self, source] in
             for await bytes in source.output {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { break }
                 await self?.ingest(bytes)
             }
+            // Finish the subscriber streams even when the pump is cancelled.
+            // Returning early here would leave a waiting lane suspended
+            // forever and would allow a same-source reattach to observe an
+            // apparently live stream with no producer.
             await self?.finishPump(generation: generation)
         }
     }
