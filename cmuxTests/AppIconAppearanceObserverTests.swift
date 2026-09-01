@@ -179,7 +179,7 @@ struct AppIconAppearanceObserverTests {
         }
         #expect(asset.resolvedPath == imageURL.standardizedFileURL.path)
         #expect(AppIconImageResolver.image(
-            for: imageURL.path,
+            for: "icon.png",
             relativeToConfig: configURL.path
         ) != nil)
 
