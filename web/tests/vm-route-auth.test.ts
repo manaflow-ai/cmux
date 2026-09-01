@@ -163,7 +163,7 @@ const { DELETE } = vmIdRoute;
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const cmuxRemoteApproveRoute = await import("../app/api/vm/[id]/cmux-remote/approve/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
-const _forkRoute = await import("../app/api/vm/[id]/fork/route");
+const forkRoute = await import("../app/api/vm/[id]/fork/route");
 const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
@@ -1866,6 +1866,74 @@ describe("VM REST auth", () => {
     expectNoCloudVmImplementationLeaks(payload);
     expect(payload.action).toContain("enable Cloud VM creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("blocks VM restore kill switch before workflow", async () => {
+    process.env.CMUX_VM_CREATE_ENABLED = "0";
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await restoreRoute.POST(
+      new Request("https://cmux.test/api/vm/restore", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ snapshotId: "snap-1", provider: "freestyle" }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ error: "vm_create_disabled", phase: "create" });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("enable Cloud VM creation");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("blocks provider kill switch on restore before workflow", async () => {
+    process.env.CMUX_VM_E2B_ENABLED = "false";
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await restoreRoute.POST(
+      new Request("https://cmux.test/api/vm/restore", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ snapshotId: "snap-1", provider: "e2b" }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const payload = await response.json();
+    expect(payload).toMatchObject({ error: "vm_create_disabled" });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("maps the fork workflow kill switch without an internal error", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmCreateDisabledError({
+        provider: "freestyle",
+        reason: "Cloud VM creation is disabled.",
+      }),
+    );
+
+    const response = await forkRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({}),
+      }),
+      { params: Promise.resolve({ id: "provider-vm-1" }) },
+    );
+
+    expect(response.status).toBe(503);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_create_disabled",
+      reason: "Cloud VM creation is disabled.",
+      phase: "create",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(runVmWorkflow).toHaveBeenCalled();
   });
 
   test("requires manifest images in deployed environments before workflow", async () => {
