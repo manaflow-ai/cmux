@@ -488,6 +488,9 @@ export async function hasActiveCoderouterSubscription(
               eq(stripeSubscriptions.stackUserId, stackUserId),
               eq(stripeSubscriptions.scope, "user"),
               eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+              // A non-Founder personal override must not be bypassed by a
+              // durable Founder row; regular Stripe Pro remains valid.
+              sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'`,
             ),
             and(
               eq(stripeSubscriptions.stackTeamId, stackTeamId),
