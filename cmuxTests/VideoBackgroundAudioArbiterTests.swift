@@ -62,7 +62,10 @@ struct VideoBackgroundAudioArbiterTests {
         let audible = try makeDefaults(muted: false)
         let first = makeWindow()
         let second = makeWindow()
-        let runtime = VideoBackgroundRuntime(audioArbiter: arbiter)
+        let runtime = VideoBackgroundRuntime(
+            audioArbiter: arbiter,
+            playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+        )
 
         let firstController = WindowVideoBackgroundController.ensure(
             on: first,
