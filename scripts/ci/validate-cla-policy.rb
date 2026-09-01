@@ -280,10 +280,13 @@ begin
     File.binwrite(File.join(candidate_dir, "rerun-failed-cla.sh"), head_script) if head_script
   end
   puts "PASS: base-controlled CLA policy validation for #{head_sha}"
-rescue PolicyError => error
-  warn "::error::#{error.message}"
+rescue PolicyError
+  # Candidate-controlled API, YAML, and shell diagnostics must not be copied
+  # into a public check annotation. Keep the check deterministic and generic;
+  # maintainers can reproduce the exact revision locally from the PR URL.
+  warn "::error::CLA policy validation rejected the proposed policy"
   exit 1
-rescue StandardError => error
-  warn "::error::CLA policy guard failed: #{error.class}: #{error.message}"
+rescue StandardError
+  warn "::error::CLA policy validation could not complete"
   exit 1
 end
