@@ -59,4 +59,17 @@ import Testing
                 == .systemReservedShortcutNotAllowed
         )
     }
+
+    @Test(arguments: ["escape", "\u{1b}"])
+    func escapeLeaderIsReservedEvenWithModifier(_ key: String) {
+        let escapeLeaderChord = StoredShortcut(
+            first: ShortcutStroke(key: key, control: true),
+            second: ShortcutStroke(key: "n")
+        )
+
+        #expect(
+            ShortcutAction.newTab.shortcutBindingPolicyResult(for: escapeLeaderChord)
+                == .systemReservedShortcutNotAllowed
+        )
+    }
 }

@@ -170,6 +170,16 @@ struct FilePreviewTextEditorTextKitTests {
         }
     }
 
+    @Test("prefix save reports a no-op when the panel declines to save")
+    func prefixSaveReportsNoOpWhenPanelDeclines() {
+        let panel = TextEditingPanelSpy()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.panel = panel
+
+        #expect(!textView.performPrefixChordSave())
+        #expect(panel.saveCount == 1)
+    }
+
     @Test("text preview editor preserves marked text from printable Option shortcuts")
     func editorPreservesMarkedTextFromPrintableOptionShortcut() throws {
         try withDefaultShortcutSettings {
