@@ -96,18 +96,32 @@ fn identify_process<'a>(
     manifests: &'a ManifestSet,
     process: &ForegroundProcess,
 ) -> Option<(&'a CompiledManifest, String)> {
-    // An explicit process hint is optional and stays inside the plugin. It
-    // lets wrappers identify themselves even when argv only shows a generic
-    // launcher. The replaceable manifest set validates the value before it
-    // becomes an adapter identity.
-    if let Some(hint) = platform::agent_hint(process.pid)
-        && let Some(manifest) = manifests.identify(&hint)
-    {
-        return Some((manifest, hint));
-    }
-    process_candidates(process)
+    identify_process_with_hint(manifests, process, platform::agent_hint)
+}
+
+fn identify_process_with_hint<'a, Hint>(
+    manifests: &'a ManifestSet,
+    process: &ForegroundProcess,
+    mut hint: Hint,
+) -> Option<(&'a CompiledManifest, String)>
+where
+    Hint: FnMut(u32) -> Option<String>,
+{
+    // Executable and wrapper evidence is already present in the process
+    // record. Try it first so ordinary agent scans do not read /proc or the
+    // macOS process environment. The explicit hint remains a fallback for a
+    // VM, sandbox, or other wrapper that hides the real executable.
+    if let Some(found) = process_candidates(process)
         .into_iter()
         .find_map(|candidate| manifests.identify(&candidate).map(|manifest| (manifest, candidate)))
+    {
+        return Some(found);
+    }
+
+    // An explicit process hint is optional and stays inside the plugin. The
+    // replaceable manifest set validates the value before it becomes an
+    // adapter identity.
+    hint(process.pid).and_then(|hint| manifests.identify(&hint).map(|manifest| (manifest, hint)))
 }
 
 fn process_candidates(process: &ForegroundProcess) -> Vec<String> {
