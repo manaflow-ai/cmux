@@ -5603,6 +5603,16 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(handler.shouldOpenExternally(secondURL))
     }
 
+    func testExternalOpenPolicyCacheClearsAfterRulesAreRemoved() throws {
+        defaults.set("example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        XCTAssertTrue(handler.shouldOpenExternally(url))
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(url))
+    }
+
     func testExternalOpenPolicyCacheTracksEffectiveLegacyArrayTailRules() throws {
         let firstURL = try XCTUnwrap(URL(string: "https://first.example/"))
         let secondURL = try XCTUnwrap(URL(string: "https://second.example/"))

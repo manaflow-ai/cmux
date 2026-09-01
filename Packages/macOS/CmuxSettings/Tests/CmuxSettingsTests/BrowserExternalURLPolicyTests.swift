@@ -6,6 +6,7 @@ struct BrowserExternalURLPolicyTests {
     @Test(arguments: [
         ("example.com", "https://example.com/", true),
         ("example.com", "https://EXAMPLE.COM/", true),
+        (".*foo.*", "https://example.com/foo", true),
         (".*example\\.com.*", "https://example.com/", true),
         ("*example.*", "https://example.com/", true),
         ("https://example\\.com/.*", "https://example.com/path", true),
@@ -22,6 +23,7 @@ struct BrowserExternalURLPolicyTests {
         ("foo|bar", "https://example.com/foo", true),
         ("example.com/(foo|bar)", "https://example.com/foo", true),
         ("example.com/[0-9]+", "https://example.com/42", true),
+        ("re:.*foo.*", "https://example.com/foo", true),
         ("re:https?://example\\.com/.*", "https://example.com/path", true),
         ("example.com", "https://other.test/", false),
     ])
