@@ -1164,6 +1164,7 @@
 		9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9466A07A0000000000000002 /* FeedAttentionTarget.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
 		8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */; };
+		B7F100090000000000000001 /* FeedCoordinator+NotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
 		8672E0048672E0048672E004 /* FeedCoordinatorIngressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0038672E0038672E003 /* FeedCoordinatorIngressTests.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */; };
@@ -1175,6 +1176,8 @@
 		8672E0028672E0028672E002 /* FeedIngressDeliveryLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0018672E0018672E001 /* FeedIngressDeliveryLane.swift */; };
 		8672E00E8672E00E8672E00E /* FeedIngressDeliveryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */; };
 		8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */; };
+		B7F1000A0000000000000001 /* FeedJumpResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F1000A0000000000000002 /* FeedJumpResolver.swift */; };
+		FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F010 /* FeedPanelViewModel.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
@@ -1389,6 +1392,7 @@
 		B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */; };
 		B1F0C0040000000000000001 /* HostedInspectorDockControlScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */; };
 		F17A00000000000000000002 /* HostLatencyTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000001 /* HostLatencyTrace.swift */; };
+		B7F100010000000000000001 /* HostSettingsActions+NotificationSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */; };
 		CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */; };
 		809100000000000000000001 /* HostSettingsShortcutNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
@@ -1662,6 +1666,7 @@
 		C0DEFEE40000000000000001 /* NotificationFeedHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */; };
 		C0DEFEE50000000000000001 /* NotificationFeedHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEE50000000000000002 /* NotificationFeedHistoryTests.swift */; };
 		C0DEFEF80000000000000001 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */; };
+		B7F00006 /* NotificationMuteMenuOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00005 /* NotificationMuteMenuOption.swift */; };
 		D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */; };
 		D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */; };
 		D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000004 /* NotificationPopoverRow.swift */; };
@@ -1676,8 +1681,18 @@
 		C79010000000000000000003 /* NotificationScrollRestoreRowSpaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79010000000000000000004 /* NotificationScrollRestoreRowSpaceTests.swift */; };
 		D78970000000000000000001 /* NotificationScrollRestoreState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78970000000000000000002 /* NotificationScrollRestoreState.swift */; };
 		C79010000000000000000005 /* NotificationScrollRestoreTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79010000000000000000006 /* NotificationScrollRestoreTestSupport.swift */; };
+		B7F101010000000000000001 /* NotificationSoundAgentRegistryLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */; };
+		B7F101020000000000000001 /* NotificationSoundConversionLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101020000000000000002 /* NotificationSoundConversionLimiter.swift */; };
+		B7F100020000000000000001 /* NotificationSoundPreparationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100020000000000000002 /* NotificationSoundPreparationPolicy.swift */; };
+		B7F101030000000000000001 /* NotificationSoundProcessRunning.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101030000000000000002 /* NotificationSoundProcessRunning.swift */; };
+		B7F100030000000000000001 /* NotificationSoundResolutionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100030000000000000002 /* NotificationSoundResolutionSnapshot.swift */; };
+		B7F0000C /* NotificationSoundSettings+CustomSoundStaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */; };
+		B7F00004 /* NotificationSoundSettings+OverrideResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00003 /* NotificationSoundSettings+OverrideResolution.swift */; };
+		B7F100040000000000000001 /* NotificationSoundSettings+SourceMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100040000000000000002 /* NotificationSoundSettings+SourceMetadata.swift */; };
 		B7F00002 /* NotificationSoundSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00001 /* NotificationSoundSettings.swift */; };
 		4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */; };
+		B7F100050000000000000001 /* NotificationSoundSourceMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100050000000000000002 /* NotificationSoundSourceMetadata.swift */; };
+		B7F101000000000000000001 /* NotificationSoundStager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F101000000000000000002 /* NotificationSoundStager.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 		733B576F46794C01A2195B9A /* NotificationsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB29060C585943CD96C77929 /* NotificationsPanel.swift */; };
 		D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000010 /* NotificationsPopoverMetrics.swift */; };
@@ -1775,6 +1790,7 @@
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 		B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */; };
+		B7F100060000000000000001 /* PreparedNotificationSound.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100060000000000000002 /* PreparedNotificationSound.swift */; };
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
 		DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */; };
 		D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B4 /* PresenceSettings.swift */; };
@@ -1961,6 +1977,7 @@
 		D36A00080000000000000001 /* RendererRealizationSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00080000000000000002 /* RendererRealizationSurface.swift */; };
 		A9126000C5E7F90123456789 /* ReopenLastClosedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */; };
 		804100000000000000000003 /* ReorderShortcutActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804100000000000000000004 /* ReorderShortcutActionTests.swift */; };
+		B7F100070000000000000001 /* ResolvedNotificationSoundPlaybackSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100070000000000000002 /* ResolvedNotificationSoundPlaybackSelection.swift */; };
 		F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */; };
 		F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */; };
 		C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */; };
@@ -2583,10 +2600,12 @@
 		859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85911000000000000000000A /* TerminalLinkOpenRequest.swift */; };
 		D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */; };
 		A5F10000000000000000000B /* TerminalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000C /* TerminalNotification.swift */; };
+		B7F100080000000000000001 /* TerminalNotificationArrivalDisposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100080000000000000002 /* TerminalNotificationArrivalDisposition.swift */; };
 		A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */; };
 		A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */; };
 		A5A5A507A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */; };
 		468110000000000000000007 /* TerminalNotificationClickAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000008 /* TerminalNotificationClickAction.swift */; };
+		B7F00008 /* TerminalNotificationDeliveryDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00007 /* TerminalNotificationDeliveryDecision.swift */; };
 		A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */; };
 		7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */; };
 		A5E380710000000000000001 /* TerminalNotificationOpenPanelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */; };
@@ -2600,6 +2619,7 @@
 		11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11189011A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift */; };
 		468120000000000000000005 /* TerminalNotificationStore+HookResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000006 /* TerminalNotificationStore+HookResolution.swift */; };
 		7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */; };
+		B7F0000A /* TerminalNotificationStore+Mute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00009 /* TerminalNotificationStore+Mute.swift */; };
 		596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
 		A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
@@ -4151,6 +4171,7 @@
 		9466A07A0000000000000002 /* FeedAttentionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedAttentionTarget.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
 		8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+DeliveryTarget.swift"; sourceTree = "<group>"; };
+		B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+NotificationDelivery.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
 		8672E0038672E0038672E003 /* FeedCoordinatorIngressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorIngressTests.swift; sourceTree = "<group>"; };
 		FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -4161,6 +4182,8 @@
 		8672E0018672E0018672E001 /* FeedIngressDeliveryLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressDeliveryLane.swift; sourceTree = "<group>"; };
 		8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressDeliveryMetadata.swift; sourceTree = "<group>"; };
 		8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressSynchronousResult.swift; sourceTree = "<group>"; };
+		B7F1000A0000000000000002 /* FeedJumpResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpResolver.swift; sourceTree = "<group>"; };
+		FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedJumpResolverTests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F010 /* FeedPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelViewModel.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPermissionActionPolicy.swift; sourceTree = "<group>"; };
@@ -4376,6 +4399,7 @@
 		B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HostedInspectorDockControlScript.swift; sourceTree = "<group>"; };
 		B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostedInspectorDockControlScriptTests.swift; sourceTree = "<group>"; };
 		F17A00000000000000000001 /* HostLatencyTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HostLatencyTrace.swift; sourceTree = "<group>"; };
+		B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostSettingsActions+NotificationSounds.swift"; sourceTree = "<group>"; };
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
 		809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSettingsShortcutNotificationTests.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
@@ -4645,6 +4669,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C0DEFEE40000000000000002 /* NotificationFeedHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryStore.swift; sourceTree = "<group>"; };
 		C0DEFEE50000000000000002 /* NotificationFeedHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryTests.swift; sourceTree = "<group>"; };
 		C0DEFEF80000000000000002 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift; sourceTree = "<group>"; };
+		B7F00005 /* NotificationMuteMenuOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationMuteMenuOption.swift; sourceTree = "<group>"; };
 		D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingRepresentable.swift; sourceTree = "<group>"; };
 		D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingView.swift; sourceTree = "<group>"; };
 		D77690000000000000000004 /* NotificationPopoverRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverRow.swift; sourceTree = "<group>"; };
@@ -4659,8 +4684,18 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C79010000000000000000004 /* NotificationScrollRestoreRowSpaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreRowSpaceTests.swift; sourceTree = "<group>"; };
 		D78970000000000000000002 /* NotificationScrollRestoreState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreState.swift; sourceTree = "<group>"; };
 		C79010000000000000000006 /* NotificationScrollRestoreTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreTestSupport.swift; sourceTree = "<group>"; };
+		B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundAgentRegistryLoader.swift; sourceTree = "<group>"; };
+		B7F101020000000000000002 /* NotificationSoundConversionLimiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundConversionLimiter.swift; sourceTree = "<group>"; };
+		B7F100020000000000000002 /* NotificationSoundPreparationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundPreparationPolicy.swift; sourceTree = "<group>"; };
+		B7F101030000000000000002 /* NotificationSoundProcessRunning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundProcessRunning.swift; sourceTree = "<group>"; };
+		B7F100030000000000000002 /* NotificationSoundResolutionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundResolutionSnapshot.swift; sourceTree = "<group>"; };
+		B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundSettings+CustomSoundStaging.swift"; sourceTree = "<group>"; };
+		B7F00003 /* NotificationSoundSettings+OverrideResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundSettings+OverrideResolution.swift"; sourceTree = "<group>"; };
+		B7F100040000000000000002 /* NotificationSoundSettings+SourceMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationSoundSettings+SourceMetadata.swift"; sourceTree = "<group>"; };
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
 		4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettingsTests.swift; sourceTree = "<group>"; };
+		B7F100050000000000000002 /* NotificationSoundSourceMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSourceMetadata.swift; sourceTree = "<group>"; };
+		B7F101000000000000000002 /* NotificationSoundStager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundStager.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		CB29060C585943CD96C77929 /* NotificationsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NotificationsPanel.swift; sourceTree = "<group>"; };
 		D77690000000000000000010 /* NotificationsPopoverMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverMetrics.swift; sourceTree = "<group>"; };
@@ -4757,6 +4792,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B79500060000000000000002 /* PortScanPublicationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanPublicationState.swift; sourceTree = "<group>"; };
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalyticsPropertiesTests.swift; sourceTree = "<group>"; };
+		B7F100060000000000000002 /* PreparedNotificationSound.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNotificationSound.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClientTests.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B4 /* PresenceSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
@@ -4940,6 +4976,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D36A00080000000000000002 /* RendererRealizationSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationSurface.swift; sourceTree = "<group>"; };
 		A9126001C5E7F90123456789 /* ReopenLastClosedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReopenLastClosedTests.swift; sourceTree = "<group>"; };
 		804100000000000000000004 /* ReorderShortcutActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReorderShortcutActionTests.swift; sourceTree = "<group>"; };
+		B7F100070000000000000002 /* ResolvedNotificationSoundPlaybackSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResolvedNotificationSoundPlaybackSelection.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookSessionRecord.swift; sourceTree = "<group>"; };
@@ -5553,10 +5590,12 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		85911000000000000000000A /* TerminalLinkOpenRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenRequest.swift; sourceTree = "<group>"; };
 		D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotification+NavigationSnapshot.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000C /* TerminalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotification.swift; sourceTree = "<group>"; };
+		B7F100080000000000000002 /* TerminalNotificationArrivalDisposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationArrivalDisposition.swift; sourceTree = "<group>"; };
 		A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerResolver.swift; sourceTree = "<group>"; };
 		A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerTests.swift; sourceTree = "<group>"; };
 		A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationClearAllTests.swift; sourceTree = "<group>"; };
 		468110000000000000000008 /* TerminalNotificationClickAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationClickAction.swift; sourceTree = "<group>"; };
+		B7F00007 /* TerminalNotificationDeliveryDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationDeliveryDecision.swift; sourceTree = "<group>"; };
 		A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationDirectInteractionTests.swift; sourceTree = "<group>"; };
 		7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationLiveRetargetDelivery.swift; sourceTree = "<group>"; };
 		A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationOpenPanelFallbackTests.swift; sourceTree = "<group>"; };
@@ -5570,6 +5609,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		11189011A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketAttributionTests.swift; sourceTree = "<group>"; };
 		468120000000000000000006 /* TerminalNotificationStore+HookResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+HookResolution.swift"; sourceTree = "<group>"; };
 		7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+MemoryPressure.swift"; sourceTree = "<group>"; };
+		B7F00009 /* TerminalNotificationStore+Mute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+Mute.swift"; sourceTree = "<group>"; };
 		596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+NativeNotificationDeliveryTesting.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+WorkspaceNotifications.swift"; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
@@ -7518,6 +7558,21 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */,
 				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
 				B7F00001 /* NotificationSoundSettings.swift */,
+				B7F100020000000000000002 /* NotificationSoundPreparationPolicy.swift */,
+				B7F100030000000000000002 /* NotificationSoundResolutionSnapshot.swift */,
+				B7F00003 /* NotificationSoundSettings+OverrideResolution.swift */,
+				B7F100040000000000000002 /* NotificationSoundSettings+SourceMetadata.swift */,
+				B7F0000B /* NotificationSoundSettings+CustomSoundStaging.swift */,
+				B7F101020000000000000002 /* NotificationSoundConversionLimiter.swift */,
+				B7F101030000000000000002 /* NotificationSoundProcessRunning.swift */,
+				B7F101000000000000000002 /* NotificationSoundStager.swift */,
+				B7F100050000000000000002 /* NotificationSoundSourceMetadata.swift */,
+				B7F100060000000000000002 /* PreparedNotificationSound.swift */,
+				B7F100070000000000000002 /* ResolvedNotificationSoundPlaybackSelection.swift */,
+				B7F00005 /* NotificationMuteMenuOption.swift */,
+				B7F100080000000000000002 /* TerminalNotificationArrivalDisposition.swift */,
+				B7F00007 /* TerminalNotificationDeliveryDecision.swift */,
+				B7F00009 /* TerminalNotificationStore+Mute.swift */,
 				C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */,
 				C0DEFEF00000000000000002 /* NotificationFeedHistoryInsertionChange.swift */,
 				C0DEFEF10000000000000002 /* NotificationFeedHistoryMutation.swift */,
@@ -7867,7 +7922,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001219 /* WindowToolbarController.swift */,
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
+				B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
+				B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */,
 				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */,
 				8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */,
@@ -8921,6 +8978,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */,
 				14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */,
 				FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */,
+				FEEDC0DEC0DEC0DEC0DE0004 /* FeedJumpResolverTests.swift */,
 				8672D0068672D0068672D006 /* PiFeedDockOwnershipTests.swift */,
 				8672F0028672F0028672F002 /* PiFeedOwnershipTests.swift */,
 				8672F0078672F0078672F007 /* PiFeedEventRecorder.swift */,
@@ -9097,6 +9155,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			children = (
 				FEED0000000000000000F001 /* FeedCoordinator.swift */,
 				8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */,
+				B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */,
+				B7F1000A0000000000000002 /* FeedJumpResolver.swift */,
 				9466A07A0000000000000002 /* FeedAttentionTarget.swift */,
 				8672E00B8672E00B8672E00B /* FeedIngressDeliveryImportance.swift */,
 				8672E0098672E0098672E009 /* FeedIngressDeliveryKey.swift */,
@@ -10245,12 +10305,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */,
+				B7F100090000000000000001 /* FeedCoordinator+NotificationDelivery.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
 				8672E00C8672E00C8672E00C /* FeedIngressDeliveryImportance.swift in Sources */,
 				8672E00A8672E00A8672E00A /* FeedIngressDeliveryKey.swift in Sources */,
 				8672E0028672E0028672E002 /* FeedIngressDeliveryLane.swift in Sources */,
 				8672E00E8672E00E8672E00E /* FeedIngressDeliveryMetadata.swift in Sources */,
 				8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */,
+				B7F1000A0000000000000001 /* FeedJumpResolver.swift in Sources */,
 				FEED0000000000000000F005 /* FeedPanelView.swift in Sources */,
 				FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */,
 				FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */,
@@ -10397,6 +10459,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */,
 				F17A00000000000000000002 /* HostLatencyTrace.swift in Sources */,
+				B7F100010000000000000001 /* HostSettingsActions+NotificationSounds.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				C0DEA7720000000000000001 /* InternalFlagsWindow.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
@@ -10589,6 +10652,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DEFEF70000000000000001 /* NotificationFeedHistorySnapshotHeader.swift in Sources */,
 				C0DEFEE40000000000000001 /* NotificationFeedHistoryStore.swift in Sources */,
 				C0DEFEF80000000000000001 /* NotificationFeedHistoryTopLevelSnapshotHeaderScanner.swift in Sources */,
+				B7F00006 /* NotificationMuteMenuOption.swift in Sources */,
 				D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */,
 				D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */,
 				D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */,
@@ -10597,7 +10661,17 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D78970000000000000000009 /* NotificationScrollRequestPhase.swift in Sources */,
 				D78970000000000000000003 /* NotificationScrollRestoreGeometry.swift in Sources */,
 				D78970000000000000000001 /* NotificationScrollRestoreState.swift in Sources */,
+				B7F101010000000000000001 /* NotificationSoundAgentRegistryLoader.swift in Sources */,
+				B7F101020000000000000001 /* NotificationSoundConversionLimiter.swift in Sources */,
+				B7F100020000000000000001 /* NotificationSoundPreparationPolicy.swift in Sources */,
+				B7F101030000000000000001 /* NotificationSoundProcessRunning.swift in Sources */,
+				B7F100030000000000000001 /* NotificationSoundResolutionSnapshot.swift in Sources */,
+				B7F0000C /* NotificationSoundSettings+CustomSoundStaging.swift in Sources */,
+				B7F00004 /* NotificationSoundSettings+OverrideResolution.swift in Sources */,
+				B7F100040000000000000001 /* NotificationSoundSettings+SourceMetadata.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
+				B7F100050000000000000001 /* NotificationSoundSourceMetadata.swift in Sources */,
+				B7F101000000000000000001 /* NotificationSoundStager.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
 				733B576F46794C01A2195B9A /* NotificationsPanel.swift in Sources */,
 				D7769000000000000000000F /* NotificationsPopoverMetrics.swift in Sources */,
@@ -10664,6 +10738,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B79500080000000000000001 /* PortScanPublicationBuffer.swift in Sources */,
 				B79500060000000000000001 /* PortScanPublicationState.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
+				B7F100060000000000000001 /* PreparedNotificationSound.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
 				D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */,
 				C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */,
@@ -10781,6 +10856,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D36A00060000000000000001 /* RendererRealizationPlanner.swift in Sources */,
 				D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */,
 				D36A00080000000000000001 /* RendererRealizationSurface.swift in Sources */,
+				B7F100070000000000000001 /* ResolvedNotificationSoundPlaybackSelection.swift in Sources */,
 				C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */,
 				C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */,
 				842300000000000000000003 /* RestorableAgentProcessLiveness+ProcessIdentity.swift in Sources */,
@@ -11231,8 +11307,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */,
 				D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */,
 				A5F10000000000000000000B /* TerminalNotification.swift in Sources */,
+				B7F100080000000000000001 /* TerminalNotificationArrivalDisposition.swift in Sources */,
 				A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */,
 				468110000000000000000007 /* TerminalNotificationClickAction.swift in Sources */,
+				B7F00008 /* TerminalNotificationDeliveryDecision.swift in Sources */,
 				7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
 				468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */,
@@ -11241,6 +11319,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001098 /* TerminalNotificationScrollPosition.swift in Sources */,
 				468120000000000000000005 /* TerminalNotificationStore+HookResolution.swift in Sources */,
 				7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */,
+				B7F0000A /* TerminalNotificationStore+Mute.swift in Sources */,
 				A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */,
 				A5001095 /* TerminalNotificationStore.swift in Sources */,
 				0A110711000000000000001C /* TerminalOutputTeeCallback.swift in Sources */,
@@ -12050,6 +12129,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
+				FEEDC0DEC0DEC0DEC0DE0003 /* FeedJumpResolverTests.swift in Sources */,
 				10200F1E0000000000000003 /* FileContentObserverTransferTests.swift in Sources */,
 				781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
