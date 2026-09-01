@@ -24101,7 +24101,9 @@ mod tests {
         assert_eq!(records[0].agent.as_deref(), Some("codex"));
 
         // A transient process lookup miss must not close the detected entry.
-        scanner::scan(&mux, &mut tracker, manifests, step(550), &unknown);
+        // The lookup interval expires at 1,000 ms, so this exercises the
+        // resolver's explicit Unknown result rather than a skipped lookup.
+        scanner::scan(&mux, &mut tracker, manifests, step(1_000), &unknown);
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
@@ -24110,9 +24112,9 @@ mod tests {
         // New output re-arms the debounce; the blocked screen lands after
         // quiescence.
         surface.apply_stream_output_for_test(b"$ rm -rf build\r\nAllow command?\r\n").unwrap();
-        scanner::scan(&mux, &mut tracker, manifests, step(600), &codex);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_100), &codex);
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
-        scanner::scan(&mux, &mut tracker, manifests, step(1_000), &codex);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_500), &codex);
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records[0].state, AgentState::Blocked);
         assert_eq!(records[0].source, AgentSource::Detected);
@@ -24128,8 +24130,8 @@ mod tests {
                 .len()
         };
         let before = journal_len(&mux);
-        scanner::scan(&mux, &mut tracker, manifests, step(1_100), &codex);
-        scanner::scan(&mux, &mut tracker, manifests, step(1_500), &codex);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_600), &codex);
+        scanner::scan(&mux, &mut tracker, manifests, step(2_000), &codex);
         assert_eq!(journal_len(&mux), before);
 
         // Replaying the committed journal reproduces the live roster.
@@ -24142,7 +24144,7 @@ mod tests {
 
         // The codex process leaves the pane: session-ended-equivalent
         // removal, immediately (exit is an identity edge).
-        scanner::scan(&mux, &mut tracker, manifests, step(1_600), &gone);
+        scanner::scan(&mux, &mut tracker, manifests, step(2_500), &gone);
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
         assert!(mux.agent_hook_fences.lock().unwrap().is_empty());
         let projection = mux

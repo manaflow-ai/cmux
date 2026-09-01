@@ -103,52 +103,64 @@ pub(crate) fn scan(
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
         let quiesced = tracker.observe_revision(terminal_id, revision, now);
-        // Identity is resolved every tick: presence comes from the
-        // foreground process, so a freshly launched agent is detected on
-        // the next scan, never gated behind output quiescence.
-        let lookup = resolver(&surface);
-        let manifest = match lookup {
-            ProcessLookup::Name(name) => manifests.identify(&name),
-            ProcessLookup::Exited => {
-                // Exit is a confirmed identity edge. Close a live
-                // screen-derived entry; a terminal that never emitted stays
-                // silent.
-                let _ = tracker.note_foreground_agent(terminal_id, None);
-                if let Some(emission) = tracker.record_detection(terminal_id, None) {
-                    let _ = mux.append_screen_detect_event(&emission);
+        let lookup_due = tracker.should_lookup_foreground_agent(terminal_id, now);
+        let mut exited = false;
+        let mut unknown = false;
+        let mut identity_edge = false;
+        if lookup_due {
+            // Identity refreshes are bounded independently from output
+            // sampling. A launch or swap is observed within the lookup
+            // interval and still evaluates the screen immediately.
+            match resolver(&surface) {
+                ProcessLookup::Name(name) => {
+                    let manifest = manifests.identify(&name);
+                    identity_edge = tracker
+                        .note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
                 }
-                continue;
+                ProcessLookup::Exited => {
+                    identity_edge = tracker.note_foreground_agent(terminal_id, None);
+                    exited = true;
+                }
+                ProcessLookup::Unknown => unknown = true,
             }
-            ProcessLookup::Unknown => {
-                // Keep the prior identity and roster state. The next scan can
-                // retry process lookup without emitting a false Done edge.
-                continue;
+        }
+        if unknown {
+            // Keep the prior identity and roster state. The next scan can
+            // retry process lookup without emitting a false Done edge.
+            continue;
+        }
+        let manifest =
+            tracker.foreground_agent(terminal_id).and_then(|agent| manifests.identify(&agent));
+        let emission = if exited {
+            // Exit is a confirmed identity edge. Close a live screen-derived
+            // entry; a terminal that never emitted stays silent.
+            tracker.record_detection(terminal_id, None)
+        } else {
+            match manifest {
+                None => {
+                    // A known non-agent process closes a live screen-derived
+                    // entry; a terminal that never emitted stays silent.
+                    tracker.record_detection(terminal_id, None)
+                }
+                Some(manifest) if quiesced || identity_edge => {
+                    let Ok(Ok(screen)) =
+                        surface.try_with_terminal(|terminal| terminal.viewport_text())
+                    else {
+                        tracker.retry_detection(terminal_id);
+                        continue;
+                    };
+                    let title = surface.title();
+                    let detection = manifest.detect(DetectionInput {
+                        screen: &screen,
+                        osc_title: &title,
+                        // OSC 9;4 progress is not captured server-side yet;
+                        // progress-region rules simply never match.
+                        osc_progress: "",
+                    });
+                    tracker.record_detection(terminal_id, Some((manifest.id(), detection)))
+                }
+                Some(_) => None,
             }
-        };
-        let identity_edge =
-            tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
-        let emission = match manifest {
-            None => {
-                // A known non-agent process closes a live screen-derived
-                // entry; a terminal that never emitted stays silent.
-                tracker.record_detection(terminal_id, None)
-            }
-            Some(manifest) if quiesced || identity_edge => {
-                let Ok(Ok(screen)) = surface.try_with_terminal(|terminal| terminal.viewport_text())
-                else {
-                    continue;
-                };
-                let title = surface.title();
-                let detection = manifest.detect(DetectionInput {
-                    screen: &screen,
-                    osc_title: &title,
-                    // OSC 9;4 progress is not captured server-side yet;
-                    // progress-region rules simply never match.
-                    osc_progress: "",
-                });
-                tracker.record_detection(terminal_id, Some((manifest.id(), detection)))
-            }
-            Some(_) => None,
         };
         if let Some(emission) = emission {
             let _ = mux.append_screen_detect_event(&emission);

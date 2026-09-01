@@ -31,6 +31,11 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
+/// Process metadata is sampled less often than terminal output. Output
+/// revision changes still drive screen evaluation, while identity refreshes
+/// are bounded to avoid a process syscall on every 100 ms scan tick.
+pub(crate) const PROCESS_LOOKUP_INTERVAL_MS: u64 = 500;
+
 /// The `native_event` value screen-detection journal events carry.
 pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
 
@@ -56,6 +61,8 @@ struct TrackedTerminal {
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
+    /// Last scan that queried foreground process metadata.
+    last_process_lookup_at: Option<Instant>,
     /// Last (agent, state) journaled; emissions are edges over this.
     emitted: Option<(String, AgentState)>,
 }
@@ -115,8 +122,43 @@ impl ScreenDetectTracker {
         if entry.foreground_agent.as_deref() == agent {
             return false;
         }
+        let previous = entry.foreground_agent.as_deref();
         entry.foreground_agent = agent.map(str::to_string);
+        // A supported-agent swap must not retain the old agent's last emitted
+        // state. A transition to None keeps it so the caller can emit Done.
+        if agent.is_some() && previous.is_some() && previous != agent {
+            entry.emitted = None;
+        }
         true
+    }
+
+    /// Return true when process metadata should be refreshed for this
+    /// terminal. A revision change does not bypass the interval, so animated
+    /// screens do not turn the scanner into a process-syscall loop.
+    pub(crate) fn should_lookup_foreground_agent(
+        &mut self,
+        terminal_id: &str,
+        now: Instant,
+    ) -> bool {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        let due = entry.last_process_lookup_at.is_none_or(|last| {
+            now.duration_since(last).as_millis() as u64 >= PROCESS_LOOKUP_INTERVAL_MS
+        });
+        if due {
+            entry.last_process_lookup_at = Some(now);
+        }
+        due
+    }
+
+    pub(crate) fn foreground_agent(&self, terminal_id: &str) -> Option<String> {
+        self.terminals.get(terminal_id).and_then(|entry| entry.foreground_agent.clone())
+    }
+
+    /// Re-arm the current revision after a transient viewport read failure.
+    pub(crate) fn retry_detection(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.evaluated_revision = None;
+        }
     }
 
     /// Fold one evaluated detection. `None` detection means the foreground
@@ -326,6 +368,36 @@ mod tests {
         // Swapping agents in place is an edge, and so is exiting.
         assert!(tracker.note_foreground_agent("term_a", Some("claude")));
         assert!(tracker.note_foreground_agent("term_a", None));
+    }
+
+    #[test]
+    fn screen_detect_tracker_replaces_emitted_agent_on_identity_swap() {
+        let mut tracker = ScreenDetectTracker::default();
+        tracker.note_foreground_agent("term_a", Some("codex"));
+        tracker.observe_revision("term_a", 1, Instant::now());
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+
+        tracker.note_foreground_agent("term_a", Some("claude"));
+        let emission = tracker
+            .record_detection("term_a", Some(("claude", detection(ScreenState::Idle))))
+            .expect("a foreground-agent swap emits the new identity");
+        assert_eq!(emission.agent, "claude");
+        assert_eq!(emission.state, AgentState::Idle);
+    }
+
+    #[test]
+    fn screen_detect_tracker_paces_process_lookup() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        assert!(tracker.should_lookup_foreground_agent("term_a", t0));
+        assert!(!tracker.should_lookup_foreground_agent(
+            "term_a",
+            t0 + Duration::from_millis(PROCESS_LOOKUP_INTERVAL_MS - 1),
+        ));
+        assert!(tracker.should_lookup_foreground_agent(
+            "term_a",
+            t0 + Duration::from_millis(PROCESS_LOOKUP_INTERVAL_MS),
+        ));
     }
 
     #[test]
