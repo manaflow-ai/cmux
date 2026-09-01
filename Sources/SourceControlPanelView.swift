@@ -10,7 +10,7 @@ import SwiftUI
 struct SourceControlPanelView: View {
     @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
-    let onOpenDiffViewer: (String) -> Void
+    let onOpenDiffViewer: (String, GitFileDiffSource) -> Void
     @FocusState private var focusedResourceID: String?
 
     init(context: RightSidebarPanelContext) {
@@ -25,6 +25,10 @@ struct SourceControlPanelView: View {
             return nil
         }
         return branch
+    }
+
+    private var isRemoteWorkspace: Bool {
+        tabManager.selectedWorkspace?.isRemoteWorkspace == true
     }
 
     var body: some View {
@@ -80,6 +84,26 @@ struct SourceControlPanelView: View {
 
     @ViewBuilder
     private var content: some View {
+        VStack(spacing: 0) {
+            if isRemoteWorkspace {
+                Text(String(
+                    localized: "sourceControl.remoteDiffUnavailable",
+                    defaultValue: "Diff previews are unavailable for SSH workspaces."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(Color(nsColor: NSColor.separatorColor).opacity(0.12))
+            }
+            contentBody
+        }
+    }
+
+    @ViewBuilder
+    private var contentBody: some View {
         let sections = fileExplorerStore.sourceControlGroups
         if fileExplorerStore.rootPath.isEmpty {
             emptyState(
@@ -89,6 +113,10 @@ struct SourceControlPanelView: View {
                     defaultValue: "Open a workspace in a Git repository to see changes."
                 )
             )
+        } else if fileExplorerStore.gitStatusLoadState == .loading || fileExplorerStore.gitStatusLoadState == .idle {
+            statusLoadingState
+        } else if fileExplorerStore.gitStatusLoadState == .unavailable {
+            statusUnavailableState
         } else if sections.isEmpty {
             emptyState(
                 title: String(localized: "sourceControl.empty.clean.title", defaultValue: "No changes"),
@@ -103,7 +131,8 @@ struct SourceControlPanelView: View {
                                 group: section.group,
                                 resources: section.resources,
                                 onOpenDiffViewer: onOpenDiffViewer,
-                                focusedResourceID: $focusedResourceID
+                                focusedResourceID: $focusedResourceID,
+                                isDiffAvailable: !isRemoteWorkspace
                             )
                         }
                     }
@@ -117,8 +146,46 @@ struct SourceControlPanelView: View {
         }
     }
 
+    private var statusLoadingState: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(String(
+                localized: "sourceControl.status.loading",
+                defaultValue: "Checking Git status…"
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+
+    private var statusUnavailableState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 24))
+                .foregroundStyle(.secondary)
+            Text(String(
+                localized: "sourceControl.status.unavailable.title",
+                defaultValue: "Source Control unavailable"
+            ))
+            .font(.headline)
+            Text(String(
+                localized: "sourceControl.status.unavailable.detail",
+                defaultValue: "Git status could not be read for this workspace."
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+
     @MainActor
     private func focusFirstSourceControlResource() -> Bool {
+        guard !isRemoteWorkspace else { return false }
         guard let resourceID = fileExplorerStore.sourceControlGroups
             .first?.resources.first?.id else {
             return false

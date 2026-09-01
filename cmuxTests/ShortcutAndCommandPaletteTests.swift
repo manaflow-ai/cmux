@@ -1300,6 +1300,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
             .sourceControl
         )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.switchRightSidebarToMachines.defaultShortcut.key,
+            "7"
+        )
     }
 
     func testModeShortcutUsesConfiguredBindings() {

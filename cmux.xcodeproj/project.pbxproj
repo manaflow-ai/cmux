@@ -1340,10 +1340,13 @@
 		A10190000000000000000001 /* GhosttyTitleUpdateIngressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10190000000000000000002 /* GhosttyTitleUpdateIngressTests.swift */; };
 		468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */; };
 		46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */; };
+		10202A00000000000000001D /* GitFileDiffSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000001E /* GitFileDiffSource.swift */; };
 		FE001107 /* GitFileStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001007 /* GitFileStatus.swift */; };
+		10202A00000000000000001F /* GitStatusLoadState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000020 /* GitStatusLoadState.swift */; };
 		FE001106 /* GitStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001006 /* GitStatusProvider.swift */; };
 		10202A000000000000000009 /* GitStatusSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000A /* GitStatusSnapshot.swift */; };
 		10202A00000000000000000B /* GitStatusSnapshotEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000C /* GitStatusSnapshotEntry.swift */; };
+		10202A000000000000000021 /* GitStatusSnapshotState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000022 /* GitStatusSnapshotState.swift */; };
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		8561A0018561A0018561A001 /* GlobalSearchInputOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */; };
@@ -1966,6 +1969,7 @@
 		10202A000000000000000001 /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000002 /* RightSidebarMode.swift */; };
 		46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */; };
 		468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */; };
+		10202A000000000000000023 /* RightSidebarPanelBehavior.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000024 /* RightSidebarPanelBehavior.swift */; };
 		10202A00000000000000000F /* RightSidebarPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000010 /* RightSidebarPanelContext.swift */; };
 		10202A000000000000000003 /* RightSidebarPanelDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */; };
 		10202A000000000000000005 /* RightSidebarPanelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000006 /* RightSidebarPanelRegistry.swift */; };
@@ -4311,10 +4315,13 @@
 		A10190000000000000000002 /* GhosttyTitleUpdateIngressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateIngressTests.swift; sourceTree = "<group>"; };
 		46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceKey.swift; sourceTree = "<group>"; };
 		46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceState.swift; sourceTree = "<group>"; };
+		10202A00000000000000001E /* GitFileDiffSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitFileDiffSource.swift; sourceTree = "<group>"; };
 		FE001007 /* GitFileStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitFileStatus.swift; sourceTree = "<group>"; };
+		10202A000000000000000020 /* GitStatusLoadState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusLoadState.swift; sourceTree = "<group>"; };
 		FE001006 /* GitStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusProvider.swift; sourceTree = "<group>"; };
 		10202A00000000000000000A /* GitStatusSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshot.swift; sourceTree = "<group>"; };
 		10202A00000000000000000C /* GitStatusSnapshotEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshotEntry.swift; sourceTree = "<group>"; };
+		10202A000000000000000022 /* GitStatusSnapshotState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshotState.swift; sourceTree = "<group>"; };
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchInputOwnershipTests.swift; sourceTree = "<group>"; };
@@ -4929,6 +4936,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		10202A000000000000000002 /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarMode.swift; sourceTree = "<group>"; };
 		46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutEntry.swift; sourceTree = "<group>"; };
 		468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutMatcher.swift; sourceTree = "<group>"; };
+		10202A000000000000000024 /* RightSidebarPanelBehavior.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelBehavior.swift; sourceTree = "<group>"; };
 		10202A000000000000000010 /* RightSidebarPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelContext.swift; sourceTree = "<group>"; };
 		10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelDescriptor.swift; sourceTree = "<group>"; };
 		10202A000000000000000006 /* RightSidebarPanelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelRegistry.swift; sourceTree = "<group>"; };
@@ -7996,10 +8004,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FE001001 /* FileExplorerStore.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
 				FE001002 /* FileExplorerView.swift */,
+				10202A00000000000000001E /* GitFileDiffSource.swift */,
 				FE001007 /* GitFileStatus.swift */,
 				FE001006 /* GitStatusProvider.swift */,
+				10202A000000000000000020 /* GitStatusLoadState.swift */,
 				10202A00000000000000000A /* GitStatusSnapshot.swift */,
 				10202A00000000000000000C /* GitStatusSnapshotEntry.swift */,
+				10202A000000000000000022 /* GitStatusSnapshotState.swift */,
+				10202A000000000000000024 /* RightSidebarPanelBehavior.swift */,
 				469201000000000000000007 /* SessionDragCoordinator.swift */,
 				46920100000000000000000D /* SessionDragSource.swift */,
 				46920100000000000000000B /* SessionDragSourceView.swift */,
@@ -10321,10 +10333,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */,
 				468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */,
 				46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */,
+				10202A00000000000000001D /* GitFileDiffSource.swift in Sources */,
 				FE001107 /* GitFileStatus.swift in Sources */,
+				10202A00000000000000001F /* GitStatusLoadState.swift in Sources */,
 				FE001106 /* GitStatusProvider.swift in Sources */,
 				10202A000000000000000009 /* GitStatusSnapshot.swift in Sources */,
 				10202A00000000000000000B /* GitStatusSnapshotEntry.swift in Sources */,
+				10202A000000000000000021 /* GitStatusSnapshotState.swift in Sources */,
 					3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 					8561A0058561A0058561A005 /* GlobalSearchKeyEvent+QueryEditing.swift in Sources */,
@@ -10735,6 +10750,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				10202A000000000000000001 /* RightSidebarMode.swift in Sources */,
 				46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */,
 				468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */,
+				10202A000000000000000023 /* RightSidebarPanelBehavior.swift in Sources */,
 				10202A00000000000000000F /* RightSidebarPanelContext.swift in Sources */,
 				10202A000000000000000003 /* RightSidebarPanelDescriptor.swift in Sources */,
 				10202A000000000000000005 /* RightSidebarPanelRegistry.swift in Sources */,

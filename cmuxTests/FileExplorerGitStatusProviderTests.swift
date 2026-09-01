@@ -102,6 +102,22 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
+    func statusSnapshotExpandsUntrackedDirectoriesIntoFileEntries() throws {
+        let repoURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        try Self.initializeRepo(at: repoURL)
+        let untrackedDirectory = repoURL.appendingPathComponent("new-dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: untrackedDirectory, withIntermediateDirectories: true)
+        let untrackedFile = untrackedDirectory.appendingPathComponent("file.txt")
+        try "new\n".write(to: untrackedFile, atomically: true, encoding: .utf8)
+
+        let snapshot = GitStatusProvider().fetchSnapshot(directory: repoURL.path)
+
+        #expect(snapshot.displayableEntries.map(\.path) == [untrackedFile.path])
+        #expect(snapshot.displayableEntries.allSatisfy { !$0.path.hasSuffix("/") })
+    }
+
+    @Test
     func sourceControlSectionsStripExactlyOneSlashAtFilesystemRoot() {
         let sections = SourceControlGroupSection.makeSections(
             entries: [
@@ -116,7 +132,7 @@ struct FileExplorerGitStatusProviderTests {
     }
 
     @Test
-    func statusQueryMapsTypeChangedAndUnmergedEntries() throws {
+    func statusQueryMapsStagedUnstagedAndUntrackedEntries() throws {
         let repoURL = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: repoURL) }
 
@@ -134,7 +150,7 @@ struct FileExplorerGitStatusProviderTests {
                 printf '%s\n' "$CMUX_TEST_REPO_ROOT"
                 ;;
             "status --porcelain=v1")
-                printf ' T type-change.txt\0UU conflicted.txt\0'
+                printf 'M  staged.txt\0 M unstaged.txt\0?? new-dir/new.txt\0 T type-change.txt\0UU conflicted.txt\0'
                 ;;
             *)
                 exit 2
@@ -154,11 +170,21 @@ struct FileExplorerGitStatusProviderTests {
         ).fetchStatus(directory: repoURL.path)
 
         #expect(
-            status[repoURL.appendingPathComponent("type-change.txt").path] == .some(.modified)
+            status[repoURL.appendingPathComponent("staged.txt").path] == .some(.modified)
         )
         #expect(
-            status[repoURL.appendingPathComponent("conflicted.txt").path] == .some(.modified)
+            status[repoURL.appendingPathComponent("unstaged.txt").path] == .some(.modified)
         )
+        #expect(status[repoURL.appendingPathComponent("type-change.txt").path] == .some(.modified))
+        #expect(status[repoURL.appendingPathComponent("conflicted.txt").path] == .some(.modified))
+
+        let snapshot = GitStatusProvider(
+            gitExecutableURL: fakeGitURL,
+            environment: environment
+        ).fetchSnapshot(directory: repoURL.path)
+        #expect(snapshot.displayableEntries.first(where: { $0.path.hasSuffix("staged.txt") })?.diffSource == .staged)
+        #expect(snapshot.displayableEntries.first(where: { $0.path.hasSuffix("unstaged.txt") })?.diffSource == .unstaged)
+        #expect(snapshot.displayableEntries.first(where: { $0.path.hasSuffix("new.txt") })?.diffSource == .untracked)
     }
 
     @Test

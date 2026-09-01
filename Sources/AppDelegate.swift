@@ -6940,7 +6940,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the CLI receives the same workspace and a pathspec instead of opening a
     /// whole-repository diff.
     @discardableResult
-    func openDiffViewerForWorkspacePath(_ path: String, tabManager: TabManager?) -> Bool {
+    func openDiffViewerForWorkspacePath(
+        _ path: String,
+        diffSource: GitFileDiffSource = .unstaged,
+        tabManager: TabManager?
+    ) -> Bool {
         guard let workspace = tabManager?.selectedWorkspace,
               !workspace.isRemoteWorkspace,
               let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
@@ -6951,7 +6955,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         let normalizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
         let normalizedCwd = URL(fileURLWithPath: cwd).standardizedFileURL.path
-        guard normalizedPath == normalizedCwd || normalizedPath.hasPrefix(normalizedCwd + "/") else {
+        let pathIsInWorkspace = normalizedCwd == "/"
+            ? normalizedPath.hasPrefix("/")
+            : normalizedPath == normalizedCwd || normalizedPath.hasPrefix(normalizedCwd + "/")
+        guard pathIsInWorkspace else {
             return false
         }
         let socketPath = TerminalController.shared.activeSocketPath(
@@ -6965,7 +6972,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             surfaceId: workspace.focusedPanelId,
             useLastTurnSource: false,
             sessionId: nil,
-            filePath: normalizedPath
+            filePath: normalizedPath,
+            diffSource: diffSource
         )
     }
 
@@ -7061,14 +7069,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         useLastTurnSource: Bool,
         sessionId: String?,
         focus: Bool = true,
-        filePath: String? = nil
+        filePath: String? = nil,
+        diffSource: GitFileDiffSource = .unstaged
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
         var arguments = [
             "--socket", socketPath,
             "diff",
-            useLastTurnSource ? "--last-turn" : "--unstaged",
+            useLastTurnSource ? "--last-turn" : diffSource.cliArgument,
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
             "--focus", focus ? "true" : "false",

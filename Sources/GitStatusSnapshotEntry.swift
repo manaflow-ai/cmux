@@ -4,4 +4,15 @@ import Foundation
 struct GitStatusSnapshotEntry: Equatable, Hashable, Sendable {
     let path: String
     let status: GitFileStatus
+    let diffSource: GitFileDiffSource
+
+    init(
+        path: String,
+        status: GitFileStatus,
+        diffSource: GitFileDiffSource = .unstaged
+    ) {
+        self.path = path
+        self.status = status
+        self.diffSource = diffSource
+    }
 }

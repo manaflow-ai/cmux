@@ -52543,13 +52543,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: %@"
+            "value": "right-sidebar %@ received unexpected arguments"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: %@"
+            "value": "right-sidebar %@ に予期しない引数があります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar %@ received unexpected arguments"
           }
         }
       }
@@ -52803,13 +52911,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set|set-mode <%1$@>\n                                 Show, switch mode, and focus\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  %1$@\n                                 Alias for show + set|set-mode + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set|set-mode <%1$@>\n                                 表示して、モードを切り替え、フォーカスします\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  %1$@\n                                 show + set|set-mode + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "キュー済み（ターミナル起動中。PTY 生成後に入力が送信されます）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
           }
         }
       }
@@ -156344,13 +156560,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar show [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -274879,6 +275203,555 @@
             "value": "ERROR: Right sidebar mode '%@' is unavailable; enable it in Settings"
           }
         }
+      }
+    },
+    "sourceControl.remoteDiffUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ワークスペースでは Diff プレビューを利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff previews are unavailable for SSH workspaces."
+          }
+        }
+      }
+    },
+    "sourceControl.status.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git の状態を確認中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Git status…"
+          }
+        }
+      }
+    },
+    "sourceControl.status.unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース管理を利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Control unavailable"
+          }
+        }
+      }
+    },
+    "sourceControl.status.unavailable.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースの Git 状態を読み取れませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git status could not be read for this workspace."
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK" } }
+      }
+    },
+    "cloudPane.newTerminalFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t start a terminal on %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ でターミナルを開始できませんでした" } }
+      }
+    },
+    "rightSidebar.customSidebar.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No custom sidebar selected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カスタムサイドバーが選択されていません" } }
+      }
+    },
+    "rightSidebar.customSidebar.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pick one with: cmux right-sidebar set custom <name>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux right-sidebar set custom <name> で選択してください" } }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ERROR: No custom sidebar named '%@' in ~/.config/cmux/sidebars" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ERROR: ~/.config/cmux/sidebars に「%@」というカスタムサイドバーはありません" } }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarUnset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ERROR: No custom sidebar selected; run right_sidebar set custom <name>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ERROR: カスタムサイドバーが未選択です。right_sidebar set custom <name> を実行してください" } }
+      }
+    },
+    "rightSidebar.remote.error.customSidebarsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ERROR: Custom sidebars are disabled (enable them in Settings → Beta Features)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ERROR: カスタムサイドバーは無効です（設定 → ベータ機能で有効にしてください）" } }
       }
     }
   },

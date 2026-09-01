@@ -12,6 +12,20 @@ struct RightSidebarPanelRegistry {
     let descriptors: [RightSidebarPanelDescriptor]
 
     init() {
+        let modeCatalog = RightSidebarModeCatalog()
+        guard let filesCLI = modeCatalog.entry(forID: RightSidebarMode.files.rawValue),
+              let findCLI = modeCatalog.entry(forID: RightSidebarMode.find.rawValue),
+              let sessionsCLI = modeCatalog.entry(forID: RightSidebarMode.sessions.rawValue),
+              let feedCLI = modeCatalog.entry(forID: RightSidebarMode.feed.rawValue),
+              let dockCLI = modeCatalog.entry(forID: RightSidebarMode.dock.rawValue),
+              let machinesCLI = modeCatalog.entry(forID: RightSidebarMode.machines.rawValue),
+              let sourceControlCLI = modeCatalog.entry(forID: RightSidebarMode.sourceControl.rawValue) else {
+            // The app registry fails closed if its UI descriptors ever drift
+            // from the UI-free command catalog, instead of reintroducing a
+            // second set of aliases or emitting commands the CLI cannot route.
+            self.descriptors = []
+            return
+        }
         let beta = BetaFeaturesCatalogSection()
         let feedKey = beta.rightSidebarFeed
         let dockKey = beta.rightSidebarDock
@@ -24,13 +38,13 @@ struct RightSidebarPanelRegistry {
                 symbolName: "folder",
                 order: 10,
                 shortcutAction: .switchRightSidebarToFiles,
-                cliArgument: "files",
-                cliAliases: [],
+                cliArgument: filesCLI.cliArgument,
+                cliAliases: filesCLI.cliAliases,
                 commandPaletteCommandID: "palette.showRightSidebarFiles",
                 paneCommandID: "palette.openFilesPane",
                 paneTitle: String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane"),
                 supportsTearOffPane: true,
-                syncsFileExplorerRoot: true
+                behavior: .fileExplorerOutline
             ) { context in
                 AnyView(
                     FileExplorerPanelView(
@@ -47,13 +61,13 @@ struct RightSidebarPanelRegistry {
                 symbolName: "magnifyingglass",
                 order: 20,
                 shortcutAction: .switchRightSidebarToFind,
-                cliArgument: "find",
-                cliAliases: [],
+                cliArgument: findCLI.cliArgument,
+                cliAliases: findCLI.cliAliases,
                 commandPaletteCommandID: "palette.showRightSidebarFind",
                 paneCommandID: "palette.openFindPane",
                 paneTitle: String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane"),
                 supportsTearOffPane: true,
-                syncsFileExplorerRoot: true
+                behavior: .fileExplorerSearch
             ) { context in
                 AnyView(
                     FileExplorerPanelView(
@@ -70,13 +84,13 @@ struct RightSidebarPanelRegistry {
                 symbolName: "books.vertical",
                 order: 30,
                 shortcutAction: .switchRightSidebarToSessions,
-                cliArgument: "vault",
-                cliAliases: ["sessions"],
+                cliArgument: sessionsCLI.cliArgument,
+                cliAliases: sessionsCLI.cliAliases,
                 commandPaletteCommandID: "palette.showRightSidebarSessions",
                 paneCommandID: "palette.openVaultPane",
                 paneTitle: String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane"),
                 supportsTearOffPane: true,
-                syncsFileExplorerRoot: false
+                behavior: .sessionIndex
             ) { context in
                 AnyView(
                     SessionIndexView(
@@ -96,13 +110,13 @@ struct RightSidebarPanelRegistry {
                 order: 40,
                 isAvailable: { defaults in Self.isEnabled(feedKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToFeed,
-                cliArgument: "feed",
-                cliAliases: [],
+                cliArgument: feedCLI.cliArgument,
+                cliAliases: feedCLI.cliAliases,
                 commandPaletteCommandID: "palette.showRightSidebarFeed",
                 paneCommandID: nil,
                 paneTitle: nil,
                 supportsTearOffPane: false,
-                syncsFileExplorerRoot: false
+                behavior: .feed
             ) { context in
                 AnyView(FeedPanelView(chromeBackgroundColor: context.windowAppearance.resolvedChromeBackgroundColor))
             },
@@ -113,13 +127,13 @@ struct RightSidebarPanelRegistry {
                 order: 50,
                 isAvailable: { defaults in Self.isEnabled(dockKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToDock,
-                cliArgument: "dock",
-                cliAliases: [],
+                cliArgument: dockCLI.cliArgument,
+                cliAliases: dockCLI.cliAliases,
                 commandPaletteCommandID: "palette.showRightSidebarDock",
                 paneCommandID: nil,
                 paneTitle: nil,
                 supportsTearOffPane: false,
-                syncsFileExplorerRoot: false
+                behavior: .dock
             ) { context in
                 AnyView(RightSidebarDockPanelContent(context: context))
             },
@@ -130,13 +144,13 @@ struct RightSidebarPanelRegistry {
                 order: 60,
                 isAvailable: { defaults in CloudMachinesFeature.offMainIsEnabled(defaults: defaults) },
                 shortcutAction: .switchRightSidebarToMachines,
-                cliArgument: "machines",
-                cliAliases: ["cloud", "vms"],
+                cliArgument: machinesCLI.cliArgument,
+                cliAliases: machinesCLI.cliAliases,
                 commandPaletteCommandID: "palette.showRightSidebarMachines",
                 paneCommandID: nil,
                 paneTitle: nil,
                 supportsTearOffPane: false,
-                syncsFileExplorerRoot: false
+                behavior: .host
             ) { context in
                 AnyView(
                     MachinesPanelView(
@@ -151,13 +165,13 @@ struct RightSidebarPanelRegistry {
                 order: 70,
                 isAvailable: { defaults in Self.isEnabled(sourceControlKey, defaults: defaults) },
                 shortcutAction: .switchRightSidebarToSourceControl,
-                cliArgument: "source-control",
-                cliAliases: ["sourcecontrol"],
+                cliArgument: sourceControlCLI.cliArgument,
+                cliAliases: sourceControlCLI.cliAliases,
                 commandPaletteCommandID: "palette.showRightSidebarSourceControl",
                 paneCommandID: nil,
                 paneTitle: nil,
                 supportsTearOffPane: false,
-                syncsFileExplorerRoot: true
+                behavior: .sourceControl
             ) { context in
                 AnyView(SourceControlPanelView(context: context))
             },
@@ -170,17 +184,14 @@ struct RightSidebarPanelRegistry {
 
     /// Resolves a user-facing CLI alias against descriptor metadata.
     func mode(forCLIArgument rawValue: String) -> RightSidebarMode? {
-        let argument = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return descriptors.first { descriptor in
-            descriptor.cliArgument.lowercased() == argument
-                || descriptor.cliAliases.contains(where: { $0.lowercased() == argument })
-                || descriptor.id.lowercased() == argument
-        }.flatMap { RightSidebarMode(rawValue: $0.id) }
+        RightSidebarModeCatalog()
+            .entry(forCLIArgument: rawValue)
+            .flatMap { RightSidebarMode(rawValue: $0.id) }
     }
 
     /// All canonical CLI mode names and aliases, in descriptor order.
     var cliArguments: [String] {
-        descriptors.flatMap { [$0.cliArgument] + $0.cliAliases }
+        RightSidebarModeCatalog().cliArguments
     }
 
     /// A compact mode list suitable for localized usage and validation errors.
@@ -190,9 +201,7 @@ struct RightSidebarPanelRegistry {
 
     /// Returns the canonical CLI spelling for a mode argument.
     func canonicalCLIArgument(_ rawValue: String) -> String? {
-        guard let mode = mode(forCLIArgument: rawValue),
-              let descriptor = descriptor(for: mode) else { return nil }
-        return descriptor.cliArgument
+        RightSidebarModeCatalog().canonicalCLIArgument(rawValue)
     }
 
     func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
@@ -229,7 +238,7 @@ struct RightSidebarPanelRegistry {
         paneCommandID: String?,
         paneTitle: String?,
         supportsTearOffPane: Bool,
-        syncsFileExplorerRoot: Bool,
+        behavior: RightSidebarPanelBehavior,
         makeContent: @escaping @MainActor (RightSidebarPanelContext) -> AnyView
     ) -> RightSidebarPanelDescriptor {
         RightSidebarPanelDescriptor(
@@ -245,7 +254,7 @@ struct RightSidebarPanelRegistry {
             paneCommandID: paneCommandID,
             paneTitle: paneTitle,
             supportsTearOffPane: supportsTearOffPane,
-            syncsFileExplorerRoot: syncsFileExplorerRoot,
+            behavior: behavior,
             makeContent: makeContent
         )
     }

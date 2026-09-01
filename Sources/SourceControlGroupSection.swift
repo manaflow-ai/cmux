@@ -24,7 +24,8 @@ struct SourceControlGroupSection: Identifiable, Equatable, Sendable {
             let row = SourceControlResourceRow(
                 path: entry.path,
                 relativePath: relativePath(entry.path, root: root),
-                status: entry.status
+                status: entry.status,
+                diffSource: entry.diffSource
             )
             grouped[row.group, default: []].append(row)
         }

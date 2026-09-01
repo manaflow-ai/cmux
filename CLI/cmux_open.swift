@@ -1615,7 +1615,18 @@ extension CMUXCLI {
         let sourceLabel: String
         switch source {
         case .unstaged:
-            patch = try gitStdout(gitDiffPatchArguments(pathArguments), in: repoRoot)
+            let worktreePatch = try gitStdout(gitDiffPatchArguments(pathArguments), in: repoRoot)
+            if !worktreePatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                patch = worktreePatch
+            } else if let normalizedFilePath,
+                      !normalizedFilePath.isEmpty,
+                      try gitUntrackedPaths(in: repoRoot).contains(normalizedFilePath) {
+                // `git diff` intentionally omits untracked files. A file-scoped
+                // Source Control row still needs a useful /dev/null patch.
+                patch = try gitAddedUntrackedPatch(path: normalizedFilePath, in: repoRoot)
+            } else {
+                patch = worktreePatch
+            }
             sourceLabel = "git unstaged"
         case .staged:
             patch = try gitStdout(gitDiffPatchArguments(["--cached"] + pathArguments), in: repoRoot)
@@ -2593,7 +2604,7 @@ extension CMUXCLI {
     ) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory] + arguments,
+            arguments: ["git", "--literal-pathspecs", "-C", directory] + arguments,
             timeout: timeout
         )
         if result.timedOut {
@@ -2607,7 +2618,12 @@ extension CMUXCLI {
     }
 
     private func gitDiffPatchArguments(_ tail: [String]) -> [String] {
-        ["diff", "--no-ext-diff", "--no-color", "--binary"] + tail
+        // Treat the user-selected path as one literal pathspec. Without this,
+        // Git's wildcard/magic pathspec grammar could widen `--file` to other
+        // files even though the CLI promised a single-file diff.
+        // `gitStdout` places the global option before the subcommand; Git does
+        // not accept `--literal-pathspecs` in the `git diff` option position.
+        return ["diff", "--no-ext-diff", "--no-color", "--binary"] + tail
     }
 
     /// Normalizes a `--file` selector to a repository-relative Git path. Using
@@ -2656,7 +2672,7 @@ extension CMUXCLI {
     ) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory] + arguments,
+            arguments: ["git", "--literal-pathspecs", "-C", directory] + arguments,
             timeout: timeout
         )
         if result.timedOut {
@@ -2677,7 +2693,7 @@ extension CMUXCLI {
     ) throws -> Data {
         let result = CLIProcessRunner.runProcessData(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory] + arguments,
+            arguments: ["git", "--literal-pathspecs", "-C", directory] + arguments,
             timeout: timeout
         )
         if result.timedOut {
@@ -4272,8 +4288,14 @@ extension CMUXCLI {
         func sourceContext(for source: DiffSource, repoRoot: String) throws -> DiffSourceContext {
             var sourceContext = context
             sourceContext.repoRoot = repoRoot
+            // A file selector is scoped to the repository from which it was
+            // chosen. Sibling-repository pages must fall back to a repository-
+            // wide diff instead of silently showing an empty path-scoped diff.
+            let filePath = standardizedDiffSourcePath(repoRoot) == standardizedDiffSourcePath(context.repoRoot ?? repoRoot)
+                ? context.filePath
+                : nil
             sourceContext.filePath = try normalizedDiffFilePath(
-                context.filePath,
+                filePath,
                 repoRoot: repoRoot
             )
             if source == .branch {
@@ -4666,7 +4688,7 @@ extension CMUXCLI {
                     sessionId: selectedContext.sessionId,
                     repoRoot: option.repoRoot,
                     branchBaseRef: source == .branch ? repoBranchBaseRef : selectedContext.branchBaseRef,
-                    filePath: selectedContext.filePath
+                    filePath: nil
                 )
                 try writeDiffViewerStatusHTML(
                     to: url,
@@ -5532,7 +5554,9 @@ extension CMUXCLI {
             surfaceId: session.surfaceId,
             repoRoot: repoRoot,
             branchBaseRef: base,
-            filePath: session.filePath
+            filePath: standardizedDiffSourcePath(repoRoot) == standardizedDiffSourcePath(session.repoRoot)
+                ? session.filePath
+                : nil
         )
         context.branchBaseRef = try resolvedGitBranchDiffBaseRef(base, in: repoRoot)
 
@@ -6374,7 +6398,9 @@ extension CMUXCLI {
             surfaceId: session.surfaceId,
             repoRoot: repoRoot,
             branchBaseRef: base,
-            filePath: session.filePath
+            filePath: standardizedDiffSourcePath(repoRoot) == standardizedDiffSourcePath(session.repoRoot)
+                ? session.filePath
+                : nil
         )
         context.branchBaseRef = try resolvedGitBranchDiffBaseRef(base, in: repoRoot)
 

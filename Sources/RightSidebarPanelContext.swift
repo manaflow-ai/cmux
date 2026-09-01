@@ -14,6 +14,6 @@ struct RightSidebarPanelContext {
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
-    let onOpenDiffViewer: (String) -> Void
+    let onOpenDiffViewer: (String, GitFileDiffSource) -> Void
     let onClose: () -> Void
 }

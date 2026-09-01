@@ -5,6 +5,7 @@ struct SourceControlResourceRow: Identifiable, Hashable, Sendable {
     let path: String
     let relativePath: String
     let status: GitFileStatus
+    let diffSource: GitFileDiffSource
 
     var id: String { path }
 

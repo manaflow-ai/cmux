@@ -9,6 +9,12 @@ import Foundation
 struct RightSidebarMode: RawRepresentable, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     let rawValue: String
 
+    /// Immutable metadata cache used by value-type convenience properties.
+    /// Availability is still evaluated against the caller's defaults store by
+    /// ``RightSidebarPanelRegistry``; this cache only avoids rebuilding view
+    /// descriptors for labels, symbols, and identity lookups on every render.
+    private static let metadataRegistry = RightSidebarPanelRegistry()
+
     init?(rawValue: String) {
         guard !rawValue.isEmpty else { return nil }
         self.rawValue = rawValue
@@ -31,7 +37,7 @@ struct RightSidebarMode: RawRepresentable, CaseIterable, Codable, Hashable, Iden
     static let customSidebar = Self("custom-sidebar")
 
     static var allCases: [RightSidebarMode] {
-        RightSidebarPanelRegistry().descriptors.compactMap { RightSidebarMode(rawValue: $0.id) }
+        metadataRegistry.descriptors.compactMap { RightSidebarMode(rawValue: $0.id) }
     }
 
     var id: String { rawValue }
@@ -53,23 +59,23 @@ struct RightSidebarMode: RawRepresentable, CaseIterable, Codable, Hashable, Iden
     }
 
     var label: String {
-        RightSidebarPanelRegistry().descriptor(for: self)?.title ?? rawValue
+        Self.metadataRegistry.descriptor(for: self)?.title ?? rawValue
     }
 
     var symbolName: String {
-        RightSidebarPanelRegistry().descriptor(for: self)?.symbolName ?? "square"
+        Self.metadataRegistry.descriptor(for: self)?.symbolName ?? "square"
     }
 
     var shortcutAction: KeyboardShortcutSettings.Action? {
-        RightSidebarPanelRegistry().descriptor(for: self)?.shortcutAction
+        Self.metadataRegistry.descriptor(for: self)?.shortcutAction
     }
 
     var canOpenAsPane: Bool {
-        RightSidebarPanelRegistry().descriptor(for: self)?.supportsTearOffPane == true
+        Self.metadataRegistry.descriptor(for: self)?.supportsTearOffPane == true
     }
 
     static var paneModes: [RightSidebarMode] {
-        RightSidebarPanelRegistry().descriptors.compactMap { descriptor in
+        metadataRegistry.descriptors.compactMap { descriptor in
             guard descriptor.supportsTearOffPane else { return nil }
             return RightSidebarMode(rawValue: descriptor.id)
         }

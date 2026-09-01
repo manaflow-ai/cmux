@@ -721,6 +721,11 @@ final class FileExplorerStore: ObservableObject {
     /// this immutable projection is assigned before that signal fires so rows
     /// below SwiftUI list boundaries never retain the store itself.
     private(set) var sourceControlGroups: [SourceControlGroupSection] = []
+    /// Explicit loading/repository state for Source Control presentation.
+    /// It uses the store's existing observation channel so clean and
+    /// unavailable repositories (both of which have an empty status map) still
+    /// invalidate the panel when a refresh begins or completes.
+    private(set) var gitStatusLoadState: GitStatusLoadState = .idle
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
@@ -764,6 +769,10 @@ final class FileExplorerStore: ObservableObject {
 
     private let gitStatusProvider: GitStatusProvider
     private var gitStatusRequestGeneration: UInt64 = 0
+    private var gitStatusRefreshInFlight = false
+    private var gitStatusRefreshPending = false
+    private var gitStatusPublishedRootPath: String?
+    private var gitStatusPublishedProviderIdentity: ObjectIdentifier?
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
         self.gitStatusProvider = gitStatusProvider
@@ -838,11 +847,34 @@ final class FileExplorerStore: ObservableObject {
         let requestedRootPath = rootPath
         let requestedWorkspaceRootIdentity = workspaceRootIdentity
         let requestedProviderIdentity = provider.map(ObjectIdentifier.init)
-        gitStatusByPath = [:]
-        gitStatusSnapshot = .empty
-        sourceControlGroups = []
+        objectWillChange.send()
+        gitStatusLoadState = .loading
+        let statusScopeChanged = gitStatusPublishedRootPath != requestedRootPath
+            || gitStatusPublishedProviderIdentity != requestedProviderIdentity
+        if statusScopeChanged {
+            // A changed root/provider must not show rows from the previous
+            // workspace, but repeated watcher ticks for one scope retain the
+            // last authoritative snapshot until its replacement is ready.
+            gitStatusByPath = [:]
+            gitStatusSnapshot = .empty
+            sourceControlGroups = []
+        }
+
+        if gitStatusRefreshInFlight {
+            // Coalesce watcher/manual refresh bursts. The active process will
+            // finish, then one request using the latest root/provider snapshot
+            // starts; stale output can never publish.
+            gitStatusRefreshPending = true
+            return
+        }
+        gitStatusRefreshInFlight = true
 
         guard !rootPath.isEmpty else {
+            objectWillChange.send()
+            gitStatusLoadState = .unavailable
+            gitStatusPublishedRootPath = requestedRootPath
+            gitStatusPublishedProviderIdentity = requestedProviderIdentity
+            finishGitStatusRefresh()
             return
         }
         let path = rootPath
@@ -861,9 +893,10 @@ final class FileExplorerStore: ObservableObject {
                     entries: snapshot.displayableEntries,
                     root: requestedRootPath
                 )
-                DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          self.gitStatusRequestGeneration == requestGeneration,
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer { self.finishGitStatusRefresh() }
+                    guard self.gitStatusRequestGeneration == requestGeneration,
                           self.rootPath == requestedRootPath,
                           self.workspaceRootIdentity == requestedWorkspaceRootIdentity,
                           self.provider.map(ObjectIdentifier.init) == requestedProviderIdentity else {
@@ -871,6 +904,10 @@ final class FileExplorerStore: ObservableObject {
                     }
                     self.gitStatusSnapshot = snapshot
                     self.sourceControlGroups = sourceControlGroups
+                    self.gitStatusPublishedRootPath = requestedRootPath
+                    self.gitStatusPublishedProviderIdentity = requestedProviderIdentity
+                    self.objectWillChange.send()
+                    self.gitStatusLoadState = snapshot.state == .available ? .available : .unavailable
                     self.gitStatusByPath = snapshot.statusesByPath
                 }
             }
@@ -882,9 +919,10 @@ final class FileExplorerStore: ObservableObject {
                     entries: snapshot.displayableEntries,
                     root: requestedRootPath
                 )
-                DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          self.gitStatusRequestGeneration == requestGeneration,
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer { self.finishGitStatusRefresh() }
+                    guard self.gitStatusRequestGeneration == requestGeneration,
                           self.rootPath == requestedRootPath,
                           self.workspaceRootIdentity == requestedWorkspaceRootIdentity,
                           self.provider.map(ObjectIdentifier.init) == requestedProviderIdentity else {
@@ -892,10 +930,21 @@ final class FileExplorerStore: ObservableObject {
                     }
                     self.gitStatusSnapshot = snapshot
                     self.sourceControlGroups = sourceControlGroups
+                    self.gitStatusPublishedRootPath = requestedRootPath
+                    self.gitStatusPublishedProviderIdentity = requestedProviderIdentity
+                    self.objectWillChange.send()
+                    self.gitStatusLoadState = snapshot.state == .available ? .available : .unavailable
                     self.gitStatusByPath = snapshot.statusesByPath
                 }
             }
         }
+    }
+
+    private func finishGitStatusRefresh() {
+        gitStatusRefreshInFlight = false
+        guard gitStatusRefreshPending else { return }
+        gitStatusRefreshPending = false
+        refreshGitStatus()
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {

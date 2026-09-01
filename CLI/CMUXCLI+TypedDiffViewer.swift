@@ -108,7 +108,10 @@ extension CMUXCLI {
             appearance: appearance,
             titleOverride: titleOverride,
             workspaceId: context.workspaceId,
-            surfaceId: context.surfaceId
+            surfaceId: context.surfaceId,
+            filePath: standardizedDiffSourcePath(repoRoot) == standardizedDiffSourcePath(context.repoRoot ?? repoRoot)
+                ? context.filePath
+                : nil
         )
         try writeDiffViewerBranchSession(session, rootDirectory: target.directory)
         let lastTurnInput = try? readGitDiffInput(source: .lastTurn, context: context)

@@ -4,8 +4,9 @@ import SwiftUI
 struct SourceControlGroupView: View {
     let group: SourceControlGroup
     let resources: [SourceControlResourceRow]
-    let onOpenDiffViewer: (String) -> Void
+    let onOpenDiffViewer: (String, GitFileDiffSource) -> Void
     let focusedResourceID: FocusState<String?>.Binding
+    let isDiffAvailable: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -22,7 +23,7 @@ struct SourceControlGroupView: View {
             }
             ForEach(resources) { resource in
                 Button {
-                    onOpenDiffViewer(resource.path)
+                    onOpenDiffViewer(resource.path, resource.diffSource)
                 } label: {
                     HStack(spacing: 8) {
                         Text(resource.statusLetter)
@@ -40,6 +41,7 @@ struct SourceControlGroupView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(!isDiffAvailable)
                 .focusable()
                 .focused(focusedResourceID, equals: resource.id)
                 .id(resource.id)

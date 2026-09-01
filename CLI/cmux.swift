@@ -19919,7 +19919,7 @@ struct CMUXCLI {
               cmux sidebar-state --workspace workspace:2
             """
         case "right-sidebar":
-            let modeList = RightSidebarPanelRegistry().cliArgumentsDescription
+            let modeList = RightSidebarModeCatalog().cliArgumentsDescription
             let usage = String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
 
@@ -20656,8 +20656,8 @@ struct CMUXCLI {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
         }
 
-        let registry = RightSidebarPanelRegistry()
-        let modeList = registry.cliArgumentsDescription
+        let modeCatalog = RightSidebarModeCatalog()
+        let modeList = modeCatalog.cliArgumentsDescription
 
         switch action {
         case "toggle", "show", "hide", "focus", "mode":
@@ -20678,7 +20678,7 @@ struct CMUXCLI {
                 ))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let canonical = registry.canonicalCLIArgument(mode) else {
+            guard let canonical = modeCatalog.canonicalCLIArgument(mode) else {
                 throw CLIError(message: localizedFormat(
                     "cli.rightSidebar.error.unknownMode",
                     defaultValue: "Unknown right-sidebar mode '%@'",
@@ -20693,7 +20693,7 @@ struct CMUXCLI {
 
         default:
             let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            if let canonical = registry.canonicalCLIArgument(rawAction) {
+            if let canonical = modeCatalog.canonicalCLIArgument(rawAction) {
                 guard parsed.positional.count == 1 else {
                     throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
                 }
@@ -40297,7 +40297,7 @@ export default CMUXSessionRestore;
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|set-mode|mode|\(RightSidebarPanelRegistry().cliArgumentsDescription)> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|set-mode|mode|\(RightSidebarModeCatalog().cliArgumentsDescription)> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

@@ -33,8 +33,14 @@ struct GitStatusProvider: Sendable {
         // the explorer root through a symlink (/var, /tmp, a symlinked project dir). Resolve
         // both to one spelling for the containment check, and emit keys under the caller's
         // spelling so FileExplorerStore lookups match.
+        guard let output = runGit(
+            in: repoRoot,
+            arguments: ["status", "--porcelain=v1", "--untracked-files=all", "-z"]
+        ) else {
+            return .empty
+        }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
+            output: output,
             repoRoot: Self.canonicalPath(repoRoot),
             explorerRoot: Self.canonicalPath(directory),
             keyRoot: directory
@@ -64,7 +70,7 @@ struct GitStatusProvider: Sendable {
             "cd '\(escapedDir)' 2>/dev/null",
             "\(Self.nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
             "printf '\\0'",
-            "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
+            "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 --untracked-files=all -z 2>/dev/null",
         ].joined(separator: " && ")
         guard let output = runSSH(
             command: cmd, destination: destination,
@@ -85,10 +91,13 @@ struct GitStatusProvider: Sendable {
     }
 
     private func parseGitStatus(
-        output: String?, repoRoot: String, explorerRoot: String, keyRoot: String
+        output: String, repoRoot: String, explorerRoot: String, keyRoot: String
     ) -> GitStatusSnapshot {
-        guard let output, !output.isEmpty else { return .empty }
+        guard !output.isEmpty else {
+            return GitStatusSnapshot(statusesByPath: [:], displayableEntries: [], state: .available)
+        }
         var statusMap: [String: GitFileStatus] = [:]
+        var diffSourcesByPath: [String: GitFileDiffSource] = [:]
         var directoryPaths: Set<String> = []
         // Keep the order emitted by `git status`. Git's porcelain stream is
         // path-ordered, so Source Control can partition this sequence in one
@@ -115,6 +124,7 @@ struct GitStatusProvider: Sendable {
             let usesSecondPath = Self.statusUsesSecondPath(index: indexStatus, workTree: workTreeStatus)
             entryIndex += usesSecondPath ? 2 : 1
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
+            let diffSource = Self.diffSource(index: indexStatus, workTree: workTreeStatus, status: status)
 
             let absolutePath = Self.absolutePath(repoRoot: normalizedRepoRoot, relativePath: path)
             guard Self.path(absolutePath, isContainedIn: normalizedExplorerRoot) else { continue }
@@ -132,6 +142,7 @@ struct GitStatusProvider: Sendable {
             }
 
             statusMap[key] = status
+            diffSourcesByPath[key] = diffSource
             if pathIsDirectory {
                 directoryPaths.insert(key)
             }
@@ -148,11 +159,12 @@ struct GitStatusProvider: Sendable {
         }
         let displayableEntries = orderedPaths.compactMap { path in
             guard !directoryPaths.contains(path), let status = statusMap[path] else { return nil }
-            return GitStatusSnapshotEntry(path: path, status: status)
+            return GitStatusSnapshotEntry(path: path, status: status, diffSource: diffSourcesByPath[path] ?? .unstaged)
         }
         return GitStatusSnapshot(
             statusesByPath: statusMap,
-            displayableEntries: displayableEntries
+            displayableEntries: displayableEntries,
+            state: .available
         )
     }
 
@@ -166,6 +178,18 @@ struct GitStatusProvider: Sendable {
         if index == "R" || workTree == "R" { return .renamed }
         if index == "M" || workTree == "M" { return .modified }
         return nil
+    }
+
+    private static func diffSource(
+        index: Character,
+        workTree: Character,
+        status: GitFileStatus
+    ) -> GitFileDiffSource {
+        if status == .untracked { return .untracked }
+        // A status with only an index column change is represented by the
+        // staged diff; otherwise show the worktree side (including mixed MM/RM
+        // entries, where the worktree delta is the actionable one).
+        return index != " " && workTree == " " ? .staged : .unstaged
     }
 
     private func markParentDirectories(

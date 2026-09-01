@@ -58,6 +58,7 @@ final class MainWindowFocusController {
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
     private weak var sourceControlHost: SourceControlKeyboardFocusView?
+    private let panelRegistry = RightSidebarPanelRegistry()
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -123,10 +124,13 @@ final class MainWindowFocusController {
 
     func registerFileExplorerHost(_ host: FileExplorerContainerView) {
         let mode = host.representedRightSidebarMode()
-        if mode == .files {
+        switch panelRegistry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline:
             fileExplorerHost = host
-        } else if mode == .find {
+        case .fileExplorerSearch:
             fileSearchHost = host
+        case .sessionIndex, .feed, .dock, .sourceControl, .host, .none, nil:
+            break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
     }
@@ -748,55 +752,45 @@ final class MainWindowFocusController {
         mode: RightSidebarMode,
         focusFirstItem: Bool
     ) -> RightSidebarFocusTarget {
-        if mode == .files {
+        switch panelRegistry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline:
             return .outline
-        }
-        if mode == .find {
+        case .fileExplorerSearch:
             return .searchField
-        }
-        if mode == .feed || mode == .dock || mode == .sourceControl {
+        case .feed, .dock, .sourceControl:
             return focusFirstItem ? .firstItem : .host
-        }
-        if mode == .machines || mode == .customSidebar || mode == .sessions {
+        case .sessionIndex, .host, .none, nil:
             return .host
         }
-        return .host
     }
 
     private func focusRightSidebarEndpoint(
         mode: RightSidebarMode,
         target: RightSidebarFocusTarget
     ) -> Bool {
-        if mode == .files {
+        switch panelRegistry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline:
             return fileExplorerHost?.focusOutline() == true
-        }
-        if mode == .find {
+        case .fileExplorerSearch:
             return fileSearchHost?.focusSearchField() == true
-        }
-        if mode == .feed {
+        case .feed:
             if target == .firstItem {
                 feedHost?.focusFirstItemFromCoordinator()
             }
             return feedHost?.focusHostFromCoordinator() == true
-        }
-        if mode == .dock {
+        case .dock:
             if target == .firstItem {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
-        }
-        if mode == .sourceControl {
+        case .sourceControl:
             if target == .firstItem {
                 return sourceControlHost?.focusFirstItemFromCoordinator() == true
             }
             return sourceControlHost?.focusHostFromCoordinator() == true
-        }
-        if mode == .machines || mode == .customSidebar {
+        case .sessionIndex, .host, .none, nil:
             return focusFallbackRightSidebarHost()
         }
-        // Vault and future host-backed panels use the fallback right-sidebar
-        // responder. The coordinator still records the requested mode.
-        return false
     }
 
     private func focusFallbackRightSidebarHost() -> Bool {

@@ -25,7 +25,12 @@ enum FileExplorerRootSyncPolicy {
         registry: RightSidebarPanelRegistry = RightSidebarPanelRegistry()
     ) -> Bool {
         guard isRightSidebarVisible else { return false }
-        return registry.descriptor(for: mode)?.syncsFileExplorerRoot == true
+        switch registry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline, .fileExplorerSearch:
+            return true
+        case .sessionIndex, .feed, .dock, .sourceControl, .host, .none, nil:
+            return false
+        }
     }
 }
 
@@ -357,9 +362,10 @@ struct RightSidebarPanelView: View {
                 onResumeSession: onResumeSession,
                 onOpenFilePreview: onOpenFilePreview,
                 onOpenAsPane: onOpenAsPane,
-                onOpenDiffViewer: { path in
+                onOpenDiffViewer: { path, diffSource in
                     _ = AppDelegate.shared?.openDiffViewerForWorkspacePath(
                         path,
+                        diffSource: diffSource,
                         tabManager: tabManager
                     )
                 },
@@ -380,7 +386,7 @@ struct RightSidebarPanelView: View {
 
     private func selectMode(_ mode: RightSidebarMode) {
         fileExplorerState.mode = mode
-        if fileExplorerState.mode == .sessions {
+        if fileExplorerState.panelRegistry.descriptor(for: mode)?.behavior == .sessionIndex {
             sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()

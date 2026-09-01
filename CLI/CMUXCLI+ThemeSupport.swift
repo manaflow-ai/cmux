@@ -1,5 +1,6 @@
 import Foundation
 import CmuxFoundation
+import CmuxSettings
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
@@ -431,10 +432,10 @@ extension CMUXCLI {
     }
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
-        RightSidebarPanelRegistry().mode(forCLIArgument: value) != nil
+        RightSidebarModeCatalog().entry(forCLIArgument: value) != nil
     }
 
     func normalizedRightSidebarCLIArgument(_ value: String) -> String {
-        RightSidebarPanelRegistry().canonicalCLIArgument(value) ?? value
+        RightSidebarModeCatalog().canonicalCLIArgument(value) ?? value
     }
 }

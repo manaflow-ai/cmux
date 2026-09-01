@@ -36,7 +36,8 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     case terminalFindVisible
     /// The focused workspace is using the freeform canvas layout.
     case workspaceCanvasLayout
-    /// The right sidebar's active mode (`files`, `find`, `sessions`, `feed`, `dock`).
+    /// The right sidebar's active mode (`files`, `find`, `sessions`, `feed`,
+    /// `dock`, `machines`, or `sourceControl`).
     case sidebarMode
     /// The number of panes in the focused workspace.
     case paneCount
@@ -65,7 +66,7 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     public var knownStringValues: [String]? {
         switch self {
         case .sidebarMode:
-            return ["files", "find", "sessions", "feed", "dock"]
+            return ["files", "find", "sessions", "feed", "dock", "machines", "sourceControl"]
         default:
             return nil
         }
