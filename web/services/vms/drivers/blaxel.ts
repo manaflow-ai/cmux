@@ -181,10 +181,18 @@ function withPackageInstallLock(body: string): string {
     `else ( ` +
     `trap 'rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; exit 143' TERM INT HUP; ` +
     `trap 'rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true' EXIT; ` +
-    `if command -v flock >/dev/null 2>&1; then flock -w ${CMUX_PACKAGE_INSTALL_LOCK_WAIT_SECONDS} 9 || exit 1; ` +
+    `if command -v flock >/dev/null 2>&1; then ` +
+    // Once flock exists, hold the file lock before releasing the transition gate.
+    // This lets later callers wait on the same file while this body runs.
+    `flock -w ${CMUX_PACKAGE_INSTALL_LOCK_WAIT_SECONDS} 9 || exit 1; ` +
     `rm -f ${CMUX_PACKAGE_INSTALL_LOCK_OWNER_PATH} 2>/dev/null || true; ` +
-    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; fi; ` +
-    `${body} ) 9>${CMUX_PACKAGE_INSTALL_LOCK_PATH}; fi; ` +
+    `rmdir ${CMUX_PACKAGE_INSTALL_FALLBACK_LOCK_PATH} 2>/dev/null || true; ` +
+    `${body}; ` +
+    `else ` +
+    // Before util-linux installs flock, the directory itself is the mutex. Keep
+    // it until body exits; releasing it here would let a second apt/apk mutate
+    // the package database concurrently during this first transaction.
+    `${body}; fi ) 9>${CMUX_PACKAGE_INSTALL_LOCK_PATH}; fi; ` +
     `else printf '%s package-install-busy\\n' "$(date -u +%FT%TZ)" > ${CMUX_PACKAGE_INSTALL_BUSY_PATH} 2>/dev/null || true; false; fi`
   );
 }

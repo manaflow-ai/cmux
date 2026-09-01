@@ -481,7 +481,10 @@ describe("background provisioning", () => {
     expect(CMUX_PROVISION_SCRIPT).toContain('chown -R cmux:cmux "$HOME/.bun" "$HOME/.npm-global" "$HOME/.local"');
     expect(CMUX_PROVISION_SCRIPT).toContain("distro_packages_unlocked()");
     expect(CMUX_PROVISION_SCRIPT).toContain("mkdir /etc/cmux/package-install.lock.d");
-    expect(CMUX_PROVISION_SCRIPT).toContain("distro_packages_unlocked ) 9>/etc/cmux/package-install.lock");
+    // When util-linux is not present yet, the directory gate remains held while
+    // the first transaction installs it. Once flock exists, the same body runs
+    // under the file lock after the transition gate is released.
+    expect(CMUX_PROVISION_SCRIPT).toContain("else distro_packages_unlocked; fi ) 9>/etc/cmux/package-install.lock");
     expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
   });
 });
