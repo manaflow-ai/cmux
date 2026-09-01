@@ -124,6 +124,7 @@ impl<'a> RosterEvent<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RosterEntry {
     pub(crate) state: String,
     pub(crate) source: String,
@@ -161,6 +162,7 @@ pub(crate) enum RosterDelta {
 /// ignores socket reports so a slow poller cannot overwrite live hook
 /// state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
 }
@@ -276,7 +278,22 @@ impl AgentRoster {
     }
 
     pub(crate) fn restore(snapshot: &str) -> Option<Self> {
-        serde_json::from_str(snapshot).ok()
+        let roster: Self = serde_json::from_str(snapshot).ok()?;
+        // A syntactically valid snapshot can still be unusable. In
+        // particular, an entry with an unknown source/state would make the
+        // reducer silently reinterpret persisted data, and a done entry can
+        // never be produced by `apply` because done removes the row.
+        if roster.entries.iter().any(|(terminal_id, entry)| {
+            terminal_id.is_empty()
+                || agent_state_from_str(&entry.state).is_none()
+                || entry.state == AgentState::Done.as_str()
+                || agent_source_from_str(&entry.source).is_none()
+                || (entry.source == AgentSource::Detected.as_str()
+                    && entry.agent.as_deref().is_none_or(str::is_empty))
+        }) {
+            return None;
+        }
+        Some(roster)
     }
 }
 
