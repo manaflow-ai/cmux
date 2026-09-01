@@ -19,21 +19,13 @@ extension View {
     /// decouples the bar from the content, so it stays expanded exactly like
     /// the terminal surface, where no system scroll view exists to discover.
     ///
-    /// On iOS 27 the native opt-out is applied as well once an Xcode 27
-    /// toolchain builds this target.
+    /// The native opt-out is not declared by the Xcode 27 beta 4 SDK used by
+    /// the supported build lane, so the UIKit scroll-link workaround remains
+    /// the portable implementation until that declaration is available.
     @ViewBuilder
     func mobilePinnedNavigationBar() -> some View {
         #if canImport(UIKit)
-        #if compiler(>=6.4)
-        if #available(iOS 27.0, *) {
-            background(PinnedNavigationBarApplier())
-                .toolbarMinimizeBehavior(.never, for: .navigationBar)
-        } else {
-            background(PinnedNavigationBarApplier())
-        }
-        #else
         background(PinnedNavigationBarApplier())
-        #endif
         #else
         self
         #endif
