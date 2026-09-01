@@ -61,7 +61,8 @@ struct AgentNotificationDelivery: Sendable {
                     pending: pending,
                     agentKind: agentKind,
                     isSubagent: isSubagent
-                )
+                ),
+                producerCorrelationKey: correlationKey
             )
             return true
         }

@@ -304,6 +304,68 @@ import Testing
         #expect(fixture.deliveries.first?.body == "shell needs approval")
     }
 
+    @Test func delayedApprovalPreservesAgentContextAndProducerCorrelation() throws {
+        let fixture = Fixture()
+        let context = TerminalNotificationPolicyAgentContext(
+            kind: "codex",
+            category: AgentNotifyCategory.needsPermission.rawValue,
+            pending: true,
+            isSubagent: true
+        )
+        let producerKey = "11111111-1111-1111-1111-111111111111"
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID,
+            agent: context,
+            producerCorrelationKey: producerKey
+        )
+        fixture.scheduler.runAll()
+
+        let delivery = try #require(fixture.deliveries.first)
+        #expect(delivery.agent == context)
+        #expect(delivery.producerCorrelationKey == producerKey)
+    }
+
+    @Test func candidateOverflowKeepsDisplayedApprovalResolvable() throws {
+        let fixture = Fixture()
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "displayed approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+        _ = try #require(fixture.deliveries.first)
+
+        for index in 0..<64 {
+            let suffix = String(format: "%024x", index + 1)
+            let approvalID = AgentApprovalCorrelationID(
+                rawValue: "111111111111111111111111.\(suffix)"
+            )!
+            fixture.coordinator.stage(
+                workspaceID: Self.workspaceID,
+                surfaceID: Self.surfaceID,
+                title: "Codex",
+                subtitle: "Permission",
+                body: "queued \(index)",
+                approvalID: approvalID
+            )
+        }
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        #expect(fixture.clears.count == 1)
+    }
+
     @Test func deliveredApprovalClearsWhenItResolves() throws {
         let fixture = Fixture()
 
@@ -347,10 +409,15 @@ import Testing
             body: "second tool needs approval",
             approvalID: Self.secondApprovalID
         )
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
         fixture.scheduler.runAll()
 
         #expect(fixture.deliveries.count == 1)
         #expect(fixture.deliveries.first?.body == "second tool needs approval")
+        #expect(fixture.clears.isEmpty)
 
         // The older request may resolve after the shared banner is already
         // visible. Its completion must not clear the still-pending second one.

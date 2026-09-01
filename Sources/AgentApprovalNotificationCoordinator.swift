@@ -20,8 +20,15 @@ final class AgentApprovalNotificationCoordinator {
         let title: String
         let subtitle: String
         let body: String
+        /// Agent context is carried through delayed approval delivery so
+        /// notification-policy hooks see the same category/pending metadata
+        /// as they would for an immediate agent notification.
         let agent: TerminalNotificationPolicyAgentContext?
         let correlationKey: String
+        /// Optional producer key supplied by the source notification. The
+        /// coordinator still owns the episode key, while the queue keeps this
+        /// alias so a producer can clear its exact notification.
+        let producerCorrelationKey: String? = nil
     }
 
     struct Clear: Equatable, Sendable {
@@ -38,6 +45,7 @@ final class AgentApprovalNotificationCoordinator {
         let approvalID: AgentApprovalCorrelationID
         let isDerived: Bool
         let agent: TerminalNotificationPolicyAgentContext?
+        let producerCorrelationKey: String?
         let readyAt: TimeInterval
         let sequence: UInt64
     }
@@ -59,6 +67,7 @@ final class AgentApprovalNotificationCoordinator {
         var scheduledAt: TimeInterval?
         var cancelScheduled: Cancellation?
         var deliveredCorrelationKey: String?
+        var deliveredProducerCorrelationKey: String? = nil
         var deliveredApprovalID: String? = nil
         var cancelEpisodeExpiry: Cancellation?
         var episodeID: UUID?
@@ -121,7 +130,8 @@ final class AgentApprovalNotificationCoordinator {
         body: String,
         approvalID: AgentApprovalCorrelationID,
         isDerived: Bool = false,
-        agent: TerminalNotificationPolicyAgentContext? = nil
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        producerCorrelationKey: String? = nil
     ) {
         let timestamp = now()
         pruneTombstones(at: timestamp)
@@ -140,6 +150,7 @@ final class AgentApprovalNotificationCoordinator {
             approvalID: approvalID,
             isDerived: isDerived,
             agent: agent,
+            producerCorrelationKey: producerCorrelationKey,
             readyAt: timestamp + settleDelay,
             sequence: nextSequence
         )
@@ -167,6 +178,7 @@ final class AgentApprovalNotificationCoordinator {
                 approvalID: candidate.approvalID,
                 isDerived: candidate.isDerived,
                 agent: candidate.agent,
+                producerCorrelationKey: candidate.producerCorrelationKey,
                 readyAt: min(existing.readyAt, candidate.readyAt),
                 sequence: existing.sequence
             )
@@ -176,12 +188,12 @@ final class AgentApprovalNotificationCoordinator {
         if state.candidates.count > Self.maxCandidatesPerPane {
             let overflow = state.candidates.count - Self.maxCandidatesPerPane
             let staleIDs = state.candidates.values
-                .filter { candidate in
-                    // Keep the candidate represented by the visible banner so
-                    // its eventual resolution can still retire that banner.
-                    candidate.approvalID.rawValue != state.deliveredApprovalID
-                }
                 .sorted { $0.sequence < $1.sequence }
+                // Never evict the candidate represented by the visible
+                // banner. It remains in `candidates` until its exact or scope
+                // resolution arrives, so dropping it here would make later
+                // unrelated resolutions clear the wrong episode.
+                .filter { $0.approvalID.rawValue != state.deliveredApprovalID }
                 .prefix(overflow)
                 .map { $0.approvalID.rawValue }
             for staleID in staleIDs {
@@ -271,6 +283,14 @@ final class AgentApprovalNotificationCoordinator {
         }
     }
 
+    /// Indicates whether a surface still owns an approval episode. The
+    /// mutation bus uses this at resolution boundaries to retire the surface
+    /// generation when the last candidate is gone, fencing stale resolutions
+    /// from a later episode that reuses the same surface id.
+    func hasEpisode(surfaceID: UUID) -> Bool {
+        panes[surfaceID] != nil
+    }
+
     /// Keep a live approval episode attached to the surface's current owner.
     /// Candidates already carry their enqueue-time owner, so update them as a
     /// unit; otherwise a later resolution would clear the source workspace
@@ -290,6 +310,7 @@ final class AgentApprovalNotificationCoordinator {
                 approvalID: candidate.approvalID,
                 isDerived: candidate.isDerived,
                 agent: candidate.agent,
+                producerCorrelationKey: candidate.producerCorrelationKey,
                 readyAt: candidate.readyAt,
                 sequence: candidate.sequence
             )
@@ -359,6 +380,7 @@ final class AgentApprovalNotificationCoordinator {
                 correlationKey: deliveredCorrelationKey
             )
             state.deliveredCorrelationKey = nil
+            state.deliveredProducerCorrelationKey = nil
             state.deliveredApprovalID = nil
             state.cancelEpisodeExpiry?()
             state.cancelEpisodeExpiry = nil
@@ -442,6 +464,7 @@ final class AgentApprovalNotificationCoordinator {
         let correlationKey = Self.approvalCorrelationPrefix + UUID().uuidString
         state.workspaceID = candidate.workspaceID
         state.deliveredCorrelationKey = correlationKey
+        state.deliveredProducerCorrelationKey = candidate.producerCorrelationKey
         state.deliveredApprovalID = candidate.approvalID.rawValue
         state.cancelEpisodeExpiry?()
         let episodeID = UUID()
@@ -467,8 +490,9 @@ final class AgentApprovalNotificationCoordinator {
             title: candidate.title,
             subtitle: candidate.subtitle,
             body: candidate.body,
+            correlationKey: correlationKey,
             agent: candidate.agent,
-            correlationKey: correlationKey
+            producerCorrelationKey: candidate.producerCorrelationKey
         ))
     }
 
@@ -561,6 +585,7 @@ final class AgentApprovalNotificationCoordinator {
             correlationKey: correlationKey
         )
         state.deliveredCorrelationKey = nil
+        state.deliveredProducerCorrelationKey = nil
         state.lastTouchedAt = timestamp
         nextSequence &+= 1
         state.lastTouchedSequence = nextSequence

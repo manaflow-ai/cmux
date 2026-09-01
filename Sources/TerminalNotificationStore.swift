@@ -2155,14 +2155,16 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func clearNotifications(forTabId tabId: UUID, correlationKey: String) {
-        inFlightPolicyRequests.discard(forTabId: tabId, correlationKey: correlationKey)
+        let effectiveCorrelationKey = TerminalMutationBus.shared
+            .resolvedApprovalCorrelationKey(producerCorrelationKey: correlationKey)
+        inFlightPolicyRequests.discard(forTabId: tabId, correlationKey: effectiveCorrelationKey)
         let matching = notifications.filter {
-            $0.tabId == tabId && $0.correlationKey == correlationKey
+            $0.tabId == tabId && $0.correlationKey == effectiveCorrelationKey
         }
         let ids = matching.map(\.id)
         if matching.isEmpty {
-            if AgentApprovalNotificationCoordinator.isApprovalCorrelationKey(correlationKey) {
-                TerminalMutationBus.shared.dismissAgentApproval(correlationKey: correlationKey)
+            if AgentApprovalNotificationCoordinator.isApprovalCorrelationKey(effectiveCorrelationKey) {
+                TerminalMutationBus.shared.dismissAgentApproval(correlationKey: effectiveCorrelationKey)
             }
             return
         }
@@ -2183,15 +2185,20 @@ final class TerminalNotificationStore: ObservableObject {
         correlationKey: String,
         throughNotificationGeneration: UInt64? = nil
     ) {
+        let effectiveCorrelationKey = TerminalMutationBus.shared
+            .resolvedApprovalCorrelationKey(
+                surfaceID: surfaceId,
+                producerCorrelationKey: correlationKey
+            ) ?? correlationKey
         inFlightPolicyRequests.discard(
             forSurfaceId: surfaceId,
-            correlationKey: correlationKey,
+            correlationKey: effectiveCorrelationKey,
             through: throughNotificationGeneration
         )
         let liveTabId = AppDelegate.shared?
             .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
         let ids: [UUID] = notifications.compactMap { notification -> UUID? in
-            guard notification.correlationKey == correlationKey,
+            guard notification.correlationKey == effectiveCorrelationKey,
                   notification.matchesClear(
                       tabId: tabId,
                       liveTabId: liveTabId,
@@ -2200,6 +2207,10 @@ final class TerminalNotificationStore: ObservableObject {
                 return nil
             }
             return notification.id
+        }
+        if ids.isEmpty,
+           AgentApprovalNotificationCoordinator.isApprovalCorrelationKey(effectiveCorrelationKey) {
+            TerminalMutationBus.shared.dismissAgentApproval(correlationKey: effectiveCorrelationKey)
         }
         ids.forEach(remove)
     }
