@@ -1209,9 +1209,9 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         retargetsToLiveSurfaceOwner: Bool = true,
+        correlationKey: String? = nil,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
-        correlationKey: String? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
         resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
         preRegisteredPolicyRequestId: UUID? = nil,
@@ -2215,7 +2215,9 @@ final class TerminalNotificationStore: ObservableObject {
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
     func clearAll(discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
         inFlightPolicyRequests.discardAll(through: throughNotificationGeneration)
-        if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
+        if discardQueuedNotifications {
+            TerminalMutationBus.shared.discardPendingNotificationsForClearAll()
+        }
         guard !notifications.isEmpty ||
             !focusedReadIndicatorByTabId.isEmpty ||
             !manualUnreadWorkspaceIds.isEmpty ||

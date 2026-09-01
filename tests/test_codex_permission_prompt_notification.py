@@ -2,7 +2,7 @@
 """
 Regression: a codex PermissionRequest feed hook raises the
 "Agent Needs Permission"-gated notification, acknowledged before the hook
-returns, and codex tool completion clears it.
+returns, and codex tool completion resolves the correlated request.
 
 https://github.com/manaflow-ai/cmux/issues/9592: the feed bridge normalized
 codex PermissionRequest to non-actionable PreToolUse telemetry and never
@@ -14,6 +14,7 @@ or misrouted notify/clear dispatch.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -28,15 +29,6 @@ from test_codex_feed_hooks import (
     FakeCmuxSocket,
 )
 
-EXPECTED_NOTIFY_COMMAND = (
-    f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} "
-    "Codex|Permission|shell needs approval|c=needs-permission;p=0;a=codex;s=needsInput"
-)
-EXPECTED_CLEAR_COMMAND = (
-    f"clear_notifications --tab={FAKE_WORKSPACE_ID} --panel={FAKE_SURFACE_ID}"
-)
-
-
 def codex_payload(event: str) -> dict:
     return {
         "session_id": "codex-permission-prompt",
@@ -46,6 +38,39 @@ def codex_payload(event: str) -> dict:
         "tool_name": "shell",
         "tool_input": {"command": "printf hi"},
     }
+
+
+def approval_id(payload: dict) -> str:
+    scope_seed = (
+        f"session={payload['session_id']}\n"
+        f"turn={payload['turn_id']}"
+    )
+    scope = hashlib.sha256(scope_seed.encode()).hexdigest()[:24]
+    canonical_input = json.dumps(
+        {"value": payload.get("tool_input")},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    request_seed = (
+        f"{scope_seed}\n"
+        f"tool={payload.get('tool_name', '')}\n"
+        f"input={canonical_input}"
+    )
+    request = hashlib.sha256(request_seed.encode()).hexdigest()[:24]
+    return f"{scope}.{request}"
+
+
+EXPECTED_APPROVAL_ID = approval_id(codex_payload("PermissionRequest"))
+EXPECTED_NOTIFY_COMMAND = (
+    f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} "
+    "Codex|Permission|shell needs approval|c=needs-permission;p=0"
+    f";a={EXPECTED_APPROVAL_ID}"
+)
+EXPECTED_CLEAR_COMMAND = (
+    f"clear_notifications --tab={FAKE_WORKSPACE_ID} --panel={FAKE_SURFACE_ID} "
+    f"--approval-id={EXPECTED_APPROVAL_ID}"
+)
 
 
 def strip_capability_prefix(raw: str) -> str:
@@ -163,7 +188,9 @@ def test_permission_request_sends_gated_notification_before_feed_push(
         )
 
 
-def test_post_tool_use_clears_pane_before_feed_push(cli_path: str, root: Path) -> None:
+def test_post_tool_use_resolves_approval_before_feed_push(
+    cli_path: str, root: Path
+) -> None:
     stdout, frames, _ = run_feed_hook_capture(
         cli_path, root / "cmux-clear.sock", "PostToolUse"
     )
@@ -277,7 +304,8 @@ def test_permission_notification_targets_rehomed_pane(cli_path: str, root: Path)
         raise AssertionError(f"probe must carry the ambient surface identity: {resolve_frame!r}")
     expected = (
         f"notify_target_async {live_workspace} {live_surface} "
-        "Codex|Permission|shell needs approval|c=needs-permission;p=0;a=codex;s=needsInput"
+        "Codex|Permission|shell needs approval|c=needs-permission;p=0"
+        f";a={EXPECTED_APPROVAL_ID}"
     )
     commands = raw_commands(frames)
     if expected not in commands:
@@ -326,7 +354,7 @@ def main() -> int:
         root = Path(td)
         try:
             test_permission_request_sends_gated_notification_before_feed_push(cli_path, root)
-            test_post_tool_use_clears_pane_before_feed_push(cli_path, root)
+            test_post_tool_use_resolves_approval_before_feed_push(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)
             test_permission_notification_survives_slow_authentication(cli_path, root)
@@ -336,7 +364,7 @@ def main() -> int:
             print(f"FAIL: {exc}")
             return 1
 
-    print("PASS: codex permission prompts notify, acknowledge, and clear")
+    print("PASS: codex permission prompts notify, acknowledge, and resolve")
     return 0
 
 

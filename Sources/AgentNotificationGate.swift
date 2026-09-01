@@ -26,20 +26,21 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
 /// Returns `nil` unless BOTH a KNOWN category literal and a valid `p=0|1`
 /// pending flag are present, so the reserved suffix grammar stays exactly the
 /// three known categories — any other `c=...` tail stays part of the legacy
-/// notification body. (`.other` never rides the wire: senders omit the meta
-/// entirely for ungated alerts.)
+/// notification body. (`.other` only rides the wire when it carries an
+/// explicit error sound context.)
 ///
 /// The optional trailing fields carry agent-event context for the user's
-/// notification-policy hooks: `a=` is the case-preserving registry identifier
-/// (`claude`, `codex`, `MyAgent`, …) and `n=` marks a nested subagent session.
-/// Pre-extension senders emit only `c=;p=` and parse exactly as before.
+/// notification-policy hooks: `a=` is either the case-preserving registry
+/// identifier or a correlated approval id, and `n=` marks a nested subagent
+/// session. Pre-extension senders emit only `c=;p=` and parse exactly as before.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
+    let approvalID: AgentApprovalCorrelationID?
     let agentKind: String?
     let isSubagent: Bool?
     let soundContext: NotificationSoundOverrideContext?
@@ -61,19 +62,25 @@ struct AgentNotificationMeta {
             return nil
         }
         switch fields[1].dropFirst(2) {
-        case "1": self.pending = true
-        case "0": self.pending = false
+        case "1": pending = true
+        case "0": pending = false
         default: return nil
         }
         var agentKind: String? = nil
         var isSubagent: Bool? = nil
         var soundContext: NotificationSoundOverrideContext? = nil
         var correlationKey: String? = nil
+        var approvalID: AgentApprovalCorrelationID?
         var index = 2
         if index < fields.count, fields[index].hasPrefix("a=") {
-            let kind = String(fields[index].dropFirst(2))
-            guard Self.isValidAgentKindTag(kind) else { return nil }
-            agentKind = kind
+            let value = String(fields[index].dropFirst(2))
+            if let parsedApprovalID = AgentApprovalCorrelationID(rawValue: value) {
+                guard known == .needsPermission else { return nil }
+                approvalID = parsedApprovalID
+            } else {
+                guard Self.isValidAgentKindTag(value) else { return nil }
+                agentKind = value
+            }
             index += 1
         }
         if index < fields.count, fields[index].hasPrefix("n=") {
@@ -108,6 +115,8 @@ struct AgentNotificationMeta {
         guard index == fields.count else { return nil }
         guard known != .other || soundContext != nil else { return nil }
         self.category = known
+        self.pending = pending
+        self.approvalID = approvalID
         self.agentKind = agentKind
         self.isSubagent = isSubagent
         self.soundContext = soundContext

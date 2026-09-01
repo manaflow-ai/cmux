@@ -167,6 +167,22 @@ struct CLICodexHookTimeoutRegressionTests {
             connectionLimit: 16
         )
 
+        let approvalObject: [String: Any] = [
+            "session_id": "codex-permission-session",
+            "turn_id": "turn-1",
+            "cwd": root.path,
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "shell",
+            "tool_input": ["command": "git status"],
+            "message": "approval required",
+        ]
+        let approvalData = try JSONSerialization.data(withJSONObject: approvalObject, options: [.sortedKeys])
+        let approvalInput = try #require(String(data: approvalData, encoding: .utf8))
+        let approvalIdentity = try #require(CodexApprovalNotificationIdentity.make(
+            rawObject: approvalObject,
+            fallbackSessionID: nil
+        ))
+
         let result = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "notification"],
@@ -180,7 +196,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"session_id":"codex-permission-session","cwd":"\#(root.path)","hook_event_name":"PermissionRequest","message":"approval required"}"#,
+            standardInput: approvalInput,
             timeout: 5
         )
 
@@ -203,6 +219,152 @@ struct CLICodexHookTimeoutRegressionTests {
                 && capture.agentKey == "codex"
                 && capture.workspaceId == workspaceId
                 && capture.surfaceId == surfaceId
+        })
+        #expect(commands.snapshot().contains {
+            $0.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) ")
+                && $0.hasSuffix("|c=needs-permission;p=0;a=\(approvalIdentity.approvalID)")
+        })
+
+        let completionObject: [String: Any] = [
+            "session_id": "codex-permission-session",
+            "turn_id": "turn-1",
+            "cwd": root.path,
+            "hook_event_name": "PostToolUse",
+            "tool_name": "shell",
+            "tool_input": ["command": "git status"],
+            "tool_response": ["exit_code": 0],
+            "tool_use_id": "post-review-only-id",
+        ]
+        let completionData = try JSONSerialization.data(withJSONObject: completionObject, options: [.sortedKeys])
+        let completionInput = try #require(String(data: completionData, encoding: .utf8))
+        let completion = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "post-tool-use"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: completionInput,
+            timeout: 5
+        )
+
+        #expect(!completion.timedOut, Comment(rawValue: completion.stderr))
+        #expect(completion.status == 0, Comment(rawValue: completion.stderr))
+        #expect(waitForConditionBlocking(timeout: 1) {
+            commands.snapshot().contains(
+                "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) --approval-id=\(approvalIdentity.approvalID)"
+            )
+        })
+
+        let stop = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: """
+                {"session_id":"codex-permission-session","turn_id":"turn-1","cwd":"\(root.path)","hook_event_name":"Stop","last_assistant_message":"Denied"}
+                """,
+            timeout: 5
+        )
+
+        #expect(!stop.timedOut, Comment(rawValue: stop.stderr))
+        #expect(stop.status == 0, Comment(rawValue: stop.stderr))
+        #expect(waitForConditionBlocking(timeout: 1) {
+            commands.snapshot().contains(
+                "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) --approval-scope=\(approvalIdentity.scope)"
+            )
+        })
+    }
+
+    @Test func codexAutoReviewedPermissionRequestProducesNoUserAttention() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-auto-review-\(UUID().uuidString)", isDirectory: true)
+        let transcriptURL = root.appendingPathComponent("rollout.jsonl", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("codex-auto-review")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+            {"type":"turn_context","payload":{"turn_id":"turn-auto","approvals_reviewer":"auto_review"}}
+            """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 8
+        )
+
+        let approvalObject: [String: Any] = [
+            "session_id": "codex-auto-review-session",
+            "turn_id": "turn-auto",
+            "transcript_path": transcriptURL.path,
+            "cwd": root.path,
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "shell",
+            "tool_input": ["command": "sleep 10"],
+            "message": "approval required",
+        ]
+        let approvalData = try JSONSerialization.data(
+            withJSONObject: approvalObject,
+            options: [.sortedKeys]
+        )
+        let approvalInput = try #require(String(data: approvalData, encoding: .utf8))
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "notification"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: approvalInput,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(waitForConditionBlocking(timeout: 1) {
+            commands.snapshot().contains { command in
+                guard let object = codexHookJSONObject(command),
+                      object["method"] as? String == "feed.push",
+                      let params = object["params"] as? [String: Any],
+                      let event = params["event"] as? [String: Any] else {
+                    return false
+                }
+                return event["hook_event_name"] as? String == "PreToolUse"
+            }
+        })
+        #expect(!commands.snapshot().contains { $0.hasPrefix("notify_target_async ") })
+        #expect(!commands.snapshot().contains {
+            $0.hasPrefix("set_agent_lifecycle codex needsInput ")
         })
     }
 

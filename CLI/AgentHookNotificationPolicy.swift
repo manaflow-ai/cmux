@@ -1,4 +1,5 @@
 import CmuxSettings
+import CryptoKit
 import Foundation
 
 enum AgentHookNotificationStatus: String, Codable {
@@ -23,29 +24,58 @@ enum AgentHookNotifyCategory: String {
         }
     }
 
-    /// Legacy delimiter-safe meta segment: `c=<category>;p=<0|1>`. The
-    /// contextual overload below adds the agent and alert identity.
+    /// Delimiter-safe legacy meta segment: `c=<category>;p=<0|1>`. The
+    /// contextual overload below can add agent, alert, and approval identity.
     func metaSegment(pending: Bool) -> String? {
         metaSegment(pending: pending, agentKind: nil, isSubagent: nil)
     }
 
+    /// Meta segment carrying an opaque Codex approval correlation id.
+    /// `.other` is the explicit ungated category and never rides the wire.
+    func metaSegment(pending: Bool, approvalID: String? = nil) -> String? {
+        metaSegment(
+            pending: pending,
+            approvalID: approvalID,
+            agentKind: nil,
+            isSubagent: nil
+        )
+    }
+
     /// Extended meta segment carrying optional agent-event context for the
-    /// app's notification-policy hooks:
-    /// `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;k=<uuid>]` (canonical
-    /// field order; `a=` is the case-preserving registry identifier, `n=` marks a
-    /// nested subagent session, and `k=` is an opaque notification identity).
-    /// An agent kind or correlation key that fails validation is dropped rather
-    /// than risking the app-side parser folding the whole meta back into the
-    /// body.
+    /// app's notification-policy hooks. Correlated approval ids retain the
+    /// historical `a=` spelling; ordinary agent context uses the same field
+    /// for a validated registry slug.
+    /// `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;n=<0|1>][;k=<uuid>]`
+    /// is emitted in this canonical field order. Invalid optional fields are
+    /// dropped rather than risking the app-side parser folding the whole meta
+    /// back into the body.
     func metaSegment(
         pending: Bool,
         agentKind: String?,
         isSubagent: Bool?,
         correlationKey: String? = nil
     ) -> String? {
+        metaSegment(
+            pending: pending,
+            approvalID: nil,
+            agentKind: agentKind,
+            isSubagent: isSubagent,
+            correlationKey: correlationKey
+        )
+    }
+
+    private func metaSegment(
+        pending: Bool,
+        approvalID: String?,
+        agentKind: String?,
+        isSubagent: Bool?,
+        correlationKey: String? = nil
+    ) -> String? {
         guard self != .other else { return nil }
         var segment = "c=\(rawValue);p=\(pending ? 1 : 0)"
-        if let agentKind, Self.isValidAgentKindTag(agentKind) {
+        if self == .needsPermission, let approvalID {
+            segment += ";a=\(approvalID)"
+        } else if let agentKind, Self.isValidAgentKindTag(agentKind) {
             segment += ";a=\(agentKind)"
         }
         if let isSubagent {
@@ -101,6 +131,185 @@ enum AgentHookNotifyCategory: String {
     /// Correlation keys are opaque UUIDs used only to clear one notification.
     static func isValidCorrelationKey(_ value: String) -> Bool {
         UUID(uuidString: value) != nil
+    }
+}
+
+/// Correlation shared by the generic Codex hook and the newer Feed hook.
+/// `PermissionRequest` does not expose a tool-use id, so both sides derive an
+/// opaque identity from the stable session/turn/tool/input tuple that the
+/// request and completion share.
+struct CodexApprovalNotificationIdentity: Equatable, Sendable {
+    let scope: String
+    let approvalID: String
+
+    static func make(
+        rawObject: [String: Any]?,
+        fallbackSessionID: String?
+    ) -> Self? {
+        let object = rawObject ?? [:]
+        guard let sessionID = firstNonemptyString(
+            in: object,
+            keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
+        ) ?? normalized(fallbackSessionID) else { return nil }
+        let turnID = firstNonemptyString(in: object, keys: ["turn_id", "turnId"]) ?? ""
+        let toolCall = object["toolCall"] as? [String: Any]
+        let toolName = firstNonemptyString(in: object, keys: ["tool_name", "toolName"])
+            ?? toolCall.flatMap { firstNonemptyString(in: $0, keys: ["name"]) }
+            ?? ""
+        let toolInput = object["tool_input"]
+            ?? object["toolInput"]
+            ?? toolCall?["args"]
+        let scopeSeed = "session=\(sessionID)\nturn=\(turnID)"
+        let scope = digestPrefix(scopeSeed)
+        let request = digestPrefix(
+            "\(scopeSeed)\ntool=\(toolName)\ninput=\(canonicalJSON(toolInput))"
+        )
+        return Self(scope: scope, approvalID: "\(scope).\(request)")
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func firstNonemptyString(
+        in object: [String: Any],
+        keys: [String]
+    ) -> String? {
+        for key in keys {
+            if let value = normalized(object[key] as? String) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func canonicalJSON(_ value: Any?) -> String {
+        guard let value else { return "null" }
+        let wrapped: [String: Any] = ["value": value]
+        guard JSONSerialization.isValidJSONObject(wrapped),
+              let data = try? JSONSerialization.data(withJSONObject: wrapped, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return String(describing: value)
+        }
+        return string
+    }
+
+    private static func digestPrefix(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8))
+            .prefix(12)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+}
+
+enum CodexApprovalReviewRoute: Equatable, Sendable {
+    case user
+    case autoReview
+}
+
+/// Reads Codex's effective per-turn reviewer before deciding whether a
+/// `PermissionRequest` can represent user-visible work.
+///
+/// Codex runs permission hooks before either reviewer. Current Codex persists
+/// the effective `approvals_reviewer` in the turn-context rollout item first,
+/// so `auto_review` is authoritative evidence that the request will be decided
+/// by Codex's reviewer rather than by the user. Older Codex versions omit the
+/// field and fall back to the app-side settle window.
+struct CodexApprovalNotificationPolicy: Sendable {
+    static let rolloutTailBytes: UInt64 = 1024 * 1024
+
+    func reviewRoute(
+        rawObject: [String: Any],
+        rolloutLines: [String]
+    ) -> CodexApprovalReviewRoute? {
+        // A top-level reviewer on the request itself is authoritative, including
+        // for MCP calls. Current hook payloads omit it, but accept that stronger
+        // future signal before falling back to turn-wide context.
+        if let direct = reviewRoute(in: rawObject) {
+            return direct
+        }
+
+        // Codex Apps may override the turn's reviewer per MCP connector. The
+        // hook payload does not expose that effective override, so no turn-wide
+        // reviewer value is authoritative for MCP requests. Fall back to
+        // correlated settling rather than risk silencing a user prompt.
+        let toolCall = rawObject["toolCall"] as? [String: Any]
+        let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
+            ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
+        if toolName?.lowercased().hasPrefix("mcp__") == true {
+            return nil
+        }
+
+        for key in ["thread_settings", "threadSettings", "context"] {
+            if let nested = rawObject[key] as? [String: Any],
+               let route = reviewRoute(in: nested) {
+                return route
+            }
+        }
+
+        let requestedTurnID = firstString(
+            in: rawObject,
+            keys: ["turn_id", "turnId"]
+        )
+        var latestTurnContext: [String: Any]?
+        for line in rolloutLines.reversed() {
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["type"] as? String == "turn_context",
+                  let payload = object["payload"] as? [String: Any] else {
+                continue
+            }
+            if latestTurnContext == nil {
+                latestTurnContext = payload
+            }
+            guard let requestedTurnID else {
+                return reviewRoute(in: payload)
+            }
+            if firstString(in: payload, keys: ["turn_id", "turnId"]) == requestedTurnID {
+                return reviewRoute(in: payload)
+            }
+        }
+
+        // Older rollout writers omitted turn_id. Only trust that fallback on
+        // the newest context; never borrow a route from a known older turn.
+        if let latestTurnContext,
+           firstString(in: latestTurnContext, keys: ["turn_id", "turnId"]) == nil {
+            return reviewRoute(in: latestTurnContext)
+        }
+        return nil
+    }
+
+    private func reviewRoute(in object: [String: Any]) -> CodexApprovalReviewRoute? {
+        guard let value = firstString(
+            in: object,
+            keys: ["approvals_reviewer", "approvalsReviewer", "approval_reviewer", "approvalReviewer"]
+        )?.lowercased() else {
+            return nil
+        }
+        switch value {
+        case "user":
+            return .user
+        case "auto_review", "auto-review", "guardian_subagent":
+            return .autoReview
+        default:
+            return nil
+        }
+    }
+
+    private func firstString(
+        in object: [String: Any],
+        keys: [String]
+    ) -> String? {
+        for key in keys {
+            guard let raw = object[key] as? String else { continue }
+            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 }
 

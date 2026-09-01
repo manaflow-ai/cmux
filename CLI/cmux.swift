@@ -35434,6 +35434,16 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
+            if def.name == "codex",
+               let approvalIdentity = CodexApprovalNotificationIdentity.make(
+                   rawObject: input.rawObject ?? input.object,
+                   fallbackSessionID: sessionId
+               ) {
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --approval-scope=\(approvalIdentity.scope)",
+                    client: client
+                )
+            }
             if def.name == "omp", let mapped {
                 clearSupersededAgentHookSessions(
                     [],
@@ -36187,6 +36197,34 @@ export default CMUXSessionRestore;
                 return
             }
 
+            if def.name == "codex", summary.notifyCategory == .needsPermission {
+                let rolloutLines = (input.transcriptPath ?? mapped?.transcriptPath).flatMap {
+                    readRecentTextFileLines(
+                        path: $0,
+                        maxBytes: CodexApprovalNotificationPolicy.rolloutTailBytes
+                    )
+                } ?? []
+                let reviewRoute = CodexApprovalNotificationPolicy().reviewRoute(
+                    rawObject: input.rawObject ?? input.object ?? [:],
+                    rolloutLines: rolloutLines
+                )
+                if reviewRoute == .autoReview {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.notification.skip agent=codex session=\(agentHookDebugShort(sessionId)) reason=autoReview",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    sendAgentFeedTelemetryUnlessSuppressed(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                    print("{}")
+                    return
+                }
+            }
+
             if antigravitySuppressDuplicateIdleWhileBackgroundWork {
 #if DEBUG
                 agentHookDebugLog(
@@ -36339,7 +36377,14 @@ export default CMUXSessionRestore;
                 category: summary.notifyCategory,
                 body: summary.body
             )
-            if !summary.body.isEmpty, shouldSendNotification(fingerprint: notificationFingerprint) {
+            let approvalIdentity = def.name == "codex" && summary.notifyCategory == .needsPermission
+                ? CodexApprovalNotificationIdentity.make(
+                    rawObject: input.rawObject ?? input.object,
+                    fallbackSessionID: sessionId
+                )
+                : nil
+            if (!summary.body.isEmpty || approvalIdentity != nil)
+                && (approvalIdentity != nil || shouldSendNotification(fingerprint: notificationFingerprint)) {
                 // One ancestry walk per delivered notification, feeding the
                 // notify payload's subagent tag below.
                 let notificationEventPID = preferredAgentHookEventPID(
@@ -36361,20 +36406,29 @@ export default CMUXSessionRestore;
                 // Completions AND waiting nags are both "pending" while
                 // background work is live, so a fullyIdle=false Antigravity
                 // waiting cue doesn't deliver a false "waiting for input".
-                // Error status wins over a classifier category so every
-                // error carries the contextual error sound tag, even if an
-                // integration supplied an inconsistent category.
-                let notificationMeta = Self.agentNotificationMeta(
-                    category: summary.notifyCategory,
-                    isError: summary.status == .error,
-                    pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
-                        && hasActiveAntigravityBackgroundWork(),
-                    agentID: def.name,
-                    isSubagent: isNestedAgentSession,
-                    correlationKey: cursorShellNeedsApproval
-                        ? cursorApprovalNotificationCorrelationKey
-                        : nil
-                )
+                let notificationPending = (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
+                    && hasActiveAntigravityBackgroundWork()
+                let notificationMeta: String?
+                if let approvalIdentity {
+                    notificationMeta = summary.notifyCategory.metaSegment(
+                        pending: notificationPending,
+                        approvalID: approvalIdentity.approvalID
+                    )
+                } else {
+                    // Error status wins over a classifier category so every
+                    // error carries the contextual error sound tag, even if
+                    // an integration supplied an inconsistent category.
+                    notificationMeta = Self.agentNotificationMeta(
+                        category: summary.notifyCategory,
+                        isError: summary.status == .error,
+                        pending: notificationPending,
+                        agentID: def.name,
+                        isSubagent: isNestedAgentSession,
+                        correlationKey: cursorShellNeedsApproval
+                            ? cursorApprovalNotificationCorrelationKey
+                            : nil
+                    )
+                }
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
                     subtitle: summary.subtitle,
@@ -36407,7 +36461,9 @@ export default CMUXSessionRestore;
                         env: env
                     )
 #endif
-                    markNotificationSent(fingerprint: notificationFingerprint)
+                    if approvalIdentity == nil {
+                        markNotificationSent(fingerprint: notificationFingerprint)
+                    }
                 } catch {
 #if DEBUG
                     agentHookDebugLog(
@@ -36585,7 +36641,19 @@ export default CMUXSessionRestore;
             }
 
         case .noop:
-            break
+            if def.name == "codex", subcommand == "post-tool-use",
+               let approvalIdentity = CodexApprovalNotificationIdentity.make(
+                   rawObject: input.rawObject ?? input.object,
+                   fallbackSessionID: sessionId
+               ) {
+                let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+                if let target = resolveAgentHookTarget(mapped: mapped) {
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(target.workspaceId)\(socketPanelOption(target.surfaceId)) --approval-id=\(approvalIdentity.approvalID)",
+                        client: client
+                    )
+                }
+            }
         }
 
         print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : hookResponse)
@@ -36767,15 +36835,11 @@ export default CMUXSessionRestore;
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        // Deliberately NO native-approval-prompt clear on this lane: the
-        // wrapper-injected codex hooks that reach it (`hooks codex
-        // post-tool-use`) run as fire-and-forget nohup workers with no
-        // ordering guarantee, so a delayed completion worker's clear could
-        // erase a NEWER request's live permission notification — silencing a
-        // blocked agent (#9592). Only the synchronous feed-hook path
-        // (`runFeedHook`), whose events arrive in codex's own order, emits
-        // the clear; wrapper-path staleness self-heals at the next
-        // `prompt-submit`, which already clears the pane.
+        // Attention commands do not ride this one-way telemetry connection.
+        // The generic Codex notification and post-tool handlers send their
+        // correlated stage/resolve commands through the acknowledged V1 lane;
+        // keeping them separate also prevents a delayed fire-and-forget
+        // completion worker from clearing a newer request (#9592).
         sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
     }
 
@@ -38709,6 +38773,7 @@ export default CMUXSessionRestore;
         classification: FeedEventClassification,
         source: String,
         toolName: String,
+        approvalIdentity: CodexApprovalNotificationIdentity?,
         eventDict: [String: Any],
         env: [String: String],
         client: SocketClient?,
@@ -38761,7 +38826,8 @@ export default CMUXSessionRestore;
             workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
             surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId,
             agentID: source,
-            includeAgentContext: true
+            includeAgentContext: true,
+            approvalIdentity: approvalIdentity
         ) else { return }
         _ = try? activeClient.send(
             command: attentionLine,
@@ -39119,6 +39185,31 @@ export default CMUXSessionRestore;
                 return
             }
         }
+        let approvalIdentity = source == "codex"
+            ? CodexApprovalNotificationIdentity.make(
+                rawObject: stdinObj,
+                fallbackSessionID: sessionId
+            )
+            : nil
+        let codexApprovalIsAutoReviewed: Bool = {
+            guard source == "codex", classification.notifiesNativeApprovalPrompt else {
+                return false
+            }
+            let transcriptPath = firstString(
+                in: stdinObj,
+                keys: ["transcript_path", "transcriptPath"]
+            )
+            let rolloutLines = transcriptPath.flatMap {
+                readRecentTextFileLines(
+                    path: $0,
+                    maxBytes: CodexApprovalNotificationPolicy.rolloutTailBytes
+                )
+            } ?? []
+            return CodexApprovalNotificationPolicy().reviewRoute(
+                rawObject: stdinObj,
+                rolloutLines: rolloutLines
+            ) == .autoReview
+        }()
 
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
@@ -39224,21 +39315,21 @@ export default CMUXSessionRestore;
             // implicit reconnect inside `sendOneWay` is not bounded by the
             // write timeout.
             //
-            // Known accepted residual: codex's fire-and-forget prompt-submit
-            // worker clears the pane at turn start from a DETACHED process.
-            // If that worker is slower than the model's first approval-needing
-            // tool call, its late clear can remove this notification — the
-            // same pre-existing exposure the wrapper-path notification
-            // (`hooks codex notification`) has always had. Fencing clears by
-            // origin time is a cross-layer protocol change deliberately out
-            // of scope here.
-            let sendsAttention = classification.notifiesNativeApprovalPrompt
+            // Prompt and completion are correlated in the app-side settle
+            // coordinator. A completion that reaches the app first leaves a
+            // short tombstone, while an old completion can only resolve its
+            // own request id — never a newer blocking prompt in the pane.
+            let sendsAttention = (
+                classification.notifiesNativeApprovalPrompt
+                    && !codexApprovalIsAutoReviewed
+            )
                 || classification.clearsNativeApprovalPrompt
             if sendsAttention {
                 deliverNativeApprovalPromptAttention(
                     classification: classification,
                     source: source,
                     toolName: toolName,
+                    approvalIdentity: approvalIdentity,
                     eventDict: eventDict,
                     env: env,
                     client: client,

@@ -13227,6 +13227,7 @@ class TerminalController {
             category: meta?.category,
             pending: meta?.pending ?? false,
             soundContext: meta?.soundContext,
+            approvalID: meta?.approvalID,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey
@@ -13307,6 +13308,24 @@ class TerminalController {
         if let error = panelResolution.error {
             return error
         }
+        let approvalID: AgentApprovalCorrelationID?
+        if let rawApprovalID = parsed.options["approval-id"] {
+            guard let parsedID = AgentApprovalCorrelationID(rawValue: rawApprovalID) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            approvalID = parsedID
+        } else {
+            approvalID = nil
+        }
+        let approvalScope: AgentApprovalCorrelationID.Scope?
+        if let rawApprovalScope = parsed.options["approval-scope"] {
+            guard let parsedScope = AgentApprovalCorrelationID.Scope(rawValue: rawApprovalScope) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            approvalScope = parsedScope
+        } else {
+            approvalScope = nil
+        }
         let correlationKey: String?
         if let rawCorrelationKey = parsed.options["correlation-key"] {
             let normalized = rawCorrelationKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13317,18 +13336,28 @@ class TerminalController {
                 )
             }
             correlationKey = uuid.uuidString.lowercased()
-            guard panelResolution.panelId != nil else {
-                return "ERROR: " + String(
-                    localized: "cli.error.clearNotificationsCorrelationKeyRequiresPanel",
-                    defaultValue: "--correlation-key requires --panel"
-                )
-            }
         } else {
             correlationKey = nil
         }
+        guard [approvalID != nil, approvalScope != nil, correlationKey != nil].filter({ $0 }).count <= 1 else {
+            return "ERROR: Usage: \(usage)"
+        }
+        if (approvalID != nil || approvalScope != nil || correlationKey != nil), panelResolution.panelId == nil {
+            return "ERROR: Usage: \(usage)"
+        }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
-                if let correlationKey {
+                if let approvalID {
+                    TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                        surfaceId: panelId,
+                        approvalID: approvalID
+                    )
+                } else if let approvalScope {
+                    TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                        surfaceId: panelId,
+                        approvalScope: approvalScope
+                    )
+                } else if let correlationKey {
                     TerminalMutationBus.shared.enqueueClearNotifications(
                         forTabId: tabId,
                         surfaceId: panelId,
@@ -13341,6 +13370,25 @@ class TerminalController {
                 TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
             }
         } else {
+            if let panelId = panelResolution.panelId,
+               (approvalID != nil || approvalScope != nil) {
+                TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+                    guard let self, let tab = self.resolveSidebarMutationTab(target),
+                          tab.panels.keys.contains(panelId) else { return }
+                    if let approvalID {
+                        TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                            surfaceId: panelId,
+                            approvalID: approvalID
+                        )
+                    } else if let approvalScope {
+                        TerminalMutationBus.shared.enqueueAgentApprovalResolution(
+                            surfaceId: panelId,
+                            approvalScope: approvalScope
+                        )
+                    }
+                }
+                return "OK"
+            }
             let clearBoundary = TerminalMutationBus.shared.markNotificationClearBoundary()
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }
@@ -13367,7 +13415,8 @@ class TerminalController {
                         TerminalNotificationStore.shared.clearNotifications(
                             forTabId: tab.id,
                             surfaceId: panelId,
-                            discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
+                            discardQueuedNotifications: false,
+                            throughNotificationGeneration: clearBoundary
                         )
                     }
                 } else {
@@ -13377,7 +13426,8 @@ class TerminalController {
                     )
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
-                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
+                        discardQueuedNotifications: false,
+                        throughNotificationGeneration: clearBoundary
                     )
                 }
             }
