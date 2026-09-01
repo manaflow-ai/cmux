@@ -185,7 +185,10 @@ fn read_workspace_http_token(path: &Path) -> Result<WorkspaceHttpBearerToken, io
         }
     }
     let mut encoded = String::new();
-    file.read_to_string(&mut encoded)?;
+    file.take(MAX_HTTP_TOKEN_FILE_BYTES + 1).read_to_string(&mut encoded)?;
+    if encoded.len() > MAX_HTTP_TOKEN_FILE_BYTES as usize {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "HTTP token file is too large"));
+    }
     let trimmed_length = encoded.trim_end_matches(['\r', '\n']).len();
     encoded.truncate(trimmed_length);
     WorkspaceHttpBearerToken::new(encoded)
@@ -748,6 +751,17 @@ mod tests {
         assert!(bool::from(first.0.as_bytes().ct_eq(second.0.as_bytes())));
         #[cfg(unix)]
         assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn workspace_http_token_reader_bounds_growth_after_metadata_check() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("workspace-http.token");
+        fs::write(&path, vec![b'x'; MAX_HTTP_TOKEN_FILE_BYTES as usize + 1]).unwrap();
+
+        let error = read_workspace_http_token(&path).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "HTTP token file is too large");
     }
 
     #[tokio::test]
