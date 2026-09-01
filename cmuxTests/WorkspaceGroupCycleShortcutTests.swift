@@ -63,8 +63,8 @@ struct WorkspaceGroupCycleShortcutTests {
         let window = try #require(context.window)
         let manager = context.tabManager
         let ungroupedWorkspace = try #require(manager.selectedWorkspace)
-        let firstMember = manager.addTab(select: false)
-        let secondMember = manager.addTab(select: false)
+        let firstMember = try #require(manager.addTab(select: false))
+        let secondMember = try #require(manager.addTab(select: false))
         let groupId = try #require(manager.createWorkspaceGroup(
             name: "Grouped",
             childWorkspaceIds: [firstMember.id, secondMember.id]

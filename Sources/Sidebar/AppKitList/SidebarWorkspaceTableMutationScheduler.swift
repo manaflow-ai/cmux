@@ -14,6 +14,7 @@ final class SidebarWorkspaceTableMutationScheduler {
     private var shouldFlushViewportChange = false
     private var shouldFlushTableReload = false
     private var shouldFlushContentRefresh = false
+    private var pendingRowHeightChanges: Set<SidebarWorkspaceRenderItemID> = []
     private var pendingPostUpdateActions: [@MainActor () -> Void] = []
     private var isFlushScheduled = false
     private var isFlushing = false
@@ -21,17 +22,20 @@ final class SidebarWorkspaceTableMutationScheduler {
     private let viewportChangeFlush: @MainActor () -> Void
     private let reloadFlush: @MainActor () -> Void
     private let contentRefreshFlush: @MainActor () -> Void
+    private let rowHeightFlush: @MainActor (Set<SidebarWorkspaceRenderItemID>) -> Void
 
     init(
         applyFlush: @escaping @MainActor (SidebarWorkspaceTableApplyInput) -> Void,
         viewportChangeFlush: @escaping @MainActor () -> Void,
         reloadFlush: @escaping @MainActor () -> Void,
-        contentRefreshFlush: @escaping @MainActor () -> Void = {}
+        contentRefreshFlush: @escaping @MainActor () -> Void = {},
+        rowHeightFlush: @escaping @MainActor (Set<SidebarWorkspaceRenderItemID>) -> Void = { _ in }
     ) {
         self.applyFlush = applyFlush
         self.viewportChangeFlush = viewportChangeFlush
         self.reloadFlush = reloadFlush
         self.contentRefreshFlush = contentRefreshFlush
+        self.rowHeightFlush = rowHeightFlush
     }
 
     func stageApply(_ input: SidebarWorkspaceTableApplyInput) {
@@ -63,6 +67,13 @@ final class SidebarWorkspaceTableMutationScheduler {
         scheduleFlushIfNeeded()
     }
 
+    /// Coalesces row-height changes by stable identity and applies them only
+    /// after the originating AppKit callback has returned.
+    func stageRowHeightChange(_ rowId: SidebarWorkspaceRenderItemID) {
+        pendingRowHeightChanges.insert(rowId)
+        scheduleFlushIfNeeded()
+    }
+
     func stagePostUpdateActions(_ actions: [@MainActor () -> Void]) {
         guard !actions.isEmpty else { return }
         pendingPostUpdateActions.append(contentsOf: actions)
@@ -88,11 +99,13 @@ final class SidebarWorkspaceTableMutationScheduler {
         let flushViewportChange = shouldFlushViewportChange
         let flushTableReload = shouldFlushTableReload
         let flushContentRefresh = shouldFlushContentRefresh
+        let rowHeightChanges = pendingRowHeightChanges
         let postUpdateActions = pendingPostUpdateActions
         pendingApply = nil
         shouldFlushViewportChange = false
         shouldFlushTableReload = false
         shouldFlushContentRefresh = false
+        pendingRowHeightChanges.removeAll(keepingCapacity: true)
         pendingPostUpdateActions.removeAll(keepingCapacity: true)
         isFlushScheduled = false
         isFlushing = true
@@ -103,6 +116,9 @@ final class SidebarWorkspaceTableMutationScheduler {
             }
         }
 
+        // Resolve precedence only from this atomic snapshot. A surviving apply
+        // owns the row graph; if it was canceled before flush, the queued
+        // reload remains the synchronization fallback.
         if flushTableReload, apply == nil {
             reloadFlush()
         }
@@ -111,6 +127,9 @@ final class SidebarWorkspaceTableMutationScheduler {
         }
         if flushContentRefresh {
             contentRefreshFlush()
+        }
+        if !rowHeightChanges.isEmpty {
+            rowHeightFlush(rowHeightChanges)
         }
         if flushViewportChange {
             viewportChangeFlush()
@@ -125,6 +144,7 @@ final class SidebarWorkspaceTableMutationScheduler {
             || shouldFlushViewportChange
             || shouldFlushTableReload
             || shouldFlushContentRefresh
+            || !pendingRowHeightChanges.isEmpty
             || !pendingPostUpdateActions.isEmpty
     }
 }
