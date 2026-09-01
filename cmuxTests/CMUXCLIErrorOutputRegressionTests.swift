@@ -792,7 +792,7 @@ import Testing
         let recovered = runProcess(
             executablePath: cliPath,
             arguments: [
-                "restore", "--cwd", recoveryDirectory.path, "cwd-agent", checkpointID,
+                "restore", "--cwd", "../chosen successor", "cwd-agent", checkpointID,
             ],
             environment: environment,
             currentDirectoryURL: callerDirectory,
