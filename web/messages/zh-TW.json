@@ -1,4 +1,27 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "雲端虛擬機操作無法使用",
+      "reason": "此機器類型不提供這項操作。",
+      "message": {
+        "snapshot": "此雲端虛擬機不支援已儲存的虛擬機狀態。",
+        "restore": "此雲端虛擬機類型不支援還原已儲存的虛擬機狀態。",
+        "fork": "此雲端虛擬機不支援複製到新的虛擬機。",
+        "default": "此雲端虛擬機不支援要求的操作。"
+      },
+      "action": {
+        "snapshot": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
+        "restore": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
+        "fork": "請勿重試。請使用 `cmux vm new` 建立新的虛擬機。",
+        "default": "請勿重試。使用 `cmux vm ls` 查看虛擬機；如果你認為這是錯誤，請聯絡支援團隊。"
+      }
+    },
+    "requiresPro": {
+      "title": "需要 cmux Pro",
+      "message": "雲端虛擬機需要 cmux Pro 方案。",
+      "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
+    }
+  },
   "billingRecovery": {
     "message": "如果我們找到帳戶，請查看你的電子郵件以了解下一步"
   },
@@ -29,6 +52,13 @@
     "title": "cmux — 專為多工處理打造的終端",
     "description": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直分頁、通知環、分割面板和 socket API。",
     "ogDescription": "面向 AI 編程代理的免費開源 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
+  },
+  "authError": {
+    "emailUnverifiedTitle": "驗證電子郵件後繼續",
+    "emailUnverifiedBody": "請使用最初註冊時的方式登入，然後驗證電子郵件，再使用此登入方式。",
+    "genericTitle": "無法完成登入",
+    "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
+    "backToSignIn": "返回登入"
   },
   "common": {
     "downloadForMac": "下載 Mac 版",

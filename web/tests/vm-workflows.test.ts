@@ -1804,6 +1804,7 @@ describe("VM Effect workflows", () => {
       upsertVmSession: () => Effect.fail(new Error("unused") as never),
       activeIdentityLeases: () => Effect.succeed([]),
       markLeasesRevoked: () => Effect.void,
+      recentReaperReportKeys: () => Effect.succeed([]),
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => {
         usageEventAttempts += 1;
@@ -4953,6 +4954,7 @@ function testWorkflowRepo(input: {
         input.revokedLeaseBatches?.push([...leaseIds]);
         input.revokedLeaseIds?.push(...leaseIds);
       }),
+    recentReaperReportKeys: () => Effect.succeed([]),
     recordUsageEvent: (event) =>
       Effect.sync(() => {
         input.usageEvents?.push(event);
