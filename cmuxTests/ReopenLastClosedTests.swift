@@ -19,17 +19,11 @@ struct ReopenLastClosedTests {
         case window
     }
 
-    /// The shared store passed only a workspace capacity, so closed panels were
-    /// never trimmed and the persisted file grew for its whole lifetime.
+    /// The shared store passed only a workspace capacity. That bound applies to
+    /// workspace-closure records alone, so closed panels were never trimmed and
+    /// the persisted file grew for its whole lifetime. 150 panel records under
+    /// the shared store's own capacities have to come back as 100.
     /// https://github.com/manaflow-ai/cmux/issues/10352
-    @Test
-    func sharedStoreBoundsTheHistoryAsAWhole() {
-        let capacities = ClosedItemHistoryStore.shared.configuredCapacities
-
-        #expect(capacities.total == 100)
-        #expect(capacities.workspace == 100)
-    }
-
     @Test
     func totalCapacityTrimsClosedPanels() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)

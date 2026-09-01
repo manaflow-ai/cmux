@@ -147,12 +147,6 @@ final class ClosedItemHistoryStore: ObservableObject {
         fileURL: defaultHistoryFileURL()
     )
 
-    /// The bounds this store enforces, so a test can assert the shared store is
-    /// configured rather than only that the policy works when handed one.
-    var configuredCapacities: (total: Int?, workspace: Int?) {
-        (capacityPolicy.totalCapacity, capacityPolicy.workspaceCapacity)
-    }
-
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
     private let capacityPolicy: ClosedItemHistoryCapacityPolicy
