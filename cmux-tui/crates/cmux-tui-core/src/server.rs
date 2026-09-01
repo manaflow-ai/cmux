@@ -13847,6 +13847,34 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn failed_socket_claim_cleans_an_unreachable_bound_listener_path() {
+        let dir = TestSocketDir::create("failed-socket-claim");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        cleanup_unclaimed_listener(listener, &path);
+
+        assert!(!path.exists(), "failed socket claim left a dead publication behind");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_socket_claim_preserves_a_live_replacement_listener() {
+        let dir = TestSocketDir::create("failed-socket-claim-replacement");
+        let path = dir.path().join("mux.sock");
+        let listener = transport::listen(&path).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let replacement = transport::listen(&path).unwrap();
+        cleanup_unclaimed_listener(listener, &path);
+
+        assert!(transport::connect(&path).is_ok(), "failed claim removed a live replacement");
+        drop(replacement);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_socket_path_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
