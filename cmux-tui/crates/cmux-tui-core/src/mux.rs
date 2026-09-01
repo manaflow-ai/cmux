@@ -2695,7 +2695,6 @@ impl Mux {
             let mut host = self.agent_roster.lock().unwrap();
             host.roster = crate::journal_reducers::AgentRoster::default();
             host.cursor = 0;
-            host.ordering_token = 0;
             host.needs_projection_rebuild = false;
         }
         let ingress = crate::JournalIngress {
