@@ -19,6 +19,8 @@ private final class CmuxUnitTestCmuxWebViewKeyDownHookBox: NSObject {
     init(_ hook: @escaping (CmuxWebView, NSEvent) -> Bool) {
         self.hook = hook
     }
+
+    deinit {}
 }
 
 private final class FakeWKInspectorUndoResponderView: NSView {

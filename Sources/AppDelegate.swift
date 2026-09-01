@@ -18248,7 +18248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let recordedKey = recordedShortcutKey(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers
-        ), cmuxShortcutKeyIsNonPrintable(recordedKey) {
+        ), StoredShortcut.isNonPrintableShortcutKey(recordedKey) {
             return true
         }
 
@@ -18256,7 +18256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // recordable token. Their control/private-use characters are still
         // unambiguously non-printable, unlike Shift/Option text input. Keep
         // this scalar classification shared with the persisted-key index.
-        return cmuxShortcutKeyIsNonPrintable(event.characters ?? "")
+        return StoredShortcut.isNonPrintableShortcutKey(event.characters ?? "")
     }
 
     /// Returns whether a standalone popup web view has a browser-scoped
@@ -18987,9 +18987,10 @@ private extension NSApplication {
             // Browser ownership is only attached while routing key-downs. Do
             // not touch Objective-C event associations for mouse/flags/system
             // events that never enter shortcut dispatch.
-            guard event.type == .keyDown else { return }
-            AppDelegate.shared?.clearShortcutEventBrowserWebViewCache(for: event)
-            AppDelegate.shared?.clearShortcutEventFocusContextCache(for: event)
+            if event.type == .keyDown {
+                AppDelegate.shared?.clearShortcutEventBrowserWebViewCache(for: event)
+                AppDelegate.shared?.clearShortcutEventFocusContextCache(for: event)
+            }
         }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil

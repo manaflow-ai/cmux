@@ -64,7 +64,6 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // overlaying the opener's browser context so OAuth popups keep cmux's
         // shared cookie/storage scope and opener linkage.
         let webView = CmuxWebView(frame: .zero, configuration: configuration)
-        webView.isBrowserPopupWebView = true
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true

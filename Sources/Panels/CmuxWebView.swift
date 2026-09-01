@@ -12,9 +12,13 @@ import WebKit
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
-    /// Popups are standalone browser surfaces rather than portal-bound panels.
-    /// The marker gives shared shortcut routing a direct ownership signal.
-    var isBrowserPopupWebView = false
+    /// Whether this view is currently owned by a standalone browser popup panel.
+    /// The panel's weak relationship is the authoritative ownership record;
+    /// there is no independently mutable marker that can become stale.
+    var isOwnedByBrowserPopupPanel: Bool {
+        guard let popupPanel = window as? BrowserPopupPanel else { return false }
+        return popupPanel.browserWebView === self
+    }
 
     /// One-shot app-owned internal navigations (file/data/blob/etc.) that
     /// must pass the browser URL policy's trusted-load seam. Page callbacks
@@ -714,6 +718,32 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    /// Offers one captured equivalent to WebKit and, when a Command equivalent
+    /// is declined, delivers one guarded native keyDown so AppKit cannot route
+    /// the same event to a competing menu item. Popup and panel capture paths
+    /// share this sequence while retaining separate ownership predicates.
+    private func performCapturedBrowserKeyEquivalent(
+        _ event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags,
+        fallbackReason: String
+    ) -> Bool {
+        if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+            return true
+        }
+        let result = super.performKeyEquivalent(with: event)
+        guard !result,
+              normalizedFlags.contains(.command),
+              let window else {
+            return result
+        }
+        _ = window.cmuxForceDispatchKeyDownOnce(
+            event,
+            to: self,
+            reason: fallbackReason
+        )
+        return true
+    }
+
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(pasteAsPlainText(_:)) {
             return pasteAsPlainTextTargetAvailable
@@ -778,23 +808,11 @@ final class CmuxWebView: WKWebView {
         }
 
         if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: event, webView: self) == true {
-            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
-                return finish(true)
-            }
-            let result = super.performKeyEquivalent(with: event)
-            guard !result,
-                  normalizedFlags.contains(.command),
-                  let window else {
-                return finish(result)
-            }
-            // WebKit declined the equivalent. Deliver one native keyDown before
-            // returning so AppKit's main menu cannot consume the captured chord.
-            _ = window.cmuxForceDispatchKeyDownOnce(
+            return finish(performCapturedBrowserKeyEquivalent(
                 event,
-                to: self,
-                reason: "browser capture setting keyDown fallback"
-            )
-            return finish(true)
+                normalizedFlags: normalizedFlags,
+                fallbackReason: "browser capture setting keyDown fallback"
+            ))
         }
 
         // Standalone popup web views have no BrowserPanel action owner. Offer
@@ -803,21 +821,11 @@ final class CmuxWebView: WKWebView {
         // transiently rebinding pane is intentionally not in this path; its
         // ownership must settle through the normal browser-panel resolver.
         if AppDelegate.shared?.shouldYieldPanelLessBrowserShortcut(event) == true {
-            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
-                return finish(true)
-            }
-            let result = super.performKeyEquivalent(with: event)
-            guard !result,
-                  normalizedFlags.contains(.command),
-                  let window else {
-                return finish(result)
-            }
-            _ = window.cmuxForceDispatchKeyDownOnce(
+            return finish(performCapturedBrowserKeyEquivalent(
                 event,
-                to: self,
-                reason: "standalone browser popup shortcut keyDown fallback"
-            )
-            return finish(true)
+                normalizedFlags: normalizedFlags,
+                fallbackReason: "standalone browser popup shortcut keyDown fallback"
+            ))
         }
 
         if event.keyCode == 36 || event.keyCode == 76 {

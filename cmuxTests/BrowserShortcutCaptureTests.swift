@@ -32,6 +32,12 @@ private final class BrowserCaptureFocusableView: NSView {
     override var acceptsFirstResponder: Bool { true }
 }
 
+private final class BrowserCaptureWindowTeardownState {
+    var contextRemoved = false
+
+    deinit {}
+}
+
 private struct BrowserCaptureHarness {
     let windowId: UUID
     let window: NSWindow
@@ -310,7 +316,7 @@ final class BrowserShortcutCaptureTests {
     func captureRecognizesFocusedPageContentDescendant() throws {
         let appDelegate = try #require(AppDelegate.shared)
         try withCaptureEnabled { harness in
-            guard let pageRoot = cmuxBrowserPageContentRoot(for: harness.webView) else {
+            guard let pageRoot = harness.webView.cmuxBrowserPageContentRoot() else {
                 throw BrowserCaptureFixtureError.browserUnavailable
             }
 
@@ -376,6 +382,7 @@ final class BrowserShortcutCaptureTests {
 
         popupWindow.makeKeyAndOrderFront(nil)
         #expect(popupWindow.makeFirstResponder(popupWebView))
+        #expect(popupWebView.isOwnedByBrowserPopupPanel)
 
         let settingKey = KeyboardShortcutSettings.browserKeyboardShortcutCaptureSetting.userDefaultsKey
         let previousSetting = UserDefaults.standard.object(forKey: settingKey)
@@ -747,8 +754,31 @@ final class BrowserShortcutCaptureTests {
         defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
         window.animationBehavior = .none
         window.orderOut(nil)
+
+        let teardownState = BrowserCaptureWindowTeardownState()
+        let removalObserver = NotificationCenter.default.addObserver(
+            forName: .mainWindowContextsDidChange,
+            object: appDelegate,
+            queue: .main
+        ) { _ in
+            teardownState.contextRemoved = !appDelegate.mainWindowContexts.values.contains {
+                $0.windowId == windowId
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(removalObserver) }
+
         window.close()
-        RunLoop.main.run(until: Date.now.addingTimeInterval(0.05))
+
+        // `window.close()` can return before the AppDelegate unregisters its
+        // context. Keep the teardown event-driven and bounded: the lifecycle
+        // notification is the completion signal, while the deadline prevents
+        // a broken test fixture from hanging the test host indefinitely.
+        let deadline = Date.now.addingTimeInterval(3)
+        while !teardownState.contextRemoved,
+              appDelegate.mainWindowContexts.values.contains(where: { $0.windowId == windowId }),
+              Date.now < deadline {
+            _ = RunLoop.main.run(mode: .default, before: Date.now.addingTimeInterval(0.1))
+        }
     }
 
     private func withTemporaryShortcut(

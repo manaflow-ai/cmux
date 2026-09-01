@@ -30,6 +30,8 @@ final class ShortcutEventBrowserWebViewCache {
         self.activeChordPrefix = activeChordPrefix
     }
 
+    deinit {}
+
     func matches(
         window: NSWindow,
         responder: NSResponder,

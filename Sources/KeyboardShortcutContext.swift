@@ -118,7 +118,7 @@ extension AppDelegate {
             && shortcutWindow?.firstResponder.map(shortcutResponderAcceptsTextEditing) == true
         let browserWebView = !simulatorFocused ? shortcutEventBrowserWebView(event) : nil
         let browserWebViewFocused = browserWebView != nil
-        let browserPopupWebViewFocused = browserWebView?.isBrowserPopupWebView == true
+        let browserPopupWebViewFocused = browserWebView?.isOwnedByBrowserPopupPanel == true
         let browserPanel = simulatorFocused
             ? nil
             : shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
@@ -436,8 +436,8 @@ extension AppDelegate {
               let webView = shortcutOwningWebView(for: responder) as? CmuxWebView,
               isBrowserPanelWebView(webView),
               !shortcutResponderIsInspector(responder, in: webView),
-              cmuxBrowserPageContentRoot(for: webView, owningResponder: responder) == nil,
-              cmuxBrowserPageContentStructureIsTransient(for: webView) else {
+              webView.cmuxBrowserPageContentRoot(owningResponder: responder) == nil,
+              webView.cmuxBrowserPageContentStructureIsTransient else {
             return false
         }
         return shortcutResponderBelongs(to: webView, responder: responder)
@@ -509,31 +509,8 @@ extension AppDelegate {
         to root: NSView,
         responder: NSResponder
     ) -> Bool {
-        if responder === root {
-            return true
-        }
-        if let view = responder as? NSView {
-            return view.isDescendant(of: root)
-        }
-        if let fieldEditor = responder as? NSTextView,
-           fieldEditor.isFieldEditor,
-           let ownerView = cmuxFieldEditorOwnerView(fieldEditor),
-           (ownerView === root || ownerView.isDescendant(of: root)) {
-            return true
-        }
-
-        var current = responder.nextResponder
-        while let next = current {
-            if next === root {
-                return true
-            }
-            if let view = next as? NSView,
-               (view === root || view.isDescendant(of: root)) {
-                return true
-            }
-            current = next.nextResponder
-        }
-        return false
+        guard let view = responder.cmuxBrowserOwningView() else { return false }
+        return view === root || view.isDescendant(of: root)
     }
 
     private func shortcutResponderBelongsToPageContent(
@@ -547,8 +524,7 @@ extension AppDelegate {
         // descendants of its direct content child, whereas inspector and
         // companion views are sibling children. Resolve that structural root
         // instead of treating every web-view descendant as page content.
-        guard let pageRoot = cmuxBrowserPageContentRoot(
-            for: webView,
+        guard let pageRoot = webView.cmuxBrowserPageContentRoot(
             owningResponder: responder
         ) else {
             return false
@@ -558,12 +534,13 @@ extension AppDelegate {
 
     private func shortcutResponderIsInspector(
         _ responder: NSResponder,
-        in webView: WKWebView
+        in _: WKWebView
     ) -> Bool {
-        guard let inspectorWebView = webView.cmuxInspectorFrontendWebView() else {
-            return false
-        }
-        return shortcutResponderBelongs(to: inspectorWebView, responder: responder)
+        // Keep the key-equivalent path free of the lazy `_inspector` getter.
+        // An inspector responder is identified by its existing WebKit class /
+        // ancestor structure; ordinary page responders do not carry that
+        // marker, so no frontend lookup is needed to reject them.
+        cmuxIsLikelyWebInspectorResponder(responder)
     }
 
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {

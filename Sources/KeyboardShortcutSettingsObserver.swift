@@ -3,31 +3,31 @@ import CmuxSettings
 import Foundation
 import Observation
 
-/// Whether a persisted shortcut key token represents a non-printable AppKit
-/// key. Shared by the browser-capture candidate index and event fast path so
-/// function/navigation keys cannot drift into an incomplete literal list.
-func cmuxShortcutKeyIsNonPrintable(_ key: String) -> Bool {
-    let normalizedKey = key.lowercased()
-    if normalizedKey == "space" || normalizedKey == "\t" || normalizedKey == "\r" {
-        return true
-    }
-    switch normalizedKey {
-    case "←", "→", "↑", "↓",
-         "escape", "esc", "delete", "forwarddelete", "forward-delete",
-         "home", "end", "pageup", "page-up", "pagedown", "page-down",
-         "help", "insert", "clear":
-        return true
-    default:
-        break
-    }
-    if normalizedKey.first == "f",
-       let functionNumber = Int(normalizedKey.dropFirst()),
-       (1...20).contains(functionNumber) {
-        return true
-    }
-    return normalizedKey.unicodeScalars.contains { scalar in
-        scalar.value < 0x20 || scalar.value == 0x7F
-            || (0xF700...0xF8FF).contains(scalar.value)
+extension StoredShortcut {
+    /// Whether a persisted shortcut key token represents a non-printable AppKit key.
+    static func isNonPrintableShortcutKey(_ key: String) -> Bool {
+        let normalizedKey = key.lowercased()
+        if normalizedKey == "space" || normalizedKey == "\t" || normalizedKey == "\r" {
+            return true
+        }
+        switch normalizedKey {
+        case "←", "→", "↑", "↓",
+             "escape", "esc", "delete", "forwarddelete", "forward-delete",
+             "home", "end", "pageup", "page-up", "pagedown", "page-down",
+             "help", "insert", "clear":
+            return true
+        default:
+            break
+        }
+        if normalizedKey.first == "f",
+           let functionNumber = Int(normalizedKey.dropFirst()),
+           (1...20).contains(functionNumber) {
+            return true
+        }
+        return normalizedKey.unicodeScalars.contains { scalar in
+            scalar.value < 0x20 || scalar.value == 0x7F
+                || (0xF700...0xF8FF).contains(scalar.value)
+        }
     }
 }
 
@@ -195,7 +195,7 @@ final class KeyboardShortcutSettingsObserver {
             let isShiftOrOption = flags.intersection([.command, .control]).isEmpty
                 && !flags.intersection([.shift, .option]).isEmpty
             let isUnmodifiedSpecialKey = flags.isEmpty
-                && cmuxShortcutKeyIsNonPrintable(stroke.key)
+                && StoredShortcut.isNonPrintableShortcutKey(stroke.key)
             guard isBareSpace || isShiftOrOption || isUnmodifiedSpecialKey else { return }
             candidateStrokes.insert(stroke)
         }

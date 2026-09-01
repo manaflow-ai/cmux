@@ -23,17 +23,6 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
 }
 #endif
 
-private extension NSResponder {
-    var browserPortalOwningView: NSView? {
-        if let editor = self as? NSTextView,
-           editor.isFieldEditor,
-           let editedView = editor.delegate as? NSView {
-            return editedView
-        }
-        return self as? NSView
-    }
-}
-
 private extension NSWindow {
     var browserPortalHasInteractiveSplitDividerDrag: Bool {
         get {
@@ -1696,8 +1685,12 @@ final class WindowBrowserSlotView: NSView {
             return .otherChrome
         }
 
-        if let inspectorWebView = hostedWebView.cmuxInspectorFrontendWebView(),
-           responderBelongs(to: inspectorWebView, responder: responder) {
+        // Do not call `cmuxInspectorFrontendWebView()` here. That accessor
+        // reaches WebKit's lazy `_inspector` SPI and would initialize a
+        // developer-tools object merely because a key equivalent arrived.
+        // An already-focused inspector responder carries its own structural
+        // class/ancestor signal, which is sufficient for this ownership gate.
+        if cmuxIsLikelyWebInspectorResponder(responder) {
             return .inspector
         }
 
@@ -1713,7 +1706,7 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func responderBelongs(to root: NSView, responder: NSResponder) -> Bool {
-        guard let view = viewOwningResponder(responder) else { return false }
+        guard let view = responder.cmuxBrowserOwningView() else { return false }
         return view === root || view.isDescendant(of: root)
     }
 
@@ -1725,33 +1718,12 @@ final class WindowBrowserSlotView: NSView {
         // content lives below a direct internal child (typically WKFlippedView),
         // while WebKit inspector/companion views can be sibling children. Use
         // that structural root so unknown siblings fail closed.
-        guard let pageRoot = cmuxBrowserPageContentRoot(
-            for: webView,
+        guard let pageRoot = webView.cmuxBrowserPageContentRoot(
             owningResponder: responder
         ) else {
             return false
         }
         return responderBelongs(to: pageRoot, responder: responder)
-    }
-
-    private func viewOwningResponder(_ responder: NSResponder) -> NSView? {
-        if let view = responder as? NSView {
-            return view
-        }
-        if let fieldEditor = responder as? NSTextView,
-           fieldEditor.isFieldEditor,
-           let ownerView = cmuxFieldEditorOwnerView(fieldEditor) {
-            return ownerView
-        }
-
-        var current = responder.nextResponder
-        while let next = current {
-            if let view = next as? NSView {
-                return view
-            }
-            current = next.nextResponder
-        }
-        return nil
     }
 
     @discardableResult
@@ -1766,7 +1738,7 @@ final class WindowBrowserSlotView: NSView {
     @discardableResult
     private func yieldOwnedFirstResponderIfNeeded(in window: NSWindow, reason: String) -> Bool {
         guard let firstResponder = window.firstResponder,
-              let owningView = firstResponder.browserPortalOwningView,
+              let owningView = firstResponder.cmuxBrowserOwningView(),
               owningView === self || owningView.isDescendant(of: self) else {
             return false
         }
@@ -3144,19 +3116,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private func slotView(containing responder: NSResponder) -> WindowBrowserSlotView? {
-        let startView: NSView? = {
-            if let view = responder as? NSView {
-                return view
-            }
-            if let fieldEditor = responder as? NSTextView,
-               fieldEditor.isFieldEditor,
-               let ownerView = cmuxFieldEditorOwnerView(fieldEditor) {
-                return ownerView
-            }
-            return responder.nextResponder as? NSView
-        }()
-
-        var current = startView
+        var current = responder.cmuxBrowserOwningView()
         while let view = current {
             if let slotView = view as? WindowBrowserSlotView {
                 return slotView
