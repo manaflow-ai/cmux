@@ -28,7 +28,9 @@ public final class MobileFeatureFlags {
         "cmux.mobile.flags.remote." + keyboardDockRebuildRevertFlag.key
     }
     /// Delay between foreground refresh opportunities when the app remains active.
-    private static let refreshInterval: Duration = .seconds(5 * 60)
+    /// Thirty minutes bounds steady-state control-plane traffic across the fleet;
+    /// launch and scene-active refreshes keep flag propagation fast where it matters.
+    private static let refreshInterval: Duration = .seconds(30 * 60)
 
     /// Whether the chip and its count-only artifact scan are enabled.
     public private(set) var terminalFilesChipEnabled: Bool
@@ -79,7 +81,7 @@ public final class MobileFeatureFlags {
         ) ?? Self.keyboardDockRebuildRevertFlag.defaultValue
     }
 
-    /// Starts an immediate refresh and a cancellation-aware five-minute scheduler.
+    /// Starts an immediate refresh and a cancellation-aware thirty-minute scheduler.
     /// Calling this again is a no-op.
     public func start() {
         guard !isStarted else { return }
