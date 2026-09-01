@@ -118857,6 +118857,40 @@
         }
       }
     },
+    "featureFlags.cloudTerminalManualIO.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the manual-mirror byte path for cloud terminals, with the exec PTY bridge as a compatibility fallback."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナルでは手動ミラーのバイト経路を使い、互換性のために exec PTY ブリッジへフォールバックします。"
+          }
+        }
+      }
+    },
+    "featureFlags.cloudTerminalManualIO.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud terminal manual I/O"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナル手動 I/O"
+          }
+        }
+      }
+    },
     "featureFlags.column.current": {
       "extractionState": "manual",
       "localizations": {

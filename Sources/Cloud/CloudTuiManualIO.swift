@@ -62,20 +62,24 @@ struct CloudTuiManualIOAttach: Sendable {
 final class CloudTuiManualIOService {
     private let defaults: UserDefaults
     private let probe: any CloudTuiPipeIOProbing
+    private let featureFlags: CmuxFeatureFlags
 
     init(
         defaults: UserDefaults = .standard,
-        probe: any CloudTuiPipeIOProbing = CloudTuiPipeIOProbe()
+        probe: any CloudTuiPipeIOProbing = CloudTuiPipeIOProbe(),
+        featureFlags: CmuxFeatureFlags = .shared
     ) {
         self.defaults = defaults
         self.probe = probe
+        self.featureFlags = featureFlags
     }
 
     /// Whether new cloud terminal panes should use the manual-mirror path.
     var isEnabled: Bool {
         let key = SettingCatalog().betaFeatures.cloudTerminalManualIO
-        return Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey))
+        let localEnabled = Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey))
             ?? key.defaultValue
+        return featureFlags.isCloudTerminalManualIOEnabled && localEnabled
     }
 
     /// True when `client` understands `attach --pipe-io`. The bundled
