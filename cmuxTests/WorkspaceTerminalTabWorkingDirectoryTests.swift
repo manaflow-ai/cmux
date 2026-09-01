@@ -1,6 +1,7 @@
 import Foundation
 import CmuxControlSocket
 import CmuxCore
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
