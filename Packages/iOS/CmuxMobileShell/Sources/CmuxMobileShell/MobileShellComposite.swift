@@ -11527,7 +11527,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     allowsAnonymousForeground: allowsAnonymousForeground
                 ) {
                     return
-                } else if created.identityMetadataIsIncomplete(in: selectedWorkspace) {
+                } else if created.identityMetadataIsIncomplete(
+                    in: selectedWorkspace,
+                    allowsAnonymousForeground: allowsAnonymousForeground
+                ) {
                     // Preserve the pin while identity fields are temporarily
                     // absent during snapshot convergence. The expiry task is
                     // the bounded escape hatch for a genuinely stuck create.

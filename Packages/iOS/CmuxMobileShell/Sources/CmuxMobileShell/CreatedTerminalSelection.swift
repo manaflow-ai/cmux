@@ -83,28 +83,31 @@ struct CreatedTerminalSelection: Equatable {
     /// Returns true when a snapshot has the same remote workspace but is
     /// missing one of the pin's owner fields. A known conflicting owner is
     /// never treated as convergence.
-    func identityMetadataIsIncomplete(in workspace: MobileWorkspacePreview) -> Bool {
+    func identityMetadataIsIncomplete(
+        in workspace: MobileWorkspacePreview,
+        allowsAnonymousForeground: Bool
+    ) -> Bool {
         guard workspace.rpcWorkspaceID == remoteWorkspaceID else { return false }
         let expectedDevice = normalizedCreatedTerminalIdentity(macDeviceID)
         let actualDevice = normalizedCreatedTerminalIdentity(workspace.macDeviceID)
         switch (expectedDevice, actualDevice) {
         case let (expected?, actual?):
             guard createdTerminalDeviceIDsMatch(expected, actual) else { return false }
-        case (nil, nil):
-            break
         default:
-            return true
+            break
         }
         let expectedTag = normalizedCreatedTerminalIdentity(macInstanceTag)
         let actualTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
-        switch (expectedTag, actualTag) {
-        case let (expected?, actual?):
-            return expected != actual
-        case (nil, nil):
-            return expectedDevice == nil && actualDevice == nil
-        default:
-            return true
+        if let expectedTag, let actualTag, expectedTag != actualTag {
+            return false
         }
+        // A pin with no owner metadata is safe to preserve only when the
+        // caller has proved this is the unique anonymous foreground row.
+        if expectedDevice == nil, expectedTag == nil {
+            return allowsAnonymousForeground
+        }
+        return (expectedDevice == nil) != (actualDevice == nil)
+            || (expectedTag == nil) != (actualTag == nil)
     }
 
     /// A legacy/anonymous workspace row can acquire its stable Mac identity
