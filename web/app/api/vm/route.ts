@@ -10,6 +10,7 @@ import {
   defaultProviderId,
   isProviderId,
   type ProviderId,
+  vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
 import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
@@ -69,6 +70,13 @@ import {
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
 
+// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
+// run minutes; without an explicit budget the platform default killed them
+// mid-provision. 600s caps a hung provider call well below the 20-minute
+// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
+// uses 1800).
+export const maxDuration = 600;
+
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -126,6 +134,9 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         kind: vmImageKindFor(entry.provider, entry.image),
+        // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
+        // the app when false; the CLI errors before calling).
+        capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         // Server-authoritative expiry of the free access window for this machine

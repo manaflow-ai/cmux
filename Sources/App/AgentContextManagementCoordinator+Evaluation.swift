@@ -47,9 +47,17 @@ extension AgentContextManagementCoordinator {
     }
 
     /// Returns whether a structured provider event is recent enough to apply.
-    static func providerEvidenceIsFresh(_ receivedAt: Date?) -> Bool {
+    ///
+    /// - Parameters:
+    ///   - receivedAt: The event's receipt timestamp.
+    ///   - now: The acceptance timestamp used for the bounded comparison.
+    static func providerEvidenceIsFresh(
+        _ receivedAt: Date?,
+        now: Date = Date()
+    ) -> Bool {
         guard let receivedAt else { return false }
-        return Date().timeIntervalSince(receivedAt) <= providerEvidenceMaximumAge
+        let age = now.timeIntervalSince(receivedAt)
+        return age >= 0 && age <= providerEvidenceMaximumAge
     }
 
     /// Accepts one provider-originated compaction hook as independent evidence
@@ -110,7 +118,8 @@ extension AgentContextManagementCoordinator {
             )
             return
         }
-        guard Self.providerEvidenceIsFresh(event.receivedAt) else {
+        let acceptedAt = Date()
+        guard Self.providerEvidenceIsFresh(event.receivedAt, now: acceptedAt) else {
             structuredLog(
                 "provider-evidence.ignored",
                 workspaceID: workspaceID,
@@ -134,7 +143,7 @@ extension AgentContextManagementCoordinator {
             return
         }
         state.providerEvidenceConfirmed = true
-        state.providerEvidenceReceivedAt = event.receivedAt
+        state.providerEvidenceReceivedAt = acceptedAt
         states[surfaceID] = state
         structuredLog(
             "provider-evidence.confirmed",
