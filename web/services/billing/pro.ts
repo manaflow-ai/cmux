@@ -418,21 +418,20 @@ export async function stripeBillingStatusForUser(
           desc(stripeSubscriptions.currentPeriodEnd),
         )
       : subscriptionQuery;
-    const [customerRows, subscriptionRows] = await Promise.all([
+    // Active access must come from ANY currently active row, not the newest
+    // row: historical rows mean a newer canceled record can hide an older
+    // active subscription, which would re-sell Pro to a paying customer. The
+    // newest row still supplies portal/recovery metadata.
+    const [customerRows, subscriptionRows, hasActiveSubscription] = await Promise.all([
       customerRowsPromise,
       orderedSubscriptionQuery.limit(1),
+      hasActiveStripeProSubscription(stackUserId),
     ]);
     const subscription = subscriptionRows[0];
-    // `status` is NOT NULL in production. If a small legacy test double only
-    // returns an id, use the existing active query seam to preserve its
-    // meaning without treating an actually null status as active.
-    const activeSubscriptionOverride = subscription && subscription.status === undefined
-      ? await hasActiveStripeProSubscription(stackUserId)
-      : undefined;
     return stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
-      activeSubscriptionOverride,
+      hasActiveSubscription,
     );
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
@@ -487,18 +486,17 @@ export async function stripeBillingStatusForTeam(
           desc(stripeSubscriptions.currentPeriodEnd),
         )
       : subscriptionQuery;
-    const [customerRows, subscriptionRows] = await Promise.all([
+    // Same any-active-row authority rule as the personal snapshot.
+    const [customerRows, subscriptionRows, hasActiveSubscription] = await Promise.all([
       customerRowsPromise,
       orderedSubscriptionQuery.limit(1),
+      hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
     const subscription = subscriptionRows[0];
-    const activeSubscriptionOverride = subscription && subscription.status === undefined
-      ? await hasActiveTeamSubscriptionForTeam(stackTeamId)
-      : undefined;
     return stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
-      activeSubscriptionOverride,
+      hasActiveSubscription,
     );
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
