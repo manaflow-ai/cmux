@@ -54,6 +54,7 @@
     "community": "Community",
     "docs": "Docs",
     "changelog": "Changelog",
+    "support": "Supporto",
     "privacy": "Privacy",
     "terms": "Termini",
     "eula": "EULA",
@@ -3670,6 +3671,52 @@
       "secondaryCta": "Pacchetto Debian (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Esegui una volta il programma di installazione per utente. Installa cmux in ~/.local senza privilegi di root e abilita gli aggiornamenti firmati nell’app. Se vuoi che gli aggiornamenti siano gestiti dal tuo gestore pacchetti, scegli invece il pacchetto Debian."
+    }
+  },
+  "support": {
+    "metaTitle": "Supporto | cmux",
+    "metaDescription": "Ricevi assistenza con cmux. Inviaci un messaggio e ti risponderemo via email, oppure contattaci su Discord e GitHub.",
+    "section": "Supporto",
+    "title": "Ricevi assistenza con cmux.",
+    "body": "Inviaci un messaggio e ti risponderemo via email. Includi cosa stavi facendo, cosa ti aspettavi e cosa è successo invece, così potremo aiutarti più rapidamente.",
+    "channels": {
+      "docs": {
+        "label": "Documentazione",
+        "description": "Guide per iniziare, configurare e risolvere i problemi."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Fai domande alla community e al team in tempo reale."
+      },
+      "github": {
+        "label": "Issue GitHub",
+        "description": "Segnala bug e richiedi funzionalità pubblicamente."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Preferisci l'email? Scrivici direttamente."
+      }
+    },
+    "formAriaLabel": "Modulo di contatto del supporto",
+    "form": {
+      "name": "Nome",
+      "email": "Indirizzo email",
+      "topic": "Argomento",
+      "message": "Come possiamo aiutarti?",
+      "selectPlaceholder": "Seleziona un'opzione",
+      "topicOptions": [
+        "Segnalazione di bug",
+        "Fatturazione o abbonamento",
+        "Account o accesso",
+        "Cloud VMs",
+        "Richiesta di funzionalità",
+        "Altro"
+      ],
+      "privacy": "Utilizziamo il tuo indirizzo email solo per rispondere alla tua richiesta di supporto. Non vendiamo le informazioni di contatto.",
+      "submit": "Invia messaggio",
+      "submitting": "Invio in corso...",
+      "success": "Grazie. Abbiamo ricevuto il tuo messaggio e ti risponderemo via email da founders@manaflow.com.",
+      "error": "Si è verificato un errore. Riprova oppure scrivi a founders@manaflow.com."
     }
   },
   "emails": {

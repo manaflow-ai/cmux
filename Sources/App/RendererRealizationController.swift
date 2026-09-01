@@ -254,7 +254,10 @@ final class RendererRealizationController {
         // rebuild publication was not acknowledged. Presentation repair
         // remains active even when reclamation is disabled because visible
         // rendering must not depend on a memory-saving preference.
-        for surface in surfaces where surface.isRendererPortalVisible {
+        // Effective visibility folds in the hosting window's occlusion state,
+        // so the visible tab of a miniaturized or fully covered window ages out
+        // of the warm set and becomes reclaimable like any hidden tab.
+        for surface in surfaces where surface.isRendererEffectivelyVisible {
             surface.noteBecameVisibleForRendererReclamation()
             if surface.hasLiveSurface, !surface.isRendererPresented {
                 surface.ensureRendererPresented()
@@ -271,7 +274,7 @@ final class RendererRealizationController {
             guard surface.hasLiveSurface else { return nil }
             return RendererRealizationPlannerInput(
                 surfaceId: surface.id,
-                isVisible: surface.isRendererPortalVisible,
+                isVisible: surface.isRendererEffectivelyVisible,
                 isRealized: surface.isRendererRealized,
                 lastVisibleAt: surface.rendererLastVisibleAt
             )
@@ -293,7 +296,7 @@ final class RendererRealizationController {
             // with the pressure policy; scheduled policy may keep recent
             // hidden surfaces warm and skip the exact surface pressure selected.
             if trigger == .systemMemoryPressure,
-               !surface.isRendererPortalVisible,
+               !surface.isRendererEffectivelyVisible,
                surface.isRendererRealized {
                 retryCandidateCount += 1
             }

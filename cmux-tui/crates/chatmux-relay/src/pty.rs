@@ -55,6 +55,17 @@ const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
 
+/// Random lowercase-hex identity for transports and tunnel attachments.
+pub fn random_hex(bytes: usize) -> String {
+    let mut buffer = vec![0_u8; bytes];
+    let _ = getrandom::fill(&mut buffer);
+    let mut out = String::with_capacity(bytes * 2);
+    for byte in buffer {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
 pub fn session_name_ok(name: &str) -> bool {
     let invalid = name.is_empty()
         || matches!(name, "." | "..")
@@ -259,6 +270,13 @@ pub struct FrameContext {
     pub trust: String,
     pub local_roots: Option<Vec<String>>,
     pub owner_user_id: Option<String>,
+    /// Identity of the transport this frame arrived on. The PtyManager is
+    /// shared between the relay WebSocket and the managed tunnel listener;
+    /// an attachment may only be written to, resized, flow-controlled, or
+    /// closed by the transport that opened it, and a dropped transport
+    /// detaches only its own attachments. `None` preserves the legacy
+    /// owns-everything behavior for callers that own the whole manager.
+    pub transport_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -309,6 +327,8 @@ struct Attachment {
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
     actor_id: String,
+    /// Transport that opened this attachment (see FrameContext::transport_id).
+    transport_id: Option<String>,
 }
 
 struct Inner {
@@ -319,7 +339,8 @@ struct Inner {
     scrollback_limit: usize,
     output_cap: u64,
     attachments: Mutex<HashMap<String, Attachment>>,
-    opening_ids: Mutex<std::collections::HashSet<String>>,
+    /// ptyId -> transport that reserved it (None = legacy whole-manager owner).
+    opening_ids: Mutex<HashMap<String, Option<String>>>,
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
@@ -370,7 +391,7 @@ impl PtyManager {
                 scrollback_limit: SCROLLBACK_LIMIT,
                 output_cap: OUTPUT_BUFFER_CAP,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(std::collections::HashSet::new()),
+                opening_ids: Mutex::new(HashMap::new()),
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
@@ -396,7 +417,7 @@ impl PtyManager {
                 scrollback_limit,
                 output_cap,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(std::collections::HashSet::new()),
+                opening_ids: Mutex::new(HashMap::new()),
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
@@ -418,6 +439,9 @@ impl PtyManager {
             "pty_open" => self.inner.clone().open(frame, context).await,
             "pty_input" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 let Some(data) = frame
                     .get("dataB64")
                     .and_then(Value::as_str)
@@ -432,6 +456,9 @@ impl PtyManager {
             }
             "pty_resize" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 let (Some(cols), Some(rows)) =
                     (clamp_dim(frame.get("cols")), clamp_dim(frame.get("rows")))
                 else {
@@ -443,6 +470,9 @@ impl PtyManager {
             }
             "pty_flow" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
                     if pause {
@@ -454,6 +484,9 @@ impl PtyManager {
             }
             "pty_close" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 self.inner.close_authorized(pty_id, context);
             }
             "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
@@ -461,10 +494,52 @@ impl PtyManager {
         }
     }
 
+    /// True while `pty_id` has a live attachment. The tunnel listener uses
+    /// this after a pty_error reply to tell a fatal refusal (attachment gone,
+    /// connection ends) from a non-fatal one (oversized input, stream lives).
+    pub fn has_attachment(&self, pty_id: &str) -> bool {
+        self.inner.attachments.lock().expect("attach lock").contains_key(pty_id)
+    }
+
+    /// Live attachment count (viewers, not sessions). Diagnostics and tests.
+    pub fn attachment_count(&self) -> usize {
+        self.inner.attachments.lock().expect("attach lock").len()
+    }
+
     /// The relay socket dropped: release every attachment (sessions live on).
+    /// Callers that own the whole manager only; a per-connection transport
+    /// must use `detach_transport` so it cannot detach attachments the
+    /// managed tunnel listener (or another socket) owns.
     pub fn detach_all(&self) {
-        let ids: Vec<String> =
-            self.inner.attachments.lock().expect("attach lock").keys().cloned().collect();
+        self.detach_matching(|_| true);
+    }
+
+    /// One transport dropped: release only its attachments and cancel only
+    /// its in-flight opens. Sessions live on either way (docs/TERMINAL.md).
+    pub fn detach_transport(&self, transport_id: &str) {
+        self.detach_matching(|owner| owner == Some(transport_id));
+    }
+
+    fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
+        // Openings first: close() records cancellation for a reserved id, so
+        // a late open cannot install an attachment after its transport died.
+        let mut ids: Vec<String> = {
+            let opening = self.inner.opening_ids.lock().expect("opening lock");
+            opening
+                .iter()
+                .filter(|(_, owner)| owns(owner.as_deref()))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        {
+            let attachments = self.inner.attachments.lock().expect("attach lock");
+            ids.extend(
+                attachments
+                    .iter()
+                    .filter(|(_, attachment)| owns(attachment.transport_id.as_deref()))
+                    .map(|(id, _)| id.clone()),
+            );
+        }
         for id in ids {
             self.inner.close(&id);
         }
@@ -507,7 +582,7 @@ impl Inner {
         let reservation_result = {
             let mut opening = self.opening_ids.lock().expect("opening lock");
             let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
-            if attached || opening.contains(&pty_id) {
+            if attached || opening.contains_key(&pty_id) {
                 Err(("bad_request", "ptyId is already attached".to_owned()))
             } else if self.attachments.lock().expect("attach lock").len() + opening.len()
                 >= self.max_ptys
@@ -517,7 +592,7 @@ impl Inner {
                     format!("this relay caps concurrent terminals at {}", self.max_ptys),
                 ))
             } else {
-                opening.insert(pty_id.clone());
+                opening.insert(pty_id.clone(), context.transport_id.clone());
                 Ok(())
             }
         };
@@ -689,6 +764,7 @@ impl Inner {
                 closing: opened.closing,
                 control: opened.control,
                 actor_id: actor.to_owned(),
+                transport_id: context.transport_id.clone(),
             },
         );
         if let Some(previous) = previous {
@@ -795,7 +871,7 @@ impl Inner {
         // Match `open`'s lock order. If opening still owns the reservation,
         // record cancellation and let it dispose the newly opened PTY.
         let opening = self.opening_ids.lock().expect("opening lock");
-        if opening.contains(pty_id) {
+        if opening.contains_key(pty_id) {
             self.cancelled_openings
                 .lock()
                 .expect("cancelled openings lock")
@@ -808,6 +884,20 @@ impl Inner {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
         }
+    }
+
+    /// Frame-level transport fence. Unknown ids retain the protocol's silent
+    /// no-op behavior; once an id is reserved or attached, a different
+    /// transport may not act on it. A `None` caller owns everything (legacy).
+    fn transport_owns(&self, pty_id: &str, transport_id: Option<&str>) -> bool {
+        let Some(transport_id) = transport_id else { return true };
+        if let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id) {
+            return attachment.transport_id.as_deref() == Some(transport_id);
+        }
+        if let Some(owner) = self.opening_ids.lock().expect("opening lock").get(pty_id) {
+            return owner.as_deref() == Some(transport_id);
+        }
+        true
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
@@ -2151,7 +2241,36 @@ mod tests {
                 trust: trust.to_owned(),
                 local_roots: None,
                 owner_user_id: owner,
+                transport_id: None,
             }
+        }
+
+        fn context_with_transport(
+            &self,
+            trust: &str,
+            owner: Option<String>,
+            transport_id: Option<&str>,
+        ) -> FrameContext {
+            let mut context = self.context(trust, owner);
+            context.transport_id = transport_id.map(str::to_owned);
+            context
+        }
+
+        async fn open_with_transport(&self, pty_id: &str, session: &str, transport_id: &str) {
+            let frame = serde_json::json!({
+                "version": 4,
+                "type": "pty_open",
+                "ptyId": pty_id,
+                "session": session,
+                "cols": 80,
+                "rows": 24,
+                "actorId": "user_owner",
+                "trust": "supervised",
+                "allowedRoots": Value::Null,
+            });
+            let context =
+                self.context_with_transport("supervised", self.owner.clone(), Some(transport_id));
+            self.manager.handle_frame(&frame, &context).await;
         }
 
         async fn open(
@@ -2648,6 +2767,42 @@ mod tests {
         h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
         assert_eq!(h.sent()[before]["created"], false); // same session survived
         assert_eq!(h.spawned().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_foreign_transport_cannot_write_resize_or_close_an_owned_pty() {
+        let h = harness(None, None);
+        h.open_with_transport("p1", "main", "transport-a").await;
+        let foreign = h.context_with_transport("supervised", h.owner.clone(), Some("transport-b"));
+        let input = serde_json::json!({
+            "version": 4,
+            "type": "pty_input",
+            "ptyId": "p1",
+            "dataB64": b64("stolen"),
+        });
+        h.manager.handle_frame(&input, &foreign).await;
+        assert!(h.spawned()[0].state.lock().unwrap().written.is_empty());
+        let close = serde_json::json!({ "version": 4, "type": "pty_close", "ptyId": "p1" });
+        h.manager.handle_frame(&close, &foreign).await;
+        assert!(h.manager.has_attachment("p1"), "a foreign close must be a silent no-op");
+        let owner = h.context_with_transport("supervised", h.owner.clone(), Some("transport-a"));
+        h.manager.handle_frame(&input, &owner).await;
+        assert_eq!(h.spawned()[0].written_string(0), "stolen");
+        // A caller with no transport identity owns the whole manager (legacy).
+        h.manager.handle_frame(&close, &h.context("supervised", h.owner.clone())).await;
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
+    async fn detach_transport_releases_only_that_transports_attachments() {
+        let h = harness(None, None);
+        h.open_with_transport("p-relay", "relay-side", "transport-relay").await;
+        h.open_with_transport("p-tunnel", "tunnel-side", "transport-tunnel").await;
+        h.manager.detach_transport("transport-relay");
+        assert!(!h.manager.has_attachment("p-relay"), "the relay transport's viewer must detach");
+        assert!(h.manager.has_attachment("p-tunnel"), "the tunnel viewer must survive");
+        h.manager.detach_all();
+        assert!(!h.manager.has_attachment("p-tunnel"));
     }
 
     #[test]

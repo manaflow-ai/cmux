@@ -22,6 +22,7 @@ pub mod pty_deps;
 pub mod relay_wire;
 pub mod session;
 pub mod trust;
+pub mod tunnel_terminal;
 pub mod watch;
 pub mod wire;
 pub mod workspace;
