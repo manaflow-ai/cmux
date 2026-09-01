@@ -217,7 +217,11 @@ function applyNativeRelayAttachGrants(
   return {
     ...endpoint,
     route: first.route,
-    token: first.ticket,
+    // Native relay tickets are carried in `relays`. Keep `token` as a unique,
+    // ledger-only nonce so concurrent users and repeated attaches cannot hit
+    // the global cloud_vm_leases.token_hash unique index. It is never sent to
+    // the relay and is not used for native transport authentication.
+    token: `native-relay-${randomUUID()}`,
     expiresAtUnix: Math.min(...grants.map((grant) => grant.expiresAtUnix)),
     relays: grants,
   };
