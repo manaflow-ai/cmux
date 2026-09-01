@@ -242994,16 +242994,124 @@
     "socket.client.accessDenied": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم رفض الوصول - لا يمكن الاتصال إلا من العمليات التي بدأت داخل cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup je odbijen - povezati se mogu samo procesi pokrenuti unutar cmuxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang nægtet - kun processer, der er startet i cmux, kan oprette forbindelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff verweigert - nur innerhalb von cmux gestartete Prozesse können eine Verbindung herstellen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Access denied - only processes started inside cmux can connect"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso denegado: solo pueden conectarse los procesos iniciados dentro de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès refusé : seuls les processus démarrés dans cmux peuvent se connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso negato: solo i processi avviati all'interno di cmux possono connettersi"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "アクセスが拒否されました。cmux 内で起動されたプロセスのみ接続できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលប្រើត្រូវបានបដិសេធ - មានតែដំណើរការដែលបានចាប់ផ្តើមនៅក្នុង cmux ប៉ុណ្ណោះដែលអាចតភ្ជាប់បាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근이 거부되었습니다. cmux 내부에서 시작된 프로세스만 연결할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgang nektet - bare prosesser som er startet i cmux, kan koble til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmowa dostępu - łączyć się mogą tylko procesy uruchomione w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acesso negado - somente processos iniciados dentro do cmux podem se conectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ запрещён — подключаться могут только процессы, запущенные внутри cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปฏิเสธการเข้าถึง — เฉพาะกระบวนการที่เริ่มต้นภายใน cmux เท่านั้นที่เชื่อมต่อได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişim reddedildi — yalnızca cmux içinde başlatılan işlemler bağlanabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ заборонено — підключатися можуть лише процеси, запущені всередині cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问被拒绝——只有在 cmux 内启动的进程才能连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒絕存取——只有在 cmux 內啟動的程序才能連線"
           }
         }
       }
