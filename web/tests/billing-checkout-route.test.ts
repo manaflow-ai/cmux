@@ -71,6 +71,7 @@ let useStubDb = false;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
+  promoteStackUserFromAnonymousViaApi: mock(async () => undefined),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
@@ -135,12 +136,16 @@ mock.module("../services/billing/stripe", () => ({
 const actualStripeBillingModule = await import("../services/analytics/stripeBilling");
 const realCaptureBillingCheckoutStarted =
   actualStripeBillingModule.captureBillingCheckoutStarted;
-const captureBillingCheckoutStarted = mock(async (...args: unknown[]) => {
-  const [input, postHogFetch] = args as Parameters<
-    typeof actualStripeBillingModule.captureBillingCheckoutStarted
-  >;
-  return realCaptureBillingCheckoutStarted(input, postHogFetch);
-});
+type CaptureBillingCheckoutStartedMock =
+  typeof actualStripeBillingModule.captureBillingCheckoutStarted & {
+    mockClear: () => void;
+    mockResolvedValue: (value: unknown) => void;
+  };
+const captureBillingCheckoutStarted: CaptureBillingCheckoutStartedMock = mock(
+  async (...args: unknown[]): Promise<void> => {
+    await Reflect.apply(realCaptureBillingCheckoutStarted, undefined, args);
+  },
+);
 mock.module("../services/analytics/stripeBilling", () => ({
   ...actualStripeBillingModule,
   captureBillingCheckoutStarted,

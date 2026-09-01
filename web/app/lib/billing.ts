@@ -30,37 +30,8 @@ export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
 export const TEAM_CHECKOUT_URL = withExternalBrowserIntent(TEAM_CHECKOUT_PATH);
 
 const DEFAULT_APP_PRICING_CHECKOUT_URL = "https://cmux.com/api/billing/checkout";
-/** Canonical public origin used for links sent outside a request context. */
-export const DEFAULT_APP_ORIGIN = "https://cmux.com";
 const APP_PRICING_RELAY_TTL_SECONDS = 5 * 60;
 const APP_PRICING_RELAY_CLOCK_SKEW_SECONDS = 30;
-
-/**
- * Resolve the trusted public origin for customer-facing billing links.
- *
- * Webhook requests can arrive through a proxy with an untrusted Host header,
- * so links sent from those paths must never use the request origin. Operators
- * may set CMUX_APP_ORIGIN for a staging or self-hosted deployment; malformed
- * or unsupported values fall back to the production origin.
- */
-export function canonicalAppOrigin(): string {
-  const configured = process.env.CMUX_APP_ORIGIN?.trim();
-  if (!configured) return DEFAULT_APP_ORIGIN;
-  try {
-    const parsed = new URL(configured);
-    if (
-      (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
-      parsed.username ||
-      parsed.password ||
-      !parsed.hostname
-    ) {
-      return DEFAULT_APP_ORIGIN;
-    }
-    return parsed.origin;
-  } catch {
-    return DEFAULT_APP_ORIGIN;
-  }
-}
 
 type SearchParamValue = string | string[] | null | undefined;
 

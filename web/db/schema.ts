@@ -720,38 +720,6 @@ export const billingEmailVerificationDeliveries = pgTable(
   ],
 );
 
-/**
- * Durable idempotency ledger for payment-failure notices. Stripe can deliver
- * the same invoice event more than once, and a provider timeout can happen
- * after Resend accepted the message, so the invoice id is the delivery key.
- */
-export const billingDunningDeliveries = pgTable(
-  "billing_dunning_deliveries",
-  {
-    invoiceId: text("invoice_id").primaryKey(),
-    email: text("email").notNull(),
-    scope: text("scope").notNull(),
-    stackUserId: text("stack_user_id"),
-    stackTeamId: text("stack_team_id"),
-    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
-    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
-      withTimezone: true,
-    }),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
-    // Set atomically when the terminal provider-window abandonment is first
-    // reported. It prevents repeated Stripe deliveries from spamming operators.
-    abandonedReportedAt: timestamp("abandoned_reported_at", {
-      withTimezone: true,
-    }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("billing_dunning_deliveries_stack_user_idx").on(table.stackUserId),
-    index("billing_dunning_deliveries_stack_team_idx").on(table.stackTeamId),
-  ],
-);
-
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {

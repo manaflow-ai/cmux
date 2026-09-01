@@ -5,9 +5,6 @@ import { after, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { env } from "../../../env";
-import { canonicalAppOrigin } from "../../../lib/billing";
-import { preferredLocaleFromAcceptLanguage } from "../../../../i18n/accept-language";
-import { routing, type Locale } from "../../../../i18n/routing";
 import { cloudDb } from "../../../../db/client";
 import { stripeWebhookEvents } from "../../../../db/schema";
 import { captureBillingError } from "../../../../services/errors";
@@ -24,11 +21,6 @@ import {
   recordFoundersCheckoutCompletion as recordFoundersCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
-import {
-  BillingDunningDeliveryRetryableError,
-  sendBillingDunningEmail as sendBillingDunningEmailDefault,
-  type BillingDunningEmailInput,
-} from "../../../../services/billing/dunning";
 import {
   revokeRouteTokensForTeam as revokeRouteTokensForTeamDefault,
   revokeRouteTokensForUser as revokeRouteTokensForUserDefault,
@@ -51,13 +43,10 @@ type StripeWebhookDependencies = {
   recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
-  sendDunningEmail?: typeof sendBillingDunningEmailDefault;
   isPersonalWelcomeConfigured?: () => boolean;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
   revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
-  /** Trusted public origin for links sent from the webhook. */
-  appOrigin?: () => string;
   defer: (task: () => Promise<void>) => void;
 };
 
@@ -70,12 +59,10 @@ const defaultDependencies: StripeWebhookDependencies = {
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
-  sendDunningEmail: sendBillingDunningEmailDefault,
   isPersonalWelcomeConfigured,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
   revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
   captureStripeBillingEvent: captureStripeBillingEventDefault,
-  appOrigin: canonicalAppOrigin,
   defer: (task) => after(task),
 };
 
@@ -134,11 +121,7 @@ export function makeStripeWebhookHandler(
       }
 
       try {
-        const { analytics, ...result } = await processStripeEvent(
-          event,
-          dependencies,
-          (dependencies.appOrigin ?? canonicalAppOrigin)(),
-        );
+        const { analytics, ...result } = await processStripeEvent(event, dependencies);
         await db
           .update(stripeWebhookEvents)
           .set({ processedAt: sql`now()`, error: null })
@@ -167,7 +150,6 @@ export function makeStripeWebhookHandler(
 async function processStripeEvent(
   event: Stripe.Event,
   dependencies: StripeWebhookDependencies,
-  publicOrigin: string,
 ): Promise<{
   processed?: string;
   skipped?: string;
@@ -284,35 +266,15 @@ async function processStripeEvent(
         subscription,
         dependencies,
       );
-      if ("skipped" in result) return { skipped: "invoice_subscription_unmapped" };
-      if (event.type === "invoice.payment_failed") {
-        const sendDunningEmail =
-          dependencies.sendDunningEmail ?? sendBillingDunningEmailDefault;
-        const dunningResult: unknown = await sendDunningEmail(
-          await billingDunningInput(
-            event.data.object,
-            result,
-            publicOrigin,
-            dependencies,
-          ),
-        );
-        // The canonical sender throws for this state. Keep the webhook
-        // boundary defensive for injected senders and future implementations:
-        // an unconfirmed provider attempt must remain a Stripe-retryable
-        // failure, never a processed event.
-        if (dunningResult === "delivery_in_progress") {
-          throw new BillingDunningDeliveryRetryableError(
-            event.data.object.id,
-          );
-        }
-      }
-      return {
-        processed: event.type,
-        analytics: () => dependencies.captureStripeBillingEvent(
-          event,
-          analyticsSubject(result, result.isActive, subscription.status),
-        ),
-      };
+      return "skipped" in result
+        ? { skipped: "invoice_subscription_unmapped" }
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, subscription.status),
+            ),
+          };
     }
     case "charge.refunded": {
       const charge = event.data.object as Stripe.Charge & {
@@ -433,88 +395,6 @@ function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
     | null
     | undefined;
   return stringId(parent?.subscription_details?.subscription);
-}
-
-async function billingDunningInput(
-  invoice: Stripe.Invoice,
-  result:
-    | { readonly scope: "user"; readonly stackUserId: string; readonly isActive: boolean }
-    | { readonly scope: "team"; readonly stackTeamId: string; readonly isActive: boolean },
-  publicOrigin: string,
-  dependencies: StripeWebhookDependencies,
-): Promise<BillingDunningEmailInput> {
-  const portalUrl = new URL("/api/billing/portal", publicOrigin);
-  if (result.scope === "team") portalUrl.searchParams.set("scope", "team");
-  const customer = await stripeCustomerForDunning(
-    invoice,
-    dependencies,
-    { emailRequired: !invoice.customer_email },
-  );
-  return {
-    invoiceId: invoice.id,
-    // The invoice snapshot's customer_email is nullable; the retrieved
-    // Customer's email is the durable fallback so a valid notice is never
-    // dropped as no_customer_email.
-    email: invoice.customer_email ?? customer?.email ?? null,
-    customerName: invoice.customer_name,
-    portalUrl: portalUrl.toString(),
-    locale: dunningLocale(customer),
-    scope: result.scope === "user"
-      ? { scope: "user", stackUserId: result.stackUserId }
-      : { scope: "team", stackTeamId: result.stackTeamId },
-  };
-}
-
-/**
- * Resolve dunning language from Stripe's customer preference. Invoice webhook
- * payloads do not reliably include a Stack user profile or its locale, so this
- * boundary intentionally uses preferred_locales only and falls back to English
- * when the customer is not expanded or Stripe cannot be read.
- */
-async function stripeCustomerForDunning(
-  invoice: Stripe.Invoice,
-  dependencies: StripeWebhookDependencies,
-  options: { readonly emailRequired: boolean } = { emailRequired: false },
-): Promise<Stripe.Customer | null> {
-  const invoiceCustomer = invoice.customer;
-  if (typeof invoiceCustomer === "object" && invoiceCustomer !== null) {
-    if ("deleted" in invoiceCustomer && invoiceCustomer.deleted) return null;
-    return invoiceCustomer as Stripe.Customer;
-  }
-  const customerId = stringId(invoiceCustomer);
-  if (!customerId) return null;
-  try {
-    const customers = dependencies.stripe().customers;
-    if (!customers || typeof customers.retrieve !== "function") return null;
-    const customer = await customers.retrieve(customerId);
-    if ("deleted" in customer && customer.deleted) return null;
-    return customer;
-  } catch (error) {
-    // When the invoice already carries an email, the lookup only supplies
-    // locale data and stays best effort. When it does not, this lookup is the
-    // only recipient source: a transient failure must stay Stripe-retryable
-    // instead of becoming a silent no_customer_email drop.
-    if (options.emailRequired) {
-      console.error("[billing] dunning customer lookup failed with no invoice email", error);
-      throw new BillingDunningDeliveryRetryableError(
-        "customer lookup failed while the invoice has no email",
-      );
-    }
-    return null;
-  }
-}
-
-function dunningLocale(customer: Stripe.Customer | null): Locale {
-  const preferences = customer?.preferred_locales
-    ?.filter((locale): locale is string => typeof locale === "string")
-    .map((locale) => locale.trim())
-    .filter(Boolean)
-    .join(",") ?? "";
-  return preferredLocaleFromAcceptLanguage(
-    preferences,
-    routing.locales,
-    routing.defaultLocale,
-  );
 }
 
 function stringId(value: string | { id: string } | null | undefined): string | null {

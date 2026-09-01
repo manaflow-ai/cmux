@@ -40,8 +40,6 @@ const deferredTasks: Array<() => Promise<void>> = [];
 const sendProSignupWelcome = mock(async () => {
   if (proWelcomeShouldFail) throw new Error("email provider unavailable");
 });
-let dunningResult: unknown = "sent";
-const sendDunningEmail = mock(async () => dunningResult as never);
 const paidCheckoutSession = {
   id: "cs_1",
   payment_status: "paid",
@@ -52,11 +50,6 @@ const paidCheckoutSession = {
 };
 let retrievedCheckoutSession: Record<string, unknown> = paidCheckoutSession;
 const retrieveSession = mock(async () => retrievedCheckoutSession);
-let retrievedCustomer: Record<string, unknown> = {
-  id: "cus_1",
-  preferred_locales: [],
-};
-const retrieveCustomer = mock(async () => retrievedCustomer);
 let retrievedSubscription: Record<string, unknown> = {
   id: "sub_1",
   customer: "cus_1",
@@ -87,9 +80,6 @@ const POST = makeStripeWebhookHandler({
         sessions: {
           retrieve: retrieveSession,
         },
-      },
-      customers: {
-        retrieve: retrieveCustomer,
       },
       subscriptions: {
         retrieve: retrieveSubscription,
@@ -127,7 +117,6 @@ const POST = makeStripeWebhookHandler({
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
   sendProSignupWelcome,
-  sendDunningEmail: sendDunningEmail as never,
   isPersonalWelcomeConfigured: () => personalWelcomeConfigured,
   revokeCoderouterRouteTokens,
   revokeCoderouterTeamRouteTokens,
@@ -166,10 +155,6 @@ describe("Stripe billing webhook route", () => {
       isActive: true,
     };
     retrievedCheckoutSession = paidCheckoutSession;
-    retrievedCustomer = {
-      id: "cus_1",
-      preferred_locales: [],
-    };
     retrievedSubscription = {
       id: "sub_1",
       customer: "cus_1",
@@ -192,10 +177,7 @@ describe("Stripe billing webhook route", () => {
     captureStripeBillingEvent.mockClear();
     deferredTasks.length = 0;
     sendProSignupWelcome.mockClear();
-    sendDunningEmail.mockClear();
-    dunningResult = "sent";
     retrieveSession.mockClear();
-    retrieveCustomer.mockClear();
     retrieveSubscription.mockClear();
     retrieveInvoice.mockClear();
   });
@@ -727,145 +709,6 @@ describe("Stripe billing webhook route", () => {
     expect(response.status).toBe(200);
     expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
-  });
-
-  test("sends a dunning email with a portal link after payment failure", async () => {
-    const previousAppOrigin = process.env.CMUX_APP_ORIGIN;
-    process.env.CMUX_APP_ORIGIN = "https://billing.cmux.test";
-    currentEvent = {
-      id: "evt_invoice_dunning",
-      type: "invoice.payment_failed",
-      data: {
-        object: {
-          id: "in_dunning",
-          subscription: "sub_1",
-          customer: "cus_1",
-          customer_email: "buyer@example.com",
-          customer_name: "Buyer",
-        },
-      },
-    };
-    retrievedInvoice = {
-      id: "in_dunning",
-      subscription: "sub_1",
-      customer: "cus_1",
-      customer_email: "buyer@example.com",
-      customer_name: "Buyer",
-    };
-    retrievedSubscription = {
-      ...retrievedSubscription,
-      status: "past_due",
-    };
-
-    try {
-      const response = await POST(webhookRequest("https://attacker.example"));
-
-      expect(response.status).toBe(200);
-      expect(sendDunningEmail).toHaveBeenCalledTimes(1);
-      expect(sendDunningEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          invoiceId: "in_dunning",
-          email: "buyer@example.com",
-          portalUrl: "https://billing.cmux.test/api/billing/portal",
-          scope: { scope: "user", stackUserId: "user_1" },
-          locale: "en",
-        }),
-      );
-    } finally {
-      if (previousAppOrigin === undefined) delete process.env.CMUX_APP_ORIGIN;
-      else process.env.CMUX_APP_ORIGIN = previousAppOrigin;
-    }
-  });
-
-  test("passes the Stripe customer's preferred Japanese locale to dunning email", async () => {
-    currentEvent = {
-      id: "evt_invoice_dunning_ja",
-      type: "invoice.payment_failed",
-      data: {
-        object: {
-          id: "in_dunning_ja",
-          subscription: "sub_1",
-          customer: "cus_1",
-          customer_email: "buyer@example.com",
-        },
-      },
-    };
-    retrievedCustomer = {
-      id: "cus_1",
-      preferred_locales: ["ja"],
-    };
-    retrievedSubscription = {
-      ...retrievedSubscription,
-      status: "past_due",
-    };
-
-    const response = await POST(webhookRequest());
-
-    expect(response.status).toBe(200);
-    expect(retrieveCustomer).toHaveBeenCalledWith("cus_1");
-    expect(sendDunningEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ locale: "ja" }),
-    );
-  });
-
-  test("returns 500 while an ambiguous dunning delivery is in progress", async () => {
-    currentEvent = {
-      id: "evt_invoice_dunning_retry",
-      type: "invoice.payment_failed",
-      data: {
-        object: {
-          id: "in_dunning_retry",
-          subscription: "sub_1",
-          customer: "cus_1",
-          customer_email: "buyer@example.com",
-        },
-      },
-    };
-    retrievedInvoice = {
-      id: "in_dunning_retry",
-      subscription: "sub_1",
-      customer: "cus_1",
-      customer_email: "buyer@example.com",
-    };
-    retrievedSubscription = {
-      ...retrievedSubscription,
-      status: "past_due",
-    };
-    dunningResult = "delivery_in_progress";
-
-    const response = await POST(webhookRequest());
-
-    expect(response.status).toBe(500);
-    expect(updates.at(-1)?.error).toContain(
-      "billing dunning delivery is still in progress",
-    );
-    expect(updates.at(-1)?.processedAt).toBeUndefined();
-  });
-
-  test("does not send dunning email for a paid invoice", async () => {
-    currentEvent = {
-      id: "evt_invoice_paid_no_dunning",
-      type: "invoice.paid",
-      data: {
-        object: {
-          id: "in_paid",
-          subscription: "sub_1",
-          customer: "cus_1",
-          customer_email: "buyer@example.com",
-        },
-      },
-    };
-    retrievedInvoice = {
-      id: "in_paid",
-      subscription: "sub_1",
-      customer: "cus_1",
-      customer_email: "buyer@example.com",
-    };
-
-    const response = await POST(webhookRequest());
-
-    expect(response.status).toBe(200);
-    expect(sendDunningEmail).not.toHaveBeenCalled();
   });
 
   test("restores entitlement without revoking tokens after invoice recovery", async () => {

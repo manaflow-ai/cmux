@@ -4932,16 +4932,6 @@
       "testflightLink": "TestFlight に登録する：{url}",
       "testflightLinkLabel": "TestFlight に登録する",
       "signoff": "ご参加いただき、ありがとうございます！\ncmux チーム"
-    },
-    "billingDunning": {
-      "subject": "対応が必要です：cmux Proのお支払いに失敗しました",
-      "fallbackName": "お客様",
-      "greeting": "{name} さん、こんにちは！",
-      "body": "最新のcmux Proのお支払いを処理できませんでした。",
-      "action": "プランを継続するには支払い方法を更新してください。",
-      "portalLink": "請求を管理：{url}",
-      "portalLinkLabel": "請求を管理",
-      "signoff": "cmux チーム"
     }
   },
   "tui": {
