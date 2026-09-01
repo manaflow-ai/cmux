@@ -784,7 +784,44 @@ describe("VM REST auth", () => {
       error: "vm_create_credits_insufficient",
       amount: 1,
       details: { amount: 1 },
+      message: "This team has no Cloud VM create credits left.",
     });
+  });
+
+  test("credit exhaustion on user-scoped billing names the account, not a team", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+    rejectRunVmWorkflowWith(
+      new VmCreateCreditsInsufficientError({
+        itemId: "cmux-vm-create-credit",
+        billingCustomerId: "user-1",
+        amount: 1,
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-credits-user", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_create_credits_insufficient",
+      amount: 1,
+      message: "Your account has no Cloud VM create credits left.",
+    });
+    expect(payload.message).not.toContain("team");
+    expect(payload.action).not.toContain("team");
   });
 
   test("uses the native client's requested Stack team for billing", async () => {
@@ -991,13 +1028,25 @@ describe("VM REST auth", () => {
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
 
-  test("rejects VM create when Stack Auth returns no teams", async () => {
+  test("creates a VM with user-scoped billing when Stack Auth returns no teams", async () => {
+    // Legacy accounts predate personal-team auto-create: Stack returns no
+    // team at all. Billing supports user-scoped customers everywhere else
+    // (list, entitlements, credits), so create must fall back to the user
+    // instead of dead-ending on a 409 the caller cannot fix.
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
       primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
       selectedTeam: null,
       listTeams: async () => [],
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-user-billing",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
     });
 
     const response = await POST(
@@ -1008,15 +1057,14 @@ describe("VM REST auth", () => {
       }),
     );
 
-    expect(response.status).toBe(409);
-    const payload = await response.json();
-    expect(payload).toMatchObject({
-      error: "vm_billing_team_required",
-    });
-    expectNoCloudVmImplementationLeaks(payload);
-    expect(payload.message).toContain("team");
-    expect(payload.action).toContain("Select a team");
-    expect(runVmWorkflow).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      billingCustomerType: "user",
+      billingTeamId: "user-1",
+      billingPlanId: "pro",
+    }));
+    expect(runVmWorkflow).toHaveBeenCalled();
   });
 
   test("uses the paid Stack team when multiple teams have no selected/requested team", async () => {
@@ -1087,6 +1135,10 @@ describe("VM REST auth", () => {
     expectNoCloudVmImplementationLeaks(payload);
     expect(payload.message).toContain("team");
     expect(payload.action).toContain("Select a team");
+    // The 409 must present as a team-selection problem, not the generic
+    // "operation already running" that defaultVmDisplayTitle maps 409 to.
+    const ui = payload.ui as { title?: string } | undefined;
+    expect(ui?.title).toBe("Cloud VM team required");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 

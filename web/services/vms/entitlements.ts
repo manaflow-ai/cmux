@@ -11,7 +11,6 @@ export type VmEntitlements = {
 
 export type VmEntitlementOptions = {
   readonly requestedBillingTeamId?: string | null;
-  readonly requireTeam?: boolean;
 };
 
 export type VmBillingTeamErrorCode =
@@ -94,14 +93,10 @@ function resolveBillingContext(
     });
   }
 
-  if (options.requireTeam) {
-    throw new VmBillingTeamResolutionError({
-      code: "vm_billing_team_required",
-      status: 409,
-      message: "Stack Auth did not return a team. Enable personal team creation on sign-up before creating Cloud VMs.",
-    });
-  }
-
+  // No team at all (accounts that predate personal-team auto-create): bill
+  // the user directly. Every billing surface (Stack items, credits, plan
+  // metadata) supports user-scoped customers, so provisioning verbs must not
+  // dead-end on a 409 the caller has no way to resolve.
   return {
     billingCustomerType: "user",
     billingTeamId: user.billingTeamId,
