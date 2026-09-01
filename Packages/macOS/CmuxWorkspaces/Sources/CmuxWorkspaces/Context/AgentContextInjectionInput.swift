@@ -77,7 +77,7 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
         pressureConfirmed: Bool = false,
         providerEvidenceConfirmed: Bool = false,
         managedSessionBound: Bool,
-        foregroundAgentConfirmed: Bool,
+        foregroundAgentConfirmed: Bool = false,
         provider: AgentContextProvider,
         lifecycle: AgentContextLifecycleState,
         shellActivity: PanelShellActivityState,

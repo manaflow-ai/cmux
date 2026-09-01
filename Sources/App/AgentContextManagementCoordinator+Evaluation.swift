@@ -167,7 +167,7 @@ extension AgentContextManagementCoordinator {
                 panelId: surfaceID,
                 provider: state.provider
             ),
-            surfaceAvailable: liveTerminal != nil,
+            surfaceAvailable: liveTerminal?.surface.hasLiveSurface == true,
             preservationAvailable: preservationPathAvailable,
             provider: state.provider,
             lifecycle: state.lifecycle,
