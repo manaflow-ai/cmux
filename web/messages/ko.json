@@ -1067,6 +1067,8 @@
       "persistenceDesc": "그룹 이름, 앵커, 고정 상태, 접기 상태, 색상, 아이콘은 워크스페이스와 함께 저장되어 실행 간에 복원됩니다. 그룹 멤버십은 각 워크스페이스에 저장됩니다."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "선택적 공유 프리픽스 키는 shortcuts.prefix로 설정합니다. 수정 키가 포함된 한 번의 키 입력(또는 Space)을 문자열, 항목 하나짜리 배열, 혹은 { \"first\": { \"key\": \"b\", \"control\": true } } 같은 구조화된 단일 키 입력 객체로 지정할 수 있습니다. null과 바인딩 해제 별칭은 이를 비활성화합니다. 지원 형식은 이것이 전부이며, 두 번 입력하는 프리픽스는 거부됩니다.",
+      "shortcutsPrefixCallout": "프리픽스 레이어는 기본적으로 꺼져 있습니다. 활성화되면 cmux가 잠시 접미 키 하나를 기다리며 사용 가능한 키를 표시합니다. Escape를 누르거나 시간이 초과되면 취소됩니다. 일치하지 않는 접미 키는 포커스된 터미널로 그대로 전달되며, Escape와 미디어 키 및 시스템 정의 키는 프리픽스로 사용할 수 없습니다.",
       "title": "설정",
       "metaDescription": "Ghostty 설정 파일을 통해 cmux를 구성합니다. 글꼴, 테마, 색상, 분할 패널 스타일, 스크롤백, 자동화 모드의 앱 설정.",
       "intro": "cmux는 Ghostty 설정 파일에서 구성을 읽어오므로, Ghostty에서 이전하는 경우 익숙한 옵션을 사용할 수 있습니다.",
@@ -1277,6 +1279,11 @@
       "restartNew": "새 워크스페이스 만들기 (기본값)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "선택적 프리픽스 키",
+      "prefixIntro": "shortcuts.prefix를 ctrl+b 또는 cmd+k 같은 수정 키 포함 단일 키 입력으로 설정한 다음 shortcuts.bindings 아래에 항목 두 개짜리 바인딩을 지정하세요. 이 프리픽스는 키 조합을 지원하는 cmux 소유 동작끼리 공유하며, 설정하기 전까지 비활성화되어 있습니다.",
+      "prefixRuleDefault": "기본값은 꺼짐이므로 기존 터미널 입력과 단축키가 이전과 똑같이 동작합니다. 프리픽스가 Space가 아니라면 수정 키가 필요합니다.",
+      "prefixRuleCancel": "프리픽스 다음에 cmux가 사용 가능한 두 번째 키를 표시합니다. Escape를 눌러 취소하거나 짧은 제한 시간이 끝날 때까지 기다리세요.",
+      "prefixRulePassThrough": "두 번째 키와 일치하는 코드가 없으면 cmux는 다른 단축키를 실행하지 않고 그 키를 포커스된 터미널로 그대로 전달합니다. Escape와 미디어 키 및 시스템 정의 키는 프리픽스 키로 사용할 수 없습니다.",
       "title": "키보드 단축키",
       "description": "카테고리별로 정리된 cmux의 모든 키보드 단축키.",
       "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키.",

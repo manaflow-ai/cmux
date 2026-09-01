@@ -207578,10 +207578,52 @@
     "settings.shortcuts.chords.subtitle.withPrefix": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر «Chord» بجوار إجراء، ثم اضغط مفتاحه الثاني؛ تُدرج البادئة التي تم إعدادها تلقائيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izaberite Chord pored radnje, a zatim pritisnite njenu drugu tipku; konfigurisani prefiks se uključuje automatski."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg Chord ud for en handling, og tryk derefter på dens anden tast; det konfigurerede præfiks medtages automatisk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie neben einer Aktion „Chord“ und drücken Sie anschließend deren zweite Taste; das konfigurierte Präfix wird automatisch einbezogen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Choose Chord beside an action, then press its second key; the configured prefix is included automatically."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige Chord junto a una acción y pulsa su segunda tecla; el prefijo configurado se incluye automáticamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez « Chord » à côté d’une action, puis appuyez sur sa deuxième touche ; le préfixe configuré est inclus automatiquement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli Chord accanto a un’azione, quindi premi il secondo tasto; il prefisso configurato viene incluso automaticamente."
           }
         },
         "ja": {
@@ -207589,16 +207631,124 @@
             "state": "translated",
             "value": "アクションの横で「コード」を選び、2つ目のキーだけを押します。設定したプレフィックスは自動的に含まれます。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Chord beside an action, then press its second key; the configured prefix is included automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동작 옆에서 Chord를 선택한 다음 두 번째 키를 누르세요. 구성된 프리픽스가 자동으로 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg Chord ved siden av en handling, og trykk deretter på den andre tasten; det konfigurerte prefikset tas med automatisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz Chord obok działania, a następnie naciśnij jego drugi klawisz; skonfigurowany prefiks zostanie dodany automatycznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha Chord ao lado de uma ação e pressione a segunda tecla; o prefixo configurado é incluído automaticamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите Chord рядом с действием, затем нажмите его вторую клавишу; настроенный префикс добавляется автоматически."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือก Chord ถัดจากการกระทำ แล้วกดคีย์ที่สอง คีย์นำที่กำหนดค่าจะถูกรวมให้อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir eylemin yanında Chord'u seçin, ardından ikinci tuşuna basın; yapılandırılan önek otomatik olarak eklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть Chord поруч із дією, а потім натисніть її другу клавішу; налаштований префікс додається автоматично."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在操作旁选择 Chord，然后按下它的第二个按键；配置的前缀会自动包含在内。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在動作旁選擇 Chord，然後按下它的第二個按鍵；設定的前綴會自動包含在內。"
+          }
         }
       }
     },
     "settings.shortcuts.prefix": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح البادئة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefiksna tipka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Præfikstast"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Präfix-Taste"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Prefix Key"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tecla de prefijo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touche préfixe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasto prefisso"
           }
         },
         "ja": {
@@ -207606,22 +207756,196 @@
             "state": "translated",
             "value": "プレフィックスキー"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix Key"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프리픽스 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefikstast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klawisz prefiksu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tecla de prefixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клавиша-префикс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คีย์นำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önek Tuşu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клавіша-префікс"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前缀键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前綴鍵"
+          }
         }
       }
     },
     "settings.shortcuts.prefix.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح قائد اختياري لاختصارات cmux المركبة. اتركه بلا تعيين للحفاظ على سلوك الطرفية دون تغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcionalna vodeća tipka za cmux prečice u sekvenci. Ostavite je bez dodjele da ponašanje terminala ostane nepromijenjeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgfri ledertast til cmux-genveje i sekvenser. Lad den være utilknyttet for at bevare terminalens adfærd."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionale Leader-Taste für cmux-Tastaturkürzel in Sequenzen. Lassen Sie sie nicht zugewiesen, damit sich das Terminalverhalten nicht ändert."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Optional leader key for cmux shortcut chords. Leave it unbound to keep the terminal behavior unchanged."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tecla líder opcional para secuencias de atajos de cmux. Déjala sin asignar para no cambiar el comportamiento del terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touche leader facultative pour les raccourcis en séquence de cmux. Laissez-la non attribuée pour conserver le comportement du terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasto leader facoltativo per le sequenze di scorciatoie di cmux. Lascialo non assegnato per mantenere invariato il comportamento del terminale."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux のショートカットコード用の任意のリーダーキーです。未割り当てのままにするとターミナルの動作は変わりません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional leader key for cmux shortcut chords. Leave it unbound to keep the terminal behavior unchanged."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 키 조합을 위한 선택적 리더 키입니다. 터미널 동작을 그대로 유지하려면 바인딩하지 않은 상태로 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgfri leder for cmux-snarveier i sekvens. La den stå uten tilordning for å beholde terminalens oppførsel uendret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcjonalny klawisz lidera dla sekwencji skrótów cmux. Pozostaw go bez przypisania, aby zachować dotychczasowe działanie terminala."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tecla líder opcional para sequências de atalhos do cmux. Deixe-a sem atribuição para manter o comportamento do terminal inalterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Необязательная клавиша-лидер для последовательностей сочетаний cmux. Оставьте её неназначенной, чтобы поведение терминала не изменилось."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คีย์นำแบบเลือกได้สำหรับลำดับคีย์ลัดของ cmux ปล่อยไว้โดยไม่ผูกเพื่อคงพฤติกรรมของเทอร์มินัลเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kısayol dizileri için isteğe bağlı lider tuşu. Terminal davranışını değiştirmemek için atanmamış bırakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Необов’язкова клавіша-лідер для послідовностей скорочень cmux. Залиште її неназначеною, щоб зберегти поведінку термінала."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用于 cmux 快捷键组合的可选前导键。保持未绑定即可不改变终端行为。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用於 cmux 快捷鍵組合的選用前導鍵。保持未綁定即可維持終端機行為不變。"
           }
         }
       }

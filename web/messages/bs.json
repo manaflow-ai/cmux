@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Naziv grupe, sidro, stanje prikvačenosti, stanje sklopljenosti, boja i ikona čuvaju se uz vaše radne prostore i obnavljaju se između pokretanja. Pripadnost grupi pohranjuje se na svakom radnom prostoru."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Koristite shortcuts.prefix za opcionalnu zajedničku prefiksnu tipku. Prihvata jedan pritisak s modifikatorom (ili Space) kao string, niz s jednim elementom ili strukturirani objekt s jednim pritiskom, kao što je { \"first\": { \"key\": \"b\", \"control\": true } }; null i aliasi za uklanjanje dodjele je onemogućavaju. Ovo je potpuni pregled formata: prefiks od dva pritiska se odbija.",
+      "shortcutsPrefixCallout": "Sloj prefiksa je podrazumijevano isključen. Dok je aktivan, cmux nakratko čeka sufiks i prikazuje dostupne tipke; Escape ili istek vremena ga otkazuje. Sufiks bez podudaranja prosljeđuje se neizmijenjen terminalu u fokusu, a Escape, multimedijske i sistemski definirane tipke nisu valjani prefiksi.",
       "title": "Konfiguracija",
       "metaDescription": "Konfigurirajte cmux putem Ghostty konfiguracijskih datoteka. Font, tema, boje, stil podijeljenih panela, scrollback i postavke aplikacije za način automatizacije.",
       "intro": "cmux čita konfiguraciju iz Ghostty konfiguracijskih datoteka, pružajući vam poznate opcije ako dolazite iz Ghostty-ja.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Kreiraj novi radni prostor (zadano)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Opcionalna prefiksna tipka",
+      "prefixIntro": "Postavite shortcuts.prefix na jedan pritisak s modifikatorom, kao što je ctrl+b ili cmd+k, a zatim dodijelite veze od dvije stavke pod shortcuts.bindings. Prefiks dijele cmux radnje koje podržavaju sekvence tipki i ostaje onemogućen dok ga ne podesite.",
+      "prefixRuleDefault": "Podrazumijevano je isključen, pa postojeći unos u terminal i prečice rade potpuno isto kao ranije. Modifikator je obavezan osim ako je prefiks Space.",
+      "prefixRuleCancel": "Nakon prefiksa cmux prikazuje dostupne druge tipke. Pritisnite Escape za otkazivanje ili sačekajte da istekne kratko vremensko ograničenje.",
+      "prefixRulePassThrough": "Ako nijedna sekvenca ne odgovara drugoj tipki, cmux ne izvršava drugu prečicu već tu tipku neizmijenjenu prosljeđuje terminalu u fokusu. Escape, multimedijske i sistemski definirane tipke ne mogu biti prefiksne tipke.",
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",

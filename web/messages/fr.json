@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Le nom du groupe, l'ancrage, l'état d'épinglage, l'état de repliement, la couleur et l'icône sont enregistrés avec vos espaces de travail et restaurés entre les lancements. L'appartenance à un groupe est stockée sur chaque espace de travail."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Utilisez shortcuts.prefix pour définir la touche préfixe partagée facultative. Une seule frappe avec modificateur (ou Espace) est acceptée sous forme de chaîne, de tableau à un élément ou d’objet structuré à une frappe tel que { \"first\": { \"key\": \"b\", \"control\": true } } ; null et les alias de raccourci non attribué la désactivent. Cette liste est exhaustive : un préfixe à deux frappes est refusé.",
+      "shortcutsPrefixCallout": "La couche de préfixe est désactivée par défaut. Lorsqu’elle est active, cmux attend brièvement une touche de suffixe et affiche les touches disponibles ; Escape ou l’expiration du délai l’annule. Un suffixe sans correspondance est transmis tel quel au terminal ciblé, et Escape, les touches multimédias et les touches définies par le système ne peuvent pas servir de préfixe.",
       "title": "Configuration",
       "metaDescription": "Configurez cmux via les fichiers de configuration Ghostty. Police, thème, couleurs, style des panneaux divisés, historique et paramètres de l'application pour le mode automatisation.",
       "intro": "cmux lit la configuration depuis les fichiers de configuration Ghostty, vous offrant des options familières si vous venez de Ghostty.",
@@ -1278,6 +1280,11 @@
       "restartNew": "Créer un nouveau workspace (par défaut)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Touche préfixe facultative",
+      "prefixIntro": "Définissez shortcuts.prefix sur une frappe avec modificateur telle que ctrl+b ou cmd+k, puis attribuez des liaisons à deux éléments sous shortcuts.bindings. Le préfixe est partagé par les actions propres à cmux compatibles avec les raccourcis en séquence et reste désactivé tant que vous ne le configurez pas.",
+      "prefixRuleDefault": "La fonction est désactivée par défaut : la saisie dans le terminal et les raccourcis existants se comportent donc exactement comme avant. Un modificateur est requis, sauf si le préfixe est Espace.",
+      "prefixRuleCancel": "Après le préfixe, cmux affiche les secondes touches disponibles. Appuyez sur Escape pour annuler ou attendez l’expiration du court délai.",
+      "prefixRulePassThrough": "Si aucune séquence ne correspond à la deuxième touche, cmux n’exécute aucun autre raccourci et transmet cette touche telle quelle au terminal ciblé. Escape, les touches multimédias et les touches définies par le système ne peuvent pas être des touches préfixes.",
       "title": "Raccourcis clavier",
       "description": "Tous les raccourcis clavier disponibles dans cmux, classés par catégorie.",
       "metaDescription": "Tous les raccourcis clavier cmux pour les espaces de travail, surfaces, panneaux divisés, navigateur, notifications, recherche et gestion des fenêtres sur macOS.",

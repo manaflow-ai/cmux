@@ -2164,7 +2164,7 @@
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
       "prefixTitle": "Optional prefix key",
-      "prefixIntro": "Set shortcuts.prefix to a single modifier stroke such as ctrl+b or cmd+k, then assign two-item bindings under shortcuts.bindings. The prefix is shared by cmux-owned actions and is disabled until you configure it.",
+      "prefixIntro": "Set shortcuts.prefix to a single modifier stroke such as ctrl+b or cmd+k, then assign two-item bindings under shortcuts.bindings. The prefix is shared by chord-capable cmux-owned actions and is disabled until you configure it.",
       "prefixRuleDefault": "The default is off, so existing terminal input and shortcuts behave exactly as before. A modifier is required unless the prefix is Space.",
       "prefixRuleCancel": "After the prefix, cmux shows the available second keys. Press Escape to cancel, or wait for the short timeout to expire.",
       "prefixRulePassThrough": "If no chord matches the second key, cmux does not execute another shortcut and passes that key to the focused terminal unchanged. Escape and media/system-defined keys cannot be prefix keys.",

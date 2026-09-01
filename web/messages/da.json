@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Gruppenavn, anker, fastgørelsestilstand, sammenklapningstilstand, farve og ikon gemmes sammen med dine workspaces og genoprettes på tværs af opstarter. Gruppemedlemskab gemmes på hvert workspace."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Brug shortcuts.prefix til den valgfrie fælles præfikstast. Den accepterer ét tastetryk med en modifikatortast (eller Space) som en streng, et array med ét element eller et struktureret objekt med ét tastetryk såsom { \"first\": { \"key\": \"b\", \"control\": true } }; null og aliaser for »ikke tildelt« deaktiverer den. Denne oversigt er udtømmende: Et præfiks med to tastetryk afvises.",
+      "shortcutsPrefixCallout": "Præfikslaget er som standard slået fra. Mens det er aktivt, venter cmux kort på en efterfølgende tast og viser de tilgængelige taster; Escape eller timeout annullerer det. En efterfølgende tast uden match sendes uændret til terminalen med fokus, og Escape-, medie- og systemdefinerede taster er ikke gyldige præfikser.",
       "title": "Konfiguration",
       "metaDescription": "Konfigurér cmux via Ghostty-konfigurationsfiler. Skrifttype, tema, farver, opdelt panel-stil, scrollback og appindstillinger for automatiseringstilstand.",
       "intro": "cmux læser konfiguration fra Ghostty-konfigurationsfiler, hvilket giver dig velkendte muligheder hvis du kommer fra Ghostty.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Opret et nyt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Valgfri præfikstast",
+      "prefixIntro": "Sæt shortcuts.prefix til ét tastetryk med en modifikatortast, f.eks. ctrl+b eller cmd+k, og tildel derefter bindinger med to elementer under shortcuts.bindings. Præfikset deles af cmux-ejede handlinger, der understøtter tastesekvenser, og er deaktiveret, indtil du konfigurerer det.",
+      "prefixRuleDefault": "Det er som standard slået fra, så eksisterende terminalinput og genveje fungerer præcis som før. En modifikatortast er påkrævet, medmindre præfikset er Space.",
+      "prefixRuleCancel": "Efter præfikset viser cmux de tilgængelige anden-taster. Tryk på Escape for at annullere, eller vent på, at den korte timeout udløber.",
+      "prefixRulePassThrough": "Hvis ingen tastesekvens matcher den anden tast, udfører cmux ikke en anden genvej, men sender tasten uændret til terminalen med fokus. Escape-, medie- og systemdefinerede taster kan ikke være præfikstaster.",
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
       "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",

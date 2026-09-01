@@ -1067,6 +1067,8 @@
       "persistenceDesc": "分组名称、锚点、固定状态、折叠状态、颜色和图标会与你的工作区一起保存，并在重新启动时恢复。分组归属信息存储在每个工作区上。"
     },
     "configuration": {
+      "shortcutsPrefixIntro": "使用 shortcuts.prefix 设置可选的共享前缀键。它接受一次带修饰键的按键（或 Space），可写成字符串、单元素数组，或类似 { \"first\": { \"key\": \"b\", \"control\": true } } 的结构化单按键对象；null 和表示未绑定的别名会将其禁用。以上就是支持的全部格式：两次按键的前缀会被拒绝。",
+      "shortcutsPrefixCallout": "前缀层默认关闭。激活后，cmux 会短暂等待一个后缀并显示可用按键；按 Escape 或等待超时即可取消。不匹配的后缀会原样传递给当前聚焦的终端；Escape、媒体键和系统定义键不能用作前缀。",
       "title": "配置",
       "metaDescription": "通过 Ghostty 配置文件配置 cmux。字体、主题、颜色、分屏样式、回滚缓冲区和自动化模式的应用设置。",
       "intro": "cmux 从 Ghostty 配置文件中读取配置，如果你之前使用 Ghostty，这些选项会很熟悉。",
@@ -1277,6 +1279,11 @@
       "restartNew": "创建新的 workspace（默认）"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "可选前缀键",
+      "prefixIntro": "将 shortcuts.prefix 设置为一次带修饰键的按键，例如 ctrl+b 或 cmd+k，然后在 shortcuts.bindings 下分配双元素绑定。该前缀由支持组合键的 cmux 自有操作共享，配置前处于禁用状态。",
+      "prefixRuleDefault": "默认关闭，因此现有的终端输入和快捷键行为与之前完全相同。除非前缀是 Space，否则必须包含修饰键。",
+      "prefixRuleCancel": "按下前缀后，cmux 会显示可用的第二个按键。按 Escape 取消，或等待短暂超时结束。",
+      "prefixRulePassThrough": "如果第二个按键不匹配任何组合键，cmux 不会执行其他快捷键，而会将该按键原样传递给当前聚焦的终端。Escape、媒体键和系统定义键不能用作前缀键。",
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
       "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",

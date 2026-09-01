@@ -1067,6 +1067,8 @@
       "persistenceDesc": "群組名稱、錨點、釘選狀態、折疊狀態、顏色與圖示都會與你的工作區一併儲存，並在重新啟動後還原。群組成員資格則儲存在每個工作區上。"
     },
     "configuration": {
+      "shortcutsPrefixIntro": "使用 shortcuts.prefix 設定選用的共用前綴鍵。它接受一次帶修飾鍵的按鍵（或 Space），可寫成字串、單一元素陣列，或類似 { \"first\": { \"key\": \"b\", \"control\": true } } 的結構化單次按鍵物件；null 和表示未綁定的別名會將其停用。以上就是支援的全部格式：兩次按鍵的前綴會遭拒絕。",
+      "shortcutsPrefixCallout": "前綴層預設關閉。啟用後，cmux 會短暫等待一個後綴並顯示可用按鍵；按 Escape 或等候逾時即可取消。不相符的後綴會原樣傳遞給目前聚焦的終端機；Escape、媒體鍵和系統定義鍵不能作為前綴。",
       "title": "設定",
       "metaDescription": "透過 Ghostty 設定檔配置 cmux。字型、主題、顏色、分割窗格樣式、捲動回看和自動化模式的應用程式設定。",
       "intro": "cmux 從 Ghostty 設定檔讀取設定，如果你是從 Ghostty 轉過來的，會覺得很熟悉。",
@@ -1277,6 +1279,11 @@
       "restartNew": "建立新的 workspace（預設）"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "選用的前綴鍵",
+      "prefixIntro": "將 shortcuts.prefix 設為一次帶修飾鍵的按鍵，例如 ctrl+b 或 cmd+k，然後在 shortcuts.bindings 下指定雙元素綁定。此前綴由支援組合鍵的 cmux 自有動作共用，設定前會保持停用。",
+      "prefixRuleDefault": "預設為關閉，因此現有的終端機輸入和快捷鍵行為與之前完全相同。除非前綴是 Space，否則必須包含修飾鍵。",
+      "prefixRuleCancel": "按下前綴後，cmux 會顯示可用的第二個按鍵。按 Escape 取消，或等待短暫逾時結束。",
+      "prefixRulePassThrough": "如果第二個按鍵不符合任何組合鍵，cmux 不會執行其他快捷鍵，而會將該按鍵原樣傳遞給目前聚焦的終端機。Escape、媒體鍵和系統定義鍵不能作為前綴鍵。",
       "title": "鍵盤快捷鍵",
       "description": "cmux 中所有可用的鍵盤快捷鍵，依類別分組。",
       "metaDescription": "cmux 所有鍵盤快捷鍵，涵蓋工作區、surface、分割窗格、瀏覽器、通知、搜尋和 macOS 視窗管理。",

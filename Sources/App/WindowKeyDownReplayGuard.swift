@@ -286,7 +286,8 @@ extension NSWindow {
         _ event: NSEvent,
         appDelegate: AppDelegate
     ) -> Bool {
-        guard appDelegate.shortcutPrefixChordCoordinator.isEnabled,
+        guard (appDelegate.shortcutPrefixChordCoordinator.isEnabled
+                || appDelegate.prefixChordPassThroughCoordinator.hasMarkers),
             let prefixResult = appDelegate.routePrefixChordEvent(
                 event,
                 dispatchWindow: self
@@ -303,7 +304,8 @@ extension NSWindow {
         appDelegate: AppDelegate
     ) -> Bool? {
         guard event.type == .keyDown,
-              appDelegate.shortcutPrefixChordCoordinator.isEnabled else {
+              (appDelegate.shortcutPrefixChordCoordinator.isEnabled
+                  || appDelegate.prefixChordPassThroughCoordinator.hasMarkers) else {
             return nil
         }
         if let prefixResult = appDelegate.routePrefixChordEvent(

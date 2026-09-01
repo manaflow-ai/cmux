@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Gruppenavn, anker, festetilstand, sammenleggingstilstand, farge og ikon lagres sammen med arbeidsområdene dine og gjenopprettes på tvers av oppstart. Gruppemedlemskap lagres på hvert arbeidsområde."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Bruk shortcuts.prefix for den valgfrie felles prefikstasten. Den godtar ett tastetrykk med modifikatortast (eller Space) som en streng, en matrise med ett element eller et strukturert objekt for ett tastetrykk, for eksempel { \"first\": { \"key\": \"b\", \"control\": true } }; null og aliaser for «ikke tilordnet» deaktiverer den. Dette sammendraget er uttømmende: Et prefiks med to tastetrykk avvises.",
+      "shortcutsPrefixCallout": "Prefikslaget er av som standard. Når det er aktivt, venter cmux kort på ett suffiks og viser tilgjengelige taster; Escape eller tidsavbrudd avbryter det. Et suffiks uten treff sendes uendret til terminalen som har fokus, og Escape-, medie- og systemdefinerte taster er ikke gyldige prefikser.",
       "title": "Konfigurasjon",
       "metaDescription": "Konfigurer cmux via Ghostty-konfigurasjonsfiler. Font, tema, farger, stil for delte paneler, scrollback og appinnstillinger for automatiseringsmodus.",
       "intro": "cmux leser konfigurasjon fra Ghostty-konfigurasjonsfiler, slik at du får kjente alternativer hvis du kommer fra Ghostty.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Opprett et nytt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Valgfri prefikstast",
+      "prefixIntro": "Sett shortcuts.prefix til ett tastetrykk med modifikatortast, for eksempel ctrl+b eller cmd+k, og tildel deretter bindinger med to elementer under shortcuts.bindings. Prefikset deles av cmux-eide handlinger som støtter tastesekvenser, og er deaktivert til du konfigurerer det.",
+      "prefixRuleDefault": "Standardinnstillingen er av, så eksisterende terminalinndata og snarveier fungerer akkurat som før. En modifikatortast kreves med mindre prefikset er Space.",
+      "prefixRuleCancel": "Etter prefikset viser cmux de tilgjengelige tastene nummer to. Trykk Escape for å avbryte, eller vent til det korte tidsavbruddet utløper.",
+      "prefixRulePassThrough": "Hvis ingen sekvens samsvarer med tast nummer to, utfører ikke cmux en annen snarvei, men sender tasten uendret til terminalen som har fokus. Escape-, medie- og systemdefinerte taster kan ikke være prefikstaster.",
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",

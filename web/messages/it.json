@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Il nome del gruppo, l'ancoraggio, lo stato di fissaggio, lo stato di compressione, il colore e l'icona vengono salvati insieme ai tuoi workspace e ripristinati tra gli avvii. L'appartenenza a un gruppo è memorizzata su ciascun workspace."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Usa shortcuts.prefix per il tasto prefisso condiviso facoltativo. Accetta una singola pressione con modificatore (o Spazio) come stringa, array con un elemento oppure oggetto strutturato a una pressione, ad esempio { \"first\": { \"key\": \"b\", \"control\": true } }; null e gli alias di «non assegnato» lo disattivano. Questo riepilogo è esaustivo: un prefisso a due pressioni viene rifiutato.",
+      "shortcutsPrefixCallout": "Il livello prefisso è disattivato per impostazione predefinita. Quando è attivo, cmux attende brevemente un suffisso e mostra i tasti disponibili; Escape o la scadenza del timeout lo annullano. Un suffisso senza corrispondenza viene passato invariato al terminale con stato attivo; Escape, i tasti multimediali e quelli definiti dal sistema non sono prefissi validi.",
       "title": "Configurazione",
       "metaDescription": "Configura cmux tramite i file di configurazione Ghostty. Font, tema, colori, stile dei pannelli divisi, cronologia e impostazioni dell'app per la modalità automazione.",
       "intro": "cmux legge la configurazione dai file di configurazione Ghostty, offrendoti opzioni familiari se provieni da Ghostty.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Crea un nuovo workspace (predefinito)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Tasto prefisso facoltativo",
+      "prefixIntro": "Imposta shortcuts.prefix su una singola pressione con modificatore, ad esempio ctrl+b o cmd+k, quindi assegna associazioni con due elementi in shortcuts.bindings. Il prefisso è condiviso dalle azioni proprie di cmux che supportano le sequenze di tasti e rimane disattivato finché non lo configuri.",
+      "prefixRuleDefault": "Per impostazione predefinita è disattivato, quindi l’input del terminale e le scorciatoie esistenti funzionano esattamente come prima. È richiesto un modificatore, a meno che il prefisso non sia Spazio.",
+      "prefixRuleCancel": "Dopo il prefisso, cmux mostra i secondi tasti disponibili. Premi Escape per annullare oppure attendi la scadenza del breve timeout.",
+      "prefixRulePassThrough": "Se nessuna sequenza corrisponde al secondo tasto, cmux non esegue un’altra scorciatoia e passa quel tasto invariato al terminale con stato attivo. Escape, i tasti multimediali e quelli definiti dal sistema non possono essere tasti prefisso.",
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",

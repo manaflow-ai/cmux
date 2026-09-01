@@ -7,12 +7,6 @@ extension AppDelegate {
         }
         let eventWindowNumber = event.windowNumber
         guard eventWindowNumber > 0 else { return nil }
-#if DEBUG
-        if let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window,
-           window.windowNumber == eventWindowNumber {
-            return window
-        }
-#endif
         return NSApp.window(withWindowNumber: eventWindowNumber)
     }
 
@@ -60,7 +54,7 @@ extension AppDelegate {
         if action == .globalSearch {
             return globalSearchShortcutWhenClauseAllows(event: event)
         }
-        KeyboardShortcutSettings.effectiveWhenClause(for: action)
+        return KeyboardShortcutSettings.effectiveWhenClause(for: action)
             .evaluate(shortcutEventFocusContext(event).shortcutContext)
     }
 

@@ -164,6 +164,7 @@ private struct WorkspaceTodoPaneContent: View {
             effective: todoControlsEnabled ? resolution.effective : nil,
             hasOverride: hasOverride
         )
+        let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(todoState.checklist)
 
         VStack(alignment: .leading, spacing: 0) {
             header(
@@ -177,7 +178,6 @@ private struct WorkspaceTodoPaneContent: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             Divider()
-            let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(todoState.checklist)
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 3) {

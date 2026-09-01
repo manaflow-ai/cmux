@@ -41,9 +41,10 @@ extension ShortcutAction {
         _ shortcut: StoredShortcut
     ) -> Bool {
         if shortcut.hasChord {
-            let second = shortcut.second?.canonicalized()
-            return second?.key.lowercased() == "escape"
-                || second?.key == "\u{1b}"
+            let strokes = [shortcut.first, shortcut.second].compactMap { $0?.canonicalized() }
+            return strokes.contains { stroke in
+                stroke.key.lowercased() == "escape" || stroke.key == "\u{1b}"
+            }
         }
         guard self == .showHideAllWindows else { return false }
         let first = shortcut.first.canonicalized()

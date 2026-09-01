@@ -127,7 +127,8 @@ extension AppDelegate {
         binding: ShortcutPrefixChordBinding,
         numbered: Bool
     ) -> Bool {
-        guard shortcut.firstStroke.isRoutingEquivalent(to: binding.firstStroke),
+        guard shortcut.firstStroke.cmuxSettingsShortcutStroke
+                .isRoutingEquivalent(to: binding.firstStroke),
               let secondStroke = shortcut.secondStroke else {
             return false
         }
@@ -141,7 +142,8 @@ extension AppDelegate {
                 && secondStroke.option == binding.secondStroke.option
                 && secondStroke.control == binding.secondStroke.control
         }
-        return secondStroke.isRoutingEquivalent(to: binding.secondStroke)
+        return secondStroke.cmuxSettingsShortcutStroke
+            .isRoutingEquivalent(to: binding.secondStroke)
     }
 
     private func executeFocusedPrefixChordAction(

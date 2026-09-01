@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Gruppenname, Anker, Anheftstatus, Zusammenklappstatus, Farbe und Symbol werden zusammen mit Ihren Workspaces gespeichert und über Starts hinweg wiederhergestellt. Die Gruppenzugehörigkeit wird bei jedem Workspace gespeichert."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Verwenden Sie shortcuts.prefix für die optionale gemeinsame Leader-Taste. Akzeptiert wird ein einzelner Tastendruck mit Modifikatortaste (oder Space) als Zeichenfolge, als Array mit einem Element oder als strukturiertes Objekt mit einem Tastendruck wie { \"first\": { \"key\": \"b\", \"control\": true } }; null und Aliase für „nicht zugewiesen“ deaktivieren die Funktion. Diese Aufzählung ist vollständig: Ein Präfix mit zwei Tastendrücken wird abgelehnt.",
+      "shortcutsPrefixCallout": "Die Präfix-Ebene ist standardmäßig ausgeschaltet. Solange sie aktiv ist, wartet cmux kurz auf einen Folgetastendruck und zeigt die verfügbaren Tasten an; Escape oder der Ablauf des Zeitlimits bricht den Vorgang ab. Ein nicht passender Folgetastendruck wird unverändert an das fokussierte Terminal weitergegeben. Escape, Medien- und systemdefinierte Tasten sind keine gültigen Präfixe.",
       "title": "Konfiguration",
       "metaDescription": "Konfigurieren Sie cmux über Ghostty-Konfigurationsdateien. Schriftart, Design, Farben, Split-Bereich-Styling, Scrollback und App-Einstellungen für den Automatisierungsmodus.",
       "intro": "cmux liest die Konfiguration aus Ghostty-Konfigurationsdateien, was Ihnen vertraute Optionen bietet, wenn Sie von Ghostty kommen.",
@@ -1161,7 +1163,7 @@
         "shortcuts": {
           "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird.",
-          "prefix": "Optionaler cmux-Leiterschlüssel für die Kurzbefehls-Ebene. Lassen Sie ihn (standardmäßig) nicht zugewiesen, um das bisherige Terminalverhalten beizubehalten. Verwenden Sie eine einzelne Modifikatortaste oder Space; Escape, Medientasten und andere systemdefinierte Tasten werden nicht unterstützt. Escape bricht einen aktiven Präfix ab, ein kurzes Zeitlimit deaktiviert ihn, und ein nicht passendes Folgesignal wird unverändert an das Terminal weitergegeben."
+          "prefix": "Optionale cmux-Leader-Taste für die Kurzbefehls-Ebene. Lassen Sie sie (standardmäßig) nicht zugewiesen, um das bisherige Terminalverhalten beizubehalten. Verwenden Sie einen einzelnen Tastendruck mit Modifikatortaste oder Space; Escape, Medientasten und andere systemdefinierte Tasten werden nicht unterstützt. Escape bricht einen aktiven Präfix ab, ein kurzes Zeitlimit deaktiviert ihn, und ein nicht passender Folgetastendruck wird unverändert an das Terminal weitergegeben."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Neuen Workspace erstellen (Standard)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Optionale Leader-Taste",
+      "prefixIntro": "Legen Sie shortcuts.prefix auf einen einzelnen Tastendruck mit Modifikatortaste wie ctrl+b oder cmd+k fest und weisen Sie anschließend unter shortcuts.bindings Bindungen mit zwei Elementen zu. Das Präfix wird von chord-fähigen cmux-eigenen Aktionen gemeinsam verwendet und bleibt deaktiviert, bis Sie es konfigurieren.",
+      "prefixRuleDefault": "Standardmäßig ist die Funktion ausgeschaltet, sodass vorhandene Terminaleingaben und Tastaturkürzel unverändert funktionieren. Außer bei Space ist eine Modifikatortaste erforderlich.",
+      "prefixRuleCancel": "Nach dem Präfix zeigt cmux die verfügbaren zweiten Tasten an. Drücken Sie Escape zum Abbrechen oder warten Sie, bis das kurze Zeitlimit abläuft.",
+      "prefixRulePassThrough": "Wenn keine Tastenfolge zur zweiten Taste passt, führt cmux kein anderes Tastaturkürzel aus und gibt die Taste unverändert an das fokussierte Terminal weiter. Escape, Medien- und systemdefinierte Tasten können keine Präfix-Tasten sein.",
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
       "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",

@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })

@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Nome do grupo, âncora, estado de fixação, estado de recolhimento, cor e ícone são salvos junto com seus workspaces e restaurados entre as inicializações. A associação ao grupo é armazenada em cada workspace."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Use shortcuts.prefix para a tecla de prefixo compartilhada opcional. Ela aceita um único pressionamento com modificador (ou Space) como string, uma matriz de um item ou um objeto estruturado de um único pressionamento, como { \"first\": { \"key\": \"b\", \"control\": true } }; null e os aliases de “sem atribuição” a desativam. Este resumo é completo: um prefixo de dois pressionamentos é rejeitado.",
+      "shortcutsPrefixCallout": "A camada de prefixo vem desativada por padrão. Enquanto está armada, o cmux espera brevemente por um sufixo e mostra as teclas disponíveis; Escape ou o tempo limite a cancela. Um sufixo sem correspondência é passado sem alterações ao terminal em foco, e Escape, teclas de mídia e teclas definidas pelo sistema não são prefixos válidos.",
       "title": "Configuração",
       "metaDescription": "Configure o cmux via arquivos de configuração do Ghostty. Fonte, tema, cores, estilo de painéis divididos, histórico de rolagem e configurações do app para modo de automação.",
       "intro": "O cmux lê a configuração dos arquivos de configuração do Ghostty, oferecendo opções familiares se você vem do Ghostty.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Criar um novo workspace (padrão)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Tecla de prefixo opcional",
+      "prefixIntro": "Defina shortcuts.prefix como um único pressionamento com modificador, como ctrl+b ou cmd+k, e depois atribua vinculações de dois itens em shortcuts.bindings. O prefixo é compartilhado pelas ações próprias do cmux que aceitam sequências de teclas e fica desativado até você configurá-lo.",
+      "prefixRuleDefault": "O padrão é desativado, portanto a entrada do terminal e os atalhos existentes funcionam exatamente como antes. Um modificador é necessário, a menos que o prefixo seja Space.",
+      "prefixRuleCancel": "Depois do prefixo, o cmux mostra as segundas teclas disponíveis. Pressione Escape para cancelar ou aguarde o curto tempo limite expirar.",
+      "prefixRulePassThrough": "Se nenhuma sequência corresponder à segunda tecla, o cmux não executará outro atalho e passará essa tecla sem alterações ao terminal em foco. Escape, teclas de mídia e teclas definidas pelo sistema não podem ser teclas de prefixo.",
       "title": "Atalhos de Teclado",
       "description": "Todos os atalhos de teclado disponíveis no cmux, agrupados por categoria.",
       "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS.",

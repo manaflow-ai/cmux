@@ -25,11 +25,6 @@ struct ShortcutListStableLazyView: View {
                     chordsEnabled: model.chordsEnabled(for: action),
                     canEditChord: action.allowsChordShortcut,
                     hasPendingRejection: model.hasPendingRejection(for: action),
-                    // With a shared prefix the recorder seeds that leader and
-                    // captures only the suffix.  The suffix may be bare even
-                    // when this action's ordinary single stroke requires a
-                    // modifier; without a shared prefix retain the legacy
-                    // first-stroke validation.
                     // A configured prefix relaxes validation only for the
                     // suffix of a chord. Single-stroke recording still uses
                     // the legacy modifier requirement, even when the shared

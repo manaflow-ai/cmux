@@ -1067,6 +1067,8 @@
       "persistenceDesc": "El nombre del grupo, el anclaje, el estado de fijado, el estado de plegado, el color y el icono se guardan junto con tus workspaces y se restauran entre lanzamientos. La pertenencia al grupo se almacena en cada workspace."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Usa shortcuts.prefix para la tecla de prefijo compartida opcional. Acepta una pulsación con modificador (o Espacio) como cadena, como matriz de un elemento o como objeto estructurado de una sola pulsación, por ejemplo { \"first\": { \"key\": \"b\", \"control\": true } }; null y los alias de «sin asignar» la desactivan. Este resumen es exhaustivo: se rechaza un prefijo de dos pulsaciones.",
+      "shortcutsPrefixCallout": "La capa de prefijo está desactivada de forma predeterminada. Mientras está activa, cmux espera brevemente un sufijo y muestra las teclas disponibles; Escape o el tiempo de espera la cancelan. Un sufijo sin coincidencia se pasa sin cambios al terminal enfocado, y Escape, las teclas multimedia y las definidas por el sistema no son prefijos válidos.",
       "title": "Configuración",
       "metaDescription": "Configure cmux a través de archivos de configuración de Ghostty. Fuente, tema, colores, estilo de paneles divididos, scrollback y configuración de la app para modo de automatización.",
       "intro": "cmux lee la configuración de archivos de configuración de Ghostty, ofreciéndole opciones familiares si viene de Ghostty.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Crear un workspace nuevo (por defecto)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Tecla de prefijo opcional",
+      "prefixIntro": "Configura shortcuts.prefix como una sola pulsación con modificador, por ejemplo ctrl+b o cmd+k, y luego asigna vinculaciones de dos elementos en shortcuts.bindings. El prefijo se comparte entre las acciones propias de cmux que admiten secuencias de teclas y permanece desactivado hasta que lo configures.",
+      "prefixRuleDefault": "Está desactivado de forma predeterminada, así que la entrada del terminal y los atajos existentes funcionan exactamente igual que antes. Se requiere un modificador salvo que el prefijo sea Espacio.",
+      "prefixRuleCancel": "Después del prefijo, cmux muestra las segundas teclas disponibles. Pulsa Escape para cancelar o espera a que venza el breve tiempo de espera.",
+      "prefixRulePassThrough": "Si ninguna secuencia coincide con la segunda tecla, cmux no ejecuta otro atajo y pasa esa tecla sin cambios al terminal enfocado. Escape, las teclas multimedia y las definidas por el sistema no pueden ser teclas de prefijo.",
       "title": "Atajos de teclado",
       "description": "Todos los atajos de teclado disponibles en cmux, agrupados por categoría.",
       "metaDescription": "Todos los atajos de teclado de cmux para workspaces, superficies, paneles divididos, navegador, notificaciones, búsqueda y gestión de ventanas en macOS.",

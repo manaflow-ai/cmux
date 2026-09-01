@@ -1068,6 +1068,8 @@
       "persistenceDesc": "Nazwa grupy, kotwica, stan przypięcia, stan zwinięcia, kolor i ikona są zapisywane razem z Twoimi workspace'ami i przywracane między uruchomieniami. Przynależność do grupy jest przechowywana w każdym workspace'ie."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Użyj shortcuts.prefix, aby ustawić opcjonalny wspólny klawisz prefiksu. Akceptowane jest jedno naciśnięcie z modyfikatorem (lub Spacja) jako ciąg znaków, jednoelementowa tablica albo strukturalny obiekt pojedynczego naciśnięcia, na przykład { \"first\": { \"key\": \"b\", \"control\": true } }; null i aliasy oznaczające brak przypisania wyłączają tę funkcję. To pełna lista formatów: prefiks złożony z dwóch naciśnięć jest odrzucany.",
+      "shortcutsPrefixCallout": "Warstwa prefiksu jest domyślnie wyłączona. Gdy jest aktywna, cmux krótko czeka na klawisz sufiksu i pokazuje dostępne klawisze; Escape lub upłynięcie limitu czasu anuluje ją. Niepasujący sufiks jest przekazywany bez zmian do aktywnego terminala, a Escape, klawisze multimedialne i klawisze zdefiniowane przez system nie są prawidłowymi prefiksami.",
       "title": "Konfiguracja",
       "metaDescription": "Konfiguruj cmux przez pliki konfiguracyjne Ghostty. Czcionka, motyw, kolory, styl dzielonych paneli, scrollback i ustawienia aplikacji dla trybu automatyzacji.",
       "intro": "cmux odczytuje konfigurację z plików konfiguracyjnych Ghostty, dając Ci znajome opcje jeśli przechodzisz z Ghostty.",
@@ -1278,6 +1280,11 @@
       "restartNew": "Utwórz nowy workspace (domyślnie)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Opcjonalny klawisz prefiksu",
+      "prefixIntro": "Ustaw shortcuts.prefix na jedno naciśnięcie z modyfikatorem, na przykład ctrl+b lub cmd+k, a następnie przypisz dwuelementowe powiązania w shortcuts.bindings. Prefiks jest wspólny dla działań cmux obsługujących sekwencje klawiszy i pozostaje wyłączony, dopóki go nie skonfigurujesz.",
+      "prefixRuleDefault": "Domyślnie funkcja jest wyłączona, więc istniejące dane wejściowe terminala i skróty działają dokładnie jak wcześniej. Modyfikator jest wymagany, chyba że prefiksem jest Spacja.",
+      "prefixRuleCancel": "Po prefiksie cmux pokazuje dostępne drugie klawisze. Naciśnij Escape, aby anulować, albo poczekaj na upłynięcie krótkiego limitu czasu.",
+      "prefixRulePassThrough": "Jeśli żadna sekwencja nie pasuje do drugiego klawisza, cmux nie wykonuje innego skrótu i przekazuje ten klawisz bez zmian do aktywnego terminala. Escape, klawisze multimedialne i klawisze zdefiniowane przez system nie mogą być klawiszami prefiksu.",
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",

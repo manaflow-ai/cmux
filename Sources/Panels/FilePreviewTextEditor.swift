@@ -335,8 +335,7 @@ final class SavingTextView: NSTextView {
     @discardableResult
     func performPrefixChordSave() -> Bool {
         guard let panel else { return false }
-        panel.saveTextContent()
-        return true
+        return panel.saveTextContent() != nil
     }
 
     @discardableResult
@@ -380,8 +379,12 @@ final class SavingTextView: NSTextView {
             pendingEditorShortcutChordPrefix = nil
             for candidate in candidates {
                 guard candidate.shortcut.firstStroke.isRoutingEquivalent(to: pendingPrefix),
-                      let secondStroke = candidate.shortcut.secondStroke,
-                      secondStroke.matches(event: event) else { continue }
+                      let secondStroke = candidate.shortcut.secondStroke else { continue }
+                let suffixMatches = AppDelegate.shared?.matchShortcutStroke(
+                    event: event,
+                    stroke: secondStroke
+                ) ?? secondStroke.matches(event: event)
+                guard suffixMatches else { continue }
                 guard candidate.isAllowed(event) else { return false }
                 candidate.perform()
                 return true

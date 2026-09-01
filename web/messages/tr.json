@@ -1067,6 +1067,8 @@
       "persistenceDesc": "Grup adı, bağlantı, sabitleme durumu, daraltma durumu, renk ve simge çalışma alanlarınızla birlikte kaydedilir ve başlatmalar arasında geri yüklenir. Grup üyeliği her çalışma alanında saklanır."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "İsteğe bağlı ortak önek tuşu için shortcuts.prefix kullanın. Değiştirici içeren tek bir tuş vuruşunu (veya Space) dize, tek öğeli dizi ya da { \"first\": { \"key\": \"b\", \"control\": true } } gibi yapılandırılmış tek vuruş nesnesi olarak kabul eder; null ve atanmamış takma adları bunu devre dışı bırakır. Bu özet eksiksizdir: iki vuruşlu bir önek reddedilir.",
+      "shortcutsPrefixCallout": "Önek katmanı varsayılan olarak kapalıdır. Etkin olduğunda cmux kısa süreyle bir sonek bekler ve kullanılabilir tuşları gösterir; Escape veya zaman aşımı iptal eder. Eşleşmeyen bir sonek odaktaki terminale değiştirilmeden iletilir; Escape, medya ve sistem tanımlı tuşlar geçerli önekler değildir.",
       "title": "Yapılandırma",
       "metaDescription": "cmux'u Ghostty yapılandırma dosyaları aracılığıyla yapılandırın. Font, tema, renkler, bölünmüş panel stili, scrollback ve otomasyon modu için uygulama ayarları.",
       "intro": "cmux, Ghostty yapılandırma dosyalarından yapılandırma okur ve Ghostty'den geliyorsanız size tanıdık seçenekler sunar.",
@@ -1277,6 +1279,11 @@
       "restartNew": "Yeni bir workspace oluştur (varsayılan)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "İsteğe bağlı önek tuşu",
+      "prefixIntro": "shortcuts.prefix değerini ctrl+b veya cmd+k gibi değiştirici içeren tek bir tuş vuruşuna ayarlayın, ardından shortcuts.bindings altında iki öğeli bağlamalar atayın. Önek, tuş dizilerini destekleyen cmux'e ait eylemler tarafından paylaşılır ve siz yapılandırana kadar devre dışıdır.",
+      "prefixRuleDefault": "Varsayılan olarak kapalıdır; bu nedenle mevcut terminal girişi ve kısayollar eskisi gibi çalışır. Önek Space değilse bir değiştirici gerekir.",
+      "prefixRuleCancel": "Önekten sonra cmux kullanılabilir ikinci tuşları gösterir. İptal etmek için Escape'e basın veya kısa zaman aşımının dolmasını bekleyin.",
+      "prefixRulePassThrough": "İkinci tuşla eşleşen bir dizi yoksa cmux başka bir kısayolu çalıştırmaz ve bu tuşu odaktaki terminale değiştirmeden iletir. Escape, medya ve sistem tanımlı tuşlar önek tuşu olamaz.",
       "title": "Klavye Kısayolları",
       "description": "cmux'ta mevcut tüm klavye kısayolları, kategoriye göre gruplandırılmış.",
       "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları.",
