@@ -40,7 +40,7 @@ struct CloudTuiManualIOAttach: Sendable {
                 .socket(try await resolver())
             }
         }
-        TuiManualIOPump(
+        return TuiManualIOPump(
             binaryPath: clientPath,
             target: initialTarget,
             terminalID: terminalID,
