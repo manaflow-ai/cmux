@@ -40,7 +40,7 @@ elif [[ -L "$XCFRAMEWORK" ]]; then
   exit 1
 elif [[ "$BUILD" -eq 1 ]]; then
   # A device-only cache entry is a valid artifact, but it cannot satisfy a
-  # simulator build. Validate the complete framework shape here as well, so a
+  # simulator build. Validate the complete library shape here as well, so a
   # stale archive produced by an older builder is rebuilt instead of reaching
   # SwiftPM with a duplicate or misplaced module map.
   if ! python3 - "$XCFRAMEWORK" "$DEVICE_ONLY" "$ROOTFS" \
@@ -93,18 +93,18 @@ for identifier in required:
     entry = entries[identifier]
     library_path = entry.get("LibraryPath")
     binary_path = entry.get("BinaryPath")
-    if not isinstance(library_path, str) or not library_path.endswith(".framework"):
+    if library_path != "libIshKernel.a":
         raise SystemExit(1)
-    if not isinstance(binary_path, str) or binary_path != f"{library_path}/IshKernel":
+    if binary_path != "libIshKernel.a":
         raise SystemExit(1)
-    framework = xcframework / identifier / library_path
-    binary = xcframework / identifier / binary_path
-    header = framework / "Headers" / "cmux_ish.h"
-    module_map = framework / "Modules" / "module.modulemap"
-    sidecar = framework / "cmux-ish-provenance.json"
-    if framework.is_symlink() or any(
+    if "HeadersPath" in entry:
+        raise SystemExit(1)
+    slice_dir = xcframework / identifier
+    binary = slice_dir / binary_path
+    sidecar = slice_dir / "cmux-ish-provenance.json"
+    if slice_dir.is_symlink() or any(
         path.is_symlink() or not path.is_file()
-        for path in (binary, header, module_map, sidecar)
+        for path in (binary, sidecar)
     ):
         raise SystemExit(1)
     try:
@@ -287,27 +287,24 @@ for entry in libraries:
     identifier = entry.get("LibraryIdentifier")
     if identifier not in required:
         continue
-    # Require a static framework. Packaging a bare archive with `-headers`
-    # places every binary target's module map at a shared include path during
-    # ProcessXCFramework. That path also belongs to GhosttyKit, so Xcode reports
-    # duplicate output files. The framework layout keeps each module map inside
-    # its own slice and is the only supported artifact shape.
+    # Require the library-shaped XCFramework used by GhosttyKit. A static
+    # archive wrapped in a framework can make Xcode embed an inert framework
+    # even though the symbols are linked into the app executable.
     library_path = entry.get("LibraryPath")
     binary_path = entry.get("BinaryPath")
-    if not isinstance(library_path, str) or not library_path.endswith(".framework"):
+    if library_path != "libIshKernel.a":
         raise SystemExit(f"error: incomplete metadata for {identifier}")
-    if not isinstance(binary_path, str) or binary_path != f"{library_path}/IshKernel":
+    if binary_path != "libIshKernel.a":
         raise SystemExit(f"error: incomplete metadata for {identifier}")
-    framework = xcframework / identifier / library_path
-    binary = xcframework / identifier / binary_path
-    headers = framework / "Headers"
-    module_map = framework / "Modules" / "module.modulemap"
-    sidecar = framework / "cmux-ish-provenance.json"
+    if "HeadersPath" in entry:
+        raise SystemExit(f"error: incomplete metadata for {identifier}")
+    slice_dir = xcframework / identifier
+    binary = slice_dir / binary_path
+    sidecar = slice_dir / "cmux-ish-provenance.json"
 
-    archive_header = headers / "cmux_ish.h"
-    if framework.is_symlink() or headers.is_symlink() or module_map.is_symlink():
-        raise SystemExit(f"error: {identifier} contains symlinked framework paths")
-    for path in (binary, archive_header, module_map, sidecar):
+    if slice_dir.is_symlink():
+        raise SystemExit(f"error: {identifier} contains symlinked library paths")
+    for path in (binary, sidecar):
         if path.is_symlink() or not path.is_file():
             raise SystemExit(f"error: {identifier} is missing {path}")
     try:

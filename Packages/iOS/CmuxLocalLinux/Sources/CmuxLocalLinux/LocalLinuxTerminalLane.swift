@@ -58,6 +58,7 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
     private let source: any LocalLinuxOutputSource
     private let ring: LocalLinuxScrollbackRing
     private let requestedCursor: UInt64?
+    private var nextSubscriptionCursor: UInt64?
     private var subscriptionID: UUID?
     private var updates: AsyncStream<MobileTerminalLaneOutputFrame>?
     private var receiveInFlight = false
@@ -72,6 +73,7 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
         self.source = source
         self.ring = ring
         self.requestedCursor = cursor
+        self.nextSubscriptionCursor = cursor
     }
 
     /// Convenience initializer for the embedded iSH pty.
@@ -93,69 +95,81 @@ public actor LocalLinuxTerminalLane: MobileTerminalLaneConnection {
         receiveInFlight = true
         defer { receiveInFlight = false }
 
-        if subscriptionID == nil {
-            let subscription = try await ring.subscribe(
-                source: source,
-                cursor: requestedCursor,
-                maximumPendingFrames: 64,
-                maximumFrameByteCount: Self.maximumOutputByteCount
-            )
+        while !closed {
+            if subscriptionID == nil {
+                let subscription = try await ring.subscribe(
+                    source: source,
+                    cursor: nextSubscriptionCursor,
+                    maximumPendingFrames: 64,
+                    maximumFrameByteCount: Self.maximumOutputByteCount
+                )
+                nextSubscriptionCursor = nil
 
-            // A cancelled open must not leave a subscriber behind. The ring
-            // starts its source pump as part of `subscribe`, so cleanup is
-            // required even when cancellation wins before the replay returns.
+                // A cancelled open must not leave a subscriber behind. The
+                // ring starts its source pump as part of `subscribe`, so
+                // cleanup is required even when cancellation wins before the
+                // replay returns.
+                do {
+                    try Task.checkCancellation()
+                } catch {
+                    await ring.unsubscribe(subscription.id)
+                    throw error
+                }
+
+                // `close()` can run while the actor is suspended in
+                // `subscribe`. Do not install a subscription after teardown;
+                // otherwise its continuation would keep the source alive.
+                guard !closed else {
+                    await ring.unsubscribe(subscription.id)
+                    return nil
+                }
+
+                subscriptionID = subscription.id
+                updates = subscription.updates
+                return subscription.replay
+            }
+
+            guard let updates, let subscriptionID else { return nil }
+            // Keep the mutable iterator local to the nonisolated `next()`
+            // call. Storing it in an actor and passing it across an await
+            // triggers the Swift 6 sending-risks diagnostic. AsyncStream
+            // keeps its cursor in shared storage, so a fresh iterator
+            // continues this lane's queue.
+            var iterator = updates.makeAsyncIterator()
+            let next = await iterator.next()
+
             do {
                 try Task.checkCancellation()
             } catch {
-                await ring.unsubscribe(subscription.id)
+                self.subscriptionID = nil
+                self.updates = nil
+                await ring.unsubscribe(subscriptionID)
                 throw error
             }
 
-            // `close()` can run while the actor is suspended in `subscribe`.
-            // Do not install a subscription after teardown; otherwise its
-            // continuation would keep the source and pump alive.
-            guard !closed else {
-                await ring.unsubscribe(subscription.id)
+            // `next()` suspends. Teardown may have finished the stream while
+            // it was suspended, so check the state before accepting the
+            // result.
+            guard !closed else { return nil }
+
+            guard let frame = next else {
+                self.subscriptionID = nil
+                self.updates = nil
+                let overflowed = await ring.consumeSubscriberOverflow(subscriptionID)
+                await ring.unsubscribe(subscriptionID)
+                if overflowed {
+                    // The ring dropped this subscriber because its bounded
+                    // queue filled. Reattach at the retained history floor;
+                    // the next replay is marked explicitly so Ghostty can
+                    // reset its model before applying the recovered suffix.
+                    nextSubscriptionCursor = nil
+                    continue
+                }
                 return nil
             }
-
-            subscriptionID = subscription.id
-            updates = subscription.updates
-            return subscription.replay
+            return frame
         }
-
-        guard let updates else { return nil }
-        // Keep the mutable iterator local to the nonisolated `next()` call.
-        // Storing it in an actor and passing it across an await triggers the
-        // Swift 6 sending-risks diagnostic. AsyncStream keeps its cursor in
-        // shared storage, so a fresh iterator continues this lane's queue.
-        var iterator = updates.makeAsyncIterator()
-        let next = await iterator.next()
-
-        do {
-            try Task.checkCancellation()
-        } catch {
-            if let subscriptionID {
-                self.subscriptionID = nil
-                self.updates = nil
-                await ring.unsubscribe(subscriptionID)
-            }
-            throw error
-        }
-
-        // `next()` suspends. Teardown may have finished the stream while it
-        // was suspended, so check the state before accepting the result.
-        guard !closed else { return nil }
-
-        guard let frame = next else {
-            if let subscriptionID {
-                self.subscriptionID = nil
-                self.updates = nil
-                await ring.unsubscribe(subscriptionID)
-            }
-            return nil
-        }
-        return frame
+        return nil
     }
 
     /// Sends one complete UTF-8 terminal-input operation.
@@ -277,6 +291,7 @@ public actor LocalLinuxScrollbackRing {
     private var pumpFinished = false
     private var frameByteLimit = LocalLinuxTerminalLane.maximumOutputByteCount
     private var subscribers: [UUID: Subscriber] = [:]
+    private var overflowedSubscriberIDs: Set<UUID> = []
 
     public init(limit: Int = LocalLinuxTerminalLane.retainedByteLimit) {
         // A negative budget must not turn eviction into `removeFirst` with a
@@ -368,8 +383,16 @@ public actor LocalLinuxScrollbackRing {
     /// Removes and finishes one subscriber. Finishing wakes a receive that is
     /// blocked in `AsyncStream.Iterator.next()`.
     public func unsubscribe(_ id: UUID) {
+        overflowedSubscriberIDs.remove(id)
         guard let subscriber = subscribers.removeValue(forKey: id) else { return }
         subscriber.continuation.finish()
+    }
+
+    /// Consumes the one-shot overflow marker for a subscriber whose stream
+    /// finished because its bounded queue was full. A lane uses this to
+    /// distinguish a recoverable slow-consumer detach from natural pty EOF.
+    public func consumeSubscriberOverflow(_ id: UUID) -> Bool {
+        overflowedSubscriberIDs.remove(id) != nil
     }
 
     private func bind(source candidate: any LocalLinuxOutputSource) throws {
@@ -422,18 +445,30 @@ public actor LocalLinuxScrollbackRing {
             )
 
             var dropped: [UUID] = []
+            var overflowed = Set<UUID>()
             for (id, subscriber) in subscribers {
                 switch subscriber.continuation.yield(frame) {
                 case .enqueued:
                     break
-                case .dropped, .terminated:
+                case .dropped:
+                    dropped.append(id)
+                    overflowed.insert(id)
+                case .terminated:
                     dropped.append(id)
                 @unknown default:
                     dropped.append(id)
                 }
             }
             for id in dropped {
-                unsubscribe(id)
+                if overflowed.contains(id) {
+                    // Keep the reason after removing the subscriber. The lane
+                    // consumes it when its pending iterator reaches EOF.
+                    overflowedSubscriberIDs.insert(id)
+                    guard let subscriber = subscribers.removeValue(forKey: id) else { continue }
+                    subscriber.continuation.finish()
+                } else {
+                    unsubscribe(id)
+                }
             }
             offset += count
         }

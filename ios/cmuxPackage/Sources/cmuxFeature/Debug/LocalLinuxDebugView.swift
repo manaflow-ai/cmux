@@ -237,7 +237,7 @@ private struct LocalLinuxDebugRepresentable: UIViewRepresentable {
             // an indeterminate phase.
             let coordinator = context.coordinator
             Task { @MainActor in
-                coordinator.report(.failed(.renderer))
+                coordinator.failRenderer()
             }
             let placeholder = UIView()
             placeholder.backgroundColor = .black
@@ -300,6 +300,10 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     /// app-lifetime tracker through the SwiftUI environment.
     let fallbackKeyboardFrameTracker = MobileKeyboardFrameTracker()
     private var session: LocalLinuxSession?
+    /// Tracks a successful open while its bounded ring is being attached.
+    /// Teardown can run during that suspension, so it must close this handle
+    /// before a retry starts another shell.
+    private var pendingSession: LocalLinuxSession?
     private var scrollbackRing: LocalLinuxScrollbackRing?
     private var lane: LocalLinuxTerminalLane?
     private var bootTask: Task<Void, Never>?
@@ -320,8 +324,16 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     /// removed; those callbacks must not publish state into a replacement
     /// representable.
     private var isStopped = false
+    /// Blocks callbacks from a dismantled surface until a replacement session
+    /// is fully installed. This keeps stale bytes out of the next shell.
+    private var acceptsInput = true
     private var sceneIsActive: Bool
     private var retryGeneration: UInt = 0
+    /// Invalidates every suspended boot/install continuation when the
+    /// representable is detached, retried, or replaced. A cancellation alone
+    /// is not enough because an await can already have returned by the time
+    /// UIKit calls stopSession.
+    private var lifecycleGeneration: UInt = 0
     private var phase: LocalLinuxDebugPhase = .starting
 
     private nonisolated static let initialColumns = 80
@@ -347,9 +359,8 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         inputTask?.cancel()
         inputWorkerID = nil
         resizeTask?.cancel()
-        if let session {
-            Task { await session.hangup() }
-        }
+        pendingSession?.closeSynchronously()
+        session?.closeSynchronously()
         if let lane {
             Task { await lane.close() }
         }
@@ -383,6 +394,16 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         onPhaseChange(nextPhase)
     }
 
+    /// Stops an in-flight boot before exposing a renderer failure. UIKit can
+    /// request a replacement surface while the detached iSH open is still
+    /// suspended; leaving that task alive would let it publish a shell behind
+    /// the error card.
+    func failRenderer() {
+        guard !isStopped else { return }
+        stopSession(publish: false)
+        report(.failed(.renderer))
+    }
+
     func startIfNeeded() {
         guard !isStopped,
               sceneIsActive,
@@ -391,11 +412,18 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
 
         report(.starting)
         let runtime = self.runtime
-        let bootTask = Task { @MainActor [weak self, runtime] in
+        let generation = lifecycleGeneration
+        let bootTask = Task { @MainActor [weak self, runtime, generation] in
             let result = await Self.bootSession(runtime: runtime)
-            guard let self, !Task.isCancelled else {
+            guard let self else {
                 if case .success(let session) = result {
-                    await session.hangup()
+                    session.closeSynchronously()
+                }
+                return
+            }
+            guard self.isCurrentBoot(generation) else {
+                if case .success(let session) = result {
+                    session.closeSynchronously()
                 }
                 return
             }
@@ -403,9 +431,15 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
             self.bootTask = nil
             switch result {
             case .success(let session):
-                guard self.isWindowAttached, self.sceneIsActive else {
-                    await session.hangup()
+                guard self.isCurrentBoot(generation) else {
+                    session.closeSynchronously()
                     return
+                }
+                self.pendingSession = session
+                defer {
+                    if self.pendingSession === session {
+                        self.pendingSession = nil
+                    }
                 }
                 let ring = LocalLinuxScrollbackRing()
                 do {
@@ -419,14 +453,32 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                     localLinuxLog.error(
                         "local Linux output ring failed to start: \(String(describing: error), privacy: .public)"
                     )
-                    await session.hangup()
+                    session.closeSynchronously()
+                    guard self.isCurrentBoot(generation),
+                          self.pendingSession === session else { return }
                     self.report(.failed(.linux))
+                    return
+                }
+                // A short-lived command may emit its terminal event before
+                // openSession returns. Avoid publishing a dead handle as a
+                // running shell or accepting input into it.
+                let ended = await session.isEnded
+                guard self.isCurrentBoot(generation),
+                      self.pendingSession === session else {
+                    session.closeSynchronously()
+                    return
+                }
+                guard !ended else {
+                    session.closeSynchronously()
+                    self.acceptsInput = false
+                    self.report(.ended)
                     return
                 }
                 let lane = LocalLinuxTerminalLane(session: session, ring: ring)
                 self.session = session
                 self.scrollbackRing = ring
                 self.lane = lane
+                self.acceptsInput = true
                 if let grid = self.lastGrid {
                     do {
                         try await session.resize(columns: grid.columns, rows: grid.rows)
@@ -447,6 +499,11 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                         )
                     }
                 }
+                guard self.isCurrentBoot(generation),
+                      self.session === session else {
+                    session.closeSynchronously()
+                    return
+                }
                 if !self.pendingInput.isEmpty {
                     // Transfer pre-boot bytes exactly once into the same
                     // ordered FIFO used by live callbacks. The worker keeps
@@ -458,15 +515,27 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                 self.report(.running)
                 self.startOutputPump(for: lane, session: session)
             case .failure(let error):
+                guard self.isCurrentBoot(generation) else { return }
                 localLinuxLog.error(
                     "local Linux boot failed: \(String(describing: error), privacy: .public)"
                 )
                 self.report(.failed(.linux))
+                self.acceptsInput = false
+                self.pendingInput.removeAll(keepingCapacity: false)
             case .cancelled:
                 return
             }
         }
         self.bootTask = bootTask
+    }
+
+    private func isCurrentBoot(_ generation: UInt) -> Bool {
+        guard !isStopped,
+              !Task.isCancelled,
+              generation == lifecycleGeneration,
+              sceneIsActive,
+              isWindowAttached || surfaceView?.window != nil else { return false }
+        return true
     }
 
     func stop() {
@@ -477,6 +546,8 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     }
 
     private func stopSession(publish: Bool) {
+        lifecycleGeneration &+= 1
+        acceptsInput = false
         bootTask?.cancel()
         bootTask = nil
         stopLane()
@@ -485,9 +556,9 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         inputWorkerID = nil
         resizeTask?.cancel()
         resizeTask = nil
-        if let session {
-            Task { await session.hangup() }
-        }
+        pendingSession?.closeSynchronously()
+        pendingSession = nil
+        session?.closeSynchronously()
         scrollbackRing = nil
         session = nil
         inputQueue.removeAll(keepingCapacity: false)
@@ -536,7 +607,6 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
             }
 
             do {
-                var isFirstFrame = true
                 while !Task.isCancelled {
                     guard let frame = try await lane.receiveOutput() else { break }
                     guard !Task.isCancelled else { return }
@@ -552,16 +622,16 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                         // reopen the same session and replay its ring.
                         break
                     }
-                    if isFirstFrame, frame.kind == .replay {
+                    if frame.kind == .replay {
                         // UIKit can reuse this Ghostty view after a
-                        // background/foreground transition. Reset the
-                        // retained terminal model before applying the new
-                        // session's history, in one FIFO output operation.
+                        // background/foreground transition. A bounded
+                        // subscriber overflow can also reattach the lane.
+                        // Reset the retained terminal model before applying
+                        // every authoritative history frame.
                         surfaceView.processTerminalReplay(frame.bytes)
                     } else {
                         surfaceView.processOutput(frame.bytes)
                     }
-                    isFirstFrame = false
                     // A full non-blocking tty can accept zero bytes until
                     // the foreground process consumes output. Each output
                     // frame is a progress signal, so retry the retained FIFO
@@ -685,6 +755,12 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     /// both the pre-boot and live queues bounded.
     private func enqueueInput(_ data: Data) {
         guard !data.isEmpty else { return }
+        guard acceptsInput else {
+            localLinuxLog.debug(
+                "ignoring local Linux input while session admission is fenced"
+            )
+            return
+        }
 
         if session != nil {
             let remaining = Self.pendingInputLimit - inputQueueByteCount
@@ -769,7 +845,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                             localLinuxLog.error(
                                 "local Linux input accepted invalid byte count \(accepted) of \(remainder.count)"
                             )
-                            self.report(.failed(.linux))
+                            self.failInputSession()
                             return
                         }
                         guard accepted > 0 else {
@@ -802,7 +878,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                         localLinuxLog.error(
                             "local Linux input failed: \(String(describing: error), privacy: .public)"
                         )
-                        self.report(.failed(.linux))
+                        self.failInputSession()
                         return
                     }
                 }
@@ -820,6 +896,15 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                 }
             }
         }
+    }
+
+    /// Closes the pty that rejected input before showing the error state. This
+    /// prevents a failed worker from leaving a live shell behind and makes
+    /// retry create a clean session.
+    private func failInputSession() {
+        guard !isStopped else { return }
+        stopSession(publish: false)
+        report(.failed(.linux))
     }
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {

@@ -6,7 +6,7 @@ import PackageDescription
 // usermode-x86 emulator (vendor/ish, manaflow-ai/ish fork, GPLv3 with the
 // iSH LICENSE.IOS App Store grant; cmux is GPL-3.0-or-later so the terms
 // compose). `IshKernel.xcframework` is produced by scripts/build-ish-ios.sh
-// and bundles libish + libish_emu + libfakefs + libarchive + the cmux shim.
+// and contains the static iSH libraries, libarchive, and the cmux shim.
 let package = Package(
     name: "CmuxLocalLinux",
     platforms: [
@@ -27,18 +27,29 @@ let package = Package(
     ],
     targets: [
         .binaryTarget(
-            name: "IshKernel",
+            name: "IshKernelBinary",
             path: "../../../IshKernel.xcframework"
+        ),
+        // Keep the C declarations in a normal SwiftPM target. The binary
+        // archive intentionally has no headers: Xcode copies binary-target
+        // module maps to a shared include/module.modulemap path, which
+        // collides with GhosttyKit. This target supplies the module without
+        // embedding a second binary framework or module-map product.
+        .target(
+            name: "CmuxIshBridge",
+            dependencies: [
+                .target(name: "IshKernelBinary", condition: .when(platforms: [.iOS])),
+            ],
+            path: "ShimSource",
+            exclude: ["cmux_ish.c"],
+            publicHeadersPath: "."
         ),
         .target(
             name: "CmuxLocalLinux",
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxMobileRPC",
-                // The generated binary contains iOS slices only. Keep the
-                // protocol and test seams available to the macOS host without
-                // asking SwiftPM to link an iOS archive there.
-                .target(name: "IshKernel", condition: .when(platforms: [.iOS])),
+                "CmuxIshBridge",
             ],
             resources: [
                 // Imported into the persistent fakefs on first boot. The
@@ -47,6 +58,12 @@ let package = Package(
                 .copy("Resources/alpine-rootfs.tar.gz"),
                 .copy("Resources/alpine-rootfs.json"),
                 .copy("Resources/THIRD_PARTY_NOTICES.md"),
+                .copy("Resources/iSH-LICENSE.md"),
+                .copy("Resources/iSH-LICENSE.IOS"),
+                .copy("Resources/GPL-2.0.txt"),
+                .copy("Resources/GPL-3.0.txt"),
+                .copy("Resources/libarchive-COPYING"),
+                .copy("Resources/SOURCE-OFFER.md"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

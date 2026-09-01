@@ -705,6 +705,10 @@ for sdk in "${SLICES[@]}"; do
     SHIM_SOURCES=("$SHIM"/*.c)
     [[ -f "${SHIM_SOURCES[0]}" ]] || die "no shim C sources found in $SHIM"
     for src in "${SHIM_SOURCES[@]}"; do
+        # cmux_ish_module.c is a header-only SwiftPM bridge anchor. Compile it
+        # in that target, not into the binary archive, so the archive contains
+        # only the implementation that must be linked once.
+        [[ "$(basename "$src")" == "cmux_ish_module.c" ]] && continue
         object="$SLICE/$(basename "${src%.c}").o"
         echo "== shim $(basename "$src") ($sdk)"
         xcrun --sdk "$sdk" clang -c "$src" \
@@ -731,7 +735,7 @@ for sdk in "${SLICES[@]}"; do
         -I"$ISH/deps/libarchive/libarchive" \
         -o "$FAKEFS_OBJECT"
 
-    ARCHIVE="$SLICE/IshKernel.a"
+    ARCHIVE="$SLICE/libIshKernel.a"
     # -D makes the archive reproducible by zeroing member mtimes. Pass
     # archives in a fixed order so filesystem enumeration cannot alter the
     # resulting symbol table.
@@ -743,42 +747,12 @@ for sdk in "${SLICES[@]}"; do
     symbols="$(xcrun nm -gU "$ARCHIVE" 2>/dev/null)" || die "cannot inspect symbols in $ARCHIVE"
     grep -q '_cmux_ish_boot' <<<"$symbols" || die "cmux_ish_boot is missing from $ARCHIVE"
 
-    # A static framework keeps its module map below Modules/. Packaging the
-    # archive directly with `-headers` puts every binary target's module map
-    # at include/module.modulemap during ProcessXCFramework. That path also
-    # belongs to GhosttyKit, so Xcode reports duplicate output files.
-    FRAMEWORK="$SLICE/IshKernel.framework"
-    mkdir -p "$FRAMEWORK/Headers" "$FRAMEWORK/Modules"
-    cp "$ARCHIVE" "$FRAMEWORK/IshKernel"
-    cp "$SHIM/cmux_ish.h" "$FRAMEWORK/Headers/"
-    printf '%s\n' \
-        'framework module IshKernel {' \
-        '    umbrella header "cmux_ish.h"' \
-        '    export *' \
-        '}' >"$FRAMEWORK/Modules/module.modulemap"
-    printf '%s\n' \
-        '<?xml version="1.0" encoding="UTF-8"?>' \
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-        '<plist version="1.0">' \
-        '<dict>' \
-        '    <key>CFBundleExecutable</key>' \
-        '    <string>IshKernel</string>' \
-        '    <key>CFBundleIdentifier</key>' \
-        '    <string>com.manaflow.cmux.IshKernel</string>' \
-        '    <key>CFBundleName</key>' \
-        '    <string>IshKernel</string>' \
-        '    <key>CFBundlePackageType</key>' \
-        '    <string>FMWK</string>' \
-        '    <key>CFBundleShortVersionString</key>' \
-        '    <string>1.0</string>' \
-        '    <key>CFBundleVersion</key>' \
-        '    <string>1</string>' \
-        '</dict>' \
-        '</plist>' >"$FRAMEWORK/Info.plist"
-    # Keep provenance inside the framework. xcodebuild preserves this file
-    # when it creates the XCFramework, so verification can reject an artifact
-    # built from an older iSH checkout or shim without trusting an ignored
-    # build directory.
+    # Keep the archive as a library slice. The C declarations live in the
+    # normal CmuxIshBridge SwiftPM target below; omitting binary-target headers
+    # prevents Xcode from copying a second module map to the shared
+    # include/module.modulemap path used by GhosttyKit.
+    # Keep provenance beside the archive in each slice and copy it into the
+    # final XCFramework below.
     printf '%s\n' \
         '{' \
         '    "format": "cmux-ish-provenance-v1",' \
@@ -788,17 +762,17 @@ for sdk in "${SLICES[@]}"; do
         "    \"deploymentTarget\": \"$DEPLOYMENT_TARGET\"," \
         "    \"slice\": \"$sdk\"," \
         '    "architecture": "arm64"' \
-        '}' >"$FRAMEWORK/cmux-ish-provenance.json"
+        '}' >"$SLICE/cmux-ish-provenance.json"
 done
 
 XC_WORK="$(mktemp -d "$ROOT/.ish-xcframework.XXXXXX")"
 XC_TMP="$XC_WORK/IshKernel.xcframework"
-FRAMEWORK_ARGS=()
+LIBRARY_ARGS=()
 for sdk in "${SLICES[@]}"; do
-    FRAMEWORK_ARGS+=(-framework "$WORK/$sdk/IshKernel.framework")
+    LIBRARY_ARGS+=(-library "$WORK/$sdk/libIshKernel.a")
 done
 echo "== xcframework (${SLICES[*]})"
-xcodebuild -create-xcframework "${FRAMEWORK_ARGS[@]}" -output "$XC_TMP" \
+xcodebuild -create-xcframework "${LIBRARY_ARGS[@]}" -output "$XC_TMP" \
     >"$XC_WORK/create.log" 2>&1 || {
         status=$?
         tail -80 "$XC_WORK/create.log" >&2 || true
@@ -810,17 +784,17 @@ for sdk in "${SLICES[@]}"; do
         iphoneos) identifier=ios-arm64 ;;
         iphonesimulator) identifier=ios-arm64-simulator ;;
     esac
-    packaged_framework="$XC_TMP/$identifier/IshKernel.framework"
-    [[ -f "$packaged_framework/IshKernel" ]] || die "xcframework is missing the $identifier binary"
-    [[ -f "$packaged_framework/Headers/cmux_ish.h" ]] || die "xcframework is missing headers for $identifier"
-    [[ -f "$packaged_framework/Modules/module.modulemap" ]] || die "xcframework is missing the module map for $identifier"
-    [[ -f "$packaged_framework/cmux-ish-provenance.json" ]] || die "xcframework is missing provenance for $identifier"
+    slice_dir="$XC_TMP/$identifier"
+    packaged_archive="$slice_dir/libIshKernel.a"
+    [[ -f "$packaged_archive" ]] || die "xcframework is missing the $identifier archive"
+    cp "$WORK/$sdk/cmux-ish-provenance.json" "$slice_dir/cmux-ish-provenance.json"
+    [[ -f "$slice_dir/cmux-ish-provenance.json" ]] || die "xcframework is missing provenance for $identifier"
     # `xcodebuild -create-xcframework` rewrites the archive index with the
     # current clock, even when the input archive was built with `ranlib -D`.
     # Restore the reproducible index after packaging and before validation.
-    xcrun ranlib -D "$packaged_framework/IshKernel" \
+    xcrun ranlib -D "$packaged_archive" \
         || die "could not normalize the packaged archive index for $identifier"
-    archive_for "$packaged_framework/IshKernel"
+    archive_for "$packaged_archive"
 done
 
 # Publish only after every slice has passed validation. The lock prevents a

@@ -1,8 +1,8 @@
 public import Foundation
 import os.lock
 
-#if canImport(IshKernel)
-internal import IshKernel
+#if os(iOS) && canImport(CmuxIshBridge)
+internal import CmuxIshBridge
 #endif
 
 /// Errors reported by the local Linux runtime.
@@ -722,15 +722,17 @@ public actor LocalLinuxRuntime {
             // after construction also gives every cancellation path one owner
             // whose deinit can finish the handle if the task is cancelled in
             // this narrow window.
+            let hangupGate = LocalLinuxSessionHangupGate(kernelSession: kernelSession)
             let session = LocalLinuxSession(
                 kernelSession: kernelSession,
                 output: ingress.stream,
                 inputReady: inputReadiness.stream,
                 lifecycle: lifecycle,
                 ingress: ingress,
-                inputReadiness: inputReadiness
+                inputReadiness: inputReadiness,
+                hangupGate: hangupGate
             )
-            ingress.attach(hangup: { kernelSession.hangup() })
+            ingress.attach(hangup: { hangupGate.close() })
             // Cancellation can arrive in the tiny window between the first
             // check and actor construction. Close the fully initialized actor
             // as well, so no successful handle escapes a cancelled request.
@@ -743,7 +745,7 @@ public actor LocalLinuxRuntime {
     }
 
     private nonisolated static func makeDefaultKernelBridge() -> any LocalLinuxKernelBridge {
-        #if canImport(IshKernel)
+        #if os(iOS) && canImport(CmuxIshBridge)
         return IshLocalLinuxKernelBridge()
         #else
         return UnavailableLocalLinuxKernelBridge()
@@ -1001,6 +1003,48 @@ private nonisolated final class LocalLinuxSessionLifecycle: Sendable {
     }
 }
 
+/// Serializes and completes the one synchronous kernel-hangup operation for a
+/// session. An ingress overflow may start deferred teardown while a controller
+/// is fencing the same session. Waiting callers must not clear ownership until
+/// that first operation has returned.
+private nonisolated final class LocalLinuxSessionHangupGate: @unchecked Sendable {
+    private struct State: Sendable {
+        var started = false
+        var completed = false
+    }
+
+    private let kernelSession: any LocalLinuxKernelSession
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let completion = NSCondition()
+
+    init(kernelSession: any LocalLinuxKernelSession) {
+        self.kernelSession = kernelSession
+    }
+
+    func close() {
+        let shouldClose = state.withLock { state -> Bool in
+            guard !state.started else { return false }
+            state.started = true
+            return true
+        }
+
+        if shouldClose {
+            kernelSession.hangup()
+            state.withLock { $0.completed = true }
+            completion.lock()
+            completion.broadcast()
+            completion.unlock()
+            return
+        }
+
+        completion.lock()
+        while !state.withLock({ $0.completed }) {
+            completion.wait()
+        }
+        completion.unlock()
+    }
+}
+
 /// Coalesces tty-consumption notifications for one input worker.
 ///
 /// The C callback can run on any iSH task thread and may race stream teardown.
@@ -1115,10 +1159,11 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         }
     }
 
-    /// Closes the stream for a natural pty exit. No C call is made from the
-    /// callback thread; the bridge has already ended the process.
+    /// Closes the stream for a natural pty exit. Kernel cleanup is deferred
+    /// off the callback thread, because the bridge forbids synchronous
+    /// callback re-entry while the terminal event is being delivered.
     func finishNaturally() {
-        finish(needsHangup: false, deferHangup: false)
+        finish(needsHangup: true, deferHangup: true)
     }
 
     /// Closes the stream when opening failed before a usable session handle
@@ -1131,7 +1176,25 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
     /// Marks explicit teardown and requests a synchronous hangup from a safe
     /// actor or worker thread.
     func finishExplicitly() {
-        finish(needsHangup: true, deferHangup: false)
+        let result = state.withLock { state -> (shouldFinish: Bool, hangup: (@Sendable () -> Void)?) in
+            state.needsHangup = true
+            guard !state.didFinish else { return (false, nil) }
+            state.didFinish = true
+            guard !state.hangupStarted, let hangup = state.hangup else {
+                return (true, nil)
+            }
+            state.hangupStarted = true
+            state.hangup = nil
+            return (true, hangup)
+        }
+        _ = lifecycle.markEnded()
+        if result.shouldFinish {
+            continuation.finish()
+        }
+        // Claim the operation before finishing the stream. AsyncStream may
+        // invoke onTermination synchronously; claiming first prevents that
+        // callback from replacing the synchronous fence with a detached task.
+        result.hangup?()
     }
 
     /// Marks explicit teardown from a deinitializer or callback-adjacent
@@ -1298,10 +1361,11 @@ public actor LocalLinuxSession {
         closed || lifecycle.hasEnded
     }
 
-    private let kernelSession: any LocalLinuxKernelSession
-    private let lifecycle: LocalLinuxSessionLifecycle
-    private let ingress: LocalLinuxOutputIngress
-    private let inputReadiness: LocalLinuxInputReadiness
+    private nonisolated let kernelSession: any LocalLinuxKernelSession
+    private nonisolated let lifecycle: LocalLinuxSessionLifecycle
+    private nonisolated let ingress: LocalLinuxOutputIngress
+    private nonisolated let inputReadiness: LocalLinuxInputReadiness
+    private nonisolated let hangupGate: LocalLinuxSessionHangupGate
     private var closed = false
 
     fileprivate init(
@@ -1310,7 +1374,8 @@ public actor LocalLinuxSession {
         inputReady: AsyncStream<Void>,
         lifecycle: LocalLinuxSessionLifecycle,
         ingress: LocalLinuxOutputIngress,
-        inputReadiness: LocalLinuxInputReadiness
+        inputReadiness: LocalLinuxInputReadiness,
+        hangupGate: LocalLinuxSessionHangupGate
     ) {
         self.kernelSession = kernelSession
         self.output = output
@@ -1319,6 +1384,7 @@ public actor LocalLinuxSession {
         self.lifecycle = lifecycle
         self.ingress = ingress
         self.inputReadiness = inputReadiness
+        self.hangupGate = hangupGate
         self.closed = lifecycle.hasEnded
     }
 
@@ -1369,11 +1435,38 @@ public actor LocalLinuxSession {
 
     /// Hangs up the pty, quiesces C callbacks, and finishes ``output``.
     public func hangup() async {
-        guard !closed else { return }
+        guard !closed else {
+            // A previous caller may still be completing the synchronous C
+            // fence on another thread. Preserve the method's completion
+            // guarantee for repeated closes.
+            ingress.requestHangupNow()
+            hangupGate.close()
+            return
+        }
         closed = true
         inputReadiness.finish()
         ingress.finishExplicitly()
         ingress.requestHangupNow()
+        // Wait even when an earlier overflow path already claimed the
+        // deferred teardown closure.
+        hangupGate.close()
+    }
+
+    /// Closes the underlying pty without an actor hop.
+    ///
+    /// App sign-out has a synchronous local-resource fence: authentication
+    /// must not clear its token store while an iSH callback can still reach
+    /// the old session. The C bridge's hangup is synchronous and idempotent,
+    /// so this method finishes the Swift streams and waits for that bridge
+    /// teardown before returning. Actor-isolated operations remain safe: they
+    /// observe the shared lifecycle end marker and fail with ``closed``.
+    public nonisolated func closeSynchronously() {
+        inputReadiness.finish()
+        ingress.finishExplicitly()
+        // `finishExplicitly()` may find a deferred overflow hangup already in
+        // flight. The gate waits for that operation, so callers can safely
+        // release the session before opening a replacement pty.
+        hangupGate.close()
     }
 
     /// Wakes a legacy input worker that uses the session as its fallback
@@ -1397,7 +1490,7 @@ public actor LocalLinuxSession {
     }
 }
 
-#if canImport(IshKernel)
+#if os(iOS) && canImport(CmuxIshBridge)
 
 /// Production bridge that adapts the vendored iSH C shim to Swift values.
 public nonisolated struct IshLocalLinuxKernelBridge: LocalLinuxKernelBridge, Sendable {

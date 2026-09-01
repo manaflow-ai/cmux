@@ -297,6 +297,15 @@ at `vendor/ish`, pinned at commit
 - **License text:** `vendor/ish/LICENSE.md`
 - **iOS App Store notice:** `vendor/ish/LICENSE.IOS`
 
+The complete GPLv3 and GPLv2 texts are shipped in the app package at
+`CmuxLocalLinux/Resources/GPL-3.0.txt` and `CmuxLocalLinux/Resources/GPL-2.0.txt`.
+
+### libarchive
+
+- **License:** libarchive's BSD-style license and component notices
+- **Source:** `vendor/ish/deps/libarchive`, pinned by the iSH submodule
+- **License text:** `CmuxLocalLinux/Resources/libarchive-COPYING`
+
 `LICENSE.IOS` contains the iSH copyright holders' commitment not to pursue a
 license violation that results solely from a conflict between GPLv2 or GPLv3
 and Apple App Store terms, provided the GPL obligations are otherwise met. The
@@ -318,7 +327,9 @@ and musl; MPL-2.0 and MIT for the CA certificate bundle; Apache-2.0 for
 OpenSSL's libcrypto3 and libssl3; MIT, BSD-2-Clause, and GPL-2.0-or-later for
 musl-utils; and the zlib license for zlib. The package resource
 `CmuxLocalLinux/Resources/THIRD_PARTY_NOTICES.md` records this list and points
-to the package metadata and upstream license sources.
+to the package metadata and upstream license sources. The exact
+corresponding-source procedure for the distributed app is in
+`Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/SOURCE-OFFER.md`.
 
 ### iroh-ffi
 

@@ -159,7 +159,7 @@ public struct CMUXMobileRootScene: View {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog,
-        localLinuxComputerProvider: LocalLinuxComputerProvider
+        localLinuxComputerProvider: LocalLinuxComputerProvider = LocalLinuxComputerProvider()
     ) {
         self.runtime = runtime
         self.auth = auth

@@ -45,6 +45,9 @@ swift test --package-path Packages/iOS/CmuxLocalLinux --disable-sandbox --parall
 iSH is GPLv3, with GPLv2 relicensing for later contributions. Its
 `LICENSE.IOS` App Store grant applies to this derived app when the GPL source
 and license text remain available. The Alpine rootfs contains the packages
-listed in `Resources/alpine-rootfs.json`; their licenses are summarized in
-`Resources/THIRD_PARTY_NOTICES.md` and in the repository-level
-`THIRD_PARTY_LICENSES.md`.
+listed in `Resources/alpine-rootfs.json`; their licenses and source offer are
+documented in `Resources/THIRD_PARTY_NOTICES.md`, `Resources/SOURCE-OFFER.md`,
+and the repository-level `THIRD_PARTY_LICENSES.md`. The package carries the
+complete GPLv2, GPLv3, iSH, and libarchive notice texts used by the shipped
+binary. The remaining Alpine license identifiers point to their upstream
+notices in `THIRD_PARTY_NOTICES.md`.

@@ -1325,10 +1325,9 @@ struct CMUXMobileRootView: View {
     private func signOut() {
         diagnosticLog?.recordAppEvent(.authSignOutStarted)
         Task {
-            // Local shell teardown first so the whole UI lands signed out
-            // immediately; authManager.signOut clears the local session up
-            // front and only then runs its bounded best-effort server teardown
-            // (push-token DELETE, Stack session revocation).
+            // Fence local resources before any auth or shell state is cleared.
+            // The hook's begin phase is synchronous, so no old terminal
+            // callback can reach a newly signed-in account after this point.
             didAuthenticateWithAttachTicket = false
             didExceedStartupRestoringGate = false
             startupConnectionCoordinator.reset()
@@ -1336,9 +1335,9 @@ struct CMUXMobileRootView: View {
             // session. The connection presenter also suppresses its capsule
             // once isSignedIn flips, but that races the snapshot change
             // store.signOut() makes; this clears everything up front.
+            let serverTeardown = signOutHook.begin()
             toasts.dismissAll()
             store.signOut()
-            let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
             diagnosticLog?.recordAppEvent(
                 authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,

@@ -320,6 +320,37 @@ struct LocalLinuxTerminalLaneTests {
         await lane.terminate()
     }
 
+    @Test("a slow subscriber reattaches from replay after its queue overflows")
+    func slowSubscriberRecoversWithReplay() async throws {
+        let ring = LocalLinuxScrollbackRing(limit: 256)
+        let source = TestLocalLinuxOutputSource()
+        let lane = LocalLinuxTerminalLane(source: source, ring: ring, cursor: nil)
+        _ = try #require(try await lane.receiveOutput())
+
+        // The lane's bounded subscriber queue holds 64 frames. Emit one more
+        // frame before reading so the ring must detach that subscriber rather
+        // than silently discard output.
+        for offset in 0..<65 {
+            await source.emit(Data([UInt8(0x61 + offset)]))
+        }
+        #expect(await Self.waitForSequence(ring, expected: 65))
+
+        for _ in 0..<64 {
+            let frame = try #require(try await lane.receiveOutput())
+            #expect(frame.kind == .chunk)
+        }
+
+        // The next receive observes the overflow marker, creates a fresh
+        // bounded subscription, and returns a replay frame. The coordinator
+        // can therefore reset Ghostty and continue without losing the shell.
+        let replay = try #require(try await lane.receiveOutput())
+        #expect(replay.kind == .replay)
+        #expect(replay.bytes.count == 65)
+        #expect(replay.currentSequence == 65)
+
+        await lane.terminate()
+    }
+
     @Test("a shared ring rejects attaching a different source")
     func ringRejectsSourceReplacement() async throws {
         let ring = LocalLinuxScrollbackRing()

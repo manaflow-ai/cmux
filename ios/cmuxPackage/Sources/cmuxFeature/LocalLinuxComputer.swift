@@ -18,6 +18,7 @@ private let localLinuxProductionLog = Logger(
 private enum LocalLinuxBootResult: Sendable {
     case success(LocalLinuxSession)
     case failure(LocalLinuxError)
+    case cancelled
 }
 
 /// The phone-owned computer advertised by the Computers screen.
@@ -96,8 +97,16 @@ public final class LocalLinuxComputerController {
     /// Exposed so DEBUG harnesses can use the same instance as production.
     @ObservationIgnored public let runtime: LocalLinuxRuntime
     @ObservationIgnored private var session: LocalLinuxSession?
+    /// A session returned by the detached open task before its ring has been
+    /// installed. Teardown must fence this handle too, otherwise a retry can
+    /// start a second pty while the first install is still suspended.
+    @ObservationIgnored private var pendingSession: LocalLinuxSession?
     @ObservationIgnored private var ring: LocalLinuxScrollbackRing?
-    @ObservationIgnored private var bootTask: Task<LocalLinuxBootResult, Never>?
+    /// One shared startup operation per lifecycle generation. Multiple terminal
+    /// surfaces can ask to start at the same time; they must all await this
+    /// task instead of each installing a competing ring over one PTY stream.
+    @ObservationIgnored private var startTask: Task<Bool, Never>?
+    @ObservationIgnored private var startTaskGeneration: UInt64?
     @ObservationIgnored private var inputWorker: Task<Void, Never>?
     @ObservationIgnored private var inputWorkerID: UUID?
     @ObservationIgnored private var inputQueue: [Data] = []
@@ -105,6 +114,11 @@ public final class LocalLinuxComputerController {
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingInput = Data()
     @ObservationIgnored private var lifecycleGeneration: UInt64 = 0
+    @ObservationIgnored private var retryableFailure = false
+    /// Input from an old Ghostty surface must not be queued while a session is
+    /// being fenced. Admission reopens only after a replacement session owns
+    /// the controller, so stale callbacks cannot cross a retry boundary.
+    @ObservationIgnored private var acceptsInput = true
 
     public private(set) var state: State = .idle
     public private(set) var lastError: LocalLinuxError?
@@ -123,7 +137,8 @@ public final class LocalLinuxComputerController {
         // Boot failures are intentionally sticky for this controller and its
         // injected runtime. Re-entering the destination must not repeatedly
         // mutate a partially initialized process or present a misleading
-        // retry action. The navigation Back action remains the escape path.
+        // retry action. Renderer and input failures are reset explicitly by
+        // the retry button after their old session has been fenced.
         if state == .failed {
             return false
         }
@@ -142,45 +157,86 @@ public final class LocalLinuxComputerController {
         }
 
         let generation = lifecycleGeneration
-        if let bootTask {
-            let result = await bootTask.value
-            return await install(
+        if let startTask, startTaskGeneration == generation {
+            return await startTask.value
+        }
+
+        state = .starting
+        lastError = nil
+        retryableFailure = false
+        let runtime = runtime
+        let task = Task { @MainActor [weak self, runtime, generation, columns, rows] in
+            let result = await Self.bootSession(
+                runtime: runtime,
+                columns: columns,
+                rows: rows
+            )
+            guard let self else {
+                if case let .success(session) = result {
+                    session.closeSynchronously()
+                }
+                return false
+            }
+            let installed = await self.install(
                 result,
                 columns: columns,
                 rows: rows,
                 generation: generation
             )
+            // `terminate()` can clear the property while this task is still
+            // settling. Never clear a replacement startup task from an old
+            // generation.
+            if self.startTaskGeneration == generation {
+                self.startTask = nil
+                self.startTaskGeneration = nil
+            }
+            return installed
         }
+        startTask = task
+        startTaskGeneration = generation
+        return await task.value
+    }
 
-        state = .starting
-        lastError = nil
-        let runtime = runtime
-        let task = Task.detached(priority: .userInitiated) { () -> LocalLinuxBootResult in
+    /// Runs the blocking iSH boot and pty creation off the main actor. The
+    /// cancellation handler forwards controller teardown to the worker, and a
+    /// session opened in the cancellation race is synchronously fenced before
+    /// this helper returns.
+    private nonisolated static func bootSession(
+        runtime: LocalLinuxRuntime,
+        columns: Int,
+        rows: Int
+    ) async -> LocalLinuxBootResult {
+        let worker = Task.detached(priority: .userInitiated) {
             do {
+                try Task.checkCancellation()
                 try await runtime.bootIfNeeded()
+                try Task.checkCancellation()
                 let session = try await runtime.openSession(
                     columns: columns,
                     rows: rows
                 )
-                return .success(session)
+                guard !Task.isCancelled else {
+                    session.closeSynchronously()
+                    return LocalLinuxBootResult.cancelled
+                }
+                return LocalLinuxBootResult.success(session)
+            } catch is CancellationError {
+                return LocalLinuxBootResult.cancelled
             } catch let error as LocalLinuxError {
-                return .failure(error)
+                return LocalLinuxBootResult.failure(error)
             } catch {
                 localLinuxProductionLog.error(
                     "unexpected local Linux boot error: \(String(describing: error), privacy: .public)"
                 )
-                return .failure(.sessionOpenFailed(errno: -1))
+                return LocalLinuxBootResult.failure(.sessionOpenFailed(errno: -1))
             }
         }
-        bootTask = task
-        let result = await task.value
-        bootTask = nil
-        return await install(
-            result,
-            columns: columns,
-            rows: rows,
-            generation: generation
-        )
+
+        return await withTaskCancellationHandler(operation: {
+            await worker.value
+        }, onCancel: {
+            worker.cancel()
+        })
     }
 
     /// Creates a lane attachment over the retained shell and output ring.
@@ -197,10 +253,36 @@ public final class LocalLinuxComputerController {
         session
     }
 
+    /// Generation token for a Ghostty attachment. A coordinator must pass it
+    /// with input so callbacks from a replaced surface cannot write to a new
+    /// pty, even after input admission reopens.
+    public var currentInputGeneration: UInt64 {
+        lifecycleGeneration
+    }
+
     /// Sends raw terminal bytes. Ghostty input includes control and escape
     /// sequences, so it must not be lossy-converted through `String` first.
     public func send(_ data: Data) {
+        send(data, generation: lifecycleGeneration)
+    }
+
+    /// Sends bytes only when they belong to the controller generation that
+    /// owns the current local pty. This overload is the boundary used by
+    /// Ghostty coordinators; the unlabeled form remains for trusted callers.
+    public func send(_ data: Data, generation: UInt64) {
         guard !data.isEmpty else { return }
+        guard generation == lifecycleGeneration else {
+            localLinuxProductionLog.debug(
+                "ignoring local Linux input from stale generation \(generation, privacy: .public)"
+            )
+            return
+        }
+        guard acceptsInput else {
+            localLinuxProductionLog.debug(
+                "ignoring local Linux input while session admission is fenced"
+            )
+            return
+        }
         if session != nil {
             let remaining = Self.pendingInputLimit - inputQueueByteCount
             guard remaining > 0 else {
@@ -270,8 +352,10 @@ public final class LocalLinuxComputerController {
     /// call this; use it only when the local computer is explicitly removed.
     public func terminate() {
         lifecycleGeneration &+= 1
-        bootTask?.cancel()
-        bootTask = nil
+        acceptsInput = false
+        startTask?.cancel()
+        startTask = nil
+        startTaskGeneration = nil
         inputWorker?.cancel()
         inputWorker = nil
         inputWorkerID = nil
@@ -279,13 +363,14 @@ public final class LocalLinuxComputerController {
         inputQueueByteCount = 0
         resizeTask?.cancel()
         resizeTask = nil
-        if let session {
-            Task { await session.hangup() }
-        }
+        pendingSession?.closeSynchronously()
+        pendingSession = nil
+        session?.closeSynchronously()
         session = nil
         ring = nil
         pendingInput.removeAll(keepingCapacity: false)
         state = .ended
+        retryableFailure = false
     }
 
     /// Records a natural pty exit for exactly the session that produced it.
@@ -293,13 +378,16 @@ public final class LocalLinuxComputerController {
     /// shell alive and a later attachment can continue from the ring.
     public func sessionDidEnd(_ endedSession: LocalLinuxSession) {
         guard let session, session === endedSession else { return }
-        // Natural EOF has already quiesced the stream. Closing the actor now
-        // releases the bridge handle promptly while preserving the identity
-        // guard below for any late callbacks.
-        Task { await endedSession.close() }
+        // Natural EOF and ingress overflow can both race a replacement boot.
+        // Fence the exact handle synchronously before clearing ownership. The
+        // C bridge hangup is idempotent, and this prevents a deferred overflow
+        // cleanup from surviving into the next shell.
+        acceptsInput = false
+        endedSession.closeSynchronously()
         lifecycleGeneration &+= 1
-        bootTask?.cancel()
-        bootTask = nil
+        startTask?.cancel()
+        startTask = nil
+        startTaskGeneration = nil
         inputWorker?.cancel()
         inputWorker = nil
         inputWorkerID = nil
@@ -311,6 +399,7 @@ public final class LocalLinuxComputerController {
         ring = nil
         pendingInput.removeAll(keepingCapacity: false)
         state = .ended
+        retryableFailure = false
     }
 
     private func install(
@@ -321,7 +410,7 @@ public final class LocalLinuxComputerController {
     ) async -> Bool {
         guard generation == lifecycleGeneration else {
             if case let .success(session) = result {
-                await session.hangup()
+                session.closeSynchronously()
             }
             return false
         }
@@ -339,9 +428,17 @@ public final class LocalLinuxComputerController {
         }
 
         switch result {
+        case .cancelled:
+            return false
         case let .success(session):
+            pendingSession = session
+            defer {
+                if pendingSession === session {
+                    pendingSession = nil
+                }
+            }
             guard generation == lifecycleGeneration else {
-                await session.hangup()
+                session.closeSynchronously()
                 return false
             }
             let newRing = LocalLinuxScrollbackRing()
@@ -352,8 +449,10 @@ public final class LocalLinuxComputerController {
                 // or no Ghostty view is mounted.
                 try await newRing.start(source: session)
             } catch {
-                await session.hangup()
+                session.closeSynchronously()
                 guard generation == lifecycleGeneration else { return false }
+                acceptsInput = false
+                pendingInput.removeAll(keepingCapacity: false)
                 let localError = LocalLinuxError.operationFailed(
                     "terminal output retention could not start"
                 )
@@ -364,14 +463,28 @@ public final class LocalLinuxComputerController {
                 )
                 return false
             }
+            // A command can exit before the synchronous bridge returns from
+            // openSession. Do not publish an already-ended handle as running,
+            // or a first input callback could target a dead pty.
+            guard !(await session.isEnded) else {
+                session.closeSynchronously()
+                guard generation == lifecycleGeneration else { return false }
+                lifecycleGeneration &+= 1
+                acceptsInput = false
+                pendingInput.removeAll(keepingCapacity: false)
+                state = .ended
+                retryableFailure = false
+                return false
+            }
             // `start(source:)` crosses the ring actor. Teardown can win while
             // it is suspended, so revalidate ownership before installing.
             guard generation == lifecycleGeneration else {
-                await session.hangup()
+                session.closeSynchronously()
                 return false
             }
             self.session = session
             ring = newRing
+            acceptsInput = true
             resize(columns: columns, rows: rows)
             if !pendingInput.isEmpty {
                 let bytes = pendingInput
@@ -379,10 +492,14 @@ public final class LocalLinuxComputerController {
                 send(bytes)
             }
             state = .running
+            retryableFailure = false
             return true
         case let .failure(error):
             lastError = error
             state = .failed
+            retryableFailure = Self.isRetryableSessionFailure(error)
+            acceptsInput = false
+            pendingInput.removeAll(keepingCapacity: false)
             localLinuxProductionLog.error(
                 "local Linux boot failed: \(String(describing: error), privacy: .public)"
             )
@@ -464,9 +581,9 @@ public final class LocalLinuxComputerController {
                         self.inputQueue[0] = Data(bytes.dropFirst(offset))
                     }
                 } catch {
-                    // `closed` is expected during teardown. Preserve a
-                    // remainder for every other failure so a later explicit
-                    // attach can make one more attempt rather than losing it.
+                    // `closed` is expected during teardown. Keep the
+                    // remainder until the failure boundary decides whether
+                    // the pty is still usable.
                     localLinuxProductionLog.error(
                         "local Linux input failed: \(String(describing: error), privacy: .public)"
                     )
@@ -509,18 +626,81 @@ public final class LocalLinuxComputerController {
     /// permanent loading overlay when Ghostty cannot create its surface.
     func markRendererFailure() {
         guard state != .running else { return }
+        // Renderer creation can fail while the detached boot/open task is
+        // still producing a session. Fence that generation before publishing
+        // the failure, otherwise its later install could resurrect a terminal
+        // behind the error overlay.
+        lifecycleGeneration &+= 1
+        startTask?.cancel()
+        startTask = nil
+        startTaskGeneration = nil
+        inputWorker?.cancel()
+        inputWorker = nil
+        inputWorkerID = nil
+        resizeTask?.cancel()
+        resizeTask = nil
+        acceptsInput = false
+        pendingSession?.closeSynchronously()
+        pendingSession = nil
+        session?.closeSynchronously()
+        session = nil
+        ring = nil
+        inputQueue.removeAll(keepingCapacity: false)
+        inputQueueByteCount = 0
+        pendingInput.removeAll(keepingCapacity: false)
         state = .failed
         lastError = .operationFailed("terminal renderer unavailable")
+        retryableFailure = true
     }
 
     /// Exposes an unrecoverable pty write error through the same visible
-    /// failure state as boot errors. The pending FIFO remains intact until a
-    /// later attachment can make another write attempt, so this boundary
-    /// cannot silently lose bytes.
+    /// failure state as boot errors. The failed pty is not safe to reuse, so
+    /// its unsent FIFO is discarded explicitly before a retry creates a new
+    /// shell. This avoids replaying a partial command into a replacement pty.
     private func markInputFailure(_ error: LocalLinuxError) {
         guard state != .ended else { return }
+        // A non-EAGAIN write failure invalidates the current pty. Keep no live
+        // worker or ring behind the error overlay, and block callbacks from
+        // the old surface until the user explicitly retries.
+        acceptsInput = false
+        lifecycleGeneration &+= 1
+        inputWorker?.cancel()
+        inputWorker = nil
+        inputWorkerID = nil
+        resizeTask?.cancel()
+        resizeTask = nil
+        let failedSession = session
+        failedSession?.closeSynchronously()
+        session = nil
+        ring = nil
+        inputQueue.removeAll(keepingCapacity: false)
+        inputQueueByteCount = 0
+        pendingInput.removeAll(keepingCapacity: false)
         state = .failed
         lastError = error
+        retryableFailure = true
+    }
+
+    private static func isRetryableSessionFailure(_ error: LocalLinuxError) -> Bool {
+        if case .sessionOpenFailed = error {
+            return true
+        }
+        return false
+    }
+
+    /// Whether the current failure can be reset without rebuilding the
+    /// process-global kernel. Boot and rootfs failures stay sticky; renderer
+    /// and session-input failures can safely start a fresh pty.
+    public var canRetry: Bool {
+        state == .ended || (state == .failed && retryableFailure)
+    }
+
+    /// Fences a retryable failure before the SwiftUI surface is recreated.
+    public func prepareForRetry() {
+        guard canRetry else { return }
+        terminate()
+        state = .idle
+        lastError = nil
     }
 }
 
@@ -548,6 +728,7 @@ public struct LocalLinuxComputerView: View {
             if controller.state != .running {
                 LocalLinuxComputerStatusOverlay(
                     state: controller.state,
+                    canRetry: controller.canRetry,
                     retry: retry
                 )
                 .padding(.horizontal, 24)
@@ -567,13 +748,14 @@ public struct LocalLinuxComputerView: View {
     }
 
     private func retry() {
-        controller.terminate()
+        controller.prepareForRetry()
         retryGeneration &+= 1
     }
 }
 
 private struct LocalLinuxComputerStatusOverlay: View {
     let state: LocalLinuxComputerController.State
+    let canRetry: Bool
     let retry: () -> Void
 
     private var title: String {
@@ -641,11 +823,11 @@ private struct LocalLinuxComputerStatusOverlay: View {
                     .multilineTextAlignment(.center)
             }
 
-            // A natural PTY end can be restarted on this runtime. A boot or
-            // renderer failure is sticky for the process, so offering the
-            // same action there would only repeat a known failure. The user
-            // can use the navigation Back action to leave that error state.
-            if state == .ended {
+            // A natural PTY end and a renderer or input failure can be
+            // restarted after the controller fences the old session. Boot and
+            // rootfs failures remain sticky because the process-global kernel
+            // cannot be safely reinitialized in place.
+            if canRetry {
                 Button(action: retry) {
                     Label(
                         L10n.string("mobile.localLinux.retry", defaultValue: "Try Again"),
@@ -752,10 +934,12 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         private var outputGeneration: UInt64 = 0
         private var lane: LocalLinuxTerminalLane?
         private var lastGrid: TerminalGridSize?
+        private var inputGeneration: UInt64
 
         init(controller: LocalLinuxComputerController, sceneIsActive: Bool) {
             self.controller = controller
             self.sceneIsActive = sceneIsActive
+            self.inputGeneration = controller.currentInputGeneration
             super.init()
         }
 
@@ -815,9 +999,9 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
                     return
                 }
 
+                self.inputGeneration = controller.currentInputGeneration
                 self.lane = lane
                 var outputStreamEnded = false
-                var isFirstFrame = true
                 while !Task.isCancelled, self.outputGeneration == generation {
                     do {
                         guard let frame = try await lane.receiveOutput() else {
@@ -835,17 +1019,17 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
                               self.isWindowAttached,
                               self.sceneIsActive,
                               let surfaceView = self.surfaceView else { break }
-                        if isFirstFrame, frame.kind == .replay {
+                        if frame.kind == .replay {
                             // The local lane's first frame is a complete
                             // bounded history. Ghostty survives a transient
-                            // window detach, so clear its retained terminal
-                            // model before applying that history. The helper
-                            // queues RIS and replay as one FIFO operation.
+                            // window detach and a bounded subscriber overflow,
+                            // so clear its retained terminal model before
+                            // applying every recovered history frame. The
+                            // helper queues RIS and replay as one FIFO op.
                             surfaceView.processTerminalReplay(frame.bytes)
                         } else {
                             surfaceView.processOutput(frame.bytes)
                         }
-                        isFirstFrame = false
                         controller.notifyOutputActivity()
                     } catch {
                         localLinuxProductionLog.error(
@@ -912,7 +1096,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
             guard self.surfaceView === surfaceView else { return }
-            controller.send(data)
+            controller.send(data, generation: inputGeneration)
         }
 
         /// Routes terminal-protocol replies generated by Ghostty back to the
@@ -924,7 +1108,7 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
             didProduceTerminalOutput data: Data
         ) {
             guard self.surfaceView === surfaceView else { return }
-            controller.send(data)
+            controller.send(data, generation: inputGeneration)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
