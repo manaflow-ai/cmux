@@ -500,6 +500,57 @@ struct MobileHostIrohStartupRetryTests {
     }
 
     @Test
+    func signedCatalogExpiryRemainsTheRefreshDeadlineForCustomRelayMode() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let catalogExpiry = now.addingTimeInterval(300)
+        let attempt = MobileHostIrohRuntime.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: catalogExpiry,
+            retryAt: nil,
+            now: now
+        )
+
+        #expect(attempt == catalogExpiry.addingTimeInterval(-60))
+    }
+
+    @Test
+    func reconcileCancelsAndReleasesTheLongLivedRelayRefreshOwner() {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let originalTransitionTask = runtime.transitionTask
+        let originalRefreshTask = runtime.relayPolicyRefreshTask
+        let originalRefreshTaskID = runtime.relayPolicyRefreshTaskID
+        let originalRefreshService = runtime.relayPolicyRefreshService
+        let originalRefreshAccountID = runtime.relayPolicyRefreshAccountID
+        let originalRefreshEndpointID = runtime.relayPolicyRefreshEndpointID
+        let originalRefreshTrustRoot = runtime.relayPolicyRefreshTrustRoot
+        let originalRefreshRevision = runtime.relayPolicyRefreshRevision
+
+        runtime.relayPolicyRefreshTask = Task {}
+        runtime.relayPolicyRefreshTaskID = UUID()
+        runtime.relayPolicyRefreshAccountID = "stale-account"
+        let reconciliation = runtime.scheduleReconcile(eraseAccountState: false)
+
+        #expect(runtime.relayPolicyRefreshTask == nil)
+        #expect(runtime.relayPolicyRefreshTaskID == nil)
+        #expect(runtime.relayPolicyRefreshService == nil)
+        #expect(runtime.relayPolicyRefreshAccountID == nil)
+        #expect(runtime.relayPolicyRefreshEndpointID == nil)
+        #expect(runtime.relayPolicyRefreshTrustRoot == nil)
+        #expect(runtime.relayPolicyRefreshRevision == nil)
+
+        reconciliation.cancel()
+        runtime.transitionTask = originalTransitionTask
+        runtime.lifecycleRevision = originalRevision
+        runtime.relayPolicyRefreshTask = originalRefreshTask
+        runtime.relayPolicyRefreshTaskID = originalRefreshTaskID
+        runtime.relayPolicyRefreshService = originalRefreshService
+        runtime.relayPolicyRefreshAccountID = originalRefreshAccountID
+        runtime.relayPolicyRefreshEndpointID = originalRefreshEndpointID
+        runtime.relayPolicyRefreshTrustRoot = originalRefreshTrustRoot
+        runtime.relayPolicyRefreshRevision = originalRefreshRevision
+    }
+
+    @Test
     func staleDeactivationCannotClearReplacementRuntimeState() async {
         let runtime = MobileHostIrohRuntime.shared
         let originalDesiredActive = runtime.desiredActive

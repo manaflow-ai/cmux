@@ -326,15 +326,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         revision: UInt64,
         refreshImmediately: Bool
     ) {
-        relayPolicyRefreshTask?.cancel()
-        relayPolicyRefreshTask = nil
-        relayPolicyRefreshTaskID = nil
+        cancelRelayPolicyRefresh()
         guard let service, let trustRoot else {
-            relayPolicyRefreshService = nil
-            relayPolicyRefreshAccountID = nil
-            relayPolicyRefreshEndpointID = nil
-            relayPolicyRefreshTrustRoot = nil
-            relayPolicyRefreshRevision = nil
             return
         }
         relayPolicyRefreshService = service
@@ -369,18 +362,20 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 let snapshot = await service.diagnosticsSnapshot()
                 let clock = self.relayPolicyRefreshClock
                 let current = clock.now()
+                let refreshPolicyExpiresAt = snapshot.policyExpiresAt
+                let deactivationPolicyExpiresAt = self.usesManagedRelayAuthority
+                    ? Self.earliestRelayPolicyExpiry(
+                        servicePolicyExpiresAt: refreshPolicyExpiresAt,
+                        appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
+                    )
+                    : nil
                 let attemptAt: Date
                 if self.relayPolicyNetworkReachable != true {
                     // Keep a local expiry deadline alive while broker work is
                     // parked. There is no network request on this path; it
                     // only wakes to remove expired relay authority.
                     guard let policyExpiresAt = Self.relayPolicyOfflineExpiryAttemptDate(
-                        policyExpiresAt: Self.earliestRelayPolicyExpiry(
-                            servicePolicyExpiresAt: self.usesManagedRelayAuthority
-                                ? snapshot.policyExpiresAt
-                                : nil,
-                            appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
-                        ),
+                        policyExpiresAt: deactivationPolicyExpiresAt,
                         retryAt: deactivationRetryAt,
                         now: current
                     ) else {
@@ -397,12 +392,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                     attemptAt = Self.relayPolicyRefreshAttemptDate(
                         policyExpiresAt: relayAuthorityExpired
                             ? nil
-                            : Self.earliestRelayPolicyExpiry(
-                                servicePolicyExpiresAt: self.usesManagedRelayAuthority
-                                    ? snapshot.policyExpiresAt
-                                    : nil,
-                                appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
-                            ),
+                            : refreshPolicyExpiresAt,
                         retryAt: nextRetryAt,
                         now: current
                     )
@@ -435,12 +425,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                           accountID: accountID,
                           revision: revision
                       ) else { return }
-                let wakePolicyExpiresAt = Self.earliestRelayPolicyExpiry(
-                    servicePolicyExpiresAt: self.usesManagedRelayAuthority
-                        ? wakeSnapshot.policyExpiresAt
-                        : nil,
-                    appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
-                )
+                let wakeDeactivationPolicyExpiresAt = self.usesManagedRelayAuthority
+                    ? Self.earliestRelayPolicyExpiry(
+                        servicePolicyExpiresAt: wakeSnapshot.policyExpiresAt,
+                        appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
+                    )
+                    : nil
                 if let retryPolicy = deactivationRetryAppliedPolicy,
                    self.relayPolicyAppliedEffective != retryPolicy {
                     // A failed application can be superseded by a settings
@@ -453,7 +443,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 }
                 let shouldAttemptDeactivation = !relayAuthorityExpired
                     && Self.shouldDeactivateRelayPolicy(
-                        policyExpiresAt: wakePolicyExpiresAt,
+                        policyExpiresAt: wakeDeactivationPolicyExpiresAt,
                         now: wakeDate
                     )
                 if shouldAttemptDeactivation {
@@ -1060,6 +1050,19 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         return allowOffline || relayPolicyNetworkReachable == true
     }
 
+    /// Cancels the long-lived relay refresh task and clears its captured
+    /// account context at every lifecycle boundary.
+    func cancelRelayPolicyRefresh() {
+        relayPolicyRefreshTask?.cancel()
+        relayPolicyRefreshTask = nil
+        relayPolicyRefreshTaskID = nil
+        relayPolicyRefreshService = nil
+        relayPolicyRefreshAccountID = nil
+        relayPolicyRefreshEndpointID = nil
+        relayPolicyRefreshTrustRoot = nil
+        relayPolicyRefreshRevision = nil
+    }
+
     /// Returns whether the endpoint captured by a policy application is still
     /// the runtime owned by this lifecycle generation. A captured nil asserts
     /// that no endpoint existed when the request began.
@@ -1085,20 +1088,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
     func clearRelayPolicyRuntimeState() {
         relayPolicyObservationTask?.cancel()
         relayPolicyObservationTask = nil
-        relayPolicyRefreshTask?.cancel()
-        relayPolicyRefreshTask = nil
-        relayPolicyRefreshTaskID = nil
+        cancelRelayPolicyRefresh()
         invalidateRelayPolicyApplications()
         serverSignalRefreshTask?.cancel()
         serverSignalRefreshTask = nil
         serverSignalRefreshTaskID = nil
         serverSignalRefreshRevision = nil
         serverSignalPendingRevision = nil
-        relayPolicyRefreshService = nil
-        relayPolicyRefreshAccountID = nil
-        relayPolicyRefreshEndpointID = nil
-        relayPolicyRefreshTrustRoot = nil
-        relayPolicyRefreshRevision = nil
         relayPolicyService = nil
         relayPolicyAppliedEffective = nil
         relayPolicyAppliedFailure = nil
