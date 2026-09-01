@@ -325,9 +325,11 @@ userland tracker. The foreground group-leader CWD fix from
 generic `foreground_cwd` resource, which reads the controlling foreground
 group leader and exposes no herdr policy. Later upstream changes cover
 Windows launch, process environment and job handling, and native input
-identity. The reference package has no Windows SDK transport or native process
-backend and does not own launch or input handling, so those changes remain
-outside this plugin. Review them before publishing Windows support.
+identity. The shell-render refactor `207be3c771d281baae6e5fa0fb74be9a056e97a2`
+is application/client architecture, not detector behavior, and is not copied.
+The reference package has no Windows SDK transport or native process backend
+and does not own launch or input handling, so those changes remain outside this
+plugin. Review them before publishing Windows support.
 
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling
@@ -336,7 +338,10 @@ scanner preserves OSC evidence on the first agent acquisition, then anchors
 the stream revision at each replacement or confirmed exit and ignores retained
 title and progress until that revision advances. On older hosts without a
 revision, it keeps the compatibility path because the plugin cannot prove
-whether retained metadata predates the edge.
+whether retained metadata predates the edge. If a host supplied a revision for
+the fence and later omits it, the plugin fails closed until a newer revision is
+reported. A local screen hash can schedule a read, but it is never a generation
+fence.
 Network updates are explicit; the scanner never fetches data during startup. A
 different userland plugin can replace the
 reference package and emit the same generic journal envelope.
