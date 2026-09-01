@@ -453,7 +453,8 @@ final class ClosedItemHistoryStore: ObservableObject {
             guard let self, !didFinishPersistedRecordsLoad else { return }
             finishPersistedRecordsLoad(
                 loaded.records,
-                didTrimPersistedRecords: loaded.didTrim
+                didTrimPersistedRecords: loaded.didTrim,
+                capacityPolicyAlreadyApplied: true
             )
             if needsPersistenceAfterPersistedRecordsLoad {
                 needsPersistenceAfterPersistedRecordsLoad = false
@@ -465,13 +466,17 @@ final class ClosedItemHistoryStore: ObservableObject {
     /// Reconciles a completed persisted load with mutations made during loading.
     private func finishPersistedRecordsLoad(
         _ loadedRecords: [ClosedItemHistoryRecord],
-        didTrimPersistedRecords: Bool = false
+        didTrimPersistedRecords: Bool = false,
+        capacityPolicyAlreadyApplied: Bool = false
     ) {
         guard !didFinishPersistedRecordsLoad else { return }
         if !shouldDiscardPersistedRecordsOnLoad {
             var loadedRecords = loadedRecords
             let didMutateLoadedRecords = applyPendingPersistedRecordMutations(to: &loadedRecords)
-            mergeLoadedPersistedRecords(loadedRecords)
+            mergeLoadedPersistedRecords(
+                loadedRecords,
+                capacityPolicyAlreadyApplied: capacityPolicyAlreadyApplied
+            )
             if didMutateLoadedRecords || didTrimPersistedRecords {
                 needsPersistenceAfterPersistedRecordsLoad = true
             }
@@ -638,8 +643,13 @@ final class ClosedItemHistoryStore: ObservableObject {
         return (filteredRecords, filteredRecords.count != records.count)
     }
 
-    private func mergeLoadedPersistedRecords(_ loadedRecords: [ClosedItemHistoryRecord]) {
+    /// Merges loaded records and reapplies bounds when early mutations require it.
+    private func mergeLoadedPersistedRecords(
+        _ loadedRecords: [ClosedItemHistoryRecord],
+        capacityPolicyAlreadyApplied: Bool = false
+    ) {
         guard !loadedRecords.isEmpty else { return }
+        let hadExistingRecords = !records.isEmpty
         if records.isEmpty {
             records = loadedRecords
         } else {
@@ -648,7 +658,10 @@ final class ClosedItemHistoryStore: ObservableObject {
             guard !missingLoadedRecords.isEmpty else { return }
             records = missingLoadedRecords + records
         }
-        if trimToCapacityIfNeeded() { needsPersistenceAfterPersistedRecordsLoad = true }
+        if (!capacityPolicyAlreadyApplied || hadExistingRecords),
+           trimToCapacityIfNeeded() {
+            needsPersistenceAfterPersistedRecordsLoad = true
+        }
         revision &+= 1
     }
 

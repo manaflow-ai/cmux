@@ -26,11 +26,12 @@ struct ClosedItemHistoryCapacityPolicy {
         let previousCount = result.count
         trimTotalCapacity(in: &result, preserving: protectedRecordId)
         trimWorkspaceCapacity(in: &result, preserving: protectedRecordId)
-        if totalCapacity != nil, result.count != previousCount {
+        if result.count != previousCount {
             // The eviction rules use closedAt as the recency source of truth.
             // Keep the retained array in that same order because menuSnapshot()
-            // presents it by reversing the stored sequence. A total capacity
-            // bounds this ordering work even when an older file is loaded.
+            // presents it by reversing the stored sequence. Async persisted
+            // loads apply this policy on the persistence actor before the
+            // result reaches the main actor.
             result = result.enumerated()
                 .sorted { lhs, rhs in
                     if lhs.element.closedAt != rhs.element.closedAt {
@@ -43,6 +44,7 @@ struct ClosedItemHistoryCapacityPolicy {
         return result
     }
 
+    /// Reports whether an insertion may exceed either configured bound.
     func shouldTrim(
         afterInserting record: ClosedItemHistoryRecord,
         totalCount: Int
@@ -57,6 +59,7 @@ struct ClosedItemHistoryCapacityPolicy {
         return false
     }
 
+    /// Removes the oldest records until the total bound is satisfied.
     private func trimTotalCapacity(
         in records: inout [ClosedItemHistoryRecord],
         preserving protectedRecordId: UUID?
@@ -70,6 +73,7 @@ struct ClosedItemHistoryCapacityPolicy {
         records.removeAll { !retainedIds.contains($0.id) }
     }
 
+    /// Removes the oldest workspace records until their sub-bound is satisfied.
     private func trimWorkspaceCapacity(
         in records: inout [ClosedItemHistoryRecord],
         preserving protectedRecordId: UUID?

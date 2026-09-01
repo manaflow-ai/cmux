@@ -20,14 +20,14 @@ struct ReopenLastClosedTests {
         case window
     }
 
-    /// Closed panels must share the finite recency window used by the
-    /// production store instead of growing for the life of the history file.
+    /// The production default bounds closed panels without touching user history in this test.
     /// https://github.com/manaflow-ai/cmux/issues/10352
     @Test
-    func sharedStoreBoundsClosedPanelHistoryAndKeepsNewestRecords() throws {
-        let store = ClosedItemHistoryStore.shared
-        store.removeAll()
-        defer { store.removeAll() }
+    func defaultCapacityBoundsClosedPanelHistoryAndKeepsNewestRecords() throws {
+        let store = ClosedItemHistoryStore(
+            capacity: ClosedItemHistoryStore.defaultTotalCapacity,
+            loadPersisted: false
+        )
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
@@ -57,6 +57,7 @@ struct ReopenLastClosedTests {
         #expect(!menuSnapshot.items.contains { $0.title == "Closed 0" })
     }
 
+    /// A synchronous load trims by close time and rewrites the bounded file.
     @Test
     func loadTimeTotalCapacityTrimKeepsNewestRecordsAndPersistsTrim() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
@@ -183,6 +184,7 @@ struct ReopenLastClosedTests {
         #expect(reloadedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
     }
 
+    /// The workspace-specific sub-cap still retains the newest workspace entries.
     @Test
     func workspaceCapacityStillKeepsNewestWorkspaceRecords() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
@@ -193,7 +195,7 @@ struct ReopenLastClosedTests {
             loadPersisted: false
         )
 
-        for index in 0..<3 {
+        for index in [1, 2, 0] {
             var snapshot = workspaceSnapshot
             snapshot.customTitle = "Workspace \(index)"
             store.push(ClosedItemHistoryRecord(
@@ -249,6 +251,7 @@ struct ReopenLastClosedTests {
         #expect(trimmed.map(\.id) == expectedIds)
     }
 
+    /// Builds a panel history fixture with a deterministic close timestamp.
     private func panelRecord(
         title: String,
         closedAt: TimeInterval,
