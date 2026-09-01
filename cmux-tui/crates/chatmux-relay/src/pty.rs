@@ -1963,6 +1963,10 @@ impl Inner {
             return false;
         }
         let _control = attachment.control_gate.lock().expect("attachment control lock");
+        if !self.attachment_snapshot_is_current(pty_id, &attachment) {
+            Self::release_operation(&attachment);
+            return false;
+        }
         operation(&attachment);
         Self::release_operation(&attachment);
         // The operation was admitted at the snapshot boundary and may finish
