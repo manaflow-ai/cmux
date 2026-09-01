@@ -872,22 +872,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windowNumber: Int?
     }
 
-    /// Indexes the modifier-only shortcut strokes that need a browser-capture
-    /// preflight. Printable Shift/Option events are common page input (for
-    /// example, every uppercase character), so the full action/context scan
-    /// below must remain behind a small, revision-keyed candidate index.
-    private struct BrowserCaptureShortcutCandidateCache {
+    /// Caches the browser-capture matcher inputs for one settings/config
+    /// revision. Printable Shift/Option events are common page input (for
+    /// example, every uppercase character), so both the candidate preflight
+    /// and the full command matcher must avoid rebuilding shortcut/config lists
+    /// on every event.
+    private struct BrowserCaptureShortcutMatcherEntry {
+        let action: KeyboardShortcutSettings.Action
+        let shortcut: StoredShortcut
+        let whenClause: ShortcutWhenClause
+    }
+
+    private struct BrowserCaptureShortcutMatcherSnapshot {
         let settingsRevision: UInt64
         let settingsStoreID: ObjectIdentifier
         let configStoreID: ObjectIdentifier?
         let configRevision: UInt64?
-        let strokes: Set<ShortcutStroke>
+        let actions: [BrowserCaptureShortcutMatcherEntry]
+        let configuredShortcuts: [StoredShortcut]
+        let staleDefaults: [BrowserCaptureShortcutMatcherEntry]
+        let candidateStrokes: Set<ShortcutStroke>
     }
 
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
-    private var browserCaptureShortcutCandidateCache: BrowserCaptureShortcutCandidateCache?
+    private var browserCaptureShortcutMatcherSnapshotCache: BrowserCaptureShortcutMatcherSnapshot?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var globalFontMagnificationObserver: NSObjectProtocol?
     var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -18065,47 +18075,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        let configuredShortcutContext = candidateContext
+            ?? preferredMainWindowContextForShortcutRouting(event: event)
+        let snapshot = browserCaptureShortcutMatcherSnapshot(
+            for: configuredShortcutContext
+        )
         let focusContext = shortcutEventFocusContext(event)
-        if KeyboardShortcutSettings.Action.allCases.contains(where: { action in
-            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-            guard !action.isBrowserContentShortcut,
-                  !shortcut.isUnbound,
-                  KeyboardShortcutSettings.effectiveWhenClause(for: action)
-                      .evaluate(focusContext.shortcutContext) else {
-                return false
-            }
 
-            return browserCaptureMatchesShortcut(event: event, shortcut: shortcut)
-        }) {
+        for entry in snapshot.actions {
+            guard entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
+                continue
+            }
             return true
         }
 
-        let configuredActions = configuredCmuxShortcutActions(
-            for: candidateContext ?? preferredMainWindowContextForShortcutRouting(event: event)
-        )
-        if configuredActions.contains(where: { action in
-            guard let shortcut = action.shortcut, !shortcut.isUnbound else { return false }
-            return browserCaptureMatchesShortcut(event: event, shortcut: shortcut)
-        }) {
-            return true
+        for shortcut in snapshot.configuredShortcuts {
+            if browserCaptureMatchesShortcut(event: event, shortcut: shortcut) {
+                return true
+            }
         }
 
         // A remapped action leaves its old menu equivalent behind until the
-        // menu refreshes. Yield that stale default to the focused page too.
-        return KeyboardShortcutSettings.Action.allCases.contains { action in
-            guard !action.isBrowserContentShortcut else { return false }
-            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
-            let defaultShortcut = action.defaultShortcut
-            guard currentShortcut != defaultShortcut,
-                  !defaultShortcut.isUnbound else {
-                return false
+        // menu refreshes. The snapshot contains only menu-backed defaults;
+        // retain the action's effective `when` gate so an unavailable stale
+        // item cannot steal a native AppKit command from the page.
+        for entry in snapshot.staleDefaults {
+            guard entry.whenClause.evaluate(focusContext.shortcutContext),
+                  matchesKeyboardShortcutEvent(
+                      event,
+                      action: entry.action,
+                      shortcut: entry.shortcut
+                  ) else {
+                continue
             }
-            return matchesKeyboardShortcutEvent(
-                event,
-                action: action,
-                shortcut: defaultShortcut
-            )
+            return true
         }
+        return false
     }
 
     private func browserCaptureMatchesShortcut(
@@ -18161,29 +18167,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return isBareSpace || isPrintableShiftOrOption
     }
 
-    /// Checks the small set of modifier-only or bare-Space strokes that can
-    /// make a printable event relevant to browser capture. The index is
-    /// replaced whenever shortcut settings or the selected config store
-    /// changes, so this hot path never retains stale or growing entries.
-    private func browserCaptureHasShortcutCandidate(
-        event: NSEvent,
-        context: MainWindowContext?
-    ) -> Bool {
+    /// Returns the revision-keyed browser-capture matcher snapshot. It carries
+    /// the full built-in/configured action lists for command events as well as
+    /// the compact candidate-stroke set used by printable fast paths.
+    private func browserCaptureShortcutMatcherSnapshot(
+        for context: MainWindowContext?
+    ) -> BrowserCaptureShortcutMatcherSnapshot {
         let settingsRevision = KeyboardShortcutSettingsObserver.shared.revision
         let settingsStoreID = ObjectIdentifier(KeyboardShortcutSettings.settingsFileStore)
         let configStore = context?.cmuxConfigStore
         let configStoreID = configStore.map(ObjectIdentifier.init)
         let configRevision = configStore?.configRevision
 
-        if let cache = browserCaptureShortcutCandidateCache,
-           cache.settingsRevision == settingsRevision,
-           cache.settingsStoreID == settingsStoreID,
-           cache.configStoreID == configStoreID,
-           cache.configRevision == configRevision {
-            return cache.strokes.contains { matchShortcutStroke(event: event, stroke: $0) }
+        if let snapshot = browserCaptureShortcutMatcherSnapshotCache,
+           snapshot.settingsRevision == settingsRevision,
+           snapshot.settingsStoreID == settingsStoreID,
+           snapshot.configStoreID == configStoreID,
+           snapshot.configRevision == configRevision {
+            return snapshot
         }
 
-        var strokes = Set<ShortcutStroke>()
+        var actions: [BrowserCaptureShortcutMatcherEntry] = []
+        var staleDefaults: [BrowserCaptureShortcutMatcherEntry] = []
+        var candidateStrokes = Set<ShortcutStroke>()
+
         func appendCandidate(_ shortcut: StoredShortcut?) {
             guard let shortcut, !shortcut.isUnbound else { return }
             let stroke = shortcut.firstStroke
@@ -18191,10 +18198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let isBareSpace = flags.isEmpty && stroke.key.lowercased() == "space"
             let isShiftOrOption = flags.intersection([.command, .control]).isEmpty
                 && !flags.intersection([.shift, .option]).isEmpty
-            guard isBareSpace || isShiftOrOption else {
-                return
-            }
-            strokes.insert(stroke)
+            guard isBareSpace || isShiftOrOption else { return }
+            candidateStrokes.insert(stroke)
         }
 
         for action in KeyboardShortcutSettings.Action.allCases {
@@ -18202,24 +18207,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // their own WebKit/document routers remain authoritative.
             guard !action.isBrowserContentShortcut else { continue }
             let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
-            appendCandidate(currentShortcut)
+            let whenClause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            if !currentShortcut.isUnbound {
+                actions.append(
+                    BrowserCaptureShortcutMatcherEntry(
+                        action: action,
+                        shortcut: currentShortcut,
+                        whenClause: whenClause
+                    )
+                )
+                appendCandidate(currentShortcut)
+            }
+
             let defaultShortcut = action.defaultShortcut
-            if currentShortcut != defaultShortcut {
+            if currentShortcut != defaultShortcut,
+               !defaultShortcut.isUnbound,
+               isMenuBackedShortcutAction(action) {
+                staleDefaults.append(
+                    BrowserCaptureShortcutMatcherEntry(
+                        action: action,
+                        shortcut: defaultShortcut,
+                        whenClause: whenClause
+                    )
+                )
                 appendCandidate(defaultShortcut)
             }
         }
-        for action in configuredCmuxShortcutActions(for: context) {
-            appendCandidate(action.shortcut)
+
+        let configuredShortcuts = configuredCmuxShortcutActions(for: context).compactMap { action in
+            guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
+            appendCandidate(shortcut)
+            return shortcut
         }
 
-        browserCaptureShortcutCandidateCache = BrowserCaptureShortcutCandidateCache(
+        let snapshot = BrowserCaptureShortcutMatcherSnapshot(
             settingsRevision: settingsRevision,
             settingsStoreID: settingsStoreID,
             configStoreID: configStoreID,
             configRevision: configRevision,
-            strokes: strokes
+            actions: actions,
+            configuredShortcuts: configuredShortcuts,
+            staleDefaults: staleDefaults,
+            candidateStrokes: candidateStrokes
         )
-        return strokes.contains { matchShortcutStroke(event: event, stroke: $0) }
+        browserCaptureShortcutMatcherSnapshotCache = snapshot
+        return snapshot
+    }
+
+    /// Checks the compact modifier-only or bare-Space candidate set that can
+    /// make a printable event relevant to browser capture. The index is
+    /// replaced whenever shortcut settings or the selected config store
+    /// changes, so this hot path never retains stale or growing entries.
+    private func browserCaptureHasShortcutCandidate(
+        event: NSEvent,
+        context: MainWindowContext?
+    ) -> Bool {
+        let snapshot = browserCaptureShortcutMatcherSnapshot(for: context)
+        return snapshot.candidateStrokes.contains {
+            matchShortcutStroke(event: event, stroke: $0)
+        }
     }
 
     private func browserCaptureIsNonPrintableShortcutKey(_ keyCode: UInt16) -> Bool {
@@ -18249,32 +18295,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        for action in KeyboardShortcutSettings.Action.allCases {
-            guard !action.isBrowserContentShortcut,
-                  action.shortcutContext == .browserPanel
-                    || action.shortcutContext == .browserOrFilePreviewTextEditor else {
+        let snapshot = browserCaptureShortcutMatcherSnapshot(
+            for: preferredMainWindowContextForShortcutRouting(event: event)
+        )
+        for entry in snapshot.actions {
+            guard entry.action.shortcutContext == .browserPanel
+                    || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
                 continue
             }
+            return true
+        }
 
-            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
-            if !currentShortcut.isUnbound,
-               KeyboardShortcutSettings.effectiveWhenClause(for: action)
-                   .evaluate(focusContext.shortcutContext),
-               browserCaptureMatchesShortcut(event: event, shortcut: currentShortcut) {
-                return true
-            }
-
-            // Keep the same stale-menu protection used by browser capture. A
-            // remapped action can leave its old AppKit key equivalent alive for
-            // one menu refresh, and that old equivalent must not hit the popup.
-            let defaultShortcut = action.defaultShortcut
-            guard currentShortcut != defaultShortcut,
-                  !defaultShortcut.isUnbound else {
+        // The snapshot's stale list is restricted to menu-backed actions and
+        // carries each action's effective `when` clause, matching the app-level
+        // stale-menu suppression contract.
+        for entry in snapshot.staleDefaults {
+            guard entry.action.shortcutContext == .browserPanel
+                    || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
+                  matchesKeyboardShortcutEvent(
+                      event,
+                      action: entry.action,
+                      shortcut: entry.shortcut
+                  ) else {
                 continue
             }
-            if browserCaptureMatchesShortcut(event: event, shortcut: defaultShortcut) {
-                return true
-            }
+            return true
         }
         return false
     }
