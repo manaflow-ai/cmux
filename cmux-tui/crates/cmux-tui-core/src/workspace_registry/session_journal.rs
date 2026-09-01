@@ -945,7 +945,7 @@ impl WorkspaceRegistry {
         // equal-cursor behavior by allocating the next durable token. A
         // lower cursor remains a no-op, as it was under the old guard.
         let ordering_token = match self.journal_reducer_state_with_order(reducer_id)? {
-            Some((_, current_cursor, current_token, _)) if cursor < current_cursor => return Ok(()),
+            Some((_, current_cursor, _, _)) if cursor < current_cursor => return Ok(()),
             Some((_, _, current_token, _)) => current_token
                 .checked_add(1)
                 .context("journal reducer ordering token exhausted")?
