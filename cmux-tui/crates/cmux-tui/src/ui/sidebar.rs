@@ -321,7 +321,15 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
 /// Render one configurable resource path as a dense native tree column.
 pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     let Some(area) = app.projection_sidebar_area(view_index) else { return };
-    let Some(spec) = app.config.sidebar.views.get(view_index).cloned() else { return };
+    let Some(empty_resource) = app
+        .config
+        .sidebar
+        .views
+        .get(view_index)
+        .map(|spec| spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces))
+    else {
+        return;
+    };
     let rows = app.projection_rows(view_index);
     let actions = app.sidebar_action_rows(view_index);
     let focused = app.projection_sidebar_focused(view_index);
@@ -363,8 +371,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     if rows.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1))
     {
-        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
-        rail::button(frame, area, y, projection_empty_label(resource), false, palette);
+        rail::button(frame, area, y, projection_empty_label(empty_resource), false, palette);
     }
     for (row_index, row) in rows.iter().enumerate() {
         let Some(y) = viewport.body_y(rail::RowSpan::new(row_index, 1)) else { continue };
