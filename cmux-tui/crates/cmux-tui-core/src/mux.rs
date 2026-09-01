@@ -1121,7 +1121,7 @@ fn parse_projection_agent_state(value: &str) -> AgentState {
 /// Lock ordering rule: roster writers acquire `agent_roster_fold`, then the
 /// registry lock, then this host lock. Commit paths only read after their
 /// registry/state locks, so the fold guard prevents cross-path inversions.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
