@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -108,5 +109,59 @@ final class TerminalNotificationStaleFocusDismissalTests: XCTestCase {
         )
         XCTAssertNil(store.latestNotification(forTabId: workspace.id))
         XCTAssertEqual(store.notificationFeedHistory.notifications.first?.body, "Complete")
+    }
+
+    func testSidebarPreviewRetirementPublishesOneBatchForMultipleReadNotifications() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let readNotifications = (0..<3).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspaceId,
+                surfaceId: UUID(),
+                title: "Read \(index)",
+                subtitle: "",
+                body: "Read body \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: true
+            )
+        }
+        let unreadNotification = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: UUID(),
+            title: "Unread",
+            subtitle: "",
+            body: "Unread body",
+            createdAt: Date(timeIntervalSince1970: 10),
+            isRead: false
+        )
+        let allNotifications = readNotifications + [unreadNotification]
+
+        store.replaceNotificationsForTesting(allNotifications)
+        for notification in allNotifications {
+            store.notificationFeedHistory.record(notification, supersededIDs: [])
+        }
+        defer {
+            store.replaceNotificationsForTesting([])
+        }
+
+        var publicationCount = 0
+        let cancellable = store.objectWillChange.sink { _ in
+            publicationCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        XCTAssertTrue(store.clearSidebarNotificationPreviews(forTabId: workspaceId))
+        XCTAssertEqual(
+            publicationCount,
+            1,
+            "Retiring a workspace's read previews should publish one active-store mutation"
+        )
+        XCTAssertEqual(store.notifications, [unreadNotification])
+        XCTAssertEqual(
+            Set(store.notificationFeedHistory.notifications.map(\.id)),
+            Set(allNotifications.map(\.id))
+        )
     }
 }
