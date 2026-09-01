@@ -469,19 +469,54 @@ impl Drop for SpawnedChildCleanup {
     }
 }
 
+#[derive(Default)]
+struct ChildLifecycleState {
+    exited: bool,
+    termination_started: bool,
+}
+
+/// Coordinates late PTY-control drops with the wait thread. A successful
+/// WNOWAIT observation marks the child exited while its PID is still reserved;
+/// a late control drop then cannot signal a reused PID.
+struct ChildLifecycle {
+    state: Mutex<ChildLifecycleState>,
+}
+
+impl ChildLifecycle {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { state: Mutex::new(ChildLifecycleState::default()) })
+    }
+
+    fn mark_exited_before_reap(&self) {
+        self.state.lock().expect("child lifecycle lock").exited = true;
+    }
+
+    fn begin_termination(&self) -> bool {
+        let mut state = self.state.lock().expect("child lifecycle lock");
+        if state.exited || state.termination_started {
+            return false;
+        }
+        state.termination_started = true;
+        true
+    }
+}
+
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
+    lifecycle: Arc<ChildLifecycle>,
 }
 
 impl Drop for MasterControl {
     fn drop(&mut self) {
         // A cancelled spawn_blocking task can finish after its JoinHandle has
-        // been aborted. Dropping the late handle must still terminate the
-        // child, since the wait thread owns the Child value separately.
-        if let Ok(mut killer) = self.killer.lock() {
+        // been aborted. Terminate only while the wait thread still owns a
+        // live child, and never after it has observed exit with WNOWAIT.
+        if self.lifecycle.begin_termination()
+            && let Ok(mut killer) = self.killer.lock()
+        {
             let _ = killer.kill();
         }
     }
@@ -502,7 +537,9 @@ impl PtyControl for MasterControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        if let Ok(mut killer) = self.killer.lock() {
+        if self.lifecycle.begin_termination()
+            && let Ok(mut killer) = self.killer.lock()
+        {
             let _ = killer.kill();
         }
     }
@@ -544,6 +581,15 @@ impl PtyControl for PipeControl {
             return;
         }
         let _ = self.command_tx.send(PipeChildCommand::Kill);
+    }
+}
+
+impl Drop for PipeControl {
+    fn drop(&mut self) {
+        // The wait thread owns the Child. Send a kill before the command
+        // channel closes, so a late spawn_blocking result cannot leave a
+        // fallback process waiting forever on EOF.
+        self.kill();
     }
 }
 
@@ -598,10 +644,12 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
     let killer = child_cleanup.child().clone_killer();
+    let lifecycle = ChildLifecycle::new();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
         killer: Mutex::new(killer),
+        lifecycle: Arc::clone(&lifecycle),
     });
     output.set_overflow_control(&control);
     // Use the same bounded post-exit grace as pipe fallback. A background
@@ -616,8 +664,21 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     // Blocking wait thread -> exit.
     let mut child = child_cleanup.take();
     let exit_completion = Arc::clone(&completion);
+    let wait_lifecycle = Arc::clone(&lifecycle);
     std::thread::spawn(move || {
+        let observed_exit = child
+            .process_id()
+            .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok());
+        if observed_exit {
+            wait_lifecycle.mark_exited_before_reap();
+        } else if wait_lifecycle.begin_termination() {
+            // If WNOWAIT is unavailable, claim termination before asking the
+            // owned child handle to kill. This keeps a late control drop from
+            // racing a PID that the eventual wait may release.
+            let _ = child.kill();
+        }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+        wait_lifecycle.mark_exited_before_reap();
         exit_completion.child_exited(code);
     });
 
@@ -1165,6 +1226,30 @@ mod tests {
 
         assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
         assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn child_lifecycle_fences_kill_after_exit_observation() {
+        let lifecycle = ChildLifecycle::new();
+        assert!(lifecycle.begin_termination());
+        assert!(!lifecycle.begin_termination());
+
+        let exited = ChildLifecycle::new();
+        exited.mark_exited_before_reap();
+        assert!(!exited.begin_termination());
+    }
+
+    #[test]
+    fn pipe_control_drop_requests_kill_for_owned_child() {
+        let (command_tx, command_rx) = mpsc::channel();
+        {
+            let control = PipeControl {
+                stdin: Mutex::new(None),
+                command_tx,
+                kill_requested: AtomicBool::new(false),
+            };
+        }
+        assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
     }
 
     #[test]
