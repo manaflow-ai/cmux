@@ -2,41 +2,6 @@ import Foundation
 import CmuxWorkspaces
 
 extension AgentHibernationRecord {
-    /// Builds a record while preserving the optional process-liveness evidence.
-    init(
-        key: AgentHibernationPanelKey,
-        workspace: Workspace,
-        terminalPanel: TerminalPanel,
-        agent: SessionRestorableAgentSnapshot,
-        lifecycle: AgentHibernationLifecycleState,
-        hasUnconfirmedTerminalInput: Bool,
-        lastActivityAt: TimeInterval,
-        isProtected: Bool,
-        hasLiveProcess: Bool,
-        containsUnrelatedProcess: Bool,
-        panelProcessIDs: Set<Int>,
-        processIDs: Set<Int>,
-        processIdentities: [Int: AgentPIDProcessIdentity],
-        processLiveness: RestorableAgentProcessLiveness = .unknown
-    ) {
-        self.key = key
-        self.workspace = workspace
-        self.terminalPanel = terminalPanel
-        self.agent = agent
-        self.lifecycle = lifecycle
-        self.hasUnconfirmedTerminalInput = hasUnconfirmedTerminalInput
-        self.lastActivityAt = lastActivityAt
-        self.isProtected = isProtected
-        self.hasLiveProcess = hasLiveProcess
-        self.containsUnrelatedProcess = containsUnrelatedProcess
-        self.panelProcessIDs = panelProcessIDs
-        self.processIDs = processIDs
-        self.processIdentities = processIdentities
-        self.processLiveness = processLiveness
-    }
-}
-
-extension AgentHibernationRecord {
     /// Whether the indexed process set is complete enough to terminate safely.
     var hasPressureSafeProcessEvidence: Bool {
         processLiveness == .running &&
