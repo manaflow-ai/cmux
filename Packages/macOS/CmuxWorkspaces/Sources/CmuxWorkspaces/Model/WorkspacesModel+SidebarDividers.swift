@@ -6,14 +6,21 @@ extension WorkspacesModel {
     /// Returns the top-level row ids in their current sidebar order.
     ///
     /// Group anchors represent their whole group; child workspaces are not
-    /// returned as separate top-level rows.
+    /// returned as separate top-level rows. Durable empty group headers are
+    /// included because they are real sidebar rows and can own a divider.
     public func sidebarTopLevelWorkspaceIdsForSidebar() -> [UUID] {
-        sidebarTopLevelWorkspaceIds()
+        sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
     }
 
     /// Resolves any workspace to the top-level row that represents it.
     public func sidebarTopLevelWorkspaceId(for workspaceId: UUID) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == workspaceId }) else { return nil }
+        guard let tab = tabs.first(where: { $0.id == workspaceId }) else {
+            // Header-only groups have no tab to resolve, but their stable
+            // anchor identity is still a valid top-level row id.
+            return workspaceGroups.contains { $0.anchorWorkspaceId == workspaceId }
+                ? workspaceId
+                : nil
+        }
         if let groupId = tab.groupId,
            let group = workspaceGroups.first(where: { $0.id == groupId }) {
             return group.anchorWorkspaceId
@@ -28,7 +35,7 @@ extension WorkspacesModel {
 
     /// Returns whether a divider can be inserted after the given top-level row.
     public func canInsertSidebarDivider(after workspaceId: UUID) -> Bool {
-        let topLevelIds = sidebarTopLevelWorkspaceIds()
+        let topLevelIds = sidebarTopLevelWorkspaceIdsForSidebar()
         guard let index = topLevelIds.firstIndex(of: workspaceId),
               index < topLevelIds.count - 1,
               sidebarDividers.allSatisfy({ $0.afterWorkspaceId != workspaceId }) else {
@@ -50,11 +57,12 @@ extension WorkspacesModel {
 
     /// Returns whether a divider can be inserted immediately before a row.
     public func canInsertSidebarDivider(before workspaceId: UUID) -> Bool {
-        guard let index = sidebarTopLevelWorkspaceIds().firstIndex(of: workspaceId),
+        let topLevelIds = sidebarTopLevelWorkspaceIdsForSidebar()
+        guard let index = topLevelIds.firstIndex(of: workspaceId),
               index > 0 else {
             return false
         }
-        return canInsertSidebarDivider(after: sidebarTopLevelWorkspaceIds()[index - 1])
+        return canInsertSidebarDivider(after: topLevelIds[index - 1])
     }
 
     /// Inserts one divider after a top-level row and returns its id.
@@ -70,7 +78,7 @@ extension WorkspacesModel {
     /// Inserts one divider immediately before a top-level row and returns its id.
     @discardableResult
     public func insertSidebarDivider(before workspaceId: UUID) -> UUID? {
-        let topLevelIds = sidebarTopLevelWorkspaceIds()
+        let topLevelIds = sidebarTopLevelWorkspaceIdsForSidebar()
         guard let index = topLevelIds.firstIndex(of: workspaceId), index > 0 else {
             return nil
         }
@@ -81,7 +89,7 @@ extension WorkspacesModel {
     @discardableResult
     public func insertSidebarDividerAtEnd() -> UUID? {
         let occupiedAnchors = Set(sidebarDividers.map(\.afterWorkspaceId))
-        guard let anchor = sidebarTopLevelWorkspaceIds()
+        guard let anchor = sidebarTopLevelWorkspaceIdsForSidebar()
             .dropLast()
             .reversed()
             .first(where: { !occupiedAnchors.contains($0) }) else {
@@ -124,7 +132,7 @@ extension WorkspacesModel {
     /// well as after direct divider edits. A closed anchor therefore removes
     /// only its divider and never changes any workspace or group state.
     public func normalizeSidebarDividers() {
-        let topLevelIds = sidebarTopLevelWorkspaceIds()
+        let topLevelIds = sidebarTopLevelWorkspaceIdsForSidebar()
         guard !topLevelIds.isEmpty else {
             if !sidebarDividers.isEmpty { sidebarDividers = [] }
             return
@@ -145,7 +153,7 @@ extension WorkspacesModel {
         let byAnchor = Dictionary(uniqueKeysWithValues: sidebarDividers.map {
             ($0.afterWorkspaceId, $0.id)
         })
-        return sidebarTopLevelWorkspaceIds().compactMap { byAnchor[$0] }
+        return sidebarTopLevelWorkspaceIdsForSidebar().compactMap { byAnchor[$0] }
     }
 
     /// Computes the order used by notification-driven "move to top" bumps.
@@ -158,8 +166,8 @@ extension WorkspacesModel {
     public func sidebarTopLevelWorkspaceIdsAfterNotificationMove(
         for workspaceId: UUID
     ) -> [UUID]? {
-        let topLevelIds = sidebarTopLevelWorkspaceIds()
-        let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
+        let topLevelIds = sidebarTopLevelWorkspaceIdsForSidebar()
+        let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
         guard let topLevelId = sidebarTopLevelWorkspaceId(for: workspaceId),
               let currentIndex = topLevelIds.firstIndex(of: topLevelId),
               !pinnedTopLevelIds.contains(topLevelId) else {

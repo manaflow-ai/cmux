@@ -133,4 +133,33 @@ struct WorkspaceSidebarDividerTests {
         #expect(model.tabs.map(\.id) == [member.id, outside.id])
         #expect(model.sidebarDivider(after: member.id) != nil)
     }
+
+    @Test
+    func closingLastPinnedGroupMemberPreservesEmptyHeaderAndDivider() throws {
+        let model = WorkspacesModel<DividerStubTab>()
+        let anchor = DividerStubTab()
+        let outside = DividerStubTab()
+        let groupId = UUID()
+        anchor.groupId = groupId
+        model.tabs = [anchor, outside]
+        model.workspaceGroups = [WorkspaceGroup(
+            id: groupId,
+            name: "Pinned",
+            isCollapsed: false,
+            isPinned: true,
+            anchorWorkspaceId: anchor.id,
+            customColor: nil,
+            iconSymbol: nil
+        )]
+        _ = try #require(model.insertSidebarDivider(after: anchor.id))
+
+        let promoted = model.removeWorkspaceAndPromoteGroupAnchor(closedWorkspaceId: anchor.id)
+
+        #expect(promoted.isEmpty)
+        #expect(model.tabs.map(\.id) == [outside.id])
+        #expect(model.workspaceGroups.first?.id == groupId)
+        #expect(model.workspaceGroups.first?.isEmpty == true)
+        #expect(model.sidebarTopLevelWorkspaceIdsForSidebar().first == groupId)
+        #expect(model.sidebarDivider(after: groupId) != nil)
+    }
 }

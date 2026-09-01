@@ -3,6 +3,7 @@
 //! This module is intentionally named `raw`: its request object may contain
 //! internal fields and receives no public compatibility guarantees.
 
+use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -31,7 +32,13 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 2;
         }
     };
-    let socket = resolve_socket(&global);
+    let socket = match resolve_socket(&global) {
+        Ok(socket) => socket,
+        Err(_) => {
+            eprintln!("{}", crate::localization::catalog().startup.invalid_session_name);
+            return 2;
+        }
+    };
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) => {
@@ -132,18 +139,31 @@ fn read_line_limited(
         .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
 }
 
-fn resolve_socket(global: &GlobalArgs) -> PathBuf {
+fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
+    resolve_socket_with_env(global, |name| std::env::var_os(name))
+}
+
+fn resolve_socket_with_env(
+    global: &GlobalArgs,
+    env: impl Fn(&str) -> Option<OsString>,
+) -> anyhow::Result<PathBuf> {
     if let Some(path) = &global.socket {
-        return path.clone();
+        return Ok(path.clone());
+    }
+    // An explicit session selects that session's canonical socket. Keep this
+    // ahead of environment fallbacks so `--session` cannot route raw requests
+    // through a stale socket inherited from the shell.
+    if let Some(session) = &global.session {
+        return cmux_tui_core::server::try_default_socket_path(session);
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
+        if let Some(path) = env(name)
             && !path.is_empty()
         {
-            return PathBuf::from(path);
+            return Ok(PathBuf::from(path));
         }
     }
-    cmux_tui_core::server::default_socket_path(global.session.as_deref().unwrap_or("main"))
+    cmux_tui_core::server::try_default_socket_path(global.session.as_deref().unwrap_or("main"))
 }
 
 #[cfg(test)]
@@ -155,5 +175,18 @@ mod tests {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
         let plan = RawCommandPlan { request: request.clone() };
         assert_eq!(plan.request, request);
+    }
+
+    #[test]
+    fn explicit_session_precedes_ambient_socket_fallbacks() {
+        let global = GlobalArgs { session: Some("session-alpha".into()), ..GlobalArgs::default() };
+        let socket = resolve_socket_with_env(&global, |_| Some("/tmp/stale.sock".into()))
+            .expect("session socket path should resolve");
+
+        assert_eq!(
+            socket,
+            cmux_tui_core::server::try_default_socket_path("session-alpha")
+                .expect("session socket path should resolve")
+        );
     }
 }

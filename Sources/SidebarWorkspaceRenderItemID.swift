@@ -23,6 +23,13 @@ struct SidebarWorkspaceRenderItemID: Hashable {
 
     var isDivider: Bool { kind == 3 }
 
+    /// Returns the durable group identifier when this row represents a group.
+    /// Workspace rows return `nil`; callers should use their row-specific
+    /// fallback identity for those rows.
+    var groupId: UUID? {
+        kind == 1 ? uuid : nil
+    }
+
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.kind == rhs.kind && lhs.uuid == rhs.uuid
     }

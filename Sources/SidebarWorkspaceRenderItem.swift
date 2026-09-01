@@ -40,9 +40,10 @@ enum SidebarWorkspaceRenderItem {
     static func renderItems(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup],
-        dividers: [WorkspaceSidebarDivider] = []
+        dividers: [WorkspaceSidebarDivider] = [],
+        orderedGroups: [WorkspaceGroup]? = nil
     ) -> [SidebarWorkspaceRenderItem] {
-        guard !tabs.isEmpty else { return [] }
+        guard !tabs.isEmpty || !groupsById.isEmpty else { return [] }
         var items: [SidebarWorkspaceRenderItem] = []
         items.reserveCapacity(tabs.count + groupsById.count + dividers.count)
         let topLevelIdByWorkspaceId = Dictionary(
@@ -92,12 +93,96 @@ enum SidebarWorkspaceRenderItem {
             }
         }
 
-        guard !dividers.isEmpty else { return items }
+        // Empty pinned groups have no tab row from which a header can be
+        // discovered. Emit them as first-class header-only rows, keeping the
+        // model's group order within each pin tier. Empty unpinned groups are
+        // placed after live rows until an explicit mutation removes them.
+        let ordered = orderedGroups
+            ?? groupsById.values.sorted { $0.id.uuidString < $1.id.uuidString }
+        let memberGroupIds = Set(tabs.compactMap(\.groupId))
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let emptyGroups = ordered.filter { !memberGroupIds.contains($0.id) }
+        var renderedItems = items
+        if !emptyGroups.isEmpty {
+            var emptyBeforeGroup: [UUID: [WorkspaceGroup]] = [:]
+            var trailingPinned: [WorkspaceGroup] = []
+            var trailingUnpinned: [WorkspaceGroup] = []
+            var nextLivePinnedGroup: WorkspaceGroup?
+            var nextLiveUnpinnedGroup: WorkspaceGroup?
+            var nextLiveSameTierByIndex: [WorkspaceGroup?] = Array(
+                repeating: nil,
+                count: ordered.count
+            )
+            for index in ordered.indices.reversed() {
+                let group = ordered[index]
+                nextLiveSameTierByIndex[index] = group.isPinned
+                    ? nextLivePinnedGroup
+                    : nextLiveUnpinnedGroup
+                guard memberGroupIds.contains(group.id) else { continue }
+                if group.isPinned {
+                    nextLivePinnedGroup = group
+                } else {
+                    nextLiveUnpinnedGroup = group
+                }
+            }
+            for (index, group) in ordered.enumerated() where !memberGroupIds.contains(group.id) {
+                // Preserve the group's authoritative slot within its pin tier.
+                // Crossing tiers would violate the sidebar's pinned-first
+                // invariant, so only a later live group in the same tier is a
+                // valid insertion anchor; otherwise defer to that tier boundary.
+                let nextLiveSameTierGroup = nextLiveSameTierByIndex[index]
+                if let nextLiveSameTierGroup {
+                    emptyBeforeGroup[nextLiveSameTierGroup.id, default: []].append(group)
+                } else if group.isPinned {
+                    trailingPinned.append(group)
+                } else {
+                    trailingUnpinned.append(group)
+                }
+            }
+
+            var projectedEmpty: [SidebarWorkspaceRenderItem] = []
+            projectedEmpty.reserveCapacity(items.count + emptyGroups.count)
+            for item in items {
+                if case .groupHeader(let groupId, _) = item,
+                   let preceding = emptyBeforeGroup[groupId] {
+                    projectedEmpty.append(contentsOf: preceding.map {
+                        .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+                    })
+                }
+                projectedEmpty.append(item)
+            }
+            if !trailingPinned.isEmpty {
+                let firstUnpinnedIndex = projectedEmpty.firstIndex { item in
+                    switch item {
+                    case .groupHeader(let groupId, _):
+                        return groupsById[groupId]?.isPinned == false
+                    case .workspace(let workspaceId):
+                        guard let workspace = tabsById[workspaceId] else { return false }
+                        if let groupId = workspace.groupId,
+                           let group = groupsById[groupId] {
+                            return !group.isPinned
+                        }
+                        return !workspace.isPinned
+                    case .divider:
+                        return false
+                    }
+                } ?? projectedEmpty.count
+                projectedEmpty.insert(contentsOf: trailingPinned.map {
+                    .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+                }, at: firstUnpinnedIndex)
+            }
+            projectedEmpty.append(contentsOf: trailingUnpinned.map {
+                .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+            })
+            renderedItems = projectedEmpty
+        }
+
+        guard !dividers.isEmpty else { return renderedItems }
         let dividerByAnchor = Dictionary(
             dividers.map { ($0.afterWorkspaceId, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let topLevelIdByRenderIndex = items.map { item -> UUID in
+        let topLevelIdByRenderIndex = renderedItems.map { item -> UUID in
             switch item {
             case .groupHeader(_, let anchorWorkspaceId):
                 return anchorWorkspaceId
@@ -114,8 +199,8 @@ enum SidebarWorkspaceRenderItem {
             lastIndexByTopLevelId[topLevelId] = index
         }
         var projected: [SidebarWorkspaceRenderItem] = []
-        projected.reserveCapacity(items.count + dividers.count)
-        for (index, item) in items.enumerated() {
+        projected.reserveCapacity(renderedItems.count + dividers.count)
+        for (index, item) in renderedItems.enumerated() {
             projected.append(item)
             let topLevelId = topLevelIdByRenderIndex[index]
             if lastIndexByTopLevelId[topLevelId] == index,

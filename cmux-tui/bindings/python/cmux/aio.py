@@ -51,6 +51,32 @@ ValueT = TypeVar("ValueT")
 _ITERATION_END = object()
 
 
+async def _await_cleanup(awaitable: Any) -> Any:
+    """Finish cleanup after caller cancellation, then re-raise it.
+
+    ``shield`` keeps the cleanup task alive, while the loop drains it even if
+    cancellation is delivered again during shutdown.
+    """
+    task = asyncio.ensure_future(awaitable)
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            # A cancellation from the wrapped task itself must be propagated.
+            # Retrying a completed cancelled task would otherwise spin.
+            if task.done():
+                result = task.result()
+                cancelled = True
+                break
+            cancelled = True
+            continue
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 def _next_or_end(
     stream: SyncResourceStream[ValueT],
     timeout: Optional[float],
@@ -116,7 +142,9 @@ class ResourceStream(Generic[ValueT], AsyncIterator[StreamItem[ValueT]]):
                 timeout,
             )
             try:
-                await asyncio.wait((future,))
+                # Shield the executor future so cancellation reaches the stream
+                # protocol below, rather than cancelling the asyncio wrapper.
+                await asyncio.shield(future)
                 value = future.result()
             except asyncio.CancelledError:
                 await self.cancel()
@@ -201,6 +229,7 @@ class Client:
         )
         self._closed = False
         self._closing = False
+        self._close_task: Optional[asyncio.Task[None]] = None
         self._streams: Set[ResourceStream[Any]] = set()
 
     @property
@@ -233,23 +262,37 @@ class Client:
         )
 
     async def close(self) -> None:
-        if self._closed or self._closing:
+        if self._closed:
             return
-        self._closing = True
-        streams = tuple(self._streams)
-        if streams:
-            await asyncio.gather(
-                *(stream.cancel() for stream in streams),
-                return_exceptions=True,
-            )
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._sync.close)
-        await loop.run_in_executor(
-            None,
-            functools.partial(self._executor.shutdown, wait=True),
-        )
-        self._closed = True
-        self._closing = False
+        if self._close_task is not None and self._close_task.done():
+            # A failed cleanup is retryable. A successful one sets _closed.
+            self._close_task = None
+        if self._close_task is None:
+            self._closing = True
+
+            async def cleanup() -> None:
+                try:
+                    streams = tuple(self._streams)
+                    if streams:
+                        await asyncio.gather(
+                            *(stream.cancel() for stream in streams),
+                            return_exceptions=True,
+                        )
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, self._sync.close)
+                    await loop.run_in_executor(
+                        None,
+                        functools.partial(self._executor.shutdown, wait=True),
+                    )
+                except BaseException:
+                    self._closing = False
+                    raise
+                else:
+                    self._closed = True
+                    self._closing = False
+
+            self._close_task = asyncio.create_task(cleanup())
+        await _await_cleanup(self._close_task)
 
     async def __aenter__(self) -> "Client":
         return self
@@ -285,11 +328,18 @@ class Client:
             cancel_event,
         )
         try:
-            await asyncio.wait((future,))
+            # The worker owns a request that must be drained after cancellation.
+            # Shield preserves that future while we signal cancellation below.
+            await asyncio.shield(future)
             return future.result()
         except asyncio.CancelledError:
             cancel_event.set()
-            await asyncio.wait((future,))
+            try:
+                await asyncio.shield(future)
+            except BaseException:
+                # Drain the worker result. The request cancellation exception
+                # is intentionally hidden by the caller's asyncio cancellation.
+                pass
             try:
                 future.result()
             except BaseException:
