@@ -57,27 +57,39 @@ public struct TerminalLetterboxGeometry {
     /// - Chrome hidden (HIDE button): the grid reclaims everything; nothing is
     ///   reserved (there is no bar to keep a seam against).
     ///
+    /// When the surface extends under the top safe area for the scroll-edge
+    /// band (iOS 26 navigation-bar blur over live scrollback rows), the
+    /// bounds include that band, so `topContentInset` reserves it: the grid
+    /// starts below the bar exactly where it did before the expansion, and
+    /// the band above it holds render-only overscan rows.
+    ///
     /// - Parameters:
     ///   - bounds: The host view bounds size in points.
     ///   - composerBandHeight: The open composer band height in points (0 closed).
     ///   - toolbarHeight: The reserved persistent toolbar height in points.
     ///   - bottomSafeAreaInset: The resolved bottom safe-area inset in points.
     ///   - chromeHidden: True while the HIDE button has suppressed the dock.
+    ///   - topContentInset: The top safe-area band included in `bounds` that
+    ///     the grid must not occupy (0 when the surface does not underlap
+    ///     the top bar).
     /// - Returns: The grid container size in points.
     public static func terminalContainerSize(
         bounds: CGSize,
         composerBandHeight: CGFloat,
         toolbarHeight: CGFloat,
         bottomSafeAreaInset: CGFloat,
-        chromeHidden: Bool
+        chromeHidden: Bool,
+        topContentInset: CGFloat = 0
     ) -> CGSize {
         let reservedBottom: CGFloat = chromeHidden
             ? 0
             : max(0, composerBandHeight) + max(0, toolbarHeight) + max(0, bottomSafeAreaInset)
                 + dockSeamPadding
-        let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
+        let reservedTop = max(0, topContentInset)
+        let reserved = reservedBottom + reservedTop
+        let totalInset = min(reserved, max(0, bounds.height - 1))
         let containerW = max(1, bounds.width)
-        let containerH = max(1, bounds.height - bottomInset)
+        let containerH = max(1, bounds.height - totalInset)
         return CGSize(width: containerW, height: containerH)
     }
 
