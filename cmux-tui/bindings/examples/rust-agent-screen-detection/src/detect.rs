@@ -1302,6 +1302,7 @@ mod tests {
             t0,
         ));
         assert!(!tracker.metadata_is_fresh("term_a", Some(41)));
+        assert!(!tracker.metadata_is_fresh("term_a", None));
         assert!(tracker.metadata_is_fresh("term_a", Some(42)));
 
         // A confirmed exit also leaves a fence. The host cannot clear its
