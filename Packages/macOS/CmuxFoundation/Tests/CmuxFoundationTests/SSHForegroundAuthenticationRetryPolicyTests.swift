@@ -462,7 +462,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            trap '/usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
+            trap '/bin/sleep 0.25; /usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
@@ -477,7 +477,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
         wait "$cmux_test_auth_root" 2>/dev/null || true
         cmux_test_replacement_attempt=0
         while [ ! -s "$CMUX_TEST_REPLACEMENT_PID" ] && [ "$cmux_test_replacement_attempt" -lt 100 ]; do
@@ -548,7 +548,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
         wait "$cmux_test_auth_root" 2>/dev/null || true
         cmux_test_terminal_mode_after=$(/bin/stty -g) || exit 99
         test "$cmux_test_terminal_mode_after" = "$cmux_test_terminal_mode_before"
