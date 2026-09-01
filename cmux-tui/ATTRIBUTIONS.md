@@ -34,11 +34,14 @@ Derived material and unchanged vendored material:
   explicit catalog and cache status concepts derived from herdr's update
   surface. Network access, URL validation, atomic writes, and version policy
   are a new manaflow implementation and never run during daemon startup.
-- `crates/cmux-tui/src/sidebar_projection.rs` (`agent_priority`) and the
+- `crates/cmux-tui/src/sidebar_projection.rs` (`agent_attention`) and the
   agents-view rendering in `crates/cmux-tui/src/ui/{sidebar.rs,rail.rs}`:
-  the priority order (blocked > idle-unseen > working > idle-seen >
-  unknown), the seen-bit semantics, and the two-line row / header layout
-  follow `src/app/agent_view.rs` and herdr's agents panel design.
+  the two-line row and header layout follow `src/app/agent_view.rs` and
+  herdr's agents-panel design. cmux currently orders rows by blocked,
+  working, then idle, with newest transitions first inside each bucket. The
+  herdr idle-unseen seen bit is intentionally not copied because it is
+  client-owned presentation state; the deliberate exclusion is listed in
+  `spec/plugins.md`.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.
