@@ -3,7 +3,7 @@
 Audit target: [manaflow-ai/cmux#10599](https://github.com/manaflow-ai/cmux/pull/10599)  
 PR branch: `justincrich/cmux:upstream/file-preview-code-view-tokens-gutter`  
 Maintainer update remote: `https://github.com/justincrich/cmux.git`  
-Audited head: `9ec5890b0664ff4de184b36b16c2cb4859847873`
+Audited head: `4aa4d6848d82927f2b81aaa672c0798e4fe07dde`
 
 The branch includes merge commit `7efb561256` with the required parents
 `d1f2e982cb` and `857b5af7a8396d5239679fbb8341fbd3ca8c541e`. The merge conflict
@@ -59,7 +59,7 @@ The size/line policy remains enforced before JavaScriptCore work.
 ## Review disposition
 
 Live feedback was fetched repeatedly with the HQ PR-feedback helper. Cubic's
-22 review threads are resolved. Outdated findings (representable reuse,
+23 review threads are resolved. Outdated findings (representable reuse,
 line-fragment fallback, policy transition, parser-test coverage, and prior
 access visibility) received evidence-backed replies and were resolved; current
 catalog/test findings were fixed and resolved as well. Cursor Bugbot is paused
@@ -105,7 +105,8 @@ CMUX_SKIP_ZIG_BUILD=1 scripts/reload-cloud.sh --tag pr-10599-review --launch
 (`reload-cloud.sh` is invoked from the maintainer HQ checkout.)
 
 Final runtime build run `33469654129` completed successfully for head
-`1dcb7a2ef4` (the subsequent `9ec5890b06` change is test-only). The earlier
+`1dcb7a2ef4`; subsequent heads `9ec5890b06`, `be4c45ad76`, and
+`4aa4d6848d` contain only tests/documentation. The earlier
 post-merge failure `33468023359` was the single `GhosttySurfaceScrollView`
 compatibility error documented above; the repaired rebuild passed. The app
 identity is `cmux DEV pr-10599-review` with bundle identifier
