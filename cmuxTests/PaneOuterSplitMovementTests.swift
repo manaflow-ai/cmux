@@ -17,6 +17,25 @@ struct PaneOuterSplitMovementTests {
     ) throws {
         let fixture = try makeNestedFixture()
         let mutation = PaneOuterSplitLayoutMutation()
+        let initialNestedSplit = try #require(
+            nestedSplit(in: fixture.controller.treeSnapshot())
+        )
+        let initialNestedSplitID = try #require(
+            UUID(uuidString: initialNestedSplit.id)
+        )
+        let expectedNestedDivider = 0.63
+        #expect(
+            fixture.controller.setDividerPosition(
+                CGFloat(expectedNestedDivider),
+                forSplit: initialNestedSplitID
+            )
+        )
+        #expect(
+            fixture.controller.setFullWidthTabMode(
+                true,
+                inPane: fixture.sourcePane
+            )
+        )
         let beforeTabIds = Set(fixture.controller.allTabIds)
         let beforeSourceTabs = fixture.controller
             .tabs(inPane: fixture.sourcePane)
@@ -58,16 +77,26 @@ struct PaneOuterSplitMovementTests {
         #expect(sourceNode.tabs.map { $0.id } == beforeSourceTabs.map { $0.uuid.uuidString })
         #expect(sourceNode.selectedTabId == beforeSelectedTab.uuid.uuidString)
 
-        // The old branch is still a split containing the two panes that were
-        // outside the moved pane. This verifies that removing the nested leaf
-        // collapsed only its degenerate container, not the remaining topology.
+        // The old branch retains its nested split and non-default divider even
+        // though removing the source collapses only its degenerate container.
         let remainingEdge = movement.insertFirst ? root.second : root.first
         guard case .split(let remainingRoot) = remainingEdge else {
             Issue.record("The remaining panes must retain their split branch")
             return
         }
+        guard case .split(let remainingNested) = remainingRoot.second else {
+            Issue.record("The remaining nested split must retain its topology")
+            return
+        }
         #expect(remainingRoot.orientation == "horizontal")
-        #expect(fixture.controller.allPaneIds.count == 3)
+        #expect(
+            remainingNested.orientation == "vertical"
+        )
+        #expect(
+            abs(remainingNested.dividerPosition - expectedNestedDivider) < 0.0001
+        )
+        #expect(fixture.controller.allPaneIds.count == 4)
+        #expect(fixture.controller.isFullWidthTabMode(inPane: fixture.sourcePane))
         #expect(Set(fixture.controller.allTabIds) == beforeTabIds)
         #expect(fixture.controller.focusedPaneId == fixture.sourcePane)
         #expect(
@@ -144,6 +173,16 @@ struct PaneOuterSplitMovementTests {
         let sourcePane: PaneID
     }
 
+    private func nestedSplit(
+        in tree: ExternalTreeNode
+    ) -> ExternalSplitNode? {
+        guard case .split(let root) = tree,
+              case .split(let nested) = root.second else {
+            return nil
+        }
+        return nested
+    }
+
     private func makeNestedFixture() throws -> Fixture {
         let controller = BonsplitController(
             configuration: BonsplitConfiguration(newTabPosition: .end)
@@ -164,10 +203,18 @@ struct PaneOuterSplitMovementTests {
                 insertFirst: false
             )
         )
-        let sourcePane = try #require(
+        _ = try #require(
             controller.splitPane(
                 rightPane,
                 orientation: .vertical,
+                withTab: Bonsplit.Tab(title: "right-middle"),
+                insertFirst: false
+            )
+        )
+        let sourcePane = try #require(
+            controller.splitPane(
+                rightPane,
+                orientation: .horizontal,
                 withTab: Bonsplit.Tab(title: "right-bottom"),
                 insertFirst: false
             )
