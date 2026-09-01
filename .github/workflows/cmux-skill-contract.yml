@@ -30,9 +30,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    # These checks execute pull-request-controlled documentation and test
-    # code, so they must remain isolated from configurable self-hosted hosts.
-    runs-on: ubuntu-24.04 # github-hosted-required: skill contract runs untrusted PR code
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
