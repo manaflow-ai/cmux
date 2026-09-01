@@ -54,7 +54,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.cloudVM.title", defaultValue: "Open Base"), ["base", "cloud", "vm", "virtual", "machine", "remote"])
         case .mobileConnect:
             return (
-                String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing"),
+                String(localized: "command.mobileConnect.title", defaultValue: "Pair mobile"),
                 ["tailscale", "iphone", "ipad", "mobile", "phone", "pair", "connect", "qr"]
             )
         case .newTerminal:

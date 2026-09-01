@@ -6,7 +6,7 @@ import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in (authorization is a Stack same-account check), then turns on the pairing
-/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
+/// host and mints a compatibility pairing code. Automatic Iroh discovery needs no
 /// QR. The displayed Tailscale code never expires and is never regenerated on
 /// a timer; Refresh Code re-mints on demand.
 ///
@@ -33,7 +33,7 @@ final class MobilePairingModel {
         indirect case connected(from: State)
         /// No phone-reachable Tailscale route is available yet. Carries the
         /// live Iroh registration state so the window's Iroh tab keeps
-        /// working while Tailscale QR pairing is unavailable.
+        /// working while compatibility pairing is unavailable.
         case needsReachableTransport(reachableViaIroh: Bool)
         /// The listener could not be started or no ticket could be minted.
         case failed(String)

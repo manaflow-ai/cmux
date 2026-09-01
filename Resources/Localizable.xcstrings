@@ -59637,13 +59637,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing is unavailable"
+            "value": "Pair mobile is unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングは利用できません"
+            "value": "モバイルのペアリングは利用できません"
           }
         }
       }
@@ -68465,7 +68465,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Mobile"
           }
         },
         "es": {
@@ -68489,7 +68489,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "モバイル"
           }
         },
         "km": {
@@ -68590,7 +68590,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale Pairing"
+            "value": "Pair mobile"
           }
         },
         "es": {
@@ -68614,7 +68614,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングを開く"
+            "value": "モバイルをペアリング"
           }
         },
         "km": {
@@ -118773,13 +118773,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the Tailscale Pairing button in the sidebar footer."
+            "value": "Shows the Pair mobile button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
+            "value": "サイドバーのフッターにモバイルのペアリングボタンを表示します。"
           }
         }
       }
@@ -118790,13 +118790,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing button"
+            "value": "Pair mobile button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングボタン"
+            "value": "モバイルのペアリングボタン"
           }
         }
       }
@@ -144991,6 +144991,176 @@
         }
       }
     },
+    "mobile.pairing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルをペアリング"
+          }
+        }
+      }
+    },
+    "mobile.pairing.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect your iPhone to this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone をこの Mac に接続します。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.iroh.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続"
+          }
+        }
+      }
+    },
+    "mobile.pairing.iroh.status.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続の準備ができました"
+          }
+        }
+      }
+    },
+    "mobile.pairing.iroh.status.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を待っています"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.iroh.shortDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic, no code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動、コード不要"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.tailscale.shortDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR or manual address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR または手動アドレス"
+          }
+        }
+      }
+    },
+    "mobile.pairing.transport.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        }
+      }
+    },
+    "mobile.pairing.manual.addTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't scan? Add this Mac manually"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキャンできない場合は、この Mac を手動で追加"
+          }
+        }
+      }
+    },
     "mobile.pairing.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -145880,13 +146050,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Pair mobile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルをペアリング"
           }
         }
       }
@@ -186112,13 +186282,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Pair mobile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルをペアリング"
           }
         }
       }
@@ -186129,13 +186299,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Tailscale QR…"
+            "value": "Pair Mobile…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale QRを表示…"
+            "value": "モバイルをペアリング…"
           }
         }
       }

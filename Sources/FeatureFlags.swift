@@ -210,15 +210,15 @@ final class CmuxFeatureFlags {
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the bottom-left sidebar iPhone button that opens the Tailscale
-            // Pairing workspace. It stays hidden until the remote flag or a
+            // Shows the bottom-left sidebar iPhone button that opens the mobile
+            // pairing workspace. It stays hidden until the remote flag or a
             // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Tailscale Pairing button"),
+                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Pair mobile button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the Tailscale Pairing button in the sidebar footer."
+                    defaultValue: "Shows the Pair mobile button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),

@@ -251,7 +251,7 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
-            String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+            String(localized: "settings.mobile.pairDevice", defaultValue: "Pair mobile"),
             subtitle: String(
                 localized: "settings.mobile.pairDevice.subtitle",
                 defaultValue: """
@@ -260,7 +260,7 @@ public struct MobileSection: View {
                 """
             )
         ) {
-            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Show Tailscale QR…")) {
+            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Pair Mobile…")) {
                 hostActions.openMobilePairingWindow()
             }
             .buttonStyle(.bordered)
