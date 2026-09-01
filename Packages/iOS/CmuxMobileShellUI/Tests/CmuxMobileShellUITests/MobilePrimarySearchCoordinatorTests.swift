@@ -3,6 +3,18 @@ import Testing
 
 @MainActor
 @Suite struct MobilePrimarySearchCoordinatorTests {
+    @Test func beginSearchSelectsRequestedScopeBeforePresenting() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
+        coordinator.notifications = "alerts"
+
+        coordinator.beginSearch(for: .notifications)
+
+        #expect(coordinator.scope == .notifications)
+        #expect(coordinator.isPresented)
+        #expect(coordinator.activeNativeSearchText() == "alerts")
+        #expect(coordinator.activationGeneration == 1)
+    }
+
     @Test func activePresentedSearchAcceptsExplicitClear() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)

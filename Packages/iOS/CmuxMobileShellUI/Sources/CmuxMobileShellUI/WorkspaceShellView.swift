@@ -52,6 +52,14 @@ private enum WorkspaceRootToolbarSizing {
     static let maximumPickerWidth: CGFloat = 124
     private static let nonPickerWidth: CGFloat = 277
 
+    /// Principal toolbar items can be dropped by UIKit when the leading
+    /// controls consume nearly all of a narrow iPad sidebar. Moving the
+    /// picker into the leading group keeps it present, where its label can
+    /// apply the requested ellipsis instead of disappearing as a whole.
+    static func usesLeadingPlacement(for contentWidth: CGFloat) -> Bool {
+        contentWidth > 0 && contentWidth < nonPickerWidth + minimumPickerWidth
+    }
+
     static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
         min(
             maximumPickerWidth,
@@ -65,6 +73,7 @@ private enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let openSettings: () -> Void
     let openDevices: () -> Void
@@ -84,7 +93,10 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
         }
-        ToolbarItem(id: "workspace-list-title", placement: .principal) {
+        ToolbarItem(
+            id: "workspace-list-title",
+            placement: titlePlacement
+        ) {
             WorkspaceMacTitlePicker(
                 value: WorkspaceMacTitlePickerValue(
                     title: title,
@@ -109,6 +121,16 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
+    }
+
+    private var titlePlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        if horizontalSizeClass == .regular,
+           WorkspaceRootToolbarSizing.usesLeadingPlacement(for: contentWidth) {
+            return .topBarLeading
+        }
+        #endif
+        return .principal
     }
 }
 
@@ -144,6 +166,37 @@ private struct WorkspaceShellRenderPresentation {
     let selectedNotificationFeedMacDeviceIDs: Set<String>?
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
+}
+
+private struct WorkspaceSplitSidebarWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(0, nextValue())
+    }
+}
+
+/// Paints the split view's background behind the status-bar safe area. The
+/// navigation columns own their content backgrounds, but NavigationSplitView
+/// leaves the root safe area to the hosting view, which otherwise shows the
+/// window's default background across both columns.
+private struct WorkspaceSplitChromeBackground: View {
+    let sidebarColor: Color
+    let detailColor: Color
+    let sidebarWidth: CGFloat
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                sidebarColor
+                    .frame(width: min(max(sidebarWidth, 0), geometry.size.width))
+                detailColor
+                    .frame(maxWidth: .infinity)
+            }
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
+    }
 }
 #endif
 
@@ -205,6 +258,7 @@ struct WorkspaceShellView: View {
     @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
     @State private var rootToolbarSelectionTask: Task<Void, Never>?
     @State private var rootToolbarSelectionGeneration: UInt64 = 0
+    @State private var splitSidebarWidth: CGFloat = 0
     #endif
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
     @State private var workspaceListFilterState = WorkspaceListFilterState()
@@ -267,7 +321,7 @@ struct WorkspaceShellView: View {
                 notificationUnreadCount: presentation.notificationUnreadCount,
                 taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                     ? nil
-                    : taskComposerAction
+                    : taskComposerAction,
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -313,13 +367,33 @@ struct WorkspaceShellView: View {
                 notificationSearchTabContent(presentation: presentation)
             }
             .background {
+                if !usesCompactStack {
+                    WorkspaceSplitChromeBackground(
+                        sidebarColor: Color(uiColor: .systemGroupedBackground),
+                        detailColor: store.activeTerminalTheme.terminalBackgroundColor,
+                        sidebarWidth: splitSidebarWidth > 0
+                            ? splitSidebarWidth
+                            : geometry.size.width * 0.35
+                    )
+                }
+            }
+            .ignoresSafeArea(.container, edges: .top)
+            .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
                     projection: notificationFeedProjection
                 )
             }
-            .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
+            .environment(
+                \.workspaceRootToolbarContentWidth,
+                !usesCompactStack && selectedPrimaryTab == .workspaces && splitSidebarWidth > 0
+                    ? splitSidebarWidth
+                    : geometry.size.width
+            )
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
+            .onPreferenceChange(WorkspaceSplitSidebarWidthKey.self) { width in
+                splitSidebarWidth = max(0, width)
+            }
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
                 store.recordAppEvent(
                     isPresented ? .searchPresented : .searchDismissed,
@@ -334,6 +408,13 @@ struct WorkspaceShellView: View {
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(newValue))
                 )
+                if newValue == .workspaces, !usesCompactStack {
+                    // Returning to Workspaces is a root-navigation action on
+                    // iPad. Restore the split columns if the user arrived
+                    // from a detail-only presentation, so the workspace list
+                    // and its bottom controls are immediately visible.
+                    splitColumnVisibility = .all
+                }
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
                     workspaceSearchNavigationPath = []
@@ -371,6 +452,16 @@ struct WorkspaceShellView: View {
                 notificationFeedProjection.update(items: items)
             }
         }
+        .background {
+            if !usesCompactStack {
+                WorkspaceSplitChromeBackground(
+                    sidebarColor: Color(uiColor: .systemGroupedBackground),
+                    detailColor: store.activeTerminalTheme.terminalBackgroundColor,
+                    sidebarWidth: splitSidebarWidth
+                )
+            }
+        }
+        .ignoresSafeArea(.container, edges: .top)
         #else
         workspaceTabContent(canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection)
         .onAppear {
@@ -756,6 +847,15 @@ struct WorkspaceShellView: View {
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection
                 )
             }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear
+                        .preference(
+                            key: WorkspaceSplitSidebarWidthKey.self,
+                            value: geometry.size.width
+                        )
+                }
+            }
             .toolbar {
                 rootToolbarContent
             }
@@ -768,10 +868,22 @@ struct WorkspaceShellView: View {
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
             #if os(iOS)
-            .toolbarVisibility(splitColumnVisibility == .detailOnly ? .hidden : .visible, for: .tabBar)
+            // Keep the root tab strip visible when the split collapses to the
+            // terminal. The native iPad Liquid Glass tabs are the primary
+            // destination switcher, not detail-only toolbar chrome.
+            .toolbarVisibility(.visible, for: .tabBar)
             #endif
         }
         .navigationSplitViewStyle(.balanced)
+        #if os(iOS)
+        .containerBackground(for: .navigationSplitView) {
+            WorkspaceSplitChromeBackground(
+                sidebarColor: Color(uiColor: .systemGroupedBackground),
+                detailColor: store.activeTerminalTheme.terminalBackgroundColor,
+                sidebarWidth: splitSidebarWidth
+            )
+        }
+        #endif
         .onAppear {
             hasPresentedSplitDetail = true
         }

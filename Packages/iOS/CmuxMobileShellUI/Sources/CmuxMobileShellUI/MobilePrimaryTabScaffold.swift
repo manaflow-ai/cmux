@@ -19,6 +19,8 @@ struct MobilePrimaryTabScaffold<
     let notifications: Notifications
     let workspaceSearch: WorkspaceSearch
     let notificationSearch: NotificationSearch
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     init(
         selection: Binding<MobilePrimaryTab>,
@@ -41,7 +43,9 @@ struct MobilePrimaryTabScaffold<
     }
 
     var body: some View {
-        if #available(iOS 26.0, *) {
+        if isIPadLayout {
+            iPadTabView
+        } else if #available(iOS 26.0, *) {
             ZStack(alignment: .bottomTrailing) {
                 TabView(selection: tabSelection) {
                     primaryTabs
@@ -95,9 +99,57 @@ struct MobilePrimaryTabScaffold<
         }
     }
 
-    /// A tab-view bottom accessory always adds a full-width plate, which is
-    /// intended for mini-player content. Compose remains a standalone action
-    /// aligned with the detached Search control instead.
+    @ViewBuilder
+    private var iPadTabView: some View {
+        if #available(iOS 26.0, *) {
+            TabView(selection: tabSelection) {
+                primaryTabs
+                searchTab
+            }
+            // Use Apple's adaptive iPad tab presentation so the system owns
+            // the Liquid Glass tab bar, its sidebar affordance, and its
+            // compact-width adaptation. Keeping this on the root TabView
+            // avoids a second app-owned navigation rail competing with the
+            // terminal toolbar.
+            .tabViewStyle(.sidebarAdaptable)
+            .tabViewSearchActivation(.searchTabSelection)
+            .accessibilityIdentifier("MobilePrimaryTabs")
+            .onChange(of: selection, initial: true) { _, selection in
+                searchCoordinator.synchronizeSelection(selection)
+            }
+        } else {
+            TabView(selection: $selection) {
+                primaryTabs
+            }
+            .accessibilityIdentifier("MobilePrimaryTabs")
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private var searchTab: some TabContent<MobilePrimaryTab> {
+        Tab(value: MobilePrimaryTab.search, role: .search) {
+            // Keep the searchable modifier on the search destination itself,
+            // so the native tab does not leak a second search field into the
+            // workspaces or notifications toolbars.
+            searchDestination
+                .searchable(
+                    text: activeSearchText,
+                    isPresented: searchPresentation,
+                    prompt: activeSearchPrompt
+                )
+                .onSubmit(of: .search) {
+                    selection = searchCoordinator.commitSubmit()
+                }
+        }
+        .accessibilityIdentifier("MobilePrimaryTabSearch")
+    }
+
+    private var isIPadLayout: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
+
+    /// Compose remains a standalone action on compact layouts. The native
+    /// iPad tab presentation owns its own Liquid Glass navigation chrome.
     private var iOS26BottomControlDiameter: CGFloat { 62 }
     private var iOS26BottomControlInset: CGFloat { 21 }
     private var iOS26BottomControlSpacing: CGFloat { 12 }

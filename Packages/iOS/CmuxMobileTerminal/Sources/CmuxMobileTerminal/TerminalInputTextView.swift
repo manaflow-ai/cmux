@@ -372,6 +372,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
+        // The accessory bar is already constrained to the container's safe-area
+        // guides. Letting UIKit apply another automatic inset can shift the
+        // initial horizontal content offset on iPad by the device's leading
+        // safe-area width, hiding the shortcuts at launch.
+        scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         // The scroll view's FRAME starts flush at the composer button's
         // trailing edge; the 4pt visual gap the frame constant used to carry
@@ -559,6 +564,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let insets = accessoryLayoutInsetsProvider?() ?? .zero
         let leftInset = max(0, insets.left)
         let rightInset = max(0, insets.right)
+        let scrollView = accessoryStackView?.superview as? UIScrollView
+        let previousOffset = scrollView?.contentOffset.x ?? 0
+        let wasAtLeadingEdge = scrollView.map { scroll in
+            previousOffset <= -scroll.adjustedContentInset.left + 1
+        } ?? true
 
         accessoryBackgroundLeadingConstraint?.constant = leftInset
         accessoryBackgroundTrailingConstraint?.constant = -rightInset
@@ -571,6 +581,23 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if accessoryStackView != nil {
             terminalAccessoryToolbar.setNeedsLayout()
             terminalAccessoryToolbar.layoutIfNeeded()
+
+            guard let scrollView else { return }
+            let minimumOffset = -scrollView.adjustedContentInset.left
+            let maximumOffset = max(
+                minimumOffset,
+                scrollView.contentSize.width
+                    - scrollView.bounds.width
+                    + scrollView.adjustedContentInset.right
+            )
+            let targetOffset = wasAtLeadingEdge
+                ? minimumOffset
+                : min(max(previousOffset, minimumOffset), maximumOffset)
+            guard abs(scrollView.contentOffset.x - targetOffset) > 0.5 else { return }
+            scrollView.setContentOffset(
+                CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
+                animated: false
+            )
         }
     }
 
