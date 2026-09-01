@@ -88,15 +88,29 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let panelID: UUID
 
         init() throws {
-            previousAppDelegate = AppDelegate.shared
-            appDelegate = previousAppDelegate ?? AppDelegate()
-            previousTabManager = appDelegate.tabManager
+            let restoredAppDelegate = AppDelegate.shared
+            let delegate = restoredAppDelegate ?? AppDelegate()
+            let restoredTabManager = delegate.tabManager
             let manager = TabManager(autoWelcomeIfNeeded: false)
-            windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-            AppDelegate.shared = appDelegate
-            appDelegate.tabManager = manager
-            workspace = try #require(manager.selectedWorkspace)
-            panelID = try #require(workspace.focusedPanelId)
+            let registeredWindowID = delegate.registerMainWindowContextForTesting(tabManager: manager)
+            AppDelegate.shared = delegate
+            delegate.tabManager = manager
+            do {
+                workspace = try #require(manager.selectedWorkspace)
+                panelID = try #require(workspace.focusedPanelId)
+            } catch {
+                // A throwing `#require` must not leak the shared-state
+                // mutations above into later tests: roll them back before
+                // rethrowing, exactly as `tearDown()` would have.
+                delegate.unregisterMainWindowContextForTesting(windowId: registeredWindowID)
+                delegate.tabManager = restoredTabManager
+                AppDelegate.shared = restoredAppDelegate
+                throw error
+            }
+            previousAppDelegate = restoredAppDelegate
+            appDelegate = delegate
+            previousTabManager = restoredTabManager
+            windowID = registeredWindowID
             let configuration = WorkspaceRemoteConfiguration(
                 transport: .ssh,
                 terminalTransport: .ssh,

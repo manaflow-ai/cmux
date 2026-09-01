@@ -201,6 +201,58 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
         #expect(fixture.workspace.activeRemoteTerminalSurfaceIds.contains(fixture.panelID))
     }
 
+    @Test
+    func disconnectedRespawnParksPreviousSessionCleanupUntilDrain() throws {
+        let fixture = try Fixture(remoteTerminalTransport: .ssh)
+        defer { fixture.tearDown() }
+        fixture.workspace.remoteConnectionState = .disconnected
+        fixture.workspace.remoteControllerConnectionState = .disconnected
+        fixture.workspace.remoteSessionController = nil
+
+        let oldSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: fixture.workspace.id,
+            panelId: fixture.panelID
+        )
+        let raw = "cd \(remoteWorkingDirectory) && \(remoteExecutable) --agent-id parked"
+        let result = TerminalController.shared.controlSurfaceRespawn(
+            routing: fixture.routing(surfaceID: fixture.panelID),
+            inputs: fixture.respawnInputs(
+                surfaceID: fixture.panelID,
+                command: raw,
+                tmuxStartCommand: raw,
+                workingDirectory: remoteWorkingDirectory
+            )
+        )
+        guard case .respawned = result else {
+            Issue.record("Expected disconnected respawn to succeed: \(result)")
+            return
+        }
+
+        // No controller: the replaced daemon session must be parked, not
+        // dropped.
+        #expect(fixture.workspace.pendingRemotePTYSessionCleanupIDs == [oldSessionID])
+
+        // First drain failure re-queues; the next drain closes exactly once
+        // and a further drain has nothing left to do.
+        var closed: [String] = []
+        var failNextClose = true
+        fixture.workspace.remotePTYSessionCloseForTesting = { sessionID in
+            if failNextClose {
+                failNextClose = false
+                throw NSError(domain: "cmux-11049-test", code: 1)
+            }
+            closed.append(sessionID)
+        }
+        fixture.workspace.drainPendingRemotePTYSessionCleanups()
+        #expect(closed.isEmpty)
+        #expect(fixture.workspace.pendingRemotePTYSessionCleanupIDs == [oldSessionID])
+        fixture.workspace.drainPendingRemotePTYSessionCleanups()
+        #expect(closed == [oldSessionID])
+        #expect(fixture.workspace.pendingRemotePTYSessionCleanupIDs.isEmpty)
+        fixture.workspace.drainPendingRemotePTYSessionCleanups()
+        #expect(closed == [oldSessionID])
+    }
+
     @MainActor
     private struct Fixture {
         let appDelegate: AppDelegate
@@ -211,15 +263,29 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
         let panelID: UUID
 
         init(remoteTerminalTransport: WorkspaceRemoteTerminalTransport?) throws {
-            previousAppDelegate = AppDelegate.shared
-            appDelegate = previousAppDelegate ?? AppDelegate()
-            previousTabManager = appDelegate.tabManager
+            let restoredAppDelegate = AppDelegate.shared
+            let delegate = restoredAppDelegate ?? AppDelegate()
+            let restoredTabManager = delegate.tabManager
             let manager = TabManager(autoWelcomeIfNeeded: false)
-            windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-            AppDelegate.shared = appDelegate
-            appDelegate.tabManager = manager
-            workspace = try #require(manager.selectedWorkspace)
-            panelID = try #require(workspace.focusedPanelId)
+            let registeredWindowID = delegate.registerMainWindowContextForTesting(tabManager: manager)
+            AppDelegate.shared = delegate
+            delegate.tabManager = manager
+            do {
+                workspace = try #require(manager.selectedWorkspace)
+                panelID = try #require(workspace.focusedPanelId)
+            } catch {
+                // A throwing `#require` must not leak the shared-state
+                // mutations above into later tests: roll them back before
+                // rethrowing, exactly as `tearDown()` would have.
+                delegate.unregisterMainWindowContextForTesting(windowId: registeredWindowID)
+                delegate.tabManager = restoredTabManager
+                AppDelegate.shared = restoredAppDelegate
+                throw error
+            }
+            previousAppDelegate = restoredAppDelegate
+            appDelegate = delegate
+            previousTabManager = restoredTabManager
+            windowID = registeredWindowID
 
             if let remoteTerminalTransport {
                 let configuration = WorkspaceRemoteConfiguration(
