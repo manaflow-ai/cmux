@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 @testable import CmuxSwiftRenderUI
 
@@ -28,7 +29,11 @@ struct CustomSidebarRenderDiagnosticTests {
         #expect(artifact.height == 90)
         #expect(artifact.visiblePixelCount > 0)
         #expect(artifact.byteCount > 8)
-        #expect(try Data(contentsOf: outputURL).starts(with: [0x89, 0x50, 0x4E, 0x47]))
+        let pngData = try Data(contentsOf: outputURL)
+        #expect(pngData.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+        let image = try #require(NSBitmapImageRep(data: pngData))
+        #expect(image.pixelsWide == 160)
+        #expect(image.pixelsHigh == 90)
     }
 
     @Test("mounts a declarative JSON sidebar through the same content view")
