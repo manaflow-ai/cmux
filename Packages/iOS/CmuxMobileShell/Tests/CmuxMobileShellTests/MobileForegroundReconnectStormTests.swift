@@ -188,8 +188,8 @@ import Testing
                 text: "cold-replay"
             ),
         ],
-        anchor: .screen,
         scrollbackRows: 20,
+        anchor: .screen,
         historyRows: 20,
         rowSpaceRevision: 1
     )
@@ -235,8 +235,8 @@ import Testing
                 text: "warm-replay"
             ),
         ],
-        anchor: .screen,
         scrollbackRows: 0,
+        anchor: .screen,
         historyRows: 20,
         rowSpaceRevision: 1
     )

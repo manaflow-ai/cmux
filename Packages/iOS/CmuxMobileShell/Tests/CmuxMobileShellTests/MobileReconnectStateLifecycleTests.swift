@@ -17,8 +17,8 @@ import Testing
         rows: 4,
         full: true,
         rowSpans: [],
-        anchor: .screen,
         scrollbackRows: 20,
+        anchor: .screen,
         historyRows: 20,
         rowSpaceRevision: 1
     )
@@ -127,8 +127,8 @@ import Testing
         rows: 4,
         full: true,
         rowSpans: [],
-        anchor: .screen,
         scrollbackRows: 20,
+        anchor: .screen,
         historyRows: 20,
         rowSpaceRevision: 1
     )
