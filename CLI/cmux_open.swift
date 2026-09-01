@@ -3542,7 +3542,7 @@ extension CMUXCLI {
         return trimmed
     }
 
-    private func standardizedDiffSourcePath(_ path: String) -> String {
+    func standardizedDiffSourcePath(_ path: String) -> String {
         URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL.path
     }
 
