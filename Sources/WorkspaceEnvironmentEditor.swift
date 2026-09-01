@@ -144,15 +144,6 @@ final class WorkspaceEnvironmentEditor {
 }
 
 extension Workspace {
-    /// The single mutation path used by all workspace-environment UI actions.
-    @discardableResult
-    func setWorkspaceEnvironment(_ environment: [String: String]) -> Bool {
-        let sanitized = Self.sanitizedWorkspaceEnvironment(environment)
-        guard sanitized != workspaceEnvironment else { return false }
-        workspaceEnvironment = sanitized
-        return true
-    }
-
     /// Includes the cached canonical environment text in the session autosave
     /// fingerprint so equivalent dictionaries produce the same hash without
     /// sorting on every autosave tick.

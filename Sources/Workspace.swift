@@ -2555,7 +2555,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// `mergedStartupEnvironment(...)`, so a workspace env entry can never clobber
     /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
     /// Persisted in the session manifest and restored before surfaces are rebuilt.
-    @Published var workspaceEnvironment: [String: String] = [:] {
+    @Published private(set) var workspaceEnvironment: [String: String] = [:] {
         didSet {
             serializedWorkspaceEnvironment = WorkspaceEnvironmentDocument(
                 environment: workspaceEnvironment
@@ -2565,6 +2565,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Canonical editor text cached when the environment changes, so autosave
     /// fingerprinting does not sort the dictionary on every timer tick.
     private(set) var serializedWorkspaceEnvironment = ""
+
+    /// Applies a user-supplied workspace environment through the one sanitizing
+    /// mutation path. Keeping the setter private prevents callers in other
+    /// files from bypassing validation and writing unsafe keys or values.
+    @discardableResult
+    func setWorkspaceEnvironment(_ environment: [String: String]) -> Bool {
+        let sanitized = Self.sanitizedWorkspaceEnvironment(environment)
+        guard sanitized != workspaceEnvironment else { return false }
+        workspaceEnvironment = sanitized
+        return true
+    }
+
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
