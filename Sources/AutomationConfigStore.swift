@@ -9,6 +9,9 @@ import Foundation
 final class AutomationConfigStore {
     static let fileName = "automations.json"
     private static let maximumFileBytes: UInt64 = 4 * 1024 * 1024
+    private static let maximumJSONArrayItems = 256
+    private static let maximumJSONObjectEntries = 256
+    private static let maximumJSONDepth = 12
 
     let fileURL: URL
     private let fileManager: FileManager
@@ -184,7 +187,13 @@ final class AutomationConfigStore {
             guard rule.predicates.count <= 128 else {
                 throw AutomationConfigStoreError.invalidRule("rule \(rule.id) contains too many predicates")
             }
+            for (key, value) in rule.predicates {
+                try validateJSONValue(value, path: "rule \(rule.id) predicate \(key)", depth: 0)
+            }
             for action in rule.actions {
+                for (key, value) in action.parameters {
+                    try validateJSONValue(value, path: "rule \(rule.id) action \(key)", depth: 0)
+                }
                 switch action.action.lowercased() {
                 case "notify":
                     break
@@ -209,6 +218,34 @@ final class AutomationConfigStore {
                     throw AutomationConfigStoreError.invalidRule("rule \(rule.id) has unknown action \(action.action)")
                 }
             }
+        }
+    }
+
+    private func validateJSONValue(
+        _ value: AutomationJSONValue,
+        path: String,
+        depth: Int
+    ) throws {
+        guard depth <= Self.maximumJSONDepth else {
+            throw AutomationConfigStoreError.invalidRule("\(path) is nested too deeply")
+        }
+        switch value {
+        case .array(let values):
+            guard values.count <= Self.maximumJSONArrayItems else {
+                throw AutomationConfigStoreError.invalidRule("\(path) contains too many array items")
+            }
+            for (index, child) in values.enumerated() {
+                try validateJSONValue(child, path: "\(path)[\(index)]", depth: depth + 1)
+            }
+        case .object(let values):
+            guard values.count <= Self.maximumJSONObjectEntries else {
+                throw AutomationConfigStoreError.invalidRule("\(path) contains too many object entries")
+            }
+            for (key, child) in values {
+                try validateJSONValue(child, path: "\(path).\(key)", depth: depth + 1)
+            }
+        case .null, .bool, .integer, .double, .string:
+            break
         }
     }
 }

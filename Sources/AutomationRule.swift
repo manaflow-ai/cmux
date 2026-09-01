@@ -553,15 +553,50 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
         _ actualValues: [AutomationJSONValue],
         expectedValues: [AutomationJSONValue]
     ) -> Bool {
-        let actualSet = Set(actualValues)
-        if expectedValues.contains(where: actualSet.contains) {
-            return true
+        var actualStrings = Set<String>()
+        var actualStringBooleanValues = Set<Bool>()
+        var actualBooleans = Set<Bool>()
+        var actualNumbers = Set<Double>()
+        var hasActualNull = false
+        for value in actualValues {
+            switch value {
+            case .null:
+                hasActualNull = true
+            case .string(let string):
+                actualStrings.insert(string)
+                actualStringBooleanValues.insert(Self.booleanValue(for: string))
+            case .bool(let boolean):
+                actualBooleans.insert(boolean)
+            case .integer, .double:
+                if let number = value.doubleValue { actualNumbers.insert(number) }
+            case .array, .object:
+                break
+            }
         }
-        let actualNumbers = Set(actualValues.compactMap(\.doubleValue))
-        return expectedValues.contains { value in
-            guard let number = value.doubleValue else { return false }
-            return actualNumbers.contains(number)
+
+        for expected in expectedValues {
+            switch expected {
+            case .null where hasActualNull:
+                return true
+            case .string(let string):
+                if actualStrings.contains(string) { return true }
+                if actualBooleans.contains(Self.booleanValue(for: string)) { return true }
+            case .bool(let boolean):
+                if actualBooleans.contains(boolean) { return true }
+                if actualStringBooleanValues.contains(boolean) { return true }
+            case .integer, .double:
+                if let number = expected.doubleValue, actualNumbers.contains(number) { return true }
+            case .array, .object:
+                break
+            case .null:
+                break
+            }
         }
+        return false
+    }
+
+    private static func booleanValue(for string: String) -> Bool {
+        ["true", "1", "yes"].contains(string.lowercased())
     }
 }
 
