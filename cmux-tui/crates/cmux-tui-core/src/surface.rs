@@ -2571,15 +2571,11 @@ impl Surface {
         // so final output is visible before the mux observes completion. Keep
         // only a weak surface reference: the owned JoinHandle must not retain
         // the surface and form a lifecycle cycle.
-        let reaper_completion = surface
-            .as_pty()
-            .expect("local PTY surface owns its reaper")
-            .reaper_completion
-            .clone();
+        let reaper_completion =
+            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
         let reaper_surface = Arc::downgrade(&surface);
-        let reaper_thread = std::thread::Builder::new()
-            .name(format!("surface-{id}-wait"))
-            .spawn({
+        let reaper_thread =
+            std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
                 let reaper_completion = reaper_completion.clone();
                 move || {
                     let _reaper_completion = ReaderCompletionGuard(reaper_completion);

@@ -6146,9 +6146,8 @@ impl Mux {
             return;
         };
         let signal = Arc::clone(&self.journal_event_signal);
-        let worker = std::thread::Builder::new()
-            .name("agent-roster-fold".into())
-            .spawn(move || {
+        let worker =
+            std::thread::Builder::new().name("agent-roster-fold".into()).spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     Self::run_agent_roster_fold_worker(mux.clone(), signal)
                 }));
