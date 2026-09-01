@@ -74,6 +74,10 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// manager's own 1 MiB output cap stays the hard boundary above this.
 const FLOW_PAUSE_BYTES: u64 = 262_144;
 const FLOW_RESUME_BYTES: u64 = 32_768;
+/// Bound decoded client frames while the ordered dispatcher is waiting for an
+/// open or control operation. The reader must keep observing EOF and
+/// cancellation instead of waiting on an unbounded work queue.
+const TUNNEL_DISPATCH_QUEUE_ITEMS: usize = 64;
 
 /// Relay pty_error codes -> browser wire codes. Mirrors the Worker's
 /// browserErrorCode map (apps/backend/src/terminal/relay-pty.ts). KEEP IN
@@ -466,6 +470,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let (mut read_half, mut write_half) = stream.into_split();
     let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<WriterMessage>();
     let (flow_tx, mut flow_rx) = mpsc::unbounded_channel::<bool>();
+    let done = parent.child_token();
     let connection = Arc::new(Connection {
         pty_id: format!("tunnel-{}", random_hex(8)),
         manager: Arc::clone(&manager),
@@ -476,9 +481,39 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         open_sent: AtomicBool::new(false),
         opened_seen: AtomicBool::new(false),
         finished: AtomicBool::new(false),
-        done: CancellationToken::new(),
+        done: done.clone(),
     });
     let context = connection.frame_context();
+
+    // Keep socket reads independent from ordered manager work. In particular,
+    // a slow or stalled open must not hide peer EOF or listener cancellation.
+    // The bounded channel applies backpressure to the reader without allowing
+    // decoded frames to accumulate without limit.
+    let (dispatch_tx, mut dispatch_rx) = mpsc::channel::<TunnelFrame>(TUNNEL_DISPATCH_QUEUE_ITEMS);
+    let dispatch_connection = Arc::clone(&connection);
+    let dispatch_context = context.clone();
+    let dispatch_done = connection.done.clone();
+    let mut dispatcher = tokio::spawn(async move {
+        while let Some(frame) = dispatch_rx.recv().await {
+            let operation_connection = Arc::clone(&dispatch_connection);
+            let operation_context = dispatch_context.clone();
+            let mut operation = tokio::spawn(async move {
+                handle_client_frame(&operation_connection, &operation_context, frame).await;
+            });
+            tokio::select! {
+                biased;
+                _ = dispatch_done.cancelled() => {
+                    // A dropped JoinHandle detaches the operation. Abort and
+                    // join it so its cancellation-aware PTY guards reach a
+                    // defined boundary before this connection returns.
+                    operation.abort();
+                    let _ = (&mut operation).await;
+                    break;
+                }
+                _ = &mut operation => {}
+            }
+        }
+    });
 
     // Writer: the only task that touches the write half. Applies the flow
     // water marks as the queue drains.
@@ -538,7 +573,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
     let open_deadline = tokio::time::sleep(OPEN_TIMEOUT);
     tokio::pin!(open_deadline);
-    loop {
+    'reader: loop {
         tokio::select! {
             biased;
             _ = parent.cancelled() => {
@@ -563,7 +598,16 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, &context, frame).await;
+                            tokio::select! {
+                                biased;
+                                _ = connection.done.cancelled() => break 'reader,
+                                result = dispatch_tx.send(frame) => {
+                                    if result.is_err() {
+                                        connection.finish();
+                                        break 'reader;
+                                    }
+                                }
+                            }
                         }
                     }
                     Err(_) => {
@@ -575,6 +619,8 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         }
     }
     connection.finish();
+    drop(dispatch_tx);
+    let _ = dispatcher.await;
     // Detach, never kill: the owed close releases only this connection's
     // attachment (transport-fenced), and the session lives on.
     if connection.open_sent.load(Ordering::SeqCst) {
@@ -590,6 +636,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
         writer.abort();
+        let _ = writer.await;
     }
     let _ = flow.await;
 }
