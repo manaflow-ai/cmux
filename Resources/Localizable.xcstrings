@@ -243473,13 +243473,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar.custom.render requires the asynchronous socket dispatcher"
+            "value": "Custom sidebar rendering could not start. Retry with `cmux sidebar render <name>`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar.custom.render には非同期ソケットディスパッチャーが必要です"
+            "value": "カスタムサイドバーを描画できませんでした。`cmux sidebar render <name>` で再試行してください。"
           }
         }
       }

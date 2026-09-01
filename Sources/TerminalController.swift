@@ -1168,6 +1168,7 @@ class TerminalController {
                 return v2Result(id: request.id, workspaceParamError)
             }
             if request.method == "sidebar.custom.render" {
+                cmuxDebugLog("socket.sidebar.custom.render rejected by synchronous dispatcher; async dispatch required")
                 // Rendering is intentionally async-only for socket workers:
                 // the async dispatcher suspends across the AppKit mount, while
                 // this legacy synchronous seam must never wait on v2MainSync.
@@ -1176,7 +1177,7 @@ class TerminalController {
                     code: "async_required",
                     message: String(
                         localized: "socket.sidebar.custom.render.asyncRequired",
-                        defaultValue: "sidebar.custom.render requires the asynchronous socket dispatcher"
+                        defaultValue: "Custom sidebar rendering could not start. Retry with `cmux sidebar render <name>`."
                     )
                 )
             }
