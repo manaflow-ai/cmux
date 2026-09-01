@@ -21,6 +21,13 @@ final class PortScanner: @unchecked Sendable {
 
     let commandRunner: any CommandRunning
 
+    /// Port scanning is only useful when the sidebar surfaces detected ports.
+    /// Otherwise the periodic `lsof` sweep over agent process trees runs (and
+    /// can pin `fileproviderd`/`fseventsd`) for data nothing consumes.
+    private var portScanningEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.portScanningEnabled(defaults: .standard)
+    }
+
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     @MainActor var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
@@ -170,6 +177,7 @@ final class PortScanner: @unchecked Sendable {
 
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
+            guard portScanningEnabled else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
@@ -283,6 +291,12 @@ final class PortScanner: @unchecked Sendable {
         let generation = requestedGeneration ?? burstGeneration
         // We scan all registered panels, not just pending ones, since ports can
         // appear/disappear on any panel.
+        guard portScanningEnabled else {
+            pendingKicks.removeAll()
+            scansRemainingForPendingKicks = 0
+            return
+        }
+
         let panelSnapshot = ttyNames
 
         guard !panelSnapshot.isEmpty else {
@@ -663,6 +677,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runTrackedAgentScan() {
+        guard portScanningEnabled else { return }
         let workspaceIds = trackedAgentWorkspaces
         guard !workspaceIds.isEmpty else {
             updateAgentScanTimerLocked()

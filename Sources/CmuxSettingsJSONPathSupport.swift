@@ -87,6 +87,16 @@ extension SidebarWorkspaceDetailDefaults {
             : .passiveReportsOnly
     }
 
+    static func showPortsValue(defaults: UserDefaults) -> Bool {
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPorts)
+    }
+
+    /// Ports are only surfaced when `showPorts` is on. When it is off the sidebar
+    /// shows no ports, so scanning for them is pure waste.
+    static func portScanningEnabled(defaults: UserDefaults) -> Bool {
+        showPortsValue(defaults: defaults)
+    }
+
     static func pullRequestActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
         guard watchGitStatusValue(defaults: defaults) else {
             return .disabled
