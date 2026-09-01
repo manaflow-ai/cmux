@@ -577,7 +577,7 @@ impl RestoreReducer {
         let expected_revision = cursor_revision.checked_add(1);
         Ok(match previous_revision {
             Some(previous) => previous == cursor_revision && expected_revision == Some(revision),
-            None => expected_revision == Some(revision),
+            None => false,
         })
     }
 
