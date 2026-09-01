@@ -105,8 +105,8 @@ extension CMUXCLI {
     }
 
     func configUsage() -> String {
-        let doctorDescription = String(
-            localized: "cli.config.doctor.usage",
+        let doctorDescription = CMUXDiffViewerLocalization.string(
+            "cli.config.doctor.usage",
             defaultValue: "Validate JSONC syntax and action/workspace structure."
         )
         return """
@@ -614,25 +614,20 @@ extension CMUXCLI {
                     byteCount: data.count
                 )
             }
-            let structuralIssues = CmuxConfigValidator().validate(jsonObject: dictionary)
-            let runtimeIssues = runtimeConfigValidationIssues(data: sanitized)
-            let validationIssues = mergeConfigValidationIssues(
-                structural: structuralIssues,
-                runtime: runtimeIssues
-            )
+            let validationIssues = runtimeConfigValidationIssues(jsonObject: dictionary)
             let message: String
             let status: String
             if validationIssues.isEmpty {
                 status = "ok"
-                message = String(
-                    localized: "cli.config.doctor.valid",
+                message = CMUXDiffViewerLocalization.string(
+                    "cli.config.doctor.valid",
                     defaultValue: "JSONC syntax and action/workspace structure are valid"
                 )
             } else {
                 status = "error"
                 message = String.localizedStringWithFormat(
-                    String(
-                        localized: "cli.config.doctor.invalid",
+                    CMUXDiffViewerLocalization.string(
+                        "cli.config.doctor.invalid",
                         defaultValue: "JSONC syntax is valid, but config structure is invalid: %@"
                     ),
                     validationIssues.map(\.description).joined(separator: "; ")
@@ -660,69 +655,12 @@ extension CMUXCLI {
         }
     }
 
-    /// Run the same Codable path used by config loading after the Foundation-only
-    /// shape checks. Tolerated action failures remain findings so doctor never
-    /// reports success for an action the app would discard.
-    private func runtimeConfigValidationIssues(data: Data) -> [CmuxConfigValidationIssue] {
-        do {
-            let decoded = try CmuxConfigFile.decodeToleratingInvalidActions(from: data)
-            return decoded.actionIssues.map {
-                CmuxConfigValidationIssue(path: $0.path, message: $0.message)
-            }
-        } catch {
-            return [runtimeConfigValidationIssue(for: error)]
-        }
-    }
-
-    private func mergeConfigValidationIssues(
-        structural: [CmuxConfigValidationIssue],
-        runtime: [CmuxConfigValidationIssue]
-    ) -> [CmuxConfigValidationIssue] {
-        let structuralPaths = Set(structural.map(\.path))
-        return structural + runtime.filter { !structuralPaths.contains($0.path) }
-    }
-
-    private func runtimeConfigValidationIssue(for error: Error) -> CmuxConfigValidationIssue {
-        switch error {
-        case let DecodingError.dataCorrupted(context):
-            return CmuxConfigValidationIssue(
-                path: runtimeCodingPath(context.codingPath),
-                message: context.debugDescription
-            )
-        case let DecodingError.keyNotFound(key, context):
-            return CmuxConfigValidationIssue(
-                path: runtimeCodingPath(context.codingPath + [key]),
-                message: context.debugDescription
-            )
-        case let DecodingError.typeMismatch(_, context):
-            return CmuxConfigValidationIssue(
-                path: runtimeCodingPath(context.codingPath),
-                message: context.debugDescription
-            )
-        case let DecodingError.valueNotFound(_, context):
-            return CmuxConfigValidationIssue(
-                path: runtimeCodingPath(context.codingPath),
-                message: context.debugDescription
-            )
-        default:
-            return CmuxConfigValidationIssue(
-                path: "$",
-                message: Self.configDoctorErrorMessage(error)
-            )
-        }
-    }
-
-    private func runtimeCodingPath(_ codingPath: [CodingKey]) -> String {
-        guard !codingPath.isEmpty else { return "$" }
-        var path = ""
-        for key in codingPath {
-            if let index = key.intValue {
-                path += "[\(index)]"
-            } else {
-                path += path.isEmpty ? key.stringValue : ".\(key.stringValue)"
-            }
-        }
-        return path.isEmpty ? "$" : path
+    /// Validate the Foundation representation against the same semantic rules
+    /// used by the app's Codable config model. Keeping this entry point
+    /// Foundation-only lets the standalone CLI report invalid values without
+    /// linking the AppKit-backed `CmuxConfigFile` type.
+    private func runtimeConfigValidationIssues(jsonObject: Any) -> [CmuxConfigValidationIssue] {
+        CmuxConfigValidator().validate(jsonObject: jsonObject)
     }
 
     private func printConfigDoctorReport(_ report: ConfigDoctorReport) {

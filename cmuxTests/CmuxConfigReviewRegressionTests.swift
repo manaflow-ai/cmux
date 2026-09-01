@@ -110,10 +110,29 @@ struct CmuxConfigReviewRegressionTests {
     @Test func runtimeOnlySurfaceButtonErrorsAreNotHiddenByStructuralValidation() throws {
         let json = #"{"surfaceTabBarButtons":[{"type":"unknown"}]}"#
         let object = try jsonObject(json)
-        #expect(CmuxConfigValidator().validate(jsonObject: object).isEmpty)
+        #expect(CmuxConfigValidator().validate(jsonObject: object).contains { issue in
+            issue.path == "surfaceTabBarButtons[0].type"
+        })
         #expect(throws: (any Error).self) {
             try CmuxConfigFile.decodeToleratingInvalidActions(from: Data(json.utf8))
         }
+    }
+
+    @Test func runtimeValidatorChecksRootAndUIButtonForms() throws {
+        let object = try jsonObject("""
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [{ "type": "workspaceCommand" }]
+            }
+          },
+          "surfaceTabBarButtons": [{ "target": "invalid", "icon": { "type": "unknown" } }]
+        }
+        """)
+        let paths = Set(CmuxConfigValidator().validate(jsonObject: object).map(\.path))
+        #expect(paths.contains("ui.surfaceTabBar.buttons[0]"))
+        #expect(paths.contains("surfaceTabBarButtons[0].target"))
+        #expect(paths.contains("surfaceTabBarButtons[0].icon.type"))
     }
 
     @Test func validatorCollectsIndependentActionAndSectionIssues() throws {

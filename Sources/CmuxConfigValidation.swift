@@ -1,7 +1,7 @@
 import Foundation
 
 struct CmuxConfigValidator: Sendable {
-    private typealias Object = [String: Any]
+    typealias Object = [String: Any]
 
     func validate(data: Data) -> [CmuxConfigValidationIssue] {
         guard let object = try? JSONSerialization.jsonObject(with: data) else {
@@ -17,42 +17,44 @@ struct CmuxConfigValidator: Sendable {
 
         var issues = [CmuxConfigValidationIssue]()
         if let rawActions = root["actions"] {
-            guard let actions = rawActions as? Object else {
-                issues.append(issue("actions", "must be a JSON object"))
-                return issues
-            }
-            var normalizedIDs = Set<String>()
-            var canonicalIDs = [String: String]()
-            for actionID in actions.keys.sorted() {
-                let normalizedID = actionID.trimmingCharacters(in: .whitespacesAndNewlines)
-                if normalizedID.isEmpty {
-                    issues.append(issue("actions", "keys must not be blank"))
-                } else if !normalizedIDs.insert(normalizedID).inserted {
-                    issues.append(issue("actions", "must not contain duplicate ids after trimming whitespace"))
-                } else {
-                    let canonicalID = canonicalBuiltInID(normalizedID) ?? normalizedID
-                    if let existingID = canonicalIDs[canonicalID] {
-                        issues.append(issue(
-                            "actions",
-                            "must not contain duplicate aliases for '\(canonicalID)' (found '\(existingID)' and '\(normalizedID)')"
-                        ))
+            if let actions = rawActions as? Object {
+                var normalizedIDs = Set<String>()
+                var canonicalIDs = [String: String]()
+                for actionID in actions.keys {
+                    let normalizedID = actionID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if normalizedID.isEmpty {
+                        issues.append(issue("actions", "keys must not be blank"))
+                    } else if !normalizedIDs.insert(normalizedID).inserted {
+                        issues.append(issue("actions", "must not contain duplicate ids after trimming whitespace"))
                     } else {
-                        canonicalIDs[canonicalID] = normalizedID
+                        let canonicalID = canonicalBuiltInID(normalizedID) ?? normalizedID
+                        if let existingID = canonicalIDs[canonicalID] {
+                            issues.append(issue(
+                                "actions",
+                                "must not contain duplicate aliases for '\(canonicalID)' (found '\(existingID)' and '\(normalizedID)')"
+                            ))
+                        } else {
+                            canonicalIDs[canonicalID] = normalizedID
+                        }
                     }
+                    validateAction(actions[actionID], path: "actions.\(actionID)", into: &issues)
                 }
-                validateAction(actions[actionID], path: "actions.\(actionID)", into: &issues)
-            }
+            } else {
+                issues.append(issue("actions", "must be a JSON object"))
+                }
         }
 
         if let rawCommands = root["commands"] {
-            guard let commands = rawCommands as? [Any] else {
+            if let commands = rawCommands as? [Any] {
+                for (index, rawCommand) in commands.enumerated() {
+                    validateCommand(rawCommand, path: "commands[\(index)]", into: &issues)
+                }
+            } else {
                 issues.append(issue("commands", "must be a JSON array"))
-                return issues
-            }
-            for (index, rawCommand) in commands.enumerated() {
-                validateCommand(rawCommand, path: "commands[\(index)]", into: &issues)
             }
         }
+
+        issues.append(contentsOf: validateRuntimeOnlySections(in: root))
         return issues
     }
 
@@ -160,10 +162,11 @@ struct CmuxConfigValidator: Sendable {
             }
         }
         if let target = action["target"] {
-            guard let value = target as? String,
-                  ["currentTerminal", "newTabInCurrentPane"].contains(value) else {
+            if let value = target as? String,
+               ["currentTerminal", "newTabInCurrentPane"].contains(value) {
+                // valid
+            } else {
                 issues.append(issue(path + ".target", "must be currentTerminal or newTabInCurrentPane"))
-                return
             }
         }
         validateShortcut(action["shortcut"], path: path + ".shortcut", into: &issues)
@@ -206,7 +209,7 @@ struct CmuxConfigValidator: Sendable {
         }
     }
 
-    private func validateWorkspace(
+    func validateWorkspace(
         _ workspace: Object,
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
@@ -231,14 +234,11 @@ struct CmuxConfigValidator: Sendable {
             issues.append(issue(path, "must be a color string"))
             return
         }
-        let trimmed = color.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        if hex.count == 6, UInt64(hex, radix: 16) != nil { return }
-        if CmuxConfigWorkspaceColorPalette.containsName(trimmed) { return }
+        if CmuxConfigWorkspaceColorPalette.resolvedColorHex(color) != nil { return }
         issues.append(issue(path, "must be a six-digit hex color or a known workspace color name"))
     }
 
-    private func validateLayout(
+    func validateLayout(
         _ rawLayout: Any,
         path: String,
         depth: Int,
@@ -300,7 +300,7 @@ struct CmuxConfigValidator: Sendable {
         }
     }
 
-    private func validateSurface(
+    func validateSurface(
         _ rawSurface: Any,
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
@@ -326,7 +326,7 @@ struct CmuxConfigValidator: Sendable {
         }
     }
 
-    private func validateRestart(
+    func validateRestart(
         _ rawValue: Any?,
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
@@ -339,7 +339,7 @@ struct CmuxConfigValidator: Sendable {
         }
     }
 
-    private func validateIcon(
+    func validateIcon(
         _ rawIcon: Any?,
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
@@ -375,7 +375,7 @@ struct CmuxConfigValidator: Sendable {
         }
     }
 
-    private func validateShortcut(
+    func validateShortcut(
         _ rawShortcut: Any?,
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
@@ -430,7 +430,7 @@ struct CmuxConfigValidator: Sendable {
             (!hasModifier && (key == "space" || rawKey == " " || allowBare && (key.count == 1 || namedKeys.contains(key) || isFunctionKey)))
     }
 
-    private func requireNonBlankString(
+    func requireNonBlankString(
         _ rawValue: Any?,
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
@@ -444,7 +444,7 @@ struct CmuxConfigValidator: Sendable {
         }
     }
 
-    private func validateOptionalString(
+    func validateOptionalString(
         _ rawValue: Any?,
         path: String,
         into issues: inout [CmuxConfigValidationIssue]
@@ -454,39 +454,15 @@ struct CmuxConfigValidator: Sendable {
         }
     }
 
-    private func isNumber(_ value: Any) -> Bool {
+    func isNumber(_ value: Any) -> Bool {
         value is NSNumber && !(value is Bool)
     }
 
-    private func canonicalBuiltInID(_ id: String) -> String? {
-        switch id {
-        case "cmux.newWorkspace", "newWorkspace":
-            return "cmux.newWorkspace"
-        case "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat":
-            return "cmux.newAgentChat"
-        case "cmux.cloudvm", "cmux.cloudVM", "cloudVM", "cloudvm",
-             "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
-             "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
-            return "cmux.cloudvm"
-        case "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
-             "cmux.connectPhone", "connectPhone":
-            return "cmux.mobileconnect"
-        case "cmux.newTerminal", "newTerminal":
-            return "cmux.newTerminal"
-        case "cmux.newBrowser", "newBrowser":
-            return "cmux.newBrowser"
-        case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
-            return "cmux.newSimulator"
-        case "cmux.splitRight", "splitRight":
-            return "cmux.splitRight"
-        case "cmux.splitDown", "splitDown":
-            return "cmux.splitDown"
-        default:
-            return nil
-        }
+    func canonicalBuiltInID(_ id: String) -> String? {
+        CmuxConfigBuiltInActionCatalog.canonicalID(for: id)
     }
 
-    private func issue(_ path: String, _ message: String) -> CmuxConfigValidationIssue {
+    func issue(_ path: String, _ message: String) -> CmuxConfigValidationIssue {
         CmuxConfigValidationIssue(path: path, message: message)
     }
 }

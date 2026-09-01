@@ -798,6 +798,8 @@
 		A5FB130C /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */; };
 		A5FB130A /* CmuxConfigNewWorkspaceMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */; };
 		D1065314D1065314D1065314 /* CmuxConfigReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065313D1065313D1065313 /* CmuxConfigReviewRegressionTests.swift */; };
+		D1065316D1065316D1065316 /* CmuxConfigRuntimeValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */; };
+		D1065317D1065317D1065317 /* CmuxConfigRuntimeValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */; };
 		C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */; };
 		C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
@@ -3852,6 +3854,7 @@
 		A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNewWorkspaceDefaultLayoutTests.swift; sourceTree = "<group>"; };
 		A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNewWorkspaceMenuTests.swift; sourceTree = "<group>"; };
 		D1065313D1065313D1065313 /* CmuxConfigReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigReviewRegressionTests.swift; sourceTree = "<group>"; };
+		D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigRuntimeValidation.swift; sourceTree = "<group>"; };
 		C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigStore+ConfigStoreReloading.swift"; sourceTree = "<group>"; };
 		C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
 		C0DEF0A10000000000000002 /* CmuxConfigUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigUI.swift; sourceTree = "<group>"; };
@@ -8004,6 +8007,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A5001651 /* CmuxConfig.swift */,
 				D1065302D1065302D1065302 /* CmuxConfigValidation.swift */,
+				D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */,
 				D1065310D1065310D1065310 /* CmuxConfigValidationIssue.swift */,
 				D1065305D1065305D1065305 /* CmuxConfigFileTolerantDecoding.swift */,
 				D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */,
@@ -10037,6 +10041,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */,
 				A5001652 /* CmuxConfigExecutor.swift in Sources */,
 				D1065304D1065304D1065304 /* CmuxConfigFileTolerantDecoding.swift in Sources */,
+				D1065316D1065316D1065316 /* CmuxConfigRuntimeValidation.swift in Sources */,
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
 				C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */,
 				D1065301D1065301D1065301 /* CmuxConfigValidation.swift in Sources */,
@@ -11655,6 +11660,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
+				D1065317D1065317D1065317 /* CmuxConfigRuntimeValidation.swift in Sources */,
 				D1065303D1065303D1065303 /* CmuxConfigValidation.swift in Sources */,
 				D1065312D1065312D1065312 /* CmuxConfigValidationIssue.swift in Sources */,
 				D1065309D1065309D1065309 /* CmuxConfigWorkspaceColorPalette.swift in Sources */,

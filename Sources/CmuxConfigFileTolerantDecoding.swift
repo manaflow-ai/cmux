@@ -22,7 +22,8 @@ extension CmuxConfigFile {
         do {
             let config = try decodeConfig(data: data)
             return CmuxConfigFileDecodeResult(config: config, actionIssues: [])
-        } catch let originalError {
+        } catch {
+            let originalError = error
             guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let rawActions = root["actions"] as? [String: Any] else {
                 throw originalError
@@ -34,8 +35,16 @@ extension CmuxConfigFile {
 
             var validActions = [String: Any]()
             var actionIssues = [CmuxConfigActionDecodeIssue]()
-            for actionID in rawActions.keys.sorted() {
-                let rawAction = rawActions[actionID] as Any
+            for actionID in rawActions.keys {
+                guard let rawAction = rawActions[actionID] as? [String: Any] else {
+                    actionIssues.append(
+                        CmuxConfigActionDecodeIssue(
+                            path: "actions.\(actionID)",
+                            message: "must be a JSON object"
+                        )
+                    )
+                    continue
+                }
                 do {
                     let actionData = try JSONSerialization.data(withJSONObject: rawAction)
                     _ = try decodeAction(data: actionData)
@@ -81,27 +90,35 @@ extension CmuxConfigFile {
         for rawID in actions.keys {
             let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty, normalizedIDs.insert(id).inserted else { return false }
-            let canonicalID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
+            let canonicalID = CmuxConfigBuiltInActionCatalog.canonicalID(for: id) ?? id
             guard canonicalIDs.insert(canonicalID).inserted else { return false }
         }
         return true
     }
 
     private static func actionIssuePath(actionID: String, error: Error) -> String {
-        let path: [String]
+        let codingPath: [CodingKey]
         switch error {
         case let DecodingError.dataCorrupted(context):
-            path = context.codingPath.map(\.stringValue)
+            codingPath = context.codingPath
         case let DecodingError.keyNotFound(key, context):
-            path = context.codingPath.map(\.stringValue) + [key.stringValue]
+            codingPath = context.codingPath + [key]
         case let DecodingError.typeMismatch(_, context):
-            path = context.codingPath.map(\.stringValue)
+            codingPath = context.codingPath
         case let DecodingError.valueNotFound(_, context):
-            path = context.codingPath.map(\.stringValue)
+            codingPath = context.codingPath
         default:
-            path = []
+            codingPath = []
         }
-        return (["actions", actionID] + path).joined(separator: ".")
+        var path = "actions.\(actionID)"
+        for key in codingPath {
+            if let index = key.intValue {
+                path += "[\(index)]"
+            } else {
+                path += ".\(key.stringValue)"
+            }
+        }
+        return path
     }
 
     private static func decodingMessage(_ error: Error) -> String {
