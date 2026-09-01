@@ -3453,6 +3453,13 @@ mod unix {
             .as_deref()
             .and_then(crate::platform::terminal_pwd_to_local_path)
             .or_else(|| spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path))?;
+        if !path.is_absolute() {
+            return Some(format!(
+                "{}{}",
+                crate::platform::SNAPSHOT_RELATIVE_CWD_PREFIX,
+                path.to_string_lossy()
+            ));
+        }
         let mut url = url::Url::from_file_path(path).ok()?;
         url.set_host(Some("localhost")).ok()?;
         Some(url.into())
