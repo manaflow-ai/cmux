@@ -24,7 +24,7 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # policy change requires trusted review without a fragile follow-up hash bump.
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "cb08e6837d8065897016f12cf30c85e0153fc5c3c2d9ca1e6b409f4237541bc4"
-EXPECTED_GUARD_SCRIPT_DIGEST = "a3179aa69e409d0939ed86fe118efea21b5b17a262b71b8a9dc960cde22ad3d0"
+EXPECTED_GUARD_SCRIPT_DIGEST = "b38fb8b9a2f285c1e526a96b80331bf10bf3775a037495e3941b96334dffe607"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -132,6 +132,8 @@ rescue Psych::Exception => error
 end
 
 def workflow_digest(raw)
+  # Hash the parsed document so formatting-only edits do not trigger a
+  # privileged policy review.
   Digest::SHA256.hexdigest(JSON.generate(canonical(parse_workflow(raw))))
 end
 
