@@ -40,7 +40,8 @@ const deferredTasks: Array<() => Promise<void>> = [];
 const sendProSignupWelcome = mock(async () => {
   if (proWelcomeShouldFail) throw new Error("email provider unavailable");
 });
-const sendDunningEmail = mock(async () => "sent" as const);
+let dunningResult: unknown = "sent";
+const sendDunningEmail = mock(async () => dunningResult as never);
 const paidCheckoutSession = {
   id: "cs_1",
   payment_status: "paid",
@@ -180,6 +181,7 @@ describe("Stripe billing webhook route", () => {
     deferredTasks.length = 0;
     sendProSignupWelcome.mockClear();
     sendDunningEmail.mockClear();
+    dunningResult = "sent";
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
     retrieveInvoice.mockClear();
@@ -752,6 +754,40 @@ describe("Stripe billing webhook route", () => {
         scope: { scope: "user", stackUserId: "user_1" },
       }),
     );
+  });
+
+  test("returns 500 while an ambiguous dunning delivery is in progress", async () => {
+    currentEvent = {
+      id: "evt_invoice_dunning_retry",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_dunning_retry",
+          subscription: "sub_1",
+          customer: "cus_1",
+          customer_email: "buyer@example.com",
+        },
+      },
+    };
+    retrievedInvoice = {
+      id: "in_dunning_retry",
+      subscription: "sub_1",
+      customer: "cus_1",
+      customer_email: "buyer@example.com",
+    };
+    retrievedSubscription = {
+      ...retrievedSubscription,
+      status: "past_due",
+    };
+    dunningResult = "delivery_in_progress";
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(500);
+    expect(updates.at(-1)?.error).toContain(
+      "billing dunning delivery is still in progress",
+    );
+    expect(updates.at(-1)?.processedAt).toBeUndefined();
   });
 
   test("does not send dunning email for a paid invoice", async () => {
