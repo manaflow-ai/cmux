@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 /// Live-retargeting delivery and clear semantics for agent notifications
@@ -18,6 +19,7 @@ extension TerminalController {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         agent: TerminalNotificationPolicyAgentContext? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true,
         agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
@@ -65,6 +67,7 @@ extension TerminalController {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: correlationKey,
             agent: agent,
+            soundContext: soundContext,
             agentMutationGuard: agentMutationGuard
         )
     }
@@ -86,7 +89,8 @@ extension TerminalNotificationStore {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         correlationKey: String? = nil,
         notificationGeneration: UInt64,
-        agentMutationGuard: ControlSidebarAgentMutationGuard?
+        soundContext: NotificationSoundOverrideContext? = nil,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -115,6 +119,7 @@ extension TerminalNotificationStore {
             correlationKey: correlationKey,
             notificationGeneration: notificationGeneration,
             agent: agent,
+            soundContext: soundContext,
             agentMutationGuard: agentMutationGuard
         )
     }
@@ -143,7 +148,8 @@ extension TerminalNotificationStore {
             cwd: request.cwd,
             isAppFocused: request.isAppFocused,
             isFocusedPanel: request.isFocusedPanel,
-            agent: request.agent
+            agent: request.agent,
+            soundContext: request.soundContext
         )
     }
 }

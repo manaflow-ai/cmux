@@ -30,6 +30,7 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
+        soundContext: NotificationSoundOverrideContext? = nil,
         agentKind: String? = nil,
         isSubagent: Bool? = nil,
         correlationKey: String? = nil,
@@ -59,6 +60,7 @@ struct AgentNotificationDelivery: Sendable {
                 agentKind: agentKind,
                 isSubagent: isSubagent
             ),
+            soundContext: soundContext,
             correlationKey: correlationKey,
             coalesces: coalesces,
             agentMutationGuard: agentMutationGuard

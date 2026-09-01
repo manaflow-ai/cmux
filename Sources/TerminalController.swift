@@ -1197,7 +1197,10 @@ class TerminalController {
                         ) else {
                         return .err(
                             code: "method_not_found",
-                            message: "Unknown method",
+                            message: String(
+                                localized: "socket.error.unknownMethod",
+                                defaultValue: "Unknown method"
+                            ),
                             data: nil
                         )
                     }
@@ -1212,6 +1215,12 @@ class TerminalController {
                         )
                     }
                 }
+            }
+            if let feedResult = controlCommandCoordinator.handleSocketWorkerFeed(
+                parsedRequest,
+                context: self
+            ) {
+                return Self.v2Encoder.response(id: parsedRequest.id, feedResult)
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
@@ -13043,14 +13052,15 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
-                correlationKey: meta?.correlationKey,
-                agentMutationGuard: meta?.agentMutationGuard,
                 agent: AgentNotificationDelivery.agentContext(
                     category: meta?.category,
                     pending: meta?.pending ?? false,
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
-                )
+                ),
+                soundContext: meta?.soundContext,
+                correlationKey: meta?.correlationKey,
+                agentMutationGuard: meta?.agentMutationGuard
             )
             return "OK"
         }
@@ -13088,14 +13098,15 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
-                correlationKey: meta?.correlationKey,
-                agentMutationGuard: meta?.agentMutationGuard,
                 agent: AgentNotificationDelivery.agentContext(
                     category: meta?.category,
                     pending: meta?.pending ?? false,
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
-                )
+                ),
+                soundContext: meta?.soundContext,
+                correlationKey: meta?.correlationKey,
+                agentMutationGuard: meta?.agentMutationGuard
             )
             return "OK"
         }
@@ -13158,6 +13169,7 @@ class TerminalController {
                         isSubagent: meta?.isSubagent
                     ),
                     correlationKey: meta?.correlationKey,
+                    soundContext: meta?.soundContext,
                     agentMutationGuard: meta?.agentMutationGuard
                 )
                 return meta?.agentMutationGuard == nil ? "OK" : "OK:1"
@@ -13198,6 +13210,7 @@ class TerminalController {
                     isSubagent: meta?.isSubagent
                 ),
                 correlationKey: meta?.correlationKey,
+                soundContext: meta?.soundContext,
                 agentMutationGuard: meta?.agentMutationGuard
             )
             return meta?.agentMutationGuard == nil ? "OK" : "OK:1"
@@ -13242,6 +13255,7 @@ class TerminalController {
             body: body,
             category: meta?.category,
             pending: meta?.pending ?? false,
+            soundContext: meta?.soundContext,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey,
