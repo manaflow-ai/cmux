@@ -9,14 +9,24 @@ extension CMUXCLI {
               !path.isEmpty else {
             return nil
         }
-        if chdir(path) == 0 {
-            return path
+        let resolvedPath: String = if path.hasPrefix("/") {
+            path
+        } else {
+            URL(
+                fileURLWithPath: FileManager.default.currentDirectoryPath,
+                isDirectory: true
+            )
+            .appendingPathComponent(path, isDirectory: true)
+            .standardizedFileURL.path
+        }
+        if chdir(resolvedPath) == 0 {
+            return resolvedPath
         }
         let changeDirectoryError = errno
         if changeDirectoryError == ENOENT || changeDirectoryError == ENOTDIR {
             throw loggedRestoreError(
                 stage: "working-directory.missing",
-                detail: path,
+                detail: resolvedPath,
                 errorCode: changeDirectoryError,
                 message: String(
                     localized: "cli.restore.error.workingDirectoryMissing",
@@ -26,7 +36,7 @@ extension CMUXCLI {
         }
         throw loggedRestoreError(
             stage: "working-directory.change",
-            detail: path,
+            detail: resolvedPath,
             errorCode: changeDirectoryError,
             message: String(
                 localized: "cli.restore.error.workingDirectoryFailed",
