@@ -2019,7 +2019,10 @@ mod tests {
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
-    struct NeverResolvingControl;
+    struct NeverResolvingControl {
+        requests: AtomicUsize,
+        started: Notify,
+    }
 
     impl ControlHandle for NeverResolvingControl {
         fn request(
@@ -2027,6 +2030,8 @@ mod tests {
             _cmd: &str,
             _params: Value,
         ) -> std::pin::Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            self.requests.fetch_add(1, AtomicOrdering::SeqCst);
+            self.started.notify_one();
             Box::pin(std::future::pending())
         }
         fn send(&self, _cmd: &str, _params: Value) {}
@@ -2039,16 +2044,26 @@ mod tests {
 
     #[tokio::test]
     async fn raw_attach_request_observes_cancellation() {
+        let control = TestArc::new(NeverResolvingControl {
+            requests: AtomicUsize::new(0),
+            started: Notify::new(),
+        });
         let cancellation = CancellationToken::new();
         let request = control_request_until_cancelled(
-            &NeverResolvingControl,
+            control.as_ref(),
             "attach-surface",
             json!({ "surface": 7 }),
             &cancellation,
         );
-        tokio::pin!(request);
+        let task = tokio::spawn(request);
+        control.started.notified().await;
         cancellation.cancel();
-        assert!(request.await.is_none());
+        let result = tokio::time::timeout(std::time::Duration::from_secs(1), task)
+            .await
+            .expect("cancellation must resolve promptly")
+            .expect("request task must not panic");
+        assert!(result.is_none());
+        assert_eq!(control.requests.load(AtomicOrdering::SeqCst), 1);
     }
 
     /// A unique, real directory for tests that exercise cwd canonicalization.
