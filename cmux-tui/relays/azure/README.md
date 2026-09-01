@@ -122,6 +122,11 @@ and deploy this template once per shard. Keep `vmssCapacity=1`.
 
 1. Store the relay HMAC secret and a versioned TLS certificate secret in the
    existing Key Vault. The HMAC secret must contain at least 32 random bytes.
+   Key Vault stores this value as text. The matching `secretB64` value in
+   `CMUX_NATIVE_RELAY_SHARDS_JSON` must be base64 of the exact UTF-8 text stored
+   in Key Vault, including no trailing newline. For example, if Key Vault
+   contains a 64-character hex secret, encode those 64 characters, not the
+   decoded 32 bytes. Use a different secret for every shard.
    Set `certificateSecretName` to the TLS secret name used in
    `certificateSecretId`.
 2. Copy `bicep/shard.parameters.example.json` to a private parameters file.
