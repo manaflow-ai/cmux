@@ -131,6 +131,11 @@ private func defaultCloudVMAction(status: Int, errorCode: String) -> String {
         return "Run `cmux vm ls` to see available Cloud VMs. If the VM was paused or destroyed, start a fresh one with `cmux vm new`."
     case "vm_billing_team_required":
         return "Select a team in cmux, then retry. You can also run `cmux auth status` to check the signed-in account."
+    case "vm_requires_pro":
+        return String(
+            localized: "cloudVM.error.requiresPro.action",
+            defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs."
+        )
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:
