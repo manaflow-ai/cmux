@@ -171,6 +171,15 @@ extension AgentStallClassifier {
             suggestedActionID: "reauthenticate"
         ),
         AgentStallPattern(
+            identifier: "provider.authentication-expired.banner",
+            providers: ["claude", "codex"],
+            cause: .authenticationExpired,
+            regularExpressions: [
+                "(?m)^\\s*(?:unauthorized|authentication error|authentication failed)[.!]?\\s*$",
+            ],
+            suggestedActionID: "reauthenticate"
+        ),
+        AgentStallPattern(
             identifier: "provider.authentication-expired.token-banner",
             providers: ["claude", "codex"],
             cause: .authenticationExpired,
@@ -267,7 +276,7 @@ extension AgentStallClassifier {
             providers: ["codex"],
             cause: .overload,
             requiredFragments: ["try again later"],
-            anyFragments: ["server_overloaded", "codex_error_info", "error"],
+            anyFragments: ["server_overloaded", "codex_error_info"],
             retryActionID: "replayLastPrompt",
             requiresStructuredEvidence: true,
             suggestedActionID: "retryAutomatically"
@@ -298,7 +307,7 @@ extension AgentStallClassifier {
             providers: ["codex"],
             cause: .transientTransport,
             requiredFragments: ["stream disconnected"],
-            anyFragments: ["before completion", "response_stream_disconnected", "error"],
+            anyFragments: ["before completion", "response_stream_disconnected"],
             retryActionID: "replayLastPrompt",
             requiresStructuredEvidence: true,
             suggestedActionID: "retryAutomatically"

@@ -48,10 +48,10 @@ enum TerminalMutationReplaceKey: Hashable, Sendable {
     /// Shell reports follow a live surface across workspace and Dock moves, so
     /// their queue identity is the globally stable surface id alone.
     case shellActivity(surfaceId: UUID)
-    /// Non-authoritative agent lifecycle updates are presentation hints. They
-    /// coalesce by stable surface identity while authoritative prompt-boundary
-    /// events retain FIFO ordering in the ordinary mutation lane.
-    case agentLifecycle(surfaceId: UUID)
+    /// Non-authoritative updates for one lifecycle key are presentation hints.
+    /// They coalesce by stable surface and key identity while authoritative
+    /// prompt-boundary events retain FIFO ordering in the ordinary lane.
+    case agentLifecycle(surfaceId: UUID, lifecycleKey: String)
     /// Metadata whose mutation closure still resolves the claimed workspace.
     case scoped(tabId: UUID, surfaceId: UUID, kind: ScopedKind)
 }

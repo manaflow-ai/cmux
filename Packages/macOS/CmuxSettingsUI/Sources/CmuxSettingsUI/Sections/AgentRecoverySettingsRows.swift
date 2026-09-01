@@ -44,6 +44,12 @@ struct AgentRecoverySettingsRows: View {
             )
             .labelsHidden()
             .controlSize(.small)
+            .accessibilityLabel(
+                String(
+                    localized: "settings.terminal.agentAutoRetry",
+                    defaultValue: "Retry Stalled Agent Sessions"
+                )
+            )
             .accessibilityIdentifier("SettingsTerminalAgentAutoRetryToggle")
         }
         .task { model.startObserving() }

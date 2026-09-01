@@ -48,6 +48,20 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentLifecycleCall?.identity?.turnID == "turn-2")
     }
 
+    @Test func agentLifecycleRejectsOptionLikeIdentityValues() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "codex idle --tab=\(workspaceID.uuidString) --session-id=--stale"
+        )
+
+        #expect(response?.contains("looks like an option") == true)
+        #expect(context.agentLifecycleCall == nil)
+    }
+
     @Test func agentPIDClearForwardsOwnedKeyRequirement() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

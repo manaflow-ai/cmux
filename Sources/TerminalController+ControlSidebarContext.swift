@@ -202,15 +202,20 @@ extension TerminalController: ControlSidebarContext {
             let outputCapture: AgentStallOutputCapture?
             if lifecycle == .running {
                 outputCapture = nil
-            } else if let panelID {
+            } else if let panelID,
+                      let supervisor = AppDelegate.shared?.agentStallSupervisor,
+                      supervisor.shouldConsumeManagedCapture(
+                          owner: owner,
+                          panelID: panelID,
+                          key: key,
+                          lifecycle: lifecycle,
+                          promptBoundary: promptBoundary,
+                          identity: identity
+                      ) {
                 // Only an authoritative provider Stop event consumes the
                 // bounded turn capture. Generic notification/status updates
                 // can arrive before that event and must not erase its evidence.
-                if promptBoundary {
-                    outputCapture = GhosttyApp.agentStallOutputDemand?.finishCapture(for: panelID)
-                } else {
-                    outputCapture = nil
-                }
+                outputCapture = GhosttyApp.agentStallOutputDemand?.finishCapture(for: panelID)
             } else {
                 outputCapture = nil
             }
@@ -233,7 +238,7 @@ extension TerminalController: ControlSidebarContext {
             // most one pending running hint per surface, without moving it
             // behind an already queued authoritative boundary.
             TerminalMutationBus.shared.enqueueCoalescingMainActorMutation(
-                replaceKey: .agentLifecycle(surfaceId: panelID),
+                replaceKey: .agentLifecycle(surfaceId: panelID, lifecycleKey: key),
                 mutation
             )
         } else {

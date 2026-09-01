@@ -33,9 +33,7 @@ extension AgentStallSupervisor {
                 checkpointID: binding.checkpointId ?? "",
                 panelID: panelID
             ) {
-                if let previousPID = state.processID,
-                   let previousIdentity = state.processIdentity,
-                   (previousPID != process.pid || previousIdentity != process.identity) {
+                if state.processID != process.pid || state.processIdentity != process.identity {
                     // A repeated hook is presentation-only; it must never
                     // silently retarget the capture to a reused/replaced
                     // provider process. The next real running hook establishes
@@ -76,13 +74,19 @@ extension AgentStallSupervisor {
         state.terminalLifecycleID = identity?.terminalLifecycleID
         if !preservingRetry { state.retryAttempts = 0 }
         statesByPanelID[panelID] = state
-        let hasOutputCapture = outputDemand.beginCapture(
-            AgentStallOutputDemandDescriptor(
-                workspaceID: owner.id,
-                epoch: state.generation
-            ),
-            for: panelID
-        )
+        let hasOutputCapture: Bool
+        if settings.isEnabled {
+            hasOutputCapture = outputDemand.beginCapture(
+                AgentStallOutputDemandDescriptor(
+                    workspaceID: owner.id,
+                    epoch: state.generation
+                ),
+                for: panelID
+            )
+        } else {
+            outputDemand.clearCapture(for: panelID)
+            hasOutputCapture = false
+        }
         if !hasOutputCapture {
             Self.logger.warning(
                 "event=capture-unavailable provider=\(provider, privacy: .public) workspace=\(owner.id, privacy: .public) panel=\(panelID, privacy: .public) generation=\(state.generation)"

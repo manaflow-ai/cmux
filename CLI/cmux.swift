@@ -28250,7 +28250,7 @@ struct CMUXCLI {
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey).\(consumedSession.sessionId) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status --require-owned-key",
                         client: client
                     )
                     try? sessionStore.clearAgentLifecycleIfPresent(
@@ -36604,10 +36604,16 @@ export default CMUXSessionRestore;
                     String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                     def.displayName
                 )
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                if cursorShellNeedsApproval {
+                    sendCursorCriticalCommand(
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    )
+                } else {
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
             case .idle?:
                 if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
                     setAgentLifecycle(

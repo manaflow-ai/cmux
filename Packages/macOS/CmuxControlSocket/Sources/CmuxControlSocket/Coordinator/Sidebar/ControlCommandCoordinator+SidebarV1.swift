@@ -369,6 +369,9 @@ extension ControlCommandCoordinator {
             guard !trimmed.isEmpty else {
                 return (nil, "ERROR: Missing \(name) — usage: \(usage)")
             }
+            guard !trimmed.hasPrefix("-") else {
+                return (nil, "ERROR: \(name) looks like an option — usage: \(usage)")
+            }
             guard trimmed.utf8.count <= 512 else {
                 return (nil, "ERROR: \(name) is too long — usage: \(usage)")
             }

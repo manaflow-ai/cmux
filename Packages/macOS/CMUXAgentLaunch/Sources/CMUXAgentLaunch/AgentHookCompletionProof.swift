@@ -33,22 +33,48 @@ public struct AgentHookCompletionProof {
               !normalizedAgentHookLine(assistantMessage).isEmpty else {
             return false
         }
-        guard !agentHookPayloadContainsStructuredFailure(payload) else {
+        let hasStructuredFailureEvidence = agentHookPayloadContainsStructuredFailure(payload)
+        guard !hasStructuredFailureEvidence else {
             return false
         }
         return classifier.classify(
             provider: provider,
             output: assistantMessage,
-            // The stop payload itself is the authoritative boundary here;
-            // use corroborated matching only to reject a known banner, never
-            // to grant the supervisor permission to retry it.
-            hasStructuredEvidence: true
+            // Ambiguous phrases (for example, "try again later") require an
+            // actual structured failure envelope. A normal hook payload, or a
+            // nil payload, must not turn an ordinary assistant message into a
+            // retry signal.
+            hasStructuredEvidence: hasStructuredFailureEvidence
         ) == nil
     }
 }
 
 private func normalizedAgentHookLine(_ value: String) -> String {
-    let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    var text = value
+    text = text.replacingOccurrences(
+        of: "\u{001B}\\][^\u{0007}\u{001B}]*(?:\u{0007}|\u{001B}\\\\)",
+        with: " ",
+        options: .regularExpression
+    )
+    text = text.replacingOccurrences(
+        of: "\u{001B}\\[[0-?]*[ -/]*[@-~]",
+        with: " ",
+        options: .regularExpression
+    )
+    // Keep the emptiness check fail-closed even if a platform regex engine
+    // leaves an ANSI introducer behind.
+    text = text.replacingOccurrences(of: "\u{001B}", with: "")
+    text = text.replacingOccurrences(
+        of: "\\[[0-?]*[ -/]*[@-~]",
+        with: " ",
+        options: .regularExpression
+    )
+    text = text.unicodeScalars.reduce(into: String()) { result, scalar in
+        if scalar.value >= 0x20 || scalar.value == 0x09 || scalar.value == 0x0A || scalar.value == 0x0D {
+            result.unicodeScalars.append(scalar)
+        }
+    }
+    let collapsed = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 

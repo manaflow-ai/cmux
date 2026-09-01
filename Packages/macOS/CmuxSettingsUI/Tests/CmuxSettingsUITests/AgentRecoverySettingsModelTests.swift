@@ -8,7 +8,7 @@ import Testing
 @Suite("Agent recovery settings")
 struct AgentRecoverySettingsModelTests {
     @Test("auto-retry publishes its live signal only after persistence commits")
-    func autoRetrySignalsCommittedChange() async {
+    func autoRetrySignalsCommittedChange() async throws {
         let suiteName = "AgentRecoverySettingsModelTests.\(UUID().uuidString)"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
         defer {
@@ -26,7 +26,7 @@ struct AgentRecoverySettingsModelTests {
 
         #expect(!model.isAutoRetryEnabled)
         model.setAutoRetryEnabled(true)
-        await host.waitForAutoRetryChange()
+        try await host.waitForAutoRetryChange()
 
         #expect(host.autoRetryChangeCount == 1)
         #expect(await store.value(for: SettingCatalog().terminal.autoRetryAgentSessions))

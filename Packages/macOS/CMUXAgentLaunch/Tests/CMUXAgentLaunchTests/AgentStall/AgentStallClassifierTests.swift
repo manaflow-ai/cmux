@@ -50,6 +50,30 @@ struct AgentStallClassifierTests {
         #expect(result.cause == .safeguardRefusal)
     }
 
+    @Test("anchored regexes remain detectable across terminal wrapping")
+    func wrappedAnchoredRegex() throws {
+        let wrappedClassifier = AgentStallClassifier(patterns: [
+            AgentStallPattern(
+                identifier: "custom.wrapped-regex",
+                providers: ["codex"],
+                cause: .transientTransport,
+                regularExpressions: ["(?m)^api error: connection reset$"],
+                suggestedActionID: "manualResume"
+            ),
+        ])
+        let result = try #require(wrappedClassifier.classify(
+            provider: "codex",
+            output: "api error:\nconnection reset"
+        ))
+        #expect(result.cause == .transientTransport)
+
+        let midWordResult = try #require(wrappedClassifier.classify(
+            provider: "codex",
+            output: "api erro\nr: connection reset"
+        ))
+        #expect(midWordResult.cause == .transientTransport)
+    }
+
     @Test("an incomplete Trusted Access refusal fails closed")
     func incompleteTrustedAccessRefusal() {
         let output = """
@@ -111,6 +135,15 @@ struct AgentStallClassifierTests {
         ] {
             let result = try #require(classifier.classify(
                 provider: "claude",
+                output: output
+            ))
+            #expect(result.cause == .authenticationExpired)
+            #expect(result.disposition == .humanRequired)
+        }
+
+        for output in ["Unauthorized", "Authentication error", "Authentication failed"] {
+            let result = try #require(classifier.classify(
+                provider: "codex",
                 output: output
             ))
             #expect(result.cause == .authenticationExpired)
@@ -214,9 +247,24 @@ struct AgentStallClassifierTests {
             "event_msg error codex_error_info=usage_limit_exceeded",
             "event_msg error codex_error_info=http_connection_failed",
             "Handled server_overloaded and told the caller to try again later.",
+            "The stream disconnected while I was explaining the error handling.",
         ] {
             #expect(classifier.classify(provider: "codex", output: output) == nil)
         }
+
+        let structuredOverload = classifier.classify(
+            provider: "codex",
+            output: "server_overloaded: try again later",
+            hasStructuredEvidence: true
+        )
+        #expect(structuredOverload?.cause == .overload)
+
+        let structuredDisconnect = classifier.classify(
+            provider: "codex",
+            output: "stream disconnected before completion",
+            hasStructuredEvidence: true
+        )
+        #expect(structuredDisconnect?.cause == .transientTransport)
     }
 
     @Test("classifies standalone 429 and corroborated 5xx provider status banners")
@@ -238,6 +286,11 @@ struct AgentStallClassifierTests {
             hasStructuredEvidence: true
         ))
         #expect(serverError.cause == .transientTransport)
+
+        #expect(classifier.classify(
+            provider: "codex",
+            output: "HTTP 500 Internal Server Error"
+        ) == nil)
     }
 
     @Test("classifies parenthesized provider status errors")
@@ -409,6 +462,28 @@ struct AgentStallClassifierTests {
         ])
 
         #expect(customClassifier.classify(provider: "codex", output: "Done.") == nil)
+    }
+
+    @Test("empty custom fragments fail closed")
+    func emptyCustomFragments() {
+        let customClassifier = AgentStallClassifier(patterns: [
+            AgentStallPattern(
+                identifier: "custom.empty-required-fragment",
+                providers: ["codex"],
+                cause: .transientTransport,
+                requiredFragments: ["   "],
+                suggestedActionID: "manualResume"
+            ),
+            AgentStallPattern(
+                identifier: "custom.empty-any-fragment",
+                providers: ["codex"],
+                cause: .transientTransport,
+                anyFragments: ["\n"],
+                suggestedActionID: "manualResume"
+            ),
+        ])
+
+        #expect(customClassifier.classify(provider: "codex", output: "ordinary output") == nil)
     }
 
     @Test("unknown output, provider, and normal completion fail closed")

@@ -68,19 +68,38 @@ public struct AgentStallClassifier: Sendable {
         guard !pattern.requiresStructuredEvidence || hasStructuredEvidence else {
             return false
         }
-        guard pattern.requiredFragments.allSatisfy({
-            fragmentOutput.contains(normalizedAgentStallFragment($0))
+        let requiredFragments = pattern.requiredFragments.map(normalizedAgentStallFragment)
+        let anyFragments = pattern.anyFragments.map(normalizedAgentStallFragment)
+        guard requiredFragments.allSatisfy({ !$0.isEmpty }),
+              anyFragments.allSatisfy({ !$0.isEmpty }) else {
+            return false
+        }
+        guard requiredFragments.allSatisfy({
+            fragmentOutput.contains($0)
         }) else {
             return false
         }
-        if !pattern.anyFragments.isEmpty,
-           !pattern.anyFragments.contains(where: {
-               fragmentOutput.contains(normalizedAgentStallFragment($0))
+        if !anyFragments.isEmpty,
+           !anyFragments.contains(where: {
+               fragmentOutput.contains($0)
            }) {
             return false
         }
-        return pattern.regularExpressions.isEmpty || pattern.regularExpressions.contains {
+        guard !pattern.regularExpressions.isEmpty else { return true }
+        // A terminal can wrap one provider banner across physical lines. Keep
+        // the line-preserving view for anchored rules, but also try a compact
+        // whitespace view and a line-joined view so a split phrase remains
+        // detectable whether the wrap occurred between words or mid-word.
+        let whitespaceCollapsedOutput = output.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        let lineJoinedOutput = output.replacingOccurrences(of: "\n", with: "")
+        return pattern.regularExpressions.contains {
             output.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
+                || whitespaceCollapsedOutput.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
+                || lineJoinedOutput.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
         }
     }
 

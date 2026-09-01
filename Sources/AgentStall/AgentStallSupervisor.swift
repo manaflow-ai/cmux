@@ -10,7 +10,11 @@ import OSLog
 /// to the matching capture generation; it can never trigger an action itself.
 @MainActor
 final class AgentStallSupervisor {
-    static let logger = Logger(
+    // The supervisor is split across same-type extension files; `private`
+    // members cannot be referenced from those files. Keep the logger
+    // nonisolated and type-scoped while retaining the narrowest cross-file
+    // visibility that Swift permits here.
+    nonisolated static let logger = Logger(
         subsystem: "com.cmuxterm.app",
         category: "agent-stall-supervisor"
     )
@@ -55,6 +59,10 @@ final class AgentStallSupervisor {
         settingsObserver = settings.observeDidChange { [weak self] in
             guard let self, !self.settings.isEnabled else { return }
             self.cancelScheduledRetries(reason: "setting-disabled")
+            // A running generation may not have a retry scheduled yet. Drop
+            // its bounded PTY demand as soon as the opt-in setting is turned
+            // off so the default-off path does no capture work.
+            self.outputDemand.clearAllCaptures()
         }
     }
 
@@ -171,6 +179,32 @@ final class AgentStallSupervisor {
             }
         }
         return true
+    }
+
+    /// Returns whether a prompt-boundary event is allowed to consume the
+    /// managed capture for this panel. Custom lifecycle keys retain their
+    /// legacy projection but must never drain evidence owned by Claude/Codex.
+    func shouldConsumeManagedCapture(
+        owner: ControlSidebarPanelOwner,
+        panelID: UUID,
+        key: String,
+        lifecycle: AgentHibernationLifecycleState,
+        promptBoundary: Bool,
+        identity: ControlSidebarLifecycleIdentity?
+    ) -> Bool {
+        guard promptBoundary,
+              let binding = owner.agentStallResumeBinding(panelID),
+              supportedProvider(kind: binding.kind, key: key) != nil else {
+            return false
+        }
+        return lifecycleEventIsCurrent(
+            owner: owner,
+            panelID: panelID,
+            key: key,
+            lifecycle: lifecycle,
+            promptBoundary: promptBoundary,
+            identity: identity
+        )
     }
 
     /// Records an already-ordered managed lifecycle event from Claude/Codex hooks.

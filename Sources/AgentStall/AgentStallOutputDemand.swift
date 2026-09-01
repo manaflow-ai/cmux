@@ -74,9 +74,13 @@ final class AgentStallOutputCaptureBuffer: @unchecked Sendable {
     /// accumulated tail for every chunk. The one bounded snapshot is copied
     /// only when the hook proves that the provider returned to its prompt.
     func append(_ bytes: UnsafeBufferPointer<UInt8>) {
-        guard hasCaptureDemand.loadAcquire() else { return }
         guard let baseAddress = bytes.baseAddress, bytes.count > 0 else { return }
+        // Snapshot the generation before checking demand. A callback that
+        // started before a finish/begin handoff must fail the locked
+        // generation check rather than append its borrowed bytes to the new
+        // turn's capture.
         let observedGeneration = captureGeneration.loadRelaxed()
+        guard hasCaptureDemand.loadAcquire() else { return }
         let chunk = SynchronousBytes(baseAddress: baseAddress, count: bytes.count)
         lock.withLock { state in
             guard captureGeneration.loadRelaxed() == observedGeneration,

@@ -335,18 +335,23 @@ extension Workspace {
         requireOwnedKey: Bool = false,
         refreshPorts: Bool = true
     ) -> Bool {
-        let scopedKey = scopedAgentPIDKey(key: key, panelId: panelId)
+        // A panel-scoped legacy clear has no session identity. Do not derive a
+        // replacement key from the panel's *current* binding: an old hook may
+        // arrive after that binding has changed and would otherwise clear the
+        // replacement session. Callers with a session identity must pass the
+        // already-scoped key explicitly.
+        let scopedKey = key == "claude_code" && panelId != nil
+            ? key
+            : scopedAgentPIDKey(key: key, panelId: panelId)
         var candidateKeys = [scopedKey]
-        if key == "claude_code" {
+        if key == "claude_code", panelId == nil {
             // Session teardown can clear the binding before issuing the legacy
-            // bare-key command. Include every Claude-scoped key still owned by
-            // the requested panel, or every owner for a workspace-scoped
-            // clear/status operation.
+            // bare-key command. Workspace-scoped cleanup may therefore clear
+            // every Claude-scoped key, while panel-scoped cleanup stays exact.
             candidateKeys.append(contentsOf: agentPIDPanelIdsByKey.compactMap { candidate, owner in
                 guard candidate.hasPrefix("claude_code.") else { return nil }
                 return panelId == nil || owner == panelId ? candidate : nil
             })
-            if scopedKey != key { candidateKeys.append(key) }
         }
         var uniqueKeys: [String] = []
         var seenKeys = Set<String>()
