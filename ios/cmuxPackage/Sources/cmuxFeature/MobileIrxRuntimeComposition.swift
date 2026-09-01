@@ -288,16 +288,16 @@ public actor MobileIrxRuntimeComposition {
             },
             handlers: .init(
                 onRelayPasses: { [weak self] credentials in
-                    await self?.ingestPushedPasses(credentials)
+                    await self?.ingestPushedPasses(credentials) ?? false
                 },
                 onHintUpdate: { [weak self] endpointIDHex, relayURL in
                     await self?.ingestHintUpdate(
-                        endpointIDHex: endpointIDHex, relayURL: relayURL)
+                        endpointIDHex: endpointIDHex, relayURL: relayURL) ?? false
                 },
-                onDirectory: { _ in },
+                onDirectory: { _ in true },
                 onSnapshotComplete: { _ in },
                 onDirectoryFact: { [weak self] fact in
-                    await self?.applyDeviceListFact(fact)
+                    await self?.applyDeviceListFact(fact) ?? false
                 },
                 onFreshness: { [weak self] rev, issuedAt in
                     await self?.applyDeviceListFreshness(rev: rev, issuedAt: issuedAt)
@@ -315,29 +315,29 @@ public actor MobileIrxRuntimeComposition {
     /// dial-gate box, project into the UI state, acknowledge the revision.
     /// (Enforcement on LIVE sessions is the Mac's job; the phone's gate
     /// bites at the next dial.)
-    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async {
+    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async -> Bool {
         if let current = deviceListBox.current, fact.rev <= current.rev {
             Self.journal.record(
                 "client-runtime", "device-list-stale-rev",
                 ["rev": String(fact.rev), "have": String(current.rev)]
             )
-            return
+            return true
         }
         let snapshot = IrxDeviceListSnapshot(
             fact: fact,
             receivedAtWall: Date(),
             receivedAtMonotonic: .now
         )
-        deviceListBox.replace(snapshot)
         if let deviceListStore {
-            await deviceListStore.persist(snapshot)
+            guard await deviceListStore.persist(snapshot) else { return false }
         }
-        await controlPlane?.acknowledge(rev: fact.rev)
+        deviceListBox.replace(snapshot)
         Self.journal.record(
             "client-runtime", "device-list-applied",
             ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
         )
         await projectDeviceListForUI(snapshot)
+        return true
     }
 
     private func applyDeviceListFreshness(rev: Int, issuedAt: Date) async {
@@ -445,21 +445,22 @@ public actor MobileIrxRuntimeComposition {
     /// Pushed passes flow through the broker's mint rules (fleet allowlist,
     /// identity binding, monotonic freshness), then rotate make-before-break
     /// and reset the autopilot timer so push and fallback never double-mint.
-    private func ingestPushedPasses(_ credentials: [IrxRelayCredential]) async {
-        guard let broker, let endpointSupervisor, let autopilot else { return }
+    private func ingestPushedPasses(_ credentials: [IrxRelayCredential]) async -> Bool {
+        guard let broker, let endpointSupervisor, let autopilot else { return false }
         guard let accepted = await broker.acceptPushedRelayCredentials(credentials)
-        else { return }
+        else { return false }
         await endpointSupervisor.rotateCredentials(accepted)
         await autopilot.kick()
+        return true
     }
 
     /// The event-driven relay race: a pushed hint that disagrees with the
     /// route an in-flight dial used cancels that dial and redials at the
     /// true relay. An admitted session is never touched, and an agreeing
     /// hint (the overwhelmingly common case) is a no-op.
-    private func ingestHintUpdate(endpointIDHex: String, relayURL: String) async {
+    private func ingestHintUpdate(endpointIDHex: String, relayURL: String) async -> Bool {
         let existing = routesByPeer[endpointIDHex]
-        guard existing?.relayURL != relayURL else { return }
+        guard existing?.relayURL != relayURL else { return true }
         routesByPeer[endpointIDHex] = (relayURL, existing?.directAddresses ?? [])
         Self.journal.record(
             "client-runtime", "hint-adopted",
@@ -472,6 +473,7 @@ public actor MobileIrxRuntimeComposition {
         if let engine = enginesByPeer[endpointIDHex] {
             await engine.relayHintChanged(trigger: "ctl-hint-update")
         }
+        return true
     }
 
     private func provisionIfPossible() async -> Bool {

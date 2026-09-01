@@ -117,7 +117,8 @@ public actor IrxDeviceListStore {
         return snapshot
     }
 
-    public func persist(_ snapshot: IrxDeviceListSnapshot) async {
+    @discardableResult
+    public func persist(_ snapshot: IrxDeviceListSnapshot) async -> Bool {
         let persisted = PersistedSnapshot(
             entries: snapshot.entries,
             rev: snapshot.rev,
@@ -126,7 +127,7 @@ public actor IrxDeviceListStore {
             minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion,
             receivedAtWall: snapshot.receivedAtWall
         )
-        guard let data = try? JSONEncoder().encode(persisted) else { return }
+        guard let data = try? JSONEncoder().encode(persisted) else { return false }
         do {
             try await secureStore.write(
                 data,
@@ -137,11 +138,13 @@ public actor IrxDeviceListStore {
                 "device-list", "persisted",
                 ["rev": String(snapshot.rev), "entries": String(snapshot.entries.count)]
             )
+            return true
         } catch {
             journal.record(
                 "device-list", "persist-failed",
                 ["error": String(describing: error)]
             )
+            return false
         }
     }
 

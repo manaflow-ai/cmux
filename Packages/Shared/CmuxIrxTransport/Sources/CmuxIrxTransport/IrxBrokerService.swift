@@ -516,7 +516,11 @@ public actor IrxBrokerService {
                 ($0.relayURL, $0)
             })
         var accepted: [IrxRelayCredential] = []
+        let now = Date()
         for credential in pushed {
+            guard credential.expiresAt > now,
+                credential.refreshAfter < credential.expiresAt
+            else { continue }
             guard
                 mergedByRelay[credential.relayURL].map({
                     credential.expiresAt > $0.expiresAt

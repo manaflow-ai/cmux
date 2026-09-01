@@ -309,17 +309,18 @@ final class MobileHostIrxRuntime {
                             guard let broker, let supervisor, let pilot,
                                 let accepted = await broker
                                     .acceptPushedRelayCredentials(pushed)
-                            else { return }
+                            else { return false }
                             await supervisor.rotateCredentials(accepted)
                             await pilot.kick()
                             await self?.publishIrxSettingsUpdate()
+                            return true
                         },
                         // The host dials no peers; hint facts are for clients.
-                        onHintUpdate: { _, _ in },
-                        onDirectory: { _ in },
+                        onHintUpdate: { _, _ in true },
+                        onDirectory: { _ in true },
                         onSnapshotComplete: { _ in },
                         onDirectoryFact: { [weak self] fact in
-                            await self?.applyDeviceListFact(fact)
+                            await self?.applyDeviceListFact(fact) ?? false
                         },
                         onFreshness: { [weak self] rev, issuedAt in
                             await self?.applyDeviceListFreshness(
@@ -452,23 +453,22 @@ final class MobileHostIrxRuntime {
     /// swap it into the accept path atomically, acknowledge the revision,
     /// then enforce it on LIVE sessions (a revoked or delisted device is cut
     /// now with `.revoked`, not at its next admission).
-    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async {
-        guard let deviceListBox, let deviceListStore else { return }
+    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async -> Bool {
+        guard let deviceListBox, let deviceListStore else { return false }
         if let current = deviceListBox.current, fact.rev <= current.rev {
             Self.journal.record(
                 "host-runtime", "device-list-stale-rev",
                 ["rev": String(fact.rev), "have": String(current.rev)]
             )
-            return
+            return true
         }
         let snapshot = IrxDeviceListSnapshot(
             fact: fact,
             receivedAtWall: Date(),
             receivedAtMonotonic: .now
         )
+        guard await deviceListStore.persist(snapshot) else { return false }
         deviceListBox.replace(snapshot)
-        await deviceListStore.persist(snapshot)
-        await controlPlane?.acknowledge(rev: fact.rev)
         Self.journal.record(
             "host-runtime", "device-list-applied",
             ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
@@ -479,6 +479,7 @@ final class MobileHostIrxRuntime {
                 return entry.revoked
             }
         }
+        return true
     }
 
     /// An explicit freshness re-stamp (`current`, or a `snapshot_complete`

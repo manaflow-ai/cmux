@@ -48,24 +48,24 @@ public actor IrxControlPlaneClient {
     }
 
     public struct Handlers: Sendable {
-        public var onRelayPasses: @Sendable ([IrxRelayCredential]) async -> Void
-        public var onHintUpdate: @Sendable (_ endpointIDHex: String, _ relayURL: String) async -> Void
-        public var onDirectory: @Sendable (CTLDirectoryPayload) async -> Void
+        public var onRelayPasses: @Sendable ([IrxRelayCredential]) async -> Bool
+        public var onHintUpdate: @Sendable (_ endpointIDHex: String, _ relayURL: String) async -> Bool
+        public var onDirectory: @Sendable (CTLDirectoryPayload) async -> Bool
         public var onSnapshotComplete: @Sendable (_ rev: Int) async -> Void
         /// The list-auth overlay of a directory fact (rev + lease stamp +
         /// per-entry authorization). The consumer applies it, then calls
         /// ``IrxControlPlaneClient/acknowledge(rev:)``.
-        public var onDirectoryFact: (@Sendable (IrxCtlDirectoryFact) async -> Void)?
+        public var onDirectoryFact: (@Sendable (IrxCtlDirectoryFact) async -> Bool)?
         /// An explicit freshness re-stamp (a `current` frame, or a
         /// `snapshot_complete` carrying `issuedAt`).
         public var onFreshness: (@Sendable (_ rev: Int, _ issuedAt: Date) async -> Void)?
 
         public init(
-            onRelayPasses: @escaping @Sendable ([IrxRelayCredential]) async -> Void,
-            onHintUpdate: @escaping @Sendable (String, String) async -> Void,
-            onDirectory: @escaping @Sendable (CTLDirectoryPayload) async -> Void,
+            onRelayPasses: @escaping @Sendable ([IrxRelayCredential]) async -> Bool,
+            onHintUpdate: @escaping @Sendable (String, String) async -> Bool,
+            onDirectory: @escaping @Sendable (CTLDirectoryPayload) async -> Bool,
             onSnapshotComplete: @escaping @Sendable (Int) async -> Void,
-            onDirectoryFact: (@Sendable (IrxCtlDirectoryFact) async -> Void)? = nil,
+            onDirectoryFact: (@Sendable (IrxCtlDirectoryFact) async -> Bool)? = nil,
             onFreshness: (@Sendable (_ rev: Int, _ issuedAt: Date) async -> Void)? = nil
         ) {
             self.onRelayPasses = onRelayPasses
@@ -374,11 +374,11 @@ public actor IrxControlPlaneClient {
                     "control-plane", "passes-received",
                     ["rev": String(fact.rev), "count": String(credentials.count)]
                 )
-                await handlers.onRelayPasses(credentials)
-                // Relay credentials are a revisioned control-plane fact. The
-                // handler has completed, so acknowledge it now to stop the
-                // server retry ladder and advance convergence state.
-                await acknowledge(rev: fact.rev)
+                if await handlers.onRelayPasses(credentials) {
+                    // Relay credentials are a revisioned control-plane fact.
+                    // Ack only after the consumer accepted and persisted them.
+                    await acknowledge(rev: fact.rev)
+                }
             case "hint_update":
                 let fact = try Self.decoder.decode(CTLHintUpdate.self, from: data)
                 journal.record(
@@ -389,12 +389,13 @@ public actor IrxControlPlaneClient {
                         "relay": fact.payload.homeRelayURL,
                     ]
                 )
-                await handlers.onHintUpdate(
+                if await handlers.onHintUpdate(
                     fact.payload.endpointID, fact.payload.homeRelayURL)
-                // Hint updates are independently revisioned when delivered
-                // outside a directory snapshot; acknowledge after applying
-                // the handler so replay/retry state can advance.
-                await acknowledge(rev: fact.rev)
+                {
+                    // Hint updates are independently revisioned when delivered
+                    // outside a directory snapshot; ack after applying them.
+                    await acknowledge(rev: fact.rev)
+                }
             case "directory":
                 // The tolerant overlay is the PRIMARY decode: every list-auth
                 // field is optional there, so directories from both old and
@@ -410,26 +411,24 @@ public actor IrxControlPlaneClient {
                         "stamped": String(listFact.payload.issuedAt != nil),
                     ]
                 )
+                var applied = false
                 if let fact = try? Self.decoder.decode(CTLDirectory.self, from: data) {
-                    await handlers.onDirectory(fact.payload)
+                    applied = await handlers.onDirectory(fact.payload)
                 } else {
-                    await handlers.onDirectory(
+                    applied = await handlers.onDirectory(
                         Self.legacyDirectoryPayload(from: listFact))
                 }
                 for binding in listFact.payload.bindings {
                     if let relay = binding.homeRelayURL {
-                        await handlers.onHintUpdate(binding.endpointID, relay)
+                        applied = await handlers.onHintUpdate(binding.endpointID, relay) && applied
                     }
                 }
                 if let onDirectoryFact = handlers.onDirectoryFact {
-                    await onDirectoryFact(listFact)
+                    applied = await onDirectoryFact(listFact) && applied
                 }
-                // Directory delivery is itself a revisioned fact. The
-                // consumer callbacks have completed, so acknowledge only
-                // after the directory/list-auth state is applied. Runtime
-                // callbacks may also acknowledge; lastAckedRev coalesces the
-                // duplicate without changing wire behavior.
-                await acknowledge(rev: listFact.rev)
+                // Directory delivery is itself a revisioned fact. Ack only
+                // after every consumer reports durable application.
+                if applied { await acknowledge(rev: listFact.rev) }
             case "current":
                 // Explicit freshness re-stamp for the device-list lease.
                 let stamp = try Self.decoder.decode(IrxCtlFreshnessStamp.self, from: data)
