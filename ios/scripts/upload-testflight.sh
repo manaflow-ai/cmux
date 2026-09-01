@@ -1333,7 +1333,7 @@ echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash s
 echo "IPA_PATH=$IPA_PATH"
 
 EXPECTED_IPA_CRASH_REPORTING=""
-[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="NO"
+[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="$CRASH_REPORTING_ENABLED"
 if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM" "$EXPECTED_IPA_CRASH_REPORTING"; then
   echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
   exit 1
