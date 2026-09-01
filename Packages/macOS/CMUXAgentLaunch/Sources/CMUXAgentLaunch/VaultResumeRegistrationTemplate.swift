@@ -117,6 +117,11 @@ struct VaultResumeRegistrationTemplate: Sendable {
                 default:
                     break
                 }
+            } else if quote == .double, (character == "$" || character == "`") {
+                // Variable and command substitutions are shell behavior, not
+                // literal argv data. Preserve their semantics on the bounded
+                // compatibility path instead of embedding the unevaluated text.
+                return nil
             }
             if character == "\\", quote != .single {
                 hasToken = true
