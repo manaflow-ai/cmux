@@ -483,13 +483,19 @@ impl AgentRoster {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
                     if existing_source == AgentSource::Hook {
-                        if fresh_hook(existing.updated_at_ms, updated_at_ms) {
+                        // Hook arbitration is owned by the journal. A plugin
+                        // may report an older observation after transport
+                        // delay, but that must not keep a stale hook alive or
+                        // make reclaim impossible. Keep producer timestamps
+                        // for same-plugin ordering below; use the committed
+                        // journal time for this cross-source freshness rule.
+                        if fresh_hook(existing.updated_at_ms, event.committed_at_ms) {
                             return Vec::new();
                         }
                         // An older plugin observation cannot reclaim a hook
                         // row merely because the hook is stale. The next
                         // current observation can do so.
-                        if updated_at_ms < existing.updated_at_ms {
+                        if event.committed_at_ms < existing.updated_at_ms {
                             return Vec::new();
                         }
                     }
