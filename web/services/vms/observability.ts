@@ -107,6 +107,7 @@ export const VM_REAPER_POSTHOG_DISTINCT_ID = "cmux-vm-reaper";
 export type VmReaperSummaryTelemetry = {
   readonly reportOnly: boolean;
   readonly candidates: number;
+  readonly reported: number;
   readonly deleted: number;
   readonly skipped: number;
   readonly errors: number;
@@ -114,11 +115,17 @@ export type VmReaperSummaryTelemetry = {
     readonly candidates: number;
     readonly deleted: number;
     readonly reported: number;
+    readonly unknownAttachment: number;
+    readonly unknownReference: number;
+    readonly scanned: number;
+    readonly providerPages: number;
+    readonly coveragePartial: boolean;
     readonly skipped: number;
     readonly errors: number;
   };
   readonly stuckProvisioning: {
     readonly candidates: number;
+    readonly reported: number;
     readonly recovered: number;
     readonly failed: number;
     readonly destroyed: number;
@@ -139,9 +146,8 @@ const VM_REAPER_CAPTURE_TIMEOUT_MS = 2_000;
  * Deliver one aggregate reaper outcome to PostHog.
  *
  * The event is production-only by default. A force flag is useful for a
- * staging smoke test, but the report-only/delete decision remains controlled
- * by the reaper itself. Delivery is best effort and bounded so telemetry can
- * never turn a successful cleanup run into a failed cron request.
+ * staging smoke test. Delivery is best effort and bounded so telemetry can
+ * never turn a successful report run into a failed cron request.
  */
 export async function captureVmReaperSummary(
   summary: VmReaperSummaryTelemetry,
@@ -154,24 +160,30 @@ export async function captureVmReaperSummary(
   if (!enabled) return;
 
   const properties: Record<string, string | number | boolean> = {
-    report_only: summary.reportOnly,
-    delete_enabled: !summary.reportOnly,
+    report_only: true,
     candidates: boundedTelemetryCount(summary.candidates),
+    reported: boundedTelemetryCount(summary.reported),
     deleted: boundedTelemetryCount(summary.deleted),
     skipped: boundedTelemetryCount(summary.skipped),
     errors: boundedTelemetryCount(summary.errors),
     orphan_volume_candidates: boundedTelemetryCount(summary.orphanVolumes.candidates),
     orphan_volume_deleted: boundedTelemetryCount(summary.orphanVolumes.deleted),
     orphan_volume_reported: boundedTelemetryCount(summary.orphanVolumes.reported),
+    orphan_volume_unknown_attachment: boundedTelemetryCount(summary.orphanVolumes.unknownAttachment),
+    orphan_volume_unknown_reference: boundedTelemetryCount(summary.orphanVolumes.unknownReference),
+    orphan_volume_scanned: boundedTelemetryCount(summary.orphanVolumes.scanned),
+    orphan_volume_provider_pages: boundedTelemetryCount(summary.orphanVolumes.providerPages),
+    orphan_volume_coverage_partial: summary.orphanVolumes.coveragePartial,
     orphan_volume_skipped: boundedTelemetryCount(summary.orphanVolumes.skipped),
     orphan_volume_errors: boundedTelemetryCount(summary.orphanVolumes.errors),
     stuck_provisioning_candidates: boundedTelemetryCount(summary.stuckProvisioning.candidates),
+    stuck_provisioning_reported: boundedTelemetryCount(summary.stuckProvisioning.reported),
     stuck_provisioning_recovered: boundedTelemetryCount(summary.stuckProvisioning.recovered),
     stuck_provisioning_failed: boundedTelemetryCount(summary.stuckProvisioning.failed),
     stuck_provisioning_destroyed: boundedTelemetryCount(summary.stuckProvisioning.destroyed),
     stuck_provisioning_skipped: boundedTelemetryCount(summary.stuckProvisioning.skipped),
     stuck_provisioning_errors: boundedTelemetryCount(summary.stuckProvisioning.errors),
-    schema_version: 1,
+    schema_version: 2,
     $insert_id: randomUUID(),
     $geoip_disable: true,
     $process_person_profile: false,

@@ -1,16 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { ProviderId, VMVolume } from "../services/vms/drivers";
+import type { VMVolume, VMVolumeInventory } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   VmRepository,
   type CloudVmRow,
   type VmRepositoryShape,
 } from "../services/vms/repository";
-import { VmProviderOperationError } from "../services/vms/errors";
-import { reapVmResources } from "../services/vms/workflows";
-import type { VmReaperOptions } from "../services/vms/reaper";
+import { reapVmResources, type VmReaperOptions } from "../services/vms/reaper";
 
 const NOW = new Date("2026-08-31T20:00:00.000Z");
 
@@ -42,23 +40,23 @@ function baseRepository(): VmRepositoryShape {
     beginBaseOpen: () => Effect.die("unused"),
     beginBaseReset: () => Effect.die("unused"),
     markBaseCreateRunning: () => Effect.die("unused"),
-    markBaseCreateFailed: () => Effect.void,
+    markBaseCreateFailed: () => Effect.die("unexpected lifecycle write"),
     activeLimitCandidates: () => Effect.succeed([]),
     reservePausedResume: () => Effect.die("unused"),
     reconciliationCandidates: () => Effect.succeed([]),
-    markProviderObservedStatus: () => Effect.succeed(true),
-    setDisplayName: () => Effect.succeed(true),
+    markProviderObservedStatus: () => Effect.die("unexpected lifecycle write"),
+    setDisplayName: () => Effect.die("unexpected lifecycle write"),
     markCreateRunning: () => Effect.die("unused"),
-    markCreateFailed: () => Effect.void,
+    markCreateFailed: () => Effect.die("unexpected lifecycle write"),
     hasOwnedSnapshot: () => Effect.succeed(false),
     findUserVm: () => Effect.succeed(null),
-    markDestroyed: () => Effect.void,
-    recordLease: () => Effect.void,
+    markDestroyed: () => Effect.die("unexpected lifecycle write"),
+    recordLease: () => Effect.die("unexpected lifecycle write"),
     accountDeletionIdentityLeases: () => Effect.succeed([]),
     listVmSessions: () => Effect.succeed([]),
     upsertVmSession: () => Effect.die("unused"),
     activeIdentityLeases: () => Effect.succeed([]),
-    markLeasesRevoked: () => Effect.void,
+    markLeasesRevoked: () => Effect.die("unexpected lifecycle write"),
     recordUsageEvent: () => Effect.void,
     recordUsageEvents: () => Effect.void,
   } as unknown as VmRepositoryShape;
@@ -68,29 +66,16 @@ function repository(overrides: Partial<VmRepositoryShape> = {}): VmRepositorySha
   return { ...baseRepository(), ...overrides };
 }
 
-function withObservations(
-  repo: VmRepositoryShape,
-  observations: Map<string, Date> = new Map(),
-): VmRepositoryShape {
-  return {
-    ...repo,
-    listOrphanVolumeObservations: ({ volumeNames }) => Effect.succeed(
-      volumeNames.flatMap((volumeName) => {
-        const firstObservedAt = observations.get(volumeName);
-        return firstObservedAt ? [{ volumeName, firstObservedAt }] : [];
-      }),
-    ),
-    recordOrphanVolumeObservation: ({ volumeName, observedAt }) => Effect.sync(() => {
-      if (!observations.has(volumeName)) observations.set(volumeName, observedAt);
-    }),
-  };
-}
-
-function oldVolume(name: string, ageMs = 3 * 60 * 60 * 1000): VMVolume {
+function oldVolume(
+  name: string,
+  overrides: Partial<VMVolume> = {},
+): VMVolume {
   return {
     name,
-    createdAt: NOW.getTime() - ageMs,
+    createdAt: NOW.getTime() - 3 * 60 * 60 * 1000,
     attachedTo: null,
+    attachmentState: "unattached",
+    ...overrides,
   };
 }
 
@@ -101,7 +86,7 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     billingTeamId: "team-reaper",
     billingPlanId: "pro",
     provider: "blaxel",
-    providerVmId: "noble-wren",
+    providerVmId: "stale-sandbox",
     displayName: null,
     imageId: "blaxel/base-image:latest",
     imageVersion: null,
@@ -117,416 +102,233 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   };
 }
 
-function missingProviderError(vmId: string): VmProviderOperationError {
-  return new VmProviderOperationError({
-    provider: "blaxel",
-    operation: "getStatus",
-    cause: new Error(`sandbox ${vmId} -> 404 not found`),
-  });
+function runReaper(
+  repo: VmRepositoryShape,
+  provider: VmProviderGatewayShape,
+  options: VmReaperOptions = {},
+) {
+  return Effect.runPromise(
+    reapVmResources({ now: NOW, ...options }).pipe(
+      Effect.provide(workflowLayer(repo, provider)),
+    ),
+  );
 }
 
-describe("Cloud VM reaper", () => {
-  test("filters shared/user volumes and reports an unattached machine volume without deleting", async () => {
-    const deleted: string[] = [];
+describe("Cloud VM reaper report", () => {
+  test("reports only known orphan candidates and never deletes or writes VM rows", async () => {
     const usage: Array<Record<string, unknown>> = [];
-    const observations = new Map<string, Date>();
-    const volumes: VMVolume[] = [
-      { name: "cmux-home-abcdef123456", createdAt: 1, attachedTo: null },
-      { name: "cmux-home-abcdef123456-noble-wren", createdAt: 2, attachedTo: null },
-      { name: "cmux-home-abcdef123456-bold-fox", createdAt: 3, attachedTo: "sandbox:bold-fox" },
-      { name: "user-home-noble-wren", createdAt: 4, attachedTo: null },
-    ];
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
+    const deleted: string[] = [];
+    const liveLookups: string[][] = [];
+    const repo = repository({
+      listLiveHomeVolumeNames: ({ volumeNames }) => Effect.sync(() => {
+        liveLookups.push([...volumeNames]);
+        return [];
+      }),
       stuckProvisioningCandidates: () => Effect.succeed([]),
       recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
-    }), observations);
+    });
     const provider = {
       ...baseProvider(),
-      listVolumes: () => Effect.succeed(volumes),
-      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
-    };
+      listVolumes: () => Effect.succeed([
+        oldVolume("cmux-home-abcdef123456-noble-wren"),
+        oldVolume("cmux-home-abcdef123456-bold-fox", { attachedTo: "sandbox:bold-fox", attachmentState: "attached" }),
+        oldVolume("cmux-home-abcdef123456"),
+        oldVolume("shared-volume"),
+      ]),
+      deleteHomeVolume: (_provider: "blaxel", name: string) => Effect.sync(() => deleted.push(name)),
+    } as unknown as VmProviderGatewayShape;
 
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: false }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
+    const result = await runReaper(repo, provider, {
+      // A legacy array is still accepted, but it must be marked partial.
+      volumeLimit: 10,
+      volumeScanLimit: 10,
+    });
 
     expect(result.reportOnly).toBe(true);
+    expect(result.deleted).toBe(0);
     expect(result.orphanVolumes.candidates).toBe(1);
     expect(result.orphanVolumes.reported).toBe(1);
-    expect(result.orphanVolumes.skipped).toBe(1);
+    expect(result.orphanVolumes.deleted).toBe(0);
+    expect(result.orphanVolumes.coveragePartial).toBe(true);
+    expect(liveLookups).toEqual([["cmux-home-abcdef123456-noble-wren"]]);
     expect(deleted).toEqual([]);
     expect(usage).toHaveLength(1);
     expect(usage[0]).toMatchObject({
       eventType: "vm.reaper.orphan_volume",
       metadata: {
         volumeName: "cmux-home-abcdef123456-noble-wren",
-        mode: "report",
+        attachmentState: "unattached",
+        liveReference: false,
       },
     });
   });
 
-  test("deletes only a free machine-owned volume when delete mode is enabled", async () => {
-    const deleted: string[] = [];
-    const name = "cmux-home-abcdef123456-noble-wren";
-    const observations = new Map([[name, new Date(NOW.getTime() - 60 * 60 * 1000)]]);
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
+  test("reports unknown attachment separately and never treats it as free", async () => {
+    const usage: Array<Record<string, unknown>> = [];
+    const liveLookups: string[][] = [];
+    const repo = repository({
+      listLiveHomeVolumeNames: ({ volumeNames }) => Effect.sync(() => {
+        liveLookups.push([...volumeNames]);
+        return [];
+      }),
       stuckProvisioningCandidates: () => Effect.succeed([]),
-    }), observations);
-    const provider = {
-      ...baseProvider(),
-      listVolumes: () => Effect.succeed([oldVolume(name)]),
-      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
-    };
-
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: true }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
-
-    expect(result.reportOnly).toBe(false);
-    expect(result.orphanVolumes.deleted).toBe(1);
-    expect(deleted).toEqual(["cmux-home-abcdef123456-noble-wren"]);
-  });
-
-  test("skips a machine volume referenced by a live VM row", async () => {
-    const deleted: string[] = [];
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed(["cmux-home-abcdef123456-noble-wren"]),
-      stuckProvisioningCandidates: () => Effect.succeed([]),
-    }));
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed([
-        { name: "cmux-home-abcdef123456-noble-wren", createdAt: 2, attachedTo: null },
+        { name: "cmux-home-abcdef123456-unknown-state", createdAt: 1 },
+        oldVolume("cmux-home-abcdef123456-explicit-free"),
       ]),
-      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
-    };
+    } as unknown as VmProviderGatewayShape;
 
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: true }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
+    const result = await runReaper(repo, provider, { volumeScanLimit: 10 });
 
-    expect(result.orphanVolumes.deleted).toBe(0);
-    expect(result.orphanVolumes.skipped).toBe(1);
-    expect(deleted).toEqual([]);
-  });
-
-  test("marks a stale provisioning row destroyed when the provider sandbox is gone", async () => {
-    const updates: Array<Record<string, unknown>> = [];
-    const usage: Array<Record<string, unknown>> = [];
-    const row = vmRow({ providerVmId: "stale-sandbox" });
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
-      stuckProvisioningCandidates: () => Effect.succeed([row]),
-      markProviderObservedStatus: (update) => Effect.sync(() => {
-        updates.push(update as Record<string, unknown>);
-        return true;
-      }),
-      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
-    }));
-    const provider = {
-      ...baseProvider(),
-      listVolumes: () => Effect.succeed([]),
-      getStatus: (_provider: ProviderId, vmId: string) => Effect.fail(missingProviderError(vmId)),
-    };
-
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: false }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
-
-    expect(result.stuckProvisioning.destroyed).toBe(1);
-    expect(result.stuckProvisioning.failed).toBe(0);
-    expect(updates).toEqual([
-      { id: row.id, providerVmId: "stale-sandbox", status: "destroyed", expectedStatus: "provisioning" },
-    ]);
+    expect(result.orphanVolumes.unknownAttachment).toBe(1);
+    expect(result.orphanVolumes.candidates).toBe(1);
+    expect(result.orphanVolumes.reported).toBe(2);
+    expect(liveLookups).toEqual([["cmux-home-abcdef123456-explicit-free"]]);
     expect(usage).toContainEqual(expect.objectContaining({
-      eventType: "vm.destroyed",
-      vmId: row.id,
-      metadata: expect.objectContaining({ source: "vm_reaper" }),
+      eventType: "vm.reaper.orphan_volume_unknown_attachment",
+      metadata: expect.objectContaining({
+        volumeName: "cmux-home-abcdef123456-unknown-state",
+        attachmentState: "unknown",
+        attachment: "unknown",
+      }),
+    }));
+    expect(usage).not.toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.orphan_volume",
+      metadata: expect.objectContaining({ volumeName: "cmux-home-abcdef123456-unknown-state" }),
     }));
   });
 
-  test("marks a stale provisioning row failed when it never received a provider id", async () => {
-    const failures: Array<Record<string, unknown>> = [];
+  test("reports stale provisioning rows without provider reads or repository status writes", async () => {
     const usage: Array<Record<string, unknown>> = [];
     const row = vmRow({ providerVmId: null });
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
+    let statusReads = 0;
+    const repo = repository({
       stuckProvisioningCandidates: () => Effect.succeed([row]),
-      markProvisioningFailed: (input) => Effect.sync(() => {
-        failures.push(input as Record<string, unknown>);
-        return true;
-      }),
       recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
-    }));
-    const provider = {
-      ...baseProvider(),
-      listVolumes: () => Effect.succeed([]),
-    };
-
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: false }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
-
-    expect(result.stuckProvisioning.failed).toBe(1);
-    expect(failures[0]).toMatchObject({
-      id: row.id,
-      code: "provisioning_timeout",
     });
-    expect(usage).toContainEqual(expect.objectContaining({
-      eventType: "vm.create.failed",
-      vmId: row.id,
-    }));
-  });
-
-  test("does not delete a newly observed volume until it is old and observed by a prior run", async () => {
-    const deleted: string[] = [];
-    const name = "cmux-home-abcdef123456-new-volume";
-    const observations = new Map<string, Date>();
-    const volume: VMVolume = {
-      name,
-      createdAt: NOW.getTime() - 30 * 60 * 1000,
-      attachedTo: null,
-    };
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
-      isLiveHomeVolumeReferenced: () => Effect.succeed(false),
-      stuckProvisioningCandidates: () => Effect.succeed([]),
-    }), observations);
     const provider = {
       ...baseProvider(),
-      listVolumes: () => Effect.succeed([volume]),
-      deleteHomeVolume: (_provider: ProviderId, volumeName: string) =>
-        Effect.sync(() => deleted.push(volumeName)),
-    };
-    const run = (now: Date) => Effect.runPromise(
-      reapVmResources({ now, deleteVolumes: true } as VmReaperOptions).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
-
-    const first = await run(NOW);
-    expect(first.orphanVolumes.deleted).toBe(0);
-    expect(first.orphanVolumes.reported).toBe(1);
-    expect(observations.has(name)).toBe(true);
-
-    const tooYoung = await run(new Date(NOW.getTime() + 60 * 60 * 1000));
-    expect(tooYoung.orphanVolumes.deleted).toBe(0);
-
-    const oldEnough = await run(new Date(NOW.getTime() + 2 * 60 * 60 * 1000));
-    expect(oldEnough.orphanVolumes.deleted).toBe(1);
-    expect(deleted).toEqual([name]);
-  });
-
-  test("does not delete an old volume on its first orphan observation", async () => {
-    const deleted: string[] = [];
-    const name = "cmux-home-abcdef123456-old-first-observation";
-    const observations = new Map<string, Date>();
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
-      isLiveHomeVolumeReferenced: () => Effect.succeed(false),
-      stuckProvisioningCandidates: () => Effect.succeed([]),
-    }), observations);
-    const provider = {
-      ...baseProvider(),
-      listVolumes: () => Effect.succeed([oldVolume(name)]),
-      deleteHomeVolume: (_provider: ProviderId, volumeName: string) =>
-        Effect.sync(() => deleted.push(volumeName)),
-    };
-
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: true }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
-
-    expect(result.orphanVolumes.deleted).toBe(0);
-    expect(result.orphanVolumes.reported).toBe(1);
-    expect(observations.get(name)).toEqual(NOW);
-    expect(deleted).toEqual([]);
-  });
-
-  test("does not overwrite a provisioning row that changed while provider status was read", async () => {
-    const updates: Array<Record<string, unknown>> = [];
-    const row = vmRow({ providerVmId: "racing-sandbox" });
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
-      stuckProvisioningCandidates: () => Effect.succeed([row]),
-      markProviderObservedStatus: (update) => Effect.sync(() => {
-        updates.push(update as Record<string, unknown>);
-        return false;
+      getStatus: () => Effect.sync(() => {
+        statusReads += 1;
+        return "running" as const;
       }),
-    }));
-    const provider = {
-      ...baseProvider(),
       listVolumes: () => Effect.succeed([]),
-      getStatus: () => Effect.succeed("running" as const),
-    };
+    } as unknown as VmProviderGatewayShape;
 
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: false }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
+    const result = await runReaper(repo, provider);
 
-    expect(result.stuckProvisioning.recovered).toBe(0);
-    expect(result.stuckProvisioning.skipped).toBe(1);
-    expect(updates).toEqual([
-      {
-        id: row.id,
-        providerVmId: "racing-sandbox",
-        status: "running",
-        expectedStatus: "provisioning",
-      },
-    ]);
+    expect(result.stuckProvisioning.candidates).toBe(1);
+    expect(result.stuckProvisioning.reported).toBe(1);
+    expect(result.stuckProvisioning.failed).toBe(0);
+    expect(result.stuckProvisioning.destroyed).toBe(0);
+    expect(statusReads).toBe(0);
+    expect(usage).toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.stuck_provisioning",
+      vmId: row.id,
+      metadata: expect.objectContaining({ reason: "age_over_threshold" }),
+    }));
   });
 
-  test("finalizes a provider-creating row after the terminal deadline", async () => {
-    const failures: Array<Record<string, unknown>> = [];
+  test("checks live references in bounded batches and excludes referenced volumes", async () => {
     const usage: Array<Record<string, unknown>> = [];
-    const row = vmRow({
-      providerVmId: "creating-too-long",
-      createdAt: new Date(NOW.getTime() - 5 * 60 * 60 * 1000),
-      updatedAt: new Date(NOW.getTime() - 5 * 60 * 60 * 1000),
-    });
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: () => Effect.succeed([]),
-      stuckProvisioningCandidates: () => Effect.succeed([row]),
-      markProvisioningFailed: (input) => Effect.sync(() => {
-        failures.push(input as Record<string, unknown>);
-        return true;
+    const lookupBatches: string[][] = [];
+    const liveName = "cmux-home-aaaaaaaaaaaa-noble-wren";
+    const orphanName = "cmux-home-bbbbbbbbbbbb-noble-wren";
+    const repo = repository({
+      listLiveHomeVolumeNames: ({ volumeNames }) => Effect.sync(() => {
+        lookupBatches.push([...volumeNames]);
+        return volumeNames.filter((name) => name === liveName);
       }),
-      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
-    }));
-    const provider = {
-      ...baseProvider(),
-      listVolumes: () => Effect.succeed([]),
-      getStatus: () => Effect.succeed("creating" as const),
-    };
-
-    const result = await Effect.runPromise(
-      reapVmResources({
-        now: NOW,
-        deleteVolumes: false,
-        stuckProvisioningTerminalAgeMs: 4 * 60 * 60 * 1000,
-      } as VmReaperOptions).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
-
-    expect(result.stuckProvisioning.failed).toBe(1);
-    expect(result.stuckProvisioning.skipped).toBe(0);
-    expect(failures).toContainEqual(expect.objectContaining({
-      id: row.id,
-      code: "provisioning_timeout",
-    }));
-    expect(usage).toContainEqual(expect.objectContaining({
-      eventType: "vm.reaper.stuck_provisioning_terminal",
-      vmId: row.id,
-    }));
-  });
-
-  test("filters live volumes before the limit and keeps reference lookups bounded", async () => {
-    const deleted: string[] = [];
-    const seenReferenceBatches: string[][] = [];
-    const liveNames = new Set(
-      ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"].map((digest) =>
-        `cmux-home-${digest}-noble-wren`),
-    );
-    const orphanNames = [
-      "cmux-home-dddddddddddd-noble-wren",
-      "cmux-home-eeeeeeeeeeee-noble-wren",
-    ];
-    const volumes = [
-      ...Array.from(liveNames, (name) => oldVolume(name)),
-      ...orphanNames.map((name) => oldVolume(name)),
-    ];
-    const observations = new Map(orphanNames.map((name) => [
-      name,
-      new Date(NOW.getTime() - 60 * 60 * 1000),
-    ]));
-    const repo = withObservations(repository({
-      listLiveHomeVolumeNames: ((input?: { readonly volumeNames?: readonly string[] }) => {
-        const names = [...(input?.volumeNames ?? [])];
-        seenReferenceBatches.push(names);
-        return Effect.succeed(names.filter((name) => liveNames.has(name)));
-      }) as VmRepositoryShape["listLiveHomeVolumeNames"],
-      isLiveHomeVolumeReferenced: () => Effect.succeed(false),
       stuckProvisioningCandidates: () => Effect.succeed([]),
-    }), observations);
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
     const provider = {
       ...baseProvider(),
-      listVolumes: () => Effect.succeed(volumes),
-      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
-    };
+      listVolumes: () => Effect.succeed([
+        oldVolume(liveName),
+        oldVolume(orphanName),
+      ]),
+    } as unknown as VmProviderGatewayShape;
 
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: true, volumeLimit: 2 }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
+    const result = await runReaper(repo, provider, { volumeLimit: 1, volumeScanLimit: 2 });
 
-    expect(result.orphanVolumes.deleted).toBe(2);
-    expect(deleted).toEqual(orphanNames);
-    expect(seenReferenceBatches.length).toBeGreaterThan(1);
-    expect(seenReferenceBatches.every((batch) => batch.length <= 2)).toBe(true);
+    expect(lookupBatches).toEqual([[liveName, orphanName]]);
+    expect(result.orphanVolumes.candidates).toBe(1);
+    expect(result.orphanVolumes.reported).toBe(1);
+    expect(usage[0]).toMatchObject({ metadata: { volumeName: orphanName } });
   });
 
-  test("bounds volume and provisioning batches and processes oldest first", async () => {
-    const deleted: string[] = [];
-    const statusCalls: string[] = [];
-    const volumes: VMVolume[] = Array.from({ length: 105 }, (_, index) => ({
-      name: `cmux-home-${index.toString(16).padStart(12, "0")}-noble-wren`,
-      createdAt: index + 1,
-      attachedTo: null,
-    }));
-    const rows = Array.from({ length: 105 }, (_, index) => vmRow({
-      id: `00000000-0000-4000-8000-${(index + 100).toString(16).padStart(12, "0")}`,
-      providerVmId: `stale-${index}`,
-      createdAt: new Date(NOW.getTime() - (index + 2) * 60 * 60 * 1000),
-      updatedAt: new Date(NOW.getTime() - (index + 2) * 60 * 60 * 1000),
-    }));
-    const observations = new Map(volumes.map((volume) => [
-      volume.name,
-      new Date(NOW.getTime() - 60 * 60 * 1000),
-    ]));
-    const repo = withObservations(repository({
+  test("follows provider cursors to avoid starving a batch and records scan coverage", async () => {
+    const usage: Array<Record<string, unknown>> = [];
+    const calls: Array<{ limit: number; cursor?: string }> = [];
+    const firstPage: VMVolume[] = [
+      oldVolume("cmux-home-aaaaaaaaaaaa-attached", { attachedTo: "sandbox:a", attachmentState: "attached" }),
+      oldVolume("not-a-machine-volume"),
+    ];
+    const secondPage: VMVolume[] = [oldVolume("cmux-home-bbbbbbbbbbbb-orphan")];
+    const repo = repository({
       listLiveHomeVolumeNames: () => Effect.succeed([]),
-      stuckProvisioningCandidates: ({ limit }) => Effect.succeed(rows.slice(0, limit)),
-      markProviderObservedStatus: ({ providerVmId }) => Effect.sync(() => {
-        statusCalls.push(providerVmId);
-        return true;
+      stuckProvisioningCandidates: () => Effect.succeed([]),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
+    const provider = {
+      ...baseProvider(),
+      listVolumes: (_provider: "blaxel", options: { limit: number; cursor?: string }): Effect.Effect<VMVolumeInventory> => Effect.sync(() => {
+        calls.push({ limit: options.limit, ...(options.cursor ? { cursor: options.cursor } : {}) });
+        return options.cursor
+          ? { volumes: secondPage, nextCursor: null }
+          : { volumes: firstPage, nextCursor: "page-2" };
       }),
-    }), observations);
+    } as unknown as VmProviderGatewayShape;
+
+    const result = await runReaper(repo, provider, { volumeLimit: 1, volumeScanLimit: 3 });
+
+    expect(calls).toEqual([
+      { limit: 3 },
+      { limit: 1, cursor: "page-2" },
+    ]);
+    expect(result.orphanVolumes.scanned).toBe(3);
+    expect(result.orphanVolumes.candidates).toBe(1);
+    expect(result.orphanVolumes.coveragePartial).toBe(false);
+    expect(usage).toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.orphan_volume",
+      metadata: expect.objectContaining({ volumeName: "cmux-home-bbbbbbbbbbbb-orphan" }),
+    }));
+  });
+
+  test("caps a legacy non-paginated inventory and marks coverage partial", async () => {
+    const usage: Array<Record<string, unknown>> = [];
+    const scannedNames: string[][] = [];
+    const volumes = Array.from({ length: 20 }, (_, index) => oldVolume(
+      `cmux-home-${index.toString(16).padStart(12, "0")}-noble-wren`,
+    ));
+    const repo = repository({
+      listLiveHomeVolumeNames: ({ volumeNames }) => Effect.sync(() => {
+        scannedNames.push([...volumeNames]);
+        return [];
+      }),
+      stuckProvisioningCandidates: () => Effect.succeed([]),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed(volumes),
-      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
-      getStatus: () => Effect.succeed("running" as const),
-    };
+    } as unknown as VmProviderGatewayShape;
 
-    const result = await Effect.runPromise(
-      reapVmResources({ now: NOW, deleteVolumes: true }).pipe(
-        Effect.provide(workflowLayer(repo, provider)),
-      ),
-    );
+    const result = await runReaper(repo, provider, {
+      volumeLimit: 2,
+      volumeScanLimit: 3,
+    });
 
-    expect(result.orphanVolumes.deleted).toBe(100);
-    expect(deleted).toHaveLength(100);
-    expect(deleted[0]).toBe(volumes[0]?.name);
-    expect(result.stuckProvisioning.recovered).toBe(100);
-    expect(statusCalls).toHaveLength(100);
-    expect(statusCalls[0]).toBe("stale-0");
+    expect(result.orphanVolumes.scanned).toBe(3);
+    expect(result.orphanVolumes.candidates).toBe(2);
+    expect(result.orphanVolumes.reported).toBe(2);
+    expect(result.orphanVolumes.coveragePartial).toBe(true);
+    expect(scannedNames.flat().length).toBe(3);
+    expect(usage).toHaveLength(2);
   });
 });

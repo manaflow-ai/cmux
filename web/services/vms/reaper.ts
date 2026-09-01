@@ -1,6 +1,9 @@
 import * as Effect from "effect/Effect";
-import type { VMStatus, VMVolume } from "./drivers";
-import { isProviderNotFoundError } from "./providerErrors";
+import type {
+  VMVolume,
+  VMVolumeInventory,
+  VMVolumePage,
+} from "./drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
@@ -9,31 +12,46 @@ import {
 } from "./repository";
 import { isMachineOwnedHomeVolumeName } from "./volumeNaming";
 
-/** The reaper is intentionally small enough to finish inside one Vercel invocation. */
+/** Maximum number of candidate reports emitted by one run. */
 export const VM_REAPER_DEFAULT_VOLUME_LIMIT = 100;
 export const VM_REAPER_DEFAULT_PROVISIONING_LIMIT = 100;
-export const VM_REAPER_DEFAULT_STUCK_PROVISIONING_MINUTES = 60;
-export const VM_REAPER_DEFAULT_ORPHAN_VOLUME_MIN_AGE_MINUTES = 2 * 60;
-export const VM_REAPER_DEFAULT_CREATING_TERMINAL_AGE_MINUTES = 24 * 60;
+export const VM_REAPER_DEFAULT_VOLUME_SCAN_LIMIT = 1_000;
 export const VM_REAPER_MAX_BATCH_LIMIT = 100;
+export const VM_REAPER_MAX_VOLUME_SCAN_LIMIT = 1_000;
+export const VM_REAPER_DEFAULT_STUCK_PROVISIONING_MINUTES = 60;
 export const VM_REAPER_SYSTEM_USER_ID = "cmux-vm-reaper";
 
 const ORPHAN_VOLUME_EVENT = "vm.reaper.orphan_volume";
-const ORPHAN_VOLUME_OBSERVATION_EVENT = "vm.reaper.orphan_volume_observed";
-const STUCK_PROVISIONING_TERMINAL_EVENT = "vm.reaper.stuck_provisioning_terminal";
-const STUCK_VOLUME_ERROR_EVENT = "vm.reaper.orphan_volume_error";
-const STUCK_PROVISIONING_FAILURE_CODE = "provisioning_timeout";
+const ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT = "vm.reaper.orphan_volume_unknown_attachment";
+const ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT = "vm.reaper.orphan_volume_unknown_reference";
+const STUCK_PROVISIONING_EVENT = "vm.reaper.stuck_provisioning";
 
 export type VmReaperCounts = {
+  /** Known machine-owned, explicitly unattached volumes with no live row. */
   readonly candidates: number;
-  readonly deleted: number;
+  /** Usage events successfully emitted for this category. */
   readonly reported: number;
+  /** Always zero. The report-only cron has no lifecycle mutation path. */
+  readonly deleted: number;
+  /** Provider attachment was absent or malformed, so the state was unknown. */
+  readonly unknownAttachment: number;
+  /** A known-free volume could not be checked against live VM rows. */
+  readonly unknownReference: number;
+  /** Provider records inspected during this run. */
+  readonly scanned: number;
+  /** Provider pages fetched during this run. */
+  readonly providerPages: number;
+  /** True when the provider did not prove that the inventory was exhausted. */
+  readonly coveragePartial: boolean;
   readonly skipped: number;
   readonly errors: number;
 };
 
 export type VmStuckProvisioningCounts = {
+  /** Rows older than the configured threshold returned by the repository. */
   readonly candidates: number;
+  readonly reported: number;
+  /** Retained as zero-valued compatibility fields for existing dashboards. */
   readonly recovered: number;
   readonly failed: number;
   readonly destroyed: number;
@@ -42,12 +60,13 @@ export type VmStuckProvisioningCounts = {
 };
 
 export type VmReaperSummary = {
-  /** True when no provider deletion was enabled for this run. */
+  /** Always true. This cron only observes and records findings. */
   readonly reportOnly: boolean;
   readonly orphanVolumes: VmReaperCounts;
   readonly stuckProvisioning: VmStuckProvisioningCounts;
-  /** Aggregate fields are convenient for dashboards and the PostHog event. */
   readonly candidates: number;
+  readonly reported: number;
+  /** Always zero. Kept for stable API/telemetry consumers. */
   readonly deleted: number;
   readonly skipped: number;
   readonly errors: number;
@@ -55,16 +74,13 @@ export type VmReaperSummary = {
 
 export type VmReaperOptions = {
   readonly now?: Date;
-  /** Explicit option wins over CMUX_VM_REAPER_DELETE. */
-  readonly deleteVolumes?: boolean;
+  /** Maximum number of orphan candidates to report in one run. */
   readonly volumeLimit?: number;
+  /** Maximum number of provider volume records to inspect in one run. */
+  readonly volumeScanLimit?: number;
   readonly provisioningLimit?: number;
-  /** Threshold in milliseconds. Explicit option wins over the env setting. */
+  /** Age threshold in milliseconds. */
   readonly stuckProvisioningAgeMs?: number;
-  /** Minimum provider-volume age before a prior observation can be deleted. */
-  readonly orphanVolumeMinAgeMs?: number;
-  /** Maximum age for a provider that remains in `creating`. */
-  readonly stuckProvisioningTerminalAgeMs?: number;
   readonly env?: Record<string, string | undefined>;
 };
 
@@ -72,13 +88,19 @@ type MutableSummary = {
   reportOnly: boolean;
   orphanVolumes: {
     candidates: number;
-    deleted: number;
     reported: number;
+    deleted: number;
+    unknownAttachment: number;
+    unknownReference: number;
+    scanned: number;
+    providerPages: number;
+    coveragePartial: boolean;
     skipped: number;
     errors: number;
   };
   stuckProvisioning: {
     candidates: number;
+    reported: number;
     recovered: number;
     failed: number;
     destroyed: number;
@@ -88,9 +110,12 @@ type MutableSummary = {
 };
 
 /**
- * Reconcile old provisioning rows and clean up unreferenced Blaxel volumes.
- * Every item is isolated in its own Effect boundary. A provider or database
- * failure for one item becomes an error count and never aborts the batch.
+ * Run the bounded Cloud VM observability report.
+ *
+ * This function intentionally has no provider or repository lifecycle mutation
+ * calls. It lists provider volumes, checks live row references, and records
+ * usage events for findings. A provider page without a trustworthy continuation
+ * signal is treated as partial coverage.
  */
 export function reapVmResources(
   input: VmReaperOptions = {},
@@ -104,45 +129,64 @@ export function reapVmResources(
     const providers = yield* VmProviderGateway;
     const env = input.env ?? process.env;
     const now = input.now ?? new Date();
-    const deleteVolumes = input.deleteVolumes ?? env.CMUX_VM_REAPER_DELETE === "1";
-    const orphanVolumeMinAgeMs = resolveDurationOption(
-      input.orphanVolumeMinAgeMs,
-      resolveOrphanVolumeMinAgeMs(env),
+    const volumeLimit = resolveLimit(
+      input.volumeLimit,
+      env.CMUX_VM_REAPER_VOLUME_LIMIT,
+      VM_REAPER_DEFAULT_VOLUME_LIMIT,
     );
-    const stuckProvisioningTerminalAgeMs = resolveDurationOption(
-      input.stuckProvisioningTerminalAgeMs,
-      resolveCreatingTerminalAgeMs(env),
+    const volumeScanLimit = resolveScanLimit(
+      input.volumeScanLimit,
+      env.CMUX_VM_REAPER_VOLUME_SCAN_LIMIT ?? env.CMUX_VM_REAPER_SCAN_LIMIT,
+      volumeLimit,
     );
     const summary: MutableSummary = {
-      reportOnly: !deleteVolumes,
-      orphanVolumes: { candidates: 0, deleted: 0, reported: 0, skipped: 0, errors: 0 },
-      stuckProvisioning: { candidates: 0, recovered: 0, failed: 0, destroyed: 0, skipped: 0, errors: 0 },
+      reportOnly: true,
+      orphanVolumes: {
+        candidates: 0,
+        reported: 0,
+        deleted: 0,
+        unknownAttachment: 0,
+        unknownReference: 0,
+        scanned: 0,
+        providerPages: 0,
+        coveragePartial: false,
+        skipped: 0,
+        errors: 0,
+      },
+      stuckProvisioning: {
+        candidates: 0,
+        reported: 0,
+        recovered: 0,
+        failed: 0,
+        destroyed: 0,
+        skipped: 0,
+        errors: 0,
+      },
     };
 
-    // Process stuck rows first. A row that is conclusively dead should no
-    // longer protect its old machine-owned volume during this same run.
-    yield* reapStuckProvisioningRows(repo, providers, summary, {
+    yield* reportStuckProvisioningRows(repo, summary, {
       now,
-      limit: resolveLimit(input.provisioningLimit, env.CMUX_VM_REAPER_PROVISIONING_LIMIT),
-      ageMs: input.stuckProvisioningAgeMs ?? resolveStuckAgeMs(env),
-      terminalAgeMs: stuckProvisioningTerminalAgeMs,
+      limit: resolveLimit(
+        input.provisioningLimit,
+        env.CMUX_VM_REAPER_PROVISIONING_LIMIT,
+        VM_REAPER_DEFAULT_PROVISIONING_LIMIT,
+      ),
+      ageMs: resolveDurationOption(input.stuckProvisioningAgeMs, resolveStuckAgeMs(env)),
     });
-
-    yield* reapOrphanVolumes(repo, providers, summary, {
-      deleteVolumes,
-      limit: resolveLimit(input.volumeLimit, env.CMUX_VM_REAPER_VOLUME_LIMIT),
-      minAgeMs: orphanVolumeMinAgeMs,
-      now,
+    yield* reportOrphanVolumes(repo, providers, summary, {
+      limit: volumeLimit,
+      scanLimit: volumeScanLimit,
     });
 
     const orphan = summary.orphanVolumes;
     const stuck = summary.stuckProvisioning;
     return {
-      reportOnly: summary.reportOnly,
+      reportOnly: true,
       orphanVolumes: orphan,
       stuckProvisioning: stuck,
       candidates: orphan.candidates + stuck.candidates,
-      deleted: orphan.deleted + stuck.destroyed,
+      reported: orphan.reported + stuck.reported,
+      deleted: 0,
       skipped: orphan.skipped + stuck.skipped,
       errors: orphan.errors + stuck.errors,
     } satisfies VmReaperSummary;
@@ -152,474 +196,259 @@ export function reapVmResources(
 /** Alias kept for callers that name the job after its Cloud VM scope. */
 export const reapCloudVmResources = reapVmResources;
 
-function reapStuckProvisioningRows(
+function reportStuckProvisioningRows(
   repo: VmRepositoryShape,
-  providers: VmProviderGatewayShape,
   summary: MutableSummary,
-  input: {
-    readonly now: Date;
-    readonly limit: number;
-    readonly ageMs: number;
-    readonly terminalAgeMs: number;
-  },
+  input: { readonly now: Date; readonly limit: number; readonly ageMs: number },
 ): Effect.Effect<void, never> {
-  const candidatesEffect = repo.stuckProvisioningCandidates
-    ? repo.stuckProvisioningCandidates({
+  const listCandidates = repo.stuckProvisioningCandidates;
+  if (!listCandidates) return Effect.void;
+  return Effect.gen(function* () {
+    const result = yield* listCandidates({
       before: new Date(input.now.getTime() - input.ageMs),
       limit: input.limit,
-    })
-    : Effect.succeed([] as CloudVmRow[]);
-
-  return Effect.gen(function* () {
-    const candidates = yield* candidatesEffect.pipe(
-      Effect.catchAll((error) => Effect.sync(() => {
-        summary.stuckProvisioning.errors += 1;
-        console.error("[VM] reaper could not list stuck provisioning rows", safeErrorMessage(error));
-        return [] as CloudVmRow[];
-      })),
-    );
-    summary.stuckProvisioning.candidates = candidates.length;
-    yield* Effect.forEach(
-      candidates,
-      (vm) => reapOneStuckProvisioningRow(repo, providers, summary, vm, {
-        now: input.now,
-        terminalAgeMs: input.terminalAgeMs,
-      }),
-      { concurrency: 1, discard: true },
-    );
-  });
-}
-
-function reapOneStuckProvisioningRow(
-  repo: VmRepositoryShape,
-  providers: VmProviderGatewayShape,
-  summary: MutableSummary,
-  vm: CloudVmRow,
-  input: { readonly now: Date; readonly terminalAgeMs: number },
-): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    const providerVmId = vm.providerVmId?.trim() || null;
-    if (!providerVmId) {
-      const marked = yield* markProvisioningFailed(repo, vm).pipe(Effect.either);
-      if (marked._tag === "Left") {
-        recordStuckError(summary, vm, marked.left, "mark_failed");
-        return;
-      }
-      if (!marked.right) {
-        summary.stuckProvisioning.skipped += 1;
-        console.info("[VM] reaper skipped stale provisioning row changed concurrently", { vmId: vm.id });
-        return;
-      }
-      summary.stuckProvisioning.failed += 1;
-      console.warn("[VM] reaper marked provisioning row failed without provider id", {
-        vmId: vm.id,
-        ageMinutes: ageMinutes(vm.createdAt, input.now),
-      });
-      yield* recordVmUsageEvent(repo, vm, "vm.create.failed", {
-        source: "vm_reaper",
-        code: STUCK_PROVISIONING_FAILURE_CODE,
-        reason: "provider_vm_id_missing",
-      });
-      return;
-    }
-
-    const getStatus = providers.getStatus;
-    if (!getStatus) {
-      recordStuckError(summary, vm, new Error("provider status is not supported"), "get_status");
-      return;
-    }
-
-    const statusResult = yield* getStatus(vm.provider, providerVmId).pipe(Effect.either);
-    let providerStatus: VMStatus;
-    if (statusResult._tag === "Left") {
-      if (!isProviderNotFoundError(statusResult.left)) {
-        recordStuckError(summary, vm, statusResult.left, "get_status");
-        return;
-      }
-      providerStatus = "destroyed";
-    } else {
-      providerStatus = statusResult.right;
-    }
-
-    if (providerStatus === "creating") {
-      if (!isOlderThan(vm.createdAt, input.now, input.terminalAgeMs)) {
-        summary.stuckProvisioning.skipped += 1;
-        console.info("[VM] reaper left provider still creating", { vmId: vm.id, providerVmId });
-        return;
-      }
-
-      const marked = yield* markProvisioningFailed(repo, vm).pipe(Effect.either);
-      if (marked._tag === "Left") {
-        recordStuckError(summary, vm, marked.left, "mark_terminal_failed");
-        return;
-      }
-      if (!marked.right) {
-        summary.stuckProvisioning.skipped += 1;
-        console.info("[VM] reaper skipped terminal creating row changed concurrently", { vmId: vm.id });
-        return;
-      }
-
-      summary.stuckProvisioning.failed += 1;
-      console.warn("[VM] reaper finalized provider-creating row after terminal deadline", {
-        vmId: vm.id,
-        providerVmId,
-        ageMinutes: ageMinutes(vm.createdAt, input.now),
-      });
-      yield* recordVmUsageEvent(repo, vm, "vm.create.failed", {
-        source: "vm_reaper",
-        code: STUCK_PROVISIONING_FAILURE_CODE,
-        reason: "provider_still_creating_terminal_deadline",
-        providerStatus,
-      });
-      yield* recordVmUsageEvent(repo, vm, STUCK_PROVISIONING_TERMINAL_EVENT, {
-        source: "vm_reaper",
-        reason: "provider_still_creating_terminal_deadline",
-        providerStatus,
-        terminalAgeMinutes: Math.round(input.terminalAgeMs / 60_000),
-      });
-      return;
-    }
-
-    const desiredStatus = stuckDbStatus(
-      vm,
-      providerStatus as Exclude<VMStatus, "creating">,
-    );
-    const updated = yield* repo.markProviderObservedStatus({
-      id: vm.id,
-      providerVmId,
-      status: desiredStatus,
-      expectedStatus: "provisioning",
     }).pipe(Effect.either);
-    if (updated._tag === "Left") {
-      recordStuckError(summary, vm, updated.left, "mark_status");
-      return;
-    }
-    if (!updated.right) {
-      summary.stuckProvisioning.skipped += 1;
-      console.info("[VM] reaper skipped stale provisioning row changed concurrently", { vmId: vm.id });
+    if (result._tag === "Left") {
+      summary.stuckProvisioning.errors += 1;
+      console.error("[VM] reaper could not list stuck provisioning rows", safeErrorMessage(result.left));
       return;
     }
 
-    if (desiredStatus === "destroyed") {
-      summary.stuckProvisioning.destroyed += 1;
-      console.warn("[VM] reaper marked missing provider sandbox destroyed", { vmId: vm.id, providerVmId });
-      yield* recordVmUsageEvent(repo, vm, "vm.destroyed", {
+    // The repository orders this query oldest first. Keep only a bounded
+    // oldest subset as a defensive measure for alternate implementations that
+    // return more rows than requested.
+    const eligible = result.right.filter((vm) => isOlderThan(vm.createdAt, input.now, input.ageMs));
+    const candidates = selectOldestVmRows(eligible, input.limit);
+    summary.stuckProvisioning.candidates = candidates.length;
+    if (eligible.length > candidates.length) summary.stuckProvisioning.skipped += eligible.length - candidates.length;
+
+    for (const vm of candidates) {
+      const recorded = yield* recordVmUsageEvent(repo, vm, STUCK_PROVISIONING_EVENT, {
         source: "vm_reaper",
-        reason: "provider_sandbox_missing",
+        reason: "age_over_threshold",
+        ageMinutes: ageMinutes(vm.createdAt, input.now),
+        thresholdMinutes: Math.ceil(input.ageMs / 60_000),
+        providerVmIdPresent: !!vm.providerVmId?.trim(),
       });
-      return;
+      if (recorded) summary.stuckProvisioning.reported += 1;
+      else summary.stuckProvisioning.errors += 1;
     }
-
-    summary.stuckProvisioning.recovered += 1;
-    console.info("[VM] reaper reconciled stale provisioning row", {
-      vmId: vm.id,
-      providerVmId,
-      status: desiredStatus,
-    });
   });
 }
 
-function reapOrphanVolumes(
+function reportOrphanVolumes(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   summary: MutableSummary,
-  input: {
-    readonly deleteVolumes: boolean;
-    readonly limit: number;
-    readonly minAgeMs: number;
-    readonly now: Date;
-  },
+  input: { readonly limit: number; readonly scanLimit: number },
 ): Effect.Effect<void, never> {
   const listVolumes = providers.listVolumes;
-  if (!listVolumes) return Effect.void;
-
-  return Effect.gen(function* () {
-    const listed = yield* listVolumes("blaxel").pipe(
-      Effect.catchAll((error) => Effect.sync(() => {
-        summary.orphanVolumes.errors += 1;
-        console.error("[VM] reaper could not list provider volumes", safeErrorMessage(error));
-        return [] as readonly VMVolume[];
-      })),
-    );
-    const candidates = yield* selectOrphanVolumeCandidates(repo, summary, listed, input.limit);
-    const observations = yield* loadOrphanVolumeObservations(
-      repo,
-      candidates.map((volume) => volume.name),
-      summary,
-    );
-    summary.orphanVolumes.candidates = candidates.length;
-
-    yield* Effect.forEach(
-      candidates,
-      (volume) => reapOneOrphanVolume(repo, providers, summary, volume, {
-        deleteVolumes: input.deleteVolumes,
-        minAgeMs: input.minAgeMs,
-        now: input.now,
-        observations,
-      }),
-      { concurrency: 1, discard: true },
-    );
-  });
-}
-
-/**
- * Select a bounded batch after removing provider-attached and database-live
- * volumes. Reference queries are chunked so a large provider inventory never
- * becomes an unbounded SQL `IN` list.
- */
-function selectOrphanVolumeCandidates(
-  repo: VmRepositoryShape,
-  summary: MutableSummary,
-  listed: readonly VMVolume[],
-  limit: number,
-): Effect.Effect<VMVolume[], never> {
-  return Effect.gen(function* () {
-    const owned = listed
-      .filter((volume) => isMachineOwnedHomeVolumeName(volume.name))
-      .sort(compareVolumes);
-    const unattached = owned.filter((volume) => {
-      const attachedTo = normalizedAttachment(volume);
-      if (!attachedTo) return true;
-      summary.orphanVolumes.skipped += 1;
-      console.info("[VM] reaper skipped attached volume", {
-        volumeName: volume.name.trim(),
-        attachedTo,
-      });
-      return false;
-    });
-    const candidates: VMVolume[] = [];
-    let offset = 0;
-
-    while (offset < unattached.length && candidates.length < limit) {
-      const chunk = unattached.slice(offset, offset + limit);
-      offset += chunk.length;
-      let liveNames: readonly string[] = [];
-
-      if (repo.listLiveHomeVolumeNames) {
-        const result = yield* repo.listLiveHomeVolumeNames({
-          provider: "blaxel",
-          volumeNames: chunk.map((volume) => volume.name.trim()),
-        }).pipe(Effect.either);
-        if (result._tag === "Left") {
-          summary.orphanVolumes.errors += 1;
-          summary.orphanVolumes.skipped += chunk.length;
-          console.error("[VM] reaper could not load live volume references", safeErrorMessage(result.left));
-          continue;
-        }
-        liveNames = result.right;
-      }
-
-      const liveReferences = new Set(liveNames.map((name) => name.trim()).filter(Boolean));
-      for (const volume of chunk) {
-        const name = volume.name.trim();
-        if (liveReferences.has(name)) {
-          summary.orphanVolumes.skipped += 1;
-          console.info("[VM] reaper skipped volume referenced by a live VM", { volumeName: name });
-          continue;
-        }
-        candidates.push(volume);
-        if (candidates.length >= limit) break;
-      }
-    }
-    return candidates;
-  });
-}
-
-type OrphanVolumeObservationState = {
-  readonly available: boolean;
-  readonly byName: ReadonlyMap<string, Date>;
-};
-
-function loadOrphanVolumeObservations(
-  repo: VmRepositoryShape,
-  volumeNames: readonly string[],
-  summary: MutableSummary,
-): Effect.Effect<OrphanVolumeObservationState, never> {
-  if (!repo.listOrphanVolumeObservations || volumeNames.length === 0) {
-    return Effect.succeed({ available: !!repo.listOrphanVolumeObservations, byName: new Map() });
+  if (!listVolumes) {
+    summary.orphanVolumes.coveragePartial = true;
+    return Effect.void;
   }
-  return repo.listOrphanVolumeObservations({ provider: "blaxel", volumeNames }).pipe(
-    Effect.map((observations) => {
-      const byName = new Map<string, Date>();
-      for (const observation of observations) {
-        const name = observation.volumeName.trim();
-        if (!name || byName.has(name)) continue;
-        if (!(observation.firstObservedAt instanceof Date) || !Number.isFinite(observation.firstObservedAt.getTime())) {
-          continue;
-        }
-        byName.set(name, observation.firstObservedAt);
+
+  return Effect.gen(function* () {
+    let cursor: string | undefined;
+    let exhausted = false;
+    const seenCursors = new Set<string>();
+    const seenNames = new Set<string>();
+    let candidateLimitReached = false;
+
+    while (!exhausted &&
+      summary.orphanVolumes.scanned < input.scanLimit &&
+      summary.orphanVolumes.providerPages < VM_REAPER_MAX_VOLUME_SCAN_LIMIT) {
+      const remaining = input.scanLimit - summary.orphanVolumes.scanned;
+      const requestLimit = Math.max(1, Math.min(VM_REAPER_MAX_BATCH_LIMIT, remaining));
+      const listed = yield* listVolumes("blaxel", {
+        limit: requestLimit,
+        ...(cursor ? { cursor } : {}),
+      }).pipe(Effect.either);
+      if (listed._tag === "Left") {
+        summary.orphanVolumes.errors += 1;
+        summary.orphanVolumes.coveragePartial = true;
+        console.error("[VM] reaper could not list provider volumes", safeErrorMessage(listed.left));
+        break;
       }
-      return { available: true, byName } satisfies OrphanVolumeObservationState;
-    }),
-    Effect.catchAll((error) => Effect.sync(() => {
-      summary.orphanVolumes.errors += 1;
-      console.error("[VM] reaper could not load orphan volume observations", safeErrorMessage(error));
-      return { available: false, byName: new Map() } satisfies OrphanVolumeObservationState;
-    })),
-  );
+
+      summary.orphanVolumes.providerPages += 1;
+      const page = normalizeVolumeInventory(listed.right, remaining);
+      if (page.truncated) summary.orphanVolumes.coveragePartial = true;
+      // The inventory is sliced before this point. Sorting is therefore at
+      // most the remaining run budget, even for a legacy array response.
+      const selected = selectOldestVolumes(page.volumes, remaining);
+      summary.orphanVolumes.scanned += selected.length;
+
+      const pageReport = yield* reportVolumePage(
+        repo,
+        summary,
+        selected,
+        input.limit,
+        seenNames,
+      );
+      candidateLimitReached ||= pageReport.candidateLimitReached;
+
+      const nextCursor = page.nextCursor;
+      if (!page.paginated) {
+        // An array is the legacy provider contract. It cannot prove that the
+        // inventory is complete, so report partial coverage even when short.
+        summary.orphanVolumes.coveragePartial = true;
+        exhausted = true;
+      } else if (!nextCursor) {
+        // A provider page with explicit pagination metadata and no cursor is
+        // complete. A legacy object without that metadata is not proof of
+        // completion, even if it returned fewer than the requested records.
+        if (!page.complete) summary.orphanVolumes.coveragePartial = true;
+        exhausted = true;
+        // Do not retain the previous page's cursor when the inventory is
+        // exhausted. A stale cursor would incorrectly turn a complete run
+        // into a partial one below.
+        cursor = undefined;
+      } else if (seenCursors.has(nextCursor)) {
+        summary.orphanVolumes.errors += 1;
+        summary.orphanVolumes.coveragePartial = true;
+        console.error("[VM] reaper stopped repeated provider volume cursor", { cursor: nextCursor });
+        exhausted = true;
+      } else {
+        seenCursors.add(nextCursor);
+        cursor = nextCursor;
+      }
+
+      // An empty page can still carry a valid continuation cursor. Follow it
+      // rather than silently declaring the inventory complete.
+      if (selected.length === 0 && !nextCursor) exhausted = true;
+    }
+
+    if (!exhausted && (
+      cursor ||
+      summary.orphanVolumes.scanned >= input.scanLimit ||
+      summary.orphanVolumes.providerPages >= VM_REAPER_MAX_VOLUME_SCAN_LIMIT
+    )) {
+      summary.orphanVolumes.coveragePartial = true;
+    }
+    // The candidate limit is a reporting cap. If an additional eligible
+    // candidate was found, the run did not cover all reportable findings.
+    if (candidateLimitReached) summary.orphanVolumes.coveragePartial = true;
+  });
 }
 
-function reapOneOrphanVolume(
+function reportVolumePage(
   repo: VmRepositoryShape,
-  providers: VmProviderGatewayShape,
   summary: MutableSummary,
-  volume: VMVolume,
-  input: {
-    readonly deleteVolumes: boolean;
-    readonly minAgeMs: number;
-    readonly now: Date;
-    readonly observations: OrphanVolumeObservationState;
-  },
-): Effect.Effect<void, never> {
+  volumes: readonly VMVolume[],
+  candidateLimit: number,
+  seenNames: Set<string>,
+): Effect.Effect<{ readonly candidateLimitReached: boolean }, never> {
   return Effect.gen(function* () {
-    const name = volume.name.trim();
-    const attachedTo = normalizedAttachment(volume);
-    if (attachedTo) {
-      summary.orphanVolumes.skipped += 1;
-      console.info("[VM] reaper skipped attached volume", { volumeName: name, attachedTo });
-      return;
-    }
-
-    // Recheck ownership immediately before deletion. The initial inventory is
-    // only a snapshot and a create can claim a volume while this run proceeds.
-    if (repo.isLiveHomeVolumeReferenced) {
-      const referenceResult = yield* repo.isLiveHomeVolumeReferenced({
-        provider: "blaxel",
-        volumeName: name,
-      }).pipe(Effect.either);
-      if (referenceResult._tag === "Left") {
-        recordVolumeError(summary, name, referenceResult.left, "reference_check");
-        return;
-      }
-      if (referenceResult.right) {
+    const free: Array<{ readonly volume: VMVolume; readonly name: string }> = [];
+    for (const volume of volumes) {
+      const name = normalizedVolumeName(volume);
+      if (!name || !isMachineOwnedHomeVolumeName(name)) continue;
+      if (seenNames.has(name)) {
         summary.orphanVolumes.skipped += 1;
-        console.info("[VM] reaper skipped volume claimed during the run", { volumeName: name });
-        return;
+        continue;
       }
-    }
-
-    const firstObservedAt = input.observations.byName.get(name);
-    const hasPriorObservation = input.observations.available &&
-      !!firstObservedAt &&
-      firstObservedAt.getTime() < input.now.getTime();
-    if (!hasPriorObservation) {
-      // A delete-enabled deployment must fail closed when the durable marker
-      // path is unavailable. Report-only deployments can still surface the
-      // candidate without pretending it is safe to delete.
-      if (!input.observations.available || !repo.recordOrphanVolumeObservation) {
-        if (input.deleteVolumes) {
-          summary.orphanVolumes.skipped += 1;
-          console.warn("[VM] reaper cannot delete volume without an observation marker", { volumeName: name });
-          return;
-        }
-        summary.orphanVolumes.reported += 1;
-        yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_EVENT, {
-          volumeName: name,
+      seenNames.add(name);
+      const state = attachmentState(volume);
+      if (state === "attached") {
+        summary.orphanVolumes.skipped += 1;
+        console.info("[VM] reaper skipped attached volume", { volumeName: name });
+      } else if (state === "unknown") {
+        summary.orphanVolumes.unknownAttachment += 1;
+        const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT, {
+          source: "vm_reaper",
           mode: "report",
           action: "report",
-          reason: "observation_marker_unavailable",
+          reason: "attachment_state_unknown",
+          volumeName: name,
+          attachmentState: "unknown",
+          attachment: "unknown",
+          createdAt: volume.createdAt ?? null,
         });
-        return;
+        if (recorded) summary.orphanVolumes.reported += 1;
+        else summary.orphanVolumes.errors += 1;
+      } else {
+        free.push({ volume, name });
+      }
+    }
+
+    if (free.length === 0) return { candidateLimitReached: false };
+
+    const liveReferences = yield* loadLiveReferences(
+      repo,
+      free.map(({ name }) => name),
+      summary,
+    );
+    if (!liveReferences) {
+      for (const { volume, name } of free) {
+        summary.orphanVolumes.unknownReference += 1;
+        const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT, {
+          source: "vm_reaper",
+          mode: "report",
+          action: "report",
+          reason: "live_reference_unknown",
+          volumeName: name,
+          attachmentState: "unattached",
+          attachment: "unattached",
+          liveReference: "unknown",
+          createdAt: volume.createdAt ?? null,
+        });
+        if (recorded) summary.orphanVolumes.reported += 1;
+        else summary.orphanVolumes.errors += 1;
+      }
+      return { candidateLimitReached: false };
+    }
+
+    let candidateLimitReached = false;
+    for (const { volume, name } of free) {
+      if (liveReferences.has(name)) {
+        summary.orphanVolumes.skipped += 1;
+        console.info("[VM] reaper skipped volume referenced by a live VM", { volumeName: name });
+        continue;
       }
 
-      const recorded = yield* repo.recordOrphanVolumeObservation({
-        provider: "blaxel",
-        volumeName: name,
-        observedAt: input.now,
-      }).pipe(Effect.either);
-      if (recorded._tag === "Left") {
-        recordVolumeError(summary, name, recorded.left, "record_observation");
-        return;
+      if (summary.orphanVolumes.candidates >= candidateLimit) {
+        candidateLimitReached = true;
+        summary.orphanVolumes.skipped += 1;
+        continue;
       }
-      summary.orphanVolumes.reported += 1;
-      console.info("[VM] reaper recorded first orphan volume observation", { volumeName: name });
-      yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_EVENT, {
-        volumeName: name,
-        mode: "report",
-        action: "observe",
-        reason: "first_observation",
-      });
-      return;
-    }
-
-    const ageMs = volumeAgeMs(volume, input.now);
-    if (ageMs === null || ageMs < input.minAgeMs) {
-      summary.orphanVolumes.reported += 1;
-      console.info("[VM] reaper deferred young orphan volume", {
-        volumeName: name,
-        ageMinutes: ageMs === null ? null : Math.round(ageMs / 60_000),
-        minimumAgeMinutes: Math.round(input.minAgeMs / 60_000),
-      });
-      yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_EVENT, {
-        volumeName: name,
+      summary.orphanVolumes.candidates += 1;
+      const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_EVENT, {
+        source: "vm_reaper",
         mode: "report",
         action: "report",
-        reason: "minimum_age",
-        minimumAgeMinutes: Math.round(input.minAgeMs / 60_000),
-      });
-      return;
-    }
-
-    if (!input.deleteVolumes) {
-      summary.orphanVolumes.reported += 1;
-      console.info("[VM] reaper orphan volume report-only candidate", { volumeName: name });
-      yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_EVENT, {
+        reason: "unattached_without_live_reference",
         volumeName: name,
-        mode: "report",
-        action: "report",
+        attachmentState: "unattached",
+        attachment: "unattached",
+        liveReference: false,
+        createdAt: volume.createdAt ?? null,
       });
-      return;
+      if (recorded) summary.orphanVolumes.reported += 1;
+      else summary.orphanVolumes.errors += 1;
     }
-
-    if (!providers.deleteHomeVolume) {
-      recordVolumeError(summary, name, new Error("provider volume deletion is not supported"), "delete");
-      return;
-    }
-    const deleted = yield* providers.deleteHomeVolume("blaxel", name).pipe(Effect.either);
-    if (deleted._tag === "Left") {
-      recordVolumeError(summary, name, deleted.left, "delete");
-      return;
-    }
-    summary.orphanVolumes.deleted += 1;
-    console.info("[VM] reaper deleted orphan volume", { volumeName: name });
-    yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_EVENT, {
-      volumeName: name,
-      mode: "delete",
-      action: "deleted",
-    });
+    return { candidateLimitReached };
   });
 }
 
-function markProvisioningFailed(
+function loadLiveReferences(
   repo: VmRepositoryShape,
-  vm: CloudVmRow,
-): Effect.Effect<boolean, unknown> {
-  if (repo.markProvisioningFailed) {
-    return repo.markProvisioningFailed({
-      id: vm.id,
-      code: STUCK_PROVISIONING_FAILURE_CODE,
-      message: "Cloud VM provisioning exceeded the reconciliation threshold.",
-      expectedStatus: "provisioning",
-    });
+  names: readonly string[],
+  summary: MutableSummary,
+): Effect.Effect<Set<string> | null, never> {
+  if (!repo.listLiveHomeVolumeNames || names.length === 0) {
+    summary.orphanVolumes.errors += 1;
+    console.error("[VM] reaper cannot verify live volume references");
+    return Effect.succeed(null);
   }
-  // Compatibility fallback for focused repository doubles and older deploys.
-  return repo.markCreateFailed({
-    id: vm.id,
-    code: STUCK_PROVISIONING_FAILURE_CODE,
-    message: "Cloud VM provisioning exceeded the reconciliation threshold.",
-    expectedStatus: "provisioning",
-  }).pipe(Effect.as(true));
-}
-
-function stuckDbStatus(
-  vm: CloudVmRow,
-  providerStatus: Exclude<VMStatus, "creating">,
-): "running" | "paused" | "destroyed" {
-  if (providerStatus !== "destroyed") return providerStatus;
-  const homeVolume = vm.providerMetadata?.homeVolume;
-  // A volume-backed machine can be resurrected after its compute disappears.
-  // Preserve the existing workflow semantics and leave it paused.
-  return typeof homeVolume === "string" && homeVolume.trim().length > 0 ? "paused" : "destroyed";
+  return repo.listLiveHomeVolumeNames({ provider: "blaxel", volumeNames: names }).pipe(
+    Effect.map((liveNames) => new Set(liveNames.map((name) => name.trim()).filter(Boolean))),
+    Effect.catchAll((error) => Effect.sync(() => {
+      summary.orphanVolumes.errors += 1;
+      console.error("[VM] reaper could not load live volume references", safeErrorMessage(error));
+      return null;
+    })),
+  );
 }
 
 function recordVmUsageEvent(
@@ -627,7 +456,7 @@ function recordVmUsageEvent(
   vm: CloudVmRow,
   eventType: string,
   metadata: Record<string, unknown>,
-): Effect.Effect<void, never> {
+): Effect.Effect<boolean, never> {
   return repo.recordUsageEvent({
     userId: vm.userId,
     billingTeamId: vm.billingTeamId,
@@ -638,12 +467,14 @@ function recordVmUsageEvent(
     imageId: vm.imageId,
     metadata,
   }).pipe(
+    Effect.as(true),
     Effect.catchAll((error) => Effect.sync(() => {
       console.error("[VM] reaper could not record VM usage event", {
         vmId: vm.id,
         eventType,
         error: safeErrorMessage(error),
       });
+      return false;
     })),
   );
 }
@@ -652,7 +483,7 @@ function recordSystemUsageEvent(
   repo: VmRepositoryShape,
   eventType: string,
   metadata: Record<string, unknown>,
-): Effect.Effect<void, never> {
+): Effect.Effect<boolean, never> {
   return repo.recordUsageEvent({
     userId: VM_REAPER_SYSTEM_USER_ID,
     billingTeamId: null,
@@ -661,92 +492,137 @@ function recordSystemUsageEvent(
     provider: "blaxel",
     metadata,
   }).pipe(
+    Effect.as(true),
     Effect.catchAll((error) => Effect.sync(() => {
       console.error("[VM] reaper could not record volume usage event", {
         eventType,
         volumeName: metadata.volumeName,
         error: safeErrorMessage(error),
       });
+      return false;
     })),
   );
 }
 
-function recordVolumeError(
-  summary: MutableSummary,
-  volumeName: string,
-  error: unknown,
-  operation: string,
-): void {
-  summary.orphanVolumes.errors += 1;
-  summary.orphanVolumes.skipped += 1;
-  console.error("[VM] reaper skipped volume after item error", {
-    volumeName,
-    operation,
-    error: safeErrorMessage(error),
-  });
-  // The item-level error is also visible in the provider usage ledger when the
-  // caller's repository supports it. The main action path records this event
-  // asynchronously below only for the provider action itself.
+function normalizeVolumeInventory(value: VMVolumeInventory, limit: number): {
+  readonly volumes: readonly VMVolume[];
+  readonly nextCursor: string | null;
+  readonly paginated: boolean;
+  readonly complete: boolean;
+  readonly truncated: boolean;
+} {
+  const boundedLimit = Math.max(1, Math.trunc(limit));
+  if (Array.isArray(value)) {
+    return {
+      volumes: value.slice(0, boundedLimit),
+      nextCursor: null,
+      paginated: false,
+      complete: false,
+      truncated: value.length > boundedLimit,
+    };
+  }
+  const page = value as VMVolumePage;
+  const rawVolumes = Array.isArray(page.volumes) ? page.volumes : [];
+  const truncated = rawVolumes.length > boundedLimit;
+  const hasExplicitEnd = Object.prototype.hasOwnProperty.call(page, "nextCursor") &&
+    page.nextCursor === null;
+  return {
+    volumes: rawVolumes.slice(0, boundedLimit),
+    nextCursor: typeof page.nextCursor === "string" && page.nextCursor.trim().length > 0
+      ? page.nextCursor.trim()
+      : null,
+    paginated: true,
+    // A page is complete only when the provider explicitly says so, or when
+    // it explicitly returns a null continuation cursor. A plain object with
+    // no pagination metadata must remain partial for safety.
+    complete: !truncated && (page.complete === true || (page.complete === undefined && hasExplicitEnd)),
+    truncated,
+  };
 }
 
-function recordStuckError(
-  summary: MutableSummary,
-  vm: CloudVmRow,
-  error: unknown,
-  operation: string,
-): void {
-  summary.stuckProvisioning.errors += 1;
-  summary.stuckProvisioning.skipped += 1;
-  console.error("[VM] reaper skipped provisioning row after item error", {
-    vmId: vm.id,
-    operation,
-    error: safeErrorMessage(error),
-  });
+/** Sort the already-bounded page so the oldest records are reported first. */
+function selectOldestVolumes(
+  volumes: readonly VMVolume[],
+  limit: number,
+): readonly VMVolume[] {
+  const boundedLimit = Math.max(1, Math.trunc(limit));
+  return [...volumes].slice(0, boundedLimit).sort(compareVolumes);
+}
+
+function attachmentState(volume: VMVolume): "attached" | "unattached" | "unknown" {
+  if (typeof volume.attachedTo === "string" && volume.attachedTo.trim().length > 0) return "attached";
+  if (volume.attachedTo === null) return "unattached";
+  if (volume.attachmentState === "attached" ||
+    volume.attachmentState === "unattached" ||
+    volume.attachmentState === "unknown") {
+    return volume.attachmentState;
+  }
+  return "unknown";
+}
+
+function normalizedVolumeName(volume: VMVolume): string | null {
+  const name = typeof volume.name === "string" ? volume.name.trim() : "";
+  return name || null;
 }
 
 function compareVolumes(a: VMVolume, b: VMVolume): number {
-  const aCreated = typeof a.createdAt === "number" && Number.isFinite(a.createdAt) ? a.createdAt : 0;
-  const bCreated = typeof b.createdAt === "number" && Number.isFinite(b.createdAt) ? b.createdAt : 0;
+  const aCreated = typeof a.createdAt === "number" && Number.isFinite(a.createdAt) ? a.createdAt : Number.POSITIVE_INFINITY;
+  const bCreated = typeof b.createdAt === "number" && Number.isFinite(b.createdAt) ? b.createdAt : Number.POSITIVE_INFINITY;
   if (aCreated !== bCreated) return aCreated - bCreated;
-  return a.name.localeCompare(b.name);
+  return (normalizedVolumeName(a) ?? "").localeCompare(normalizedVolumeName(b) ?? "");
 }
 
-function normalizedAttachment(volume: VMVolume): string | null {
-  const value = volume.attachedTo;
-  if (typeof value === "string" && value.trim().length > 0) return value.trim();
-  return value == null ? null : String(value);
+function compareVmRows(a: CloudVmRow, b: CloudVmRow): number {
+  const created = a.createdAt.getTime() - b.createdAt.getTime();
+  return created || a.id.localeCompare(b.id);
 }
 
-function resolveLimit(value: number | undefined, envValue: string | undefined): number {
-  const candidate = value ?? parsePositiveInteger(envValue);
-  if (candidate === null || candidate === undefined) return VM_REAPER_DEFAULT_VOLUME_LIMIT;
+/** Keep the oldest bounded subset of provisioning rows. */
+function selectOldestVmRows(rows: readonly CloudVmRow[], limit: number): CloudVmRow[] {
+  const boundedLimit = Math.max(1, Math.trunc(limit));
+  if (rows.length <= boundedLimit) return [...rows].sort(compareVmRows);
+  const selected: CloudVmRow[] = [];
+  for (const row of rows) {
+    let low = 0;
+    let high = selected.length;
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2);
+      if (compareVmRows(selected[middle]!, row) <= 0) low = middle + 1;
+      else high = middle;
+    }
+    if (low >= boundedLimit && selected.length >= boundedLimit) continue;
+    selected.splice(low, 0, row);
+    if (selected.length > boundedLimit) selected.pop();
+  }
+  return selected;
+}
+
+function resolveLimit(value: number | undefined, envValue: string | undefined, fallback: number): number {
+  const candidate = typeof value === "number" && Number.isFinite(value)
+    ? value
+    : parsePositiveInteger(envValue) ?? fallback;
   return Math.max(1, Math.min(VM_REAPER_MAX_BATCH_LIMIT, Math.trunc(candidate)));
+}
+
+function resolveScanLimit(value: number | undefined, envValue: string | undefined, candidateLimit: number): number {
+  const candidate = typeof value === "number" && Number.isFinite(value)
+    ? value
+    : parsePositiveInteger(envValue) ?? VM_REAPER_DEFAULT_VOLUME_SCAN_LIMIT;
+  return Math.max(
+    candidateLimit,
+    Math.min(VM_REAPER_MAX_VOLUME_SCAN_LIMIT, Math.max(1, Math.trunc(candidate))),
+  );
 }
 
 function resolveStuckAgeMs(env: Record<string, string | undefined>): number {
   const raw = env.CMUX_VM_REAPER_STUCK_PROVISIONING_MINUTES ??
     env.CMUX_VM_REAPER_STUCK_THRESHOLD_MINUTES ??
     env.CMUX_VM_REAPER_STUCK_AGE_MINUTES;
-  const minutes = parsePositiveInteger(raw) ?? VM_REAPER_DEFAULT_STUCK_PROVISIONING_MINUTES;
-  return minutes * 60 * 1_000;
-}
-
-function resolveOrphanVolumeMinAgeMs(env: Record<string, string | undefined>): number {
-  const minutes = parsePositiveInteger(env.CMUX_VM_REAPER_ORPHAN_VOLUME_MIN_AGE_MINUTES) ??
-    VM_REAPER_DEFAULT_ORPHAN_VOLUME_MIN_AGE_MINUTES;
-  return minutes * 60 * 1_000;
-}
-
-function resolveCreatingTerminalAgeMs(env: Record<string, string | undefined>): number {
-  const minutes = parsePositiveInteger(env.CMUX_VM_REAPER_STUCK_PROVISIONING_TERMINAL_MINUTES) ??
-    VM_REAPER_DEFAULT_CREATING_TERMINAL_AGE_MINUTES;
-  return minutes * 60 * 1_000;
+  return (parsePositiveInteger(raw) ?? VM_REAPER_DEFAULT_STUCK_PROVISIONING_MINUTES) * 60 * 1_000;
 }
 
 function resolveDurationOption(value: number | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.trunc(value)
-    : fallback;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : fallback;
 }
 
 function parsePositiveInteger(value: string | undefined): number | null {
@@ -761,13 +637,7 @@ function ageMinutes(createdAt: Date, now: Date): number {
 }
 
 function isOlderThan(createdAt: Date, now: Date, thresholdMs: number): boolean {
-  return now.getTime() - createdAt.getTime() >= thresholdMs;
-}
-
-function volumeAgeMs(volume: VMVolume, now: Date): number | null {
-  const createdAt = volume.createdAt;
-  if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) return null;
-  return Math.max(0, now.getTime() - createdAt);
+  return now.getTime() - createdAt.getTime() > thresholdMs;
 }
 
 function safeErrorMessage(error: unknown): string {
@@ -775,8 +645,7 @@ function safeErrorMessage(error: unknown): string {
   return raw.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 500);
 }
 
-// Keep these names exported for focused tests and future cron dashboards.
 export const VM_REAPER_ORPHAN_VOLUME_EVENT = ORPHAN_VOLUME_EVENT;
-export const VM_REAPER_ORPHAN_VOLUME_OBSERVATION_EVENT = ORPHAN_VOLUME_OBSERVATION_EVENT;
-export const VM_REAPER_STUCK_PROVISIONING_TERMINAL_EVENT = STUCK_PROVISIONING_TERMINAL_EVENT;
-export const VM_REAPER_VOLUME_ERROR_EVENT = STUCK_VOLUME_ERROR_EVENT;
+export const VM_REAPER_ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT = ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT;
+export const VM_REAPER_ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT = ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT;
+export const VM_REAPER_STUCK_PROVISIONING_EVENT = STUCK_PROVISIONING_EVENT;

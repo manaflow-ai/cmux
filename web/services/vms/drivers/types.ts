@@ -26,14 +26,36 @@ export type VMStats = {
   readonly diskUsedMb?: number;
 };
 
-/** A provider persistent volume normalized for control-plane cleanup. */
+/** A provider persistent volume normalized for report-only inventory scans. */
 export type VMVolume = {
   readonly name: string;
   /** Epoch milliseconds from provider metadata, when present. */
   readonly createdAt?: number | null;
-  /** Provider attachment id, or null when the volume is free. */
+  /**
+   * Provider attachment id. `null` means the provider explicitly reported that
+   * the volume is not attached; `undefined` means attachment is unknown.
+   */
   readonly attachedTo?: string | null;
+  /** Optional explicit state for providers that distinguish unknown from free. */
+  readonly attachmentState?: "attached" | "unattached" | "unknown";
 };
+
+/** One bounded provider page returned to the report-only reaper. */
+export type VMVolumePage = {
+  readonly volumes: readonly VMVolume[];
+  readonly nextCursor?: string | null;
+  /** Whether the provider explicitly supports pagination for this response. */
+  readonly complete?: boolean;
+};
+
+export type VMVolumeListOptions = {
+  /** Provider page size. Callers must keep this at or below their run budget. */
+  readonly limit: number;
+  readonly cursor?: string;
+};
+
+/** Legacy providers may still return one array; the reaper treats it as partial coverage. */
+export type VMVolumeInventory = readonly VMVolume[] | VMVolumePage;
 
 export type VMHandle = {
   provider: ProviderId;
@@ -238,8 +260,8 @@ export interface VMProvider {
    */
   deleteHomeVolume?(volumeName: string): Promise<void>;
 
-  /** Optional provider volume inventory used by the VM resource reaper. */
-  listVolumes?(): Promise<readonly VMVolume[]>;
+  /** Optional provider volume inventory used by the report-only VM reaper. */
+  listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
 
   getStatus?(vmId: string): Promise<VMStatus>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a

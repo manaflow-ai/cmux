@@ -47,12 +47,6 @@ export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
-export type VmOrphanVolumeObservation = {
-  readonly volumeName: string;
-  readonly firstObservedAt: Date;
-};
-
-const VM_REAPER_ORPHAN_VOLUME_OBSERVATION_EVENT = "vm.reaper.orphan_volume_observed";
 // Reaper batches are capped at 100. Keep repository calls bounded even if a
 // future caller passes a malformed or oversized name list.
 const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
@@ -166,41 +160,15 @@ export type VmRepositoryShape = {
     /** Candidate names only; an empty list must not trigger an unbounded scan. */
     readonly volumeNames: readonly string[];
   }) => Effect.Effect<readonly string[], VmDatabaseError>;
-  /** First-observed markers for the bounded orphan-volume candidate set. */
-  readonly listOrphanVolumeObservations?: (input: {
-    readonly provider: ProviderId;
-    readonly volumeNames: readonly string[];
-  }) => Effect.Effect<readonly VmOrphanVolumeObservation[], VmDatabaseError>;
-  /** Persist the first observation of an orphan candidate. */
-  readonly recordOrphanVolumeObservation?: (input: {
-    readonly provider: ProviderId;
-    readonly volumeName: string;
-    readonly observedAt: Date;
-  }) => Effect.Effect<void, VmDatabaseError>;
-  /** Point-in-time ownership recheck immediately before a provider delete. */
-  readonly isLiveHomeVolumeReferenced?: (input: {
-    readonly provider: ProviderId;
-    readonly volumeName: string;
-  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** Oldest provisioning rows for the bounded resource reaper. */
   readonly stuckProvisioningCandidates?: (input: {
     readonly before: Date;
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
-  /** Atomic transition used when a stale provisioning row has no provider id. */
-  readonly markProvisioningFailed?: (input: {
-    readonly id: string;
-    readonly code: string;
-    readonly message: string;
-    /** When set, do not overwrite a row another worker already advanced. */
-    readonly expectedStatus?: CloudVmStatus;
-  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
-    /** When set, do not overwrite a row that another worker already advanced. */
-    readonly expectedStatus?: CloudVmStatus;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -217,8 +185,6 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly code: string;
     readonly message: string;
-    /** Optional compare-and-set guard for cleanup/reconciliation callers. */
-    readonly expectedStatus?: CloudVmStatus;
   }) => Effect.Effect<void, VmDatabaseError>;
   readonly hasOwnedSnapshot: (input: {
     readonly userId: string;
@@ -1238,86 +1204,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .filter((name): name is string => !!name);
     }),
 
-  listOrphanVolumeObservations: (input) =>
-    dbEffect("listOrphanVolumeObservations", async () => {
-      const volumeNames = boundedReaperVolumeNames(input.volumeNames);
-      if (volumeNames.length === 0) return [];
-      const db = cloudDb();
-      const volumeName = sql<string | null>`${cloudVmUsageEvents.metadata}->>'volumeName'`;
-      const rows = await db
-        .select({
-          volumeName,
-          firstObservedAt: cloudVmUsageEvents.createdAt,
-        })
-        .from(cloudVmUsageEvents)
-        .where(and(
-          eq(cloudVmUsageEvents.provider, input.provider),
-          eq(cloudVmUsageEvents.eventType, VM_REAPER_ORPHAN_VOLUME_OBSERVATION_EVENT),
-          inArray(volumeName, volumeNames),
-        ))
-        .orderBy(asc(cloudVmUsageEvents.createdAt), asc(cloudVmUsageEvents.id));
-
-      const firstByName = new Map<string, Date>();
-      for (const row of rows) {
-        const name = row.volumeName?.trim();
-        if (!name || firstByName.has(name)) continue;
-        firstByName.set(name, row.firstObservedAt);
-      }
-      return [...firstByName].map(([name, firstObservedAt]) => ({
-        volumeName: name,
-        firstObservedAt,
-      }));
-    }),
-
-  recordOrphanVolumeObservation: (input) =>
-    dbEffect("recordOrphanVolumeObservation", async () => {
-      const volumeName = input.volumeName.trim();
-      if (!volumeName) return;
-      const db = cloudDb();
-      // The reaper loads markers before it writes the current run's markers,
-      // so a duplicate under a concurrent invocation is harmless. Avoid the
-      // common duplicate case to keep the usage ledger compact.
-      const markerName = sql<string | null>`${cloudVmUsageEvents.metadata}->>'volumeName'`;
-      const [existing] = await db
-        .select({ id: cloudVmUsageEvents.id })
-        .from(cloudVmUsageEvents)
-        .where(and(
-          eq(cloudVmUsageEvents.provider, input.provider),
-          eq(cloudVmUsageEvents.eventType, VM_REAPER_ORPHAN_VOLUME_OBSERVATION_EVENT),
-          eq(markerName, volumeName),
-        ))
-        .limit(1);
-      if (existing) return;
-      await db.insert(cloudVmUsageEvents).values({
-        userId: "cmux-vm-reaper",
-        billingTeamId: null,
-        billingPlanId: null,
-        vmId: null,
-        eventType: VM_REAPER_ORPHAN_VOLUME_OBSERVATION_EVENT,
-        provider: input.provider,
-        metadata: {
-          volumeName,
-          firstObservedAt: input.observedAt.toISOString(),
-        },
-        createdAt: input.observedAt,
-      });
-    }),
-
-  isLiveHomeVolumeReferenced: (input) =>
-    dbEffect("isLiveHomeVolumeReferenced", async () => {
-      const db = cloudDb();
-      const [row] = await db
-        .select({ id: cloudVms.id })
-        .from(cloudVms)
-        .where(and(
-          eq(cloudVms.provider, input.provider),
-          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
-          sql`${cloudVms.providerMetadata}->>'homeVolume' = ${input.volumeName}`,
-        ))
-        .limit(1);
-      return !!row;
-    }),
-
   stuckProvisioningCandidates: (input) =>
     dbEffect("stuckProvisioningCandidates", async () => {
       const db = cloudDb();
@@ -1346,7 +1232,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           and(
             eq(cloudVms.id, input.id),
             eq(cloudVms.providerVmId, input.providerVmId),
-            ...(input.expectedStatus ? [eq(cloudVms.status, input.expectedStatus)] : []),
             ne(cloudVms.status, "destroyed"),
           ),
         )
@@ -1397,29 +1282,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           failureMessage: input.message,
           updatedAt: new Date(),
         })
-        .where(and(
-          eq(cloudVms.id, input.id),
-          ...(input.expectedStatus ? [eq(cloudVms.status, input.expectedStatus)] : []),
-        ));
-    }),
-
-  markProvisioningFailed: (input) =>
-    dbEffect("markProvisioningFailed", async () => {
-      const db = cloudDb();
-      const updated = await db
-        .update(cloudVms)
-        .set({
-          status: "failed",
-          failureCode: input.code,
-          failureMessage: input.message,
-          updatedAt: new Date(),
-        })
-        .where(and(
-          eq(cloudVms.id, input.id),
-          eq(cloudVms.status, input.expectedStatus ?? "provisioning"),
-        ))
-        .returning({ id: cloudVms.id });
-      return updated.length > 0;
+        .where(eq(cloudVms.id, input.id));
     }),
 
   hasOwnedSnapshot: (input) =>

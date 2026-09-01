@@ -14,6 +14,9 @@ import {
   type VMStats,
   type VMStatus,
   type VMVolume,
+  type VMVolumePage,
+  type VMVolumeListOptions,
+  type VMVolumeInventory,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
@@ -301,10 +304,10 @@ type BlaxelPreview = {
 
 type BlaxelVolume = {
   metadata?: { name?: string; createdAt?: string | number };
-  state?: { attachedTo?: string | null };
+  state?: { attachedTo?: unknown };
   // Keep the parser tolerant of older control-plane responses that surfaced
   // attachment state at the resource root.
-  attachedTo?: string | null;
+  attachedTo?: unknown;
 };
 
 // The preview URL is the only ingress to the cmux-tui daemon, and it must stay token-gated:
@@ -672,32 +675,112 @@ function volumeListItems(payload: unknown): unknown[] {
   const candidate = payload as { items?: unknown; data?: unknown };
   if (Array.isArray(candidate.items)) return candidate.items;
   if (Array.isArray(candidate.data)) return candidate.data;
+  // Current Blaxel responses wrap the page as `{ data: { items }, meta }`.
+  if (candidate.data && typeof candidate.data === "object") {
+    const data = candidate.data as { items?: unknown; data?: unknown };
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.data)) return data.data;
+  }
   return [];
 }
 
-/** Normalize the Blaxel `/volumes` response for provider-agnostic cleanup code. */
-export function parseBlaxelVolumes(payload: unknown): VMVolume[] {
-  return volumeListItems(payload).flatMap((item): VMVolume[] => {
+function hasVolumePaginationMetadata(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const candidate = payload as { meta?: unknown; data?: unknown };
+  if (candidate.meta && typeof candidate.meta === "object" && !Array.isArray(candidate.meta)) return true;
+  if (candidate.data && typeof candidate.data === "object" && !Array.isArray(candidate.data)) {
+    const data = candidate.data as { meta?: unknown };
+    return !!data.meta && typeof data.meta === "object" && !Array.isArray(data.meta);
+  }
+  return false;
+}
+
+function volumeNextCursor(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as {
+    nextCursor?: unknown;
+    next_cursor?: unknown;
+    meta?: unknown;
+    data?: unknown;
+  };
+  const readMeta = (meta: unknown): string | null => {
+    if (!meta || typeof meta !== "object") return null;
+    const value = meta as { nextCursor?: unknown; next_cursor?: unknown };
+    const cursor = value.nextCursor ?? value.next_cursor;
+    return typeof cursor === "string" && cursor.trim().length > 0 ? cursor.trim() : null;
+  };
+  return readMeta(candidate.meta) ??
+    (typeof candidate.nextCursor === "string" && candidate.nextCursor.trim().length > 0
+      ? candidate.nextCursor.trim()
+      : typeof candidate.next_cursor === "string" && candidate.next_cursor.trim().length > 0
+        ? candidate.next_cursor.trim()
+        : candidate.data && typeof candidate.data === "object"
+          ? readMeta((candidate.data as { meta?: unknown }).meta)
+          : null);
+}
+
+function attachmentFields(volume: BlaxelVolume): Pick<VMVolume, "attachedTo" | "attachmentState"> {
+  const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+  const state = volume.state && typeof volume.state === "object" ? volume.state : undefined;
+  const stateHasAttachment = !!state && hasOwn(state, "attachedTo");
+  const rootHasAttachment = hasOwn(volume, "attachedTo");
+  const raw = stateHasAttachment
+    ? state?.attachedTo
+      : rootHasAttachment
+      ? volume.attachedTo
+      : undefined;
+
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return { attachedTo: raw.trim(), attachmentState: "attached" };
+  }
+  if (raw === null) return { attachedTo: null, attachmentState: "unattached" };
+  // An absent, empty, or malformed attachment field is not proof of freedom.
+  return { attachmentState: "unknown" };
+}
+
+function parseBlaxelVolumeItems(items: readonly unknown[]): VMVolume[] {
+  return items.flatMap((item): VMVolume[] => {
     if (!item || typeof item !== "object") return [];
     const volume = item as BlaxelVolume;
-    const name = volume.metadata?.name?.trim();
+    const rawName = volume.metadata && typeof volume.metadata === "object"
+      ? (volume.metadata as { name?: unknown }).name
+      : undefined;
+    const name = typeof rawName === "string" ? rawName.trim() : "";
     if (!name) return [];
-    const rawCreatedAt = volume.metadata?.createdAt;
+    const rawCreatedAt = volume.metadata && typeof volume.metadata === "object"
+      ? (volume.metadata as { createdAt?: unknown }).createdAt
+      : undefined;
     const createdAt = typeof rawCreatedAt === "number" && Number.isFinite(rawCreatedAt)
       ? rawCreatedAt
       : typeof rawCreatedAt === "string"
         ? Date.parse(rawCreatedAt)
         : Number.NaN;
-    const attachedValue = volume.state?.attachedTo ?? volume.attachedTo;
-    const attachedTo = typeof attachedValue === "string" && attachedValue.trim().length > 0
-      ? attachedValue.trim()
-      : null;
+    const attachment = attachmentFields(volume);
     return [{
       name,
       createdAt: Number.isFinite(createdAt) ? createdAt : null,
-      attachedTo,
+      ...attachment,
     }];
   });
+}
+
+/** Normalize the Blaxel `/volumes` response for provider-agnostic cleanup code. */
+export function parseBlaxelVolumes(payload: unknown): VMVolume[] {
+  return parseBlaxelVolumeItems(volumeListItems(payload));
+}
+
+/** Parse one bounded Blaxel volume page, including its opaque continuation cursor. */
+export function parseBlaxelVolumePage(payload: unknown, limit = 100): VMVolumePage {
+  const boundedLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 100) : 100;
+  const items = volumeListItems(payload);
+  const truncated = items.length > boundedLimit;
+  return {
+    // Slice before normalization so legacy responses do not make the reaper
+    // retain or sort an unbounded provider inventory.
+    volumes: parseBlaxelVolumeItems(items.slice(0, boundedLimit)),
+    nextCursor: volumeNextCursor(payload),
+    complete: hasVolumePaginationMetadata(payload) && !truncated,
+  };
 }
 
 export class BlaxelProvider implements VMProvider {
@@ -1099,10 +1182,26 @@ export class BlaxelProvider implements VMProvider {
     );
   }
 
-  /** List all persistent volumes in the Blaxel workspace for the reaper. */
-  async listVolumes(): Promise<readonly VMVolume[]> {
-    const payload = await blaxelFetch<unknown>("GET", `${CONTROL_PLANE_BASE}/volumes`);
-    return parseBlaxelVolumes(payload);
+  /** List one bounded page of volumes; the no-argument form keeps legacy callers working. */
+  async listVolumes(): Promise<readonly VMVolume[]>;
+  async listVolumes(options: VMVolumeListOptions): Promise<VMVolumePage>;
+  async listVolumes(options?: VMVolumeListOptions): Promise<VMVolumeInventory> {
+    const query = new URLSearchParams();
+    if (options) {
+      const limit = Number.isSafeInteger(options.limit) && options.limit > 0
+        ? Math.min(options.limit, 100)
+        : 100;
+      query.set("limit", String(limit));
+      if (options.cursor) query.set("cursor", options.cursor);
+      // The provider supports ordered cursor pages. This keeps a run fair for
+      // old volumes without requiring the reaper to sort an unbounded result.
+      query.set("sort", "createdAt:asc");
+    }
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    const payload = await blaxelFetch<unknown>("GET", `${CONTROL_PLANE_BASE}/volumes${suffix}`);
+    return options
+      ? parseBlaxelVolumePage(payload, options.limit)
+      : parseBlaxelVolumes(payload);
   }
 
   async getStatus(vmId: string): Promise<VMStatus> {
