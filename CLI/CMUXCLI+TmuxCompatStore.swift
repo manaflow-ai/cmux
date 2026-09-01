@@ -42,13 +42,22 @@ extension CMUXCLI {
             .appendingPathComponent("tmux-compat-store.json")
     }
 
-    func loadTmuxCompatStore() -> TmuxCompatStore {
+    func loadTmuxCompatStore() throws -> TmuxCompatStore {
         let url = tmuxCompatStoreURL()
-        guard let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode(TmuxCompatStore.self, from: data) else {
-            return TmuxCompatStore()
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            let nsError = error as NSError
+            let isMissing = nsError.domain == NSCocoaErrorDomain
+                && (nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError)
+                || (error as? POSIXError)?.code == .ENOENT
+            if isMissing {
+                return TmuxCompatStore()
+            }
+            throw error
         }
-        return decoded
+        return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
     }
 
     func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
@@ -95,7 +104,7 @@ extension CMUXCLI {
         _ body: (inout TmuxCompatStore) throws -> T
     ) throws -> T {
         try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = loadTmuxCompatStore()
+            var store = try loadTmuxCompatStore()
             let result = try body(&store)
             try saveTmuxCompatStore(store)
             return result
@@ -106,7 +115,7 @@ extension CMUXCLI {
         _ body: (inout TmuxCompatStore) throws -> Bool
     ) throws {
         try withTmuxCompatStoreFileLock(at: tmuxCompatStoreURL()) {
-            var store = loadTmuxCompatStore()
+            var store = try loadTmuxCompatStore()
             if try body(&store) {
                 try saveTmuxCompatStore(store)
             }

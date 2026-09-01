@@ -81,6 +81,44 @@ struct CLITmuxCompatStoreConcurrencyTests {
         }
     }
 
+    @Test func malformedStoreIsNotReplacedBySetBuffer() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-store-malformed-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let storeURL = home
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("tmux-compat-store.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let malformed = Data("{not-json".utf8)
+        try malformed.write(to: storeURL, options: .atomic)
+        let socketPath = "/tmp/cmux-11262-\(UUID().uuidString.prefix(8)).sock"
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverDone = Self.startClientDrain(listenerFD: listenerFD, expectedClients: 1)
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["set-buffer", "--name", "buf", "--", "payload"],
+            environment: [
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_SOCKET_PASSWORD": "",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CFFIXED_USER_HOME": home.path,
+                "HOME": home.path,
+                "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+            ],
+            timeout: 30
+        )
+        #expect(serverDone.wait(timeout: .now() + 30) == .success)
+        #expect(result.status != 0)
+        #expect(try Data(contentsOf: storeURL) == malformed)
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stderr: String

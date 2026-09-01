@@ -161,7 +161,10 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	store.Buffers["test"] = "captured text"
 	store.MainVerticalLayouts["ws1"] = mainVerticalState{
 		MainSurfaceId:       "surface-main",
@@ -171,7 +174,10 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	loaded := loadTmuxCompatStore()
+	loaded, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
 	if loaded.Buffers["test"] != "captured text" {
 		t.Errorf("buffer = %q, want %q", loaded.Buffers["test"], "captured text")
 	}
@@ -179,6 +185,44 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 		t.Error("missing main vertical layout for ws1")
 	} else if mvs.LastColumnSurfaceId != "surface-col" {
 		t.Errorf("lastColumnSurfaceId = %q, want %q", mvs.LastColumnSurfaceId, "surface-col")
+	}
+}
+
+func TestTmuxCompatStoreLoadErrorsDoNotOverwriteState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if _, err := loadTmuxCompatStore(); err != nil {
+		t.Fatalf("missing store should load as empty: %v", err)
+	}
+	storePath := tmuxCompatStoreURL()
+	if err := os.MkdirAll(filepath.Dir(storePath), 0755); err != nil {
+		t.Fatalf("create store directory: %v", err)
+	}
+	malformed := []byte("{not-json")
+	if err := os.WriteFile(storePath, malformed, 0644); err != nil {
+		t.Fatalf("write malformed store: %v", err)
+	}
+	if _, err := loadTmuxCompatStore(); err == nil {
+		t.Fatal("malformed store should return an error")
+	}
+	called := false
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		called = true
+		store.Buffers["unexpected"] = "mutation"
+		return nil
+	}); err == nil {
+		t.Fatal("locked mutation should fail when loading malformed store")
+	}
+	if called {
+		t.Fatal("mutation callback ran after a store load failure")
+	}
+	persisted, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("read malformed store: %v", err)
+	}
+	if string(persisted) != string(malformed) {
+		t.Fatalf("malformed store was overwritten: %q", persisted)
 	}
 }
 
@@ -207,7 +251,10 @@ func TestTmuxCompatStoreConcurrentMutations(t *testing.T) {
 		}
 	}
 
-	store := loadTmuxCompatStore()
+	store, loadErr := loadTmuxCompatStore()
+	if loadErr != nil {
+		t.Fatalf("load: %v", loadErr)
+	}
 	if len(store.Buffers) != writers {
 		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers)
 	}
@@ -292,7 +339,10 @@ func TestTmuxCompatStoreConcurrentProcessMutations(t *testing.T) {
 		}
 	}
 
-	store := loadTmuxCompatStore()
+	store, loadErr := loadTmuxCompatStore()
+	if loadErr != nil {
+		t.Fatalf("load: %v", loadErr)
+	}
 	if len(store.Buffers) != writers+1 {
 		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers+1)
 	}
@@ -826,7 +876,10 @@ func TestTmuxShowBuffer(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	store.Buffers["default"] = "hello world"
 	saveTmuxCompatStore(store)
 
