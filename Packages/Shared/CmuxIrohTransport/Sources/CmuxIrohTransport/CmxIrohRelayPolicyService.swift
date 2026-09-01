@@ -253,9 +253,9 @@ public actor CmxIrohRelayPolicyService {
     ///   by the live endpoint.
     /// - Returns: A managed-unavailable effective policy with no relay URLs,
     ///   or `nil` when the applied endpoint profile is not managed.
-    public func expireManagedPolicy(
+    public nonisolated func expireManagedPolicy(
         appliedPolicy: CmxIrohEffectiveRelayPolicy
-    ) async -> CmxIrohEffectiveRelayPolicy? {
+    ) -> CmxIrohEffectiveRelayPolicy? {
         guard appliedPolicy.source == .managed else { return nil }
         return Resolver.unavailableResolution(
             configuration: appliedPolicy.requestedConfiguration,

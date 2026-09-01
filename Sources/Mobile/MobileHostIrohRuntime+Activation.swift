@@ -529,6 +529,7 @@ extension MobileHostIrohRuntime {
         ))
         relayPolicyService = resolvedPolicyService
         relayPolicyAppliedEffective = resolvedEffectivePolicy
+        relayPolicyAppliedFailure = nil
         relayPolicyEffective = resolvedEffectivePolicy
         relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
         relayPolicyEndpointID = derivedEndpointID

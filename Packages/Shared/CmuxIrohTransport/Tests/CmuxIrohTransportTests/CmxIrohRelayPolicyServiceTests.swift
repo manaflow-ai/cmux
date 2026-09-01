@@ -254,7 +254,7 @@ struct CmxIrohRelayPolicyServiceTests {
         // resolved `current`; expiry must revoke the applied managed authority
         // without overwriting the newer custom preference.
         let expired = try #require(
-            await stores.service.expireManagedPolicy(appliedPolicy: applied)
+            stores.service.expireManagedPolicy(appliedPolicy: applied)
         )
         #expect(expired.source == .managedUnavailable)
         #expect(expired.requestedConfiguration == applied.requestedConfiguration)
@@ -411,7 +411,7 @@ struct CmxIrohRelayPolicyServiceTests {
         )
 
         let expired = try #require(
-            await stores.service.expireManagedPolicy(appliedPolicy: applied)
+            stores.service.expireManagedPolicy(appliedPolicy: applied)
         )
         #expect(expired.source == .managedUnavailable)
         #expect(expired.endpointRelayProfile.allowedRelayURLs.isEmpty)
@@ -454,7 +454,7 @@ struct CmxIrohRelayPolicyServiceTests {
             now: fixture.now
         )
 
-        let expired = await stores.service.expireManagedPolicy(appliedPolicy: custom)
+        let expired = stores.service.expireManagedPolicy(appliedPolicy: custom)
         #expect(expired == nil)
         #expect(await stores.service.effectivePolicy() == custom)
         #expect(custom.source == .custom)
@@ -487,7 +487,7 @@ struct CmxIrohRelayPolicyServiceTests {
         // A custom profile is not an expiry candidate. Returning no snapshot
         // prevents a stale custom result from being applied after a newer
         // managed preference wins the service generation.
-        let staleCustom = await stores.service.expireManagedPolicy(
+        let staleCustom = stores.service.expireManagedPolicy(
             appliedPolicy: custom
         )
         #expect(staleCustom == nil)

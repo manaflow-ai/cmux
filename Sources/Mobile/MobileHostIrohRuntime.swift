@@ -114,6 +114,10 @@ final class MobileHostIrohRuntime {
     /// lifecycle expiry decisions must retain this applied snapshot separately
     /// from `relayPolicyEffective` (the service's latest resolved value).
     var relayPolicyAppliedEffective: CmxIrohEffectiveRelayPolicy?
+    /// Failure attached to the endpoint-applied snapshot when it intentionally
+    /// diverges from the service's latest resolved policy (currently local
+    /// managed-authority expiry).
+    var relayPolicyAppliedFailure: CmxIrohRelayPolicyFailure?
     var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
     var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
@@ -125,6 +129,12 @@ final class MobileHostIrohRuntime {
     var relayPolicyRefreshEndpointID: CmxIrohPeerIdentity?
     var relayPolicyRefreshTrustRoot: CmxIrohRelayPolicyTrustRoot?
     var relayPolicyRefreshRevision: UInt64?
+    /// Serial owner for endpoint policy replacement. Every caller submits one
+    /// request to this tail; a newer request advances the generation so an
+    /// older request cannot start a second replacement after it resumes.
+    var relayPolicyApplicationTail: Task<Bool, Error>?
+    var relayPolicyApplicationTaskID: UUID?
+    var relayPolicyApplicationGeneration: UInt64 = 0
     /// Last platform path state. `nil` means the path observer has not emitted
     /// its first sample yet; an initial activation may proceed, while relay
     /// policy probes remain parked until an authoritative usable-path sample.

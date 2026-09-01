@@ -215,6 +215,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             publishIrohSettingsUpdate()
             return
         }
+        let refreshRevision = lifecycleRevision
         diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
@@ -223,9 +224,24 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 trustRoot: context.trustRoot,
                 now: Date()
             )
-            try await applyRelayPolicy(effective)
+            guard refreshRevision == lifecycleRevision,
+                  relayPolicyService === context.service,
+                  activeAccountID == context.accountID,
+                  relayPolicyEndpointID == context.endpointID else {
+                return
+            }
+            guard try await applyRelayPolicy(
+                effective,
+                expectedServicePolicy: effective
+            ) else { return }
             diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
         } catch {
+            guard refreshRevision == lifecycleRevision,
+                  relayPolicyService === context.service,
+                  activeAccountID == context.accountID,
+                  relayPolicyEndpointID == context.endpointID else {
+                return
+            }
             diagnosticLog.record(DiagnosticEvent(
                 .relayPolicyRefreshFailed,
                 b: Self.diagnosticFailureKind(for: error).rawValue
@@ -284,7 +300,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                       self.activeAccountID == accountID,
                       self.runtime === runtime else { return }
                 let selectedPath = await runtime.selectedTransportPath(
-                    relayPolicy: self.relayPolicyEffective
+                    relayPolicy: self.relayPolicyAppliedEffective
+                        ?? self.relayPolicyEffective
                 )
                 self.diagnosticLog.record(DiagnosticEvent(
                     .selectedPathChanged,
@@ -679,7 +696,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         // profile for the authority that is actually installed.
         guard let appliedPolicy = relayPolicyAppliedEffective,
               appliedPolicy.source == .managed,
-              let expired = await service.expireManagedPolicy(
+              let expired = service.expireManagedPolicy(
                   appliedPolicy: appliedPolicy
               ) else {
             return false
@@ -697,6 +714,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             expectedReachability: expectedReachability,
             expectedAppliedPolicy: appliedPolicy,
             requireAppliedPolicyMatch: true,
+            appliedFailure: .policyExpired,
             updatesResolvedState: false
         )
     }
@@ -850,9 +868,65 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         expectedServicePolicy: CmxIrohEffectiveRelayPolicy? = nil,
         expectedAppliedPolicy: CmxIrohEffectiveRelayPolicy? = nil,
         requireAppliedPolicyMatch: Bool = false,
+        appliedFailure: CmxIrohRelayPolicyFailure? = nil,
         updatesResolvedState: Bool = true
     ) async throws -> Bool {
+        relayPolicyApplicationGeneration &+= 1
+        let applicationGeneration = relayPolicyApplicationGeneration
+        let requestID = UUID()
+        let previous = relayPolicyApplicationTail
+        let task = Task { @MainActor [weak self] () throws -> Bool in
+            if let previous {
+                _ = try? await previous.value
+            }
+            guard let self,
+                  self.relayPolicyApplicationGeneration == applicationGeneration,
+                  self.relayPolicyApplicationTaskID == requestID else {
+                return false
+            }
+            return try await self.performRelayPolicyApplication(
+                effective,
+                refreshTaskID: refreshTaskID,
+                allowOffline: allowOffline,
+                expectedReachability: expectedReachability,
+                expectedServicePolicy: expectedServicePolicy,
+                expectedAppliedPolicy: expectedAppliedPolicy,
+                requireAppliedPolicyMatch: requireAppliedPolicyMatch,
+                appliedFailure: appliedFailure,
+                updatesResolvedState: updatesResolvedState,
+                applicationGeneration: applicationGeneration
+            )
+        }
+        relayPolicyApplicationTail = task
+        relayPolicyApplicationTaskID = requestID
+        defer {
+            if relayPolicyApplicationTaskID == requestID {
+                relayPolicyApplicationTail = nil
+                relayPolicyApplicationTaskID = nil
+            }
+        }
+        return try await task.value
+    }
+
+    private func performRelayPolicyApplication(
+        _ effective: CmxIrohEffectiveRelayPolicy,
+        refreshTaskID: UUID?,
+        allowOffline: Bool,
+        expectedReachability: Bool?,
+        expectedServicePolicy: CmxIrohEffectiveRelayPolicy?,
+        expectedAppliedPolicy: CmxIrohEffectiveRelayPolicy?,
+        requireAppliedPolicyMatch: Bool,
+        appliedFailure: CmxIrohRelayPolicyFailure?,
+        updatesResolvedState: Bool,
+        applicationGeneration: UInt64
+    ) async throws -> Bool {
+        guard relayPolicyApplicationGeneration == applicationGeneration else {
+            return false
+        }
         let diagnostics = await relayPolicyService?.diagnosticsSnapshot()
+        guard relayPolicyApplicationGeneration == applicationGeneration else {
+            return false
+        }
         if let refreshTaskID {
             guard ownsRelayPolicyRefreshTask(refreshTaskID),
                   canApplyRelayPolicy(
@@ -874,6 +948,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             }
         }
         if let runtime {
+            guard relayPolicyApplicationGeneration == applicationGeneration else {
+                return false
+            }
             if let refreshTaskID {
                 guard ownsRelayPolicyRefreshTask(refreshTaskID),
                       canApplyRelayPolicy(
@@ -891,6 +968,10 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         // different resolved snapshot while this replacement suspends.
         if !requireAppliedPolicyMatch || relayPolicyAppliedEffective == expectedAppliedPolicy {
             relayPolicyAppliedEffective = effective
+            relayPolicyAppliedFailure = appliedFailure
+        }
+        guard relayPolicyApplicationGeneration == applicationGeneration else {
+            return false
         }
         if requireAppliedPolicyMatch {
             guard relayPolicyAppliedEffective == effective else {
@@ -915,8 +996,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         if updatesResolvedState {
             relayPolicyEffective = effective
             relayPolicyDiagnostics = diagnostics
-            publishIrohSettingsUpdate()
         }
+        publishIrohSettingsUpdate()
         return true
     }
 
@@ -944,6 +1025,10 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         relayPolicyRefreshTask?.cancel()
         relayPolicyRefreshTask = nil
         relayPolicyRefreshTaskID = nil
+        relayPolicyApplicationGeneration &+= 1
+        relayPolicyApplicationTail?.cancel()
+        relayPolicyApplicationTail = nil
+        relayPolicyApplicationTaskID = nil
         serverSignalRefreshTask?.cancel()
         serverSignalRefreshTask = nil
         serverSignalRefreshTaskID = nil
@@ -956,6 +1041,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         relayPolicyRefreshRevision = nil
         relayPolicyService = nil
         relayPolicyAppliedEffective = nil
+        relayPolicyAppliedFailure = nil
         relayPolicyEffective = nil
         relayPolicyDiagnostics = nil
         relayPolicyEndpointID = nil
