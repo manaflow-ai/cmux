@@ -10,7 +10,7 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
+use anyhow::Context as _;
 use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
@@ -2174,7 +2174,7 @@ mod tests {
         capacity: usize,
         outbound_byte_budget: usize,
     ) -> (Arc<Inner>, Receiver<Outbound>) {
-        let (outbound, outbound_rx) = std::sync::mpsc::sync_channel(capacity);
+        let (outbound, outbound_rx) = sync_channel(capacity);
         (
             Arc::new(Inner {
                 outbound,
@@ -2245,10 +2245,9 @@ mod tests {
         let started = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
         let writer = BlockingOutboundWriter { started: started.clone(), release: release.clone() };
-        let drain_inner = inner.clone();
         let drain = thread::spawn(move || {
             let mut writer = writer;
-            drain_outbound(&drain_inner, &mut writer, &outbound_rx).unwrap();
+            drain_outbound(&inner, &mut writer, &outbound_rx).unwrap();
         });
 
         started.wait();
