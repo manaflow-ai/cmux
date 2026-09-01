@@ -494,9 +494,9 @@ final class PhonePushClient {
         // Re-key restored work to the bundle that actually paired. Older
         // envelopes either have no target or carry the removed picker value;
         // preserving either would silently send a stale notification to the
-        // wrong APNs topic. If the phone has not completed its status
-        // handshake yet, hold the events outside the delivery queue and leave
-        // the durable snapshot untouched until that handshake arrives.
+        // wrong APNs topic. A migrated picker target is retained only for
+        // pre-handshake upgrade compatibility; otherwise hold the events
+        // outside the delivery queue until the handshake supplies a bundle.
         let pairedBundleIdentifier = MobileHostService.shared
             .pairedPhonePushBundleIdentifier(accountID: identity.accountID)
         let accountScoped = restored.filter {

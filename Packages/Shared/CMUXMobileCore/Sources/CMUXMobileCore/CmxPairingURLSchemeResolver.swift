@@ -111,7 +111,7 @@ public struct CmxPairingURLSchemeResolver: Sendable {
     private static func sanitizeMacInstanceTag(_ rawValue: String) -> String? {
         let normalized = rawValue.lowercased()
         let allowed = CharacterSet.alphanumerics.union(
-            CharacterSet(charactersIn: "-_")
+            CharacterSet(charactersIn: "-")
         )
         var result = ""
         var previousWasSeparator = false
