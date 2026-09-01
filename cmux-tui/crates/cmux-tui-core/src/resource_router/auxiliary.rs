@@ -119,11 +119,10 @@ fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value,
 /// Keep registry and projection implementation details out of the public
 /// agent-report response while retaining typed client errors.
 fn agent_report_operation_error(error: anyhow::Error) -> ResourceError {
-    if let Some(resource) = error.downcast_ref::<ResourceError>() {
-        return resource.clone();
-    }
-
-    let public = resource_operation_error(error);
+    let public = error
+        .downcast_ref::<ResourceError>()
+        .cloned()
+        .unwrap_or_else(|| resource_operation_error(error));
     if public.code != "operation.failed" {
         return public;
     }
@@ -803,6 +802,30 @@ mod tests {
         );
         let encoded = response.to_string();
         for detail in [unknown_terminal_id.as_str(), "revision", "database", "projection"] {
+            assert!(!encoded.contains(detail), "public error leaked {detail:?}: {encoded}");
+        }
+    }
+
+    #[test]
+    fn typed_agent_report_operation_failures_are_redacted() {
+        let error = anyhow::Error::new(ResourceError::operation_failed(
+            "registry.lookup",
+            "projection revision 42 is inconsistent with database row",
+            json!({"revision":"42","database":"internal"}),
+        ));
+        let public = agent_report_operation_error(error);
+
+        assert_eq!(public.code, "operation.failed");
+        assert_eq!(public.message, "could not read agent state");
+        assert_eq!(
+            public.details,
+            json!({
+                "operation":"agent.report",
+                "reason":"could not read agent state",
+            })
+        );
+        let encoded = serde_json::to_string(&public).unwrap();
+        for detail in ["projection revision", "revision", "database", "internal"] {
             assert!(!encoded.contains(detail), "public error leaked {detail:?}: {encoded}");
         }
     }
