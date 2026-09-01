@@ -332,7 +332,12 @@ final class TerminalMutationBus: @unchecked Sendable {
         surfaceId: UUID,
         correlationKey: String
     ) {
-        invalidateApprovalGenerations(global: false, workspaceID: tabId, surfaceID: surfaceId)
+        // This is a correlation-only reconciliation emitted by the approval
+        // coordinator. Do not advance pane generations here: a newer approval
+        // stage already queued behind this clear must remain admissible. The
+        // coordinator records its own exact tombstone before this mutation is
+        // enqueued, so a late duplicate is still fenced without invalidating
+        // unrelated stages.
         enqueueBarrierMutation(.clearNotificationCorrelation(
             QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             correlationKey
@@ -973,6 +978,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                     surfaceId: surfaceId,
                     correlationKey: correlationKey,
                     throughNotificationGeneration: boundary
+                )
             case .clearNotificationCorrelation(let key, let correlationKey):
                 // A pane may disappear between delivery and resolution. Clear
                 // the claimed workspace when no live owner can be retargeted.
