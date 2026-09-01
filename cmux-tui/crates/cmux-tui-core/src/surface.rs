@@ -2606,7 +2606,7 @@ impl Surface {
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
+        let reaper = std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
             let surface = surface.clone();
             move || {
                 let exit = child.wait_for_exit();
@@ -2616,7 +2616,14 @@ impl Surface {
                 close_local_terminal_master_after_exit(&surface);
                 publish_local_exit_if_ready(&surface);
             }
-        })?;
+        });
+        if let Err(error) = reaper {
+            // The failed spawn drops the closure and its child guard, which
+            // kills and waits for the child. Close the ConPTY master before
+            // returning so reader and frame threads can release the surface.
+            close_local_terminal_master_after_exit(&surface);
+            return Err(error.into());
+        }
 
         Ok(surface)
     }
