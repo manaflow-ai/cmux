@@ -11970,11 +11970,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let selectedRow = explicitlySelectedWorkspace
             let selectedRowMatchesAnonymousRequest: Bool
-            if CreatedTerminalSelection.deviceIDsMatch(requestedRow?.macDeviceID, nil),
+            if requestedRow?.macDeviceID?.isEmpty != false,
                let foregroundMacDeviceID,
                let selectedRow,
                selectedRow.rpcWorkspaceID == requestedWorkspaceID,
-               CreatedTerminalSelection.deviceIDsMatch(
+               createdTerminalDeviceIDsMatch(
                    selectedRow.macDeviceID,
                    foregroundMacDeviceID
                ),
@@ -11986,16 +11986,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 selectedRowMatchesAnonymousRequest = false
             }
+            let selectedRowMatchesKnownOwnerRequest: Bool = {
+                guard let selectedRow,
+                      selectedRow.rpcWorkspaceID == requestedWorkspaceID,
+                      let selectedMacDeviceID = selectedRow.macDeviceID,
+                      let requestedMacDeviceID,
+                      createdTerminalDeviceIDsMatch(selectedMacDeviceID, requestedMacDeviceID) else {
+                    return false
+                }
+                let selectedTag = macInstanceTagAuthority.normalize(selectedRow.macInstanceTag)
+                let requestedTag = macInstanceTagAuthority.normalize(requestedInstanceTag)
+                switch (selectedTag, requestedTag) {
+                case (nil, nil):
+                    return true
+                case let (selectedTag?, requestedTag?):
+                    return macInstanceTagAuthority.sameStoredAuthority(selectedTag, requestedTag)
+                default:
+                    return false
+                }
+            }()
             let selectedRowMatchesRequest = selectedRow?.id == rowWorkspaceID
-                || (selectedRow?.rpcWorkspaceID == requestedWorkspaceID
-                    && CreatedTerminalSelection.deviceIDsMatch(
-                        selectedRow?.macDeviceID,
-                        requestedMacDeviceID
-                    )
-                    && macInstanceTagAuthority.sameStoredAuthority(
-                        selectedRow?.macInstanceTag,
-                        requestedInstanceTag
-                    ))
+                || selectedRowMatchesKnownOwnerRequest
                 || selectedRowMatchesAnonymousRequest
             if let selectedRow, selectedRowMatchesRequest,
                let createdID = response.createdTerminalID {
