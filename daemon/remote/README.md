@@ -62,6 +62,12 @@ Remote slot files:
 3. `~/.cmux/daemon/<version>/<slot>/daemon.lock` single-owner lock.
 4. `~/.cmux/daemon/<version>/<slot>/daemon.log` lifecycle and crash diagnostics.
 
+Each `serve --stdio --persistent` bridge includes a fresh `bridge_lease_id` in
+its authenticated socket handshake. The persistent server tracks authenticated
+bridge connections and lets the newest authenticated bridge take over the slot,
+closing older connections (including half-open SSH bridges) without touching
+the persistent PTY sessions.
+
 PTY lifecycle:
 1. A local attach creates or reuses a named `pty.*` session in the persistent daemon.
 2. If the local surface closes, the stdio proxy disconnects and its attachment detaches, but the PTY process and bounded scrollback remain in the daemon.

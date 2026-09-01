@@ -50,6 +50,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` bootstrap/probe failures surface actionable details.
 - `DONE` bootstrap installs `~/.cmux/bin/cmux` wrapper (also tries `/usr/local/bin/cmux`) so `cmux` is available in PATH on the remote.
 - `DONE` normal `cmux ssh` launches `cmuxd-remote serve --stdio --persistent --slot <slot> --persistent-lease-port <port>`, where the stdio process proxies to a long-lived authenticated daemon with slot credentials under `~/.cmux/daemon/<version>/<slot>/`, a short per-user socket path under `/tmp/cmuxd-remote-<uid>/`, and an exact relay-slot lease path.
+- `DONE` each persistent stdio bridge claims its slot with a fresh authenticated `bridge_lease_id`; a newer bridge evicts older authenticated connections, including half-open SSH bridges, while the persistent PTY hub remains intact.
 - `DONE` persistent daemon slots advertise `pty.session.persistent_daemon`; cmux requires that capability before preserving a saved remote PTY session ID across app relaunch.
 - `DONE` clean workspace teardown verifies the relay's slot matches the workspace, sends an authenticated per-slot shutdown, waits a bounded interval for daemon ownership to release, removes relay shell state, and passively reaps disconnected, session-empty daemons whose exact previously observed relay slot lease disappears.
 

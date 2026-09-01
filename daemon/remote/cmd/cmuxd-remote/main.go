@@ -922,7 +922,16 @@ func runPersistentStdioProxy(stdin io.Reader, stdout, stderr io.Writer, slot str
 	if err := ensurePersistentDaemonRunning(paths, token, leasePort, stderr); err != nil {
 		return err
 	}
-	conn, err := dialPersistentDaemon(paths.socket, token)
+	bridgeLeaseID, err := newPersistentDaemonBridgeLeaseID()
+	if err != nil {
+		logPersistentDaemonEvent(
+			stderr,
+			"bridge_lease_generation_failed",
+			"error_category", persistentDaemonErrorCategory(err),
+		)
+		return errors.New(persistentDaemonBridgeLeaseError)
+	}
+	conn, err := dialPersistentDaemonWithBridgeLease(paths.socket, token, bridgeLeaseID)
 	if err != nil {
 		return err
 	}
@@ -1228,6 +1237,7 @@ func servePersistentDaemonWithVerifierConfig(
 ) error {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{}, stderr)
 	defer hub.closeAll()
+	bridgeLeases := newPersistentDaemonBridgeLeaseRegistry()
 	var activeConnections int64
 	var idleSince time.Time
 	var slotLeaseObserved bool
@@ -1313,7 +1323,7 @@ func servePersistentDaemonWithVerifierConfig(
 		atomic.AddInt64(&activeConnections, 1)
 		go func() {
 			defer atomic.AddInt64(&activeConnections, -1)
-			handlePersistentDaemonConn(conn, verifier, hub, stderr, requestShutdown)
+			handlePersistentDaemonConn(conn, verifier, hub, stderr, requestShutdown, bridgeLeases)
 		}()
 	}
 }
@@ -1363,6 +1373,7 @@ func handlePersistentDaemonConn(
 	hub *wsPTYHub,
 	stderr io.Writer,
 	requestShutdown func(),
+	bridgeLeases ...*persistentDaemonBridgeLeaseRegistry,
 ) {
 	handlePersistentDaemonConnWithAuthTimeout(
 		conn,
@@ -1371,6 +1382,7 @@ func handlePersistentDaemonConn(
 		stderr,
 		persistentDaemonAuthTimeout,
 		requestShutdown,
+		bridgeLeases...,
 	)
 }
 
@@ -1381,9 +1393,16 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	stderr io.Writer,
 	timeout time.Duration,
 	requestShutdown func(),
+	bridgeLeases ...*persistentDaemonBridgeLeaseRegistry,
 ) {
+	var bridgeLeaseRegistry *persistentDaemonBridgeLeaseRegistry
+	if len(bridgeLeases) > 0 {
+		bridgeLeaseRegistry = bridgeLeases[0]
+	}
 	defer conn.Close()
+	defer bridgeLeaseRegistry.release(conn)
 	defer logPersistentDaemonEvent(stderr, "connection_closed")
+	bridgeLeaseRegistry.register(conn)
 	logPersistentDaemonEvent(stderr, "connection_accepted")
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
@@ -1398,13 +1417,33 @@ func handlePersistentDaemonConnWithAuthTimeout(
 	}
 	reader := bufio.NewReaderSize(conn, 64*1024)
 	writer := &stdioFrameWriter{writer: bufio.NewWriter(conn)}
-	if err := authenticatePersistentDaemonConn(reader, writer, verifier); err != nil {
+	evictedBridgeConnections := 0
+	if err := authenticatePersistentDaemonConnWithLease(
+		reader,
+		writer,
+		verifier,
+		func(leaseID string) error {
+			if bridgeLeaseRegistry == nil {
+				return nil
+			}
+			evicted, claimErr := bridgeLeaseRegistry.claim(conn, leaseID)
+			evictedBridgeConnections = evicted
+			return claimErr
+		},
+	); err != nil {
 		logPersistentDaemonEvent(
 			stderr,
 			"connection_rejected",
 			"reason", persistentDaemonAuthenticationFailureReason(err),
 		)
 		return
+	}
+	if evictedBridgeConnections > 0 {
+		logPersistentDaemonEvent(
+			stderr,
+			"bridge_lease_takeover",
+			"evicted_connections", strconv.Itoa(evictedBridgeConnections),
+		)
 	}
 	logPersistentDaemonEvent(stderr, "connection_authenticated")
 	if timeout > 0 {
@@ -1441,12 +1480,23 @@ func persistentDaemonAuthenticationFailureReason(err error) string {
 		"authentication method is invalid",
 		"authentication token is invalid":
 		return err.Error()
+	case "persistent daemon bridge lease rejected":
+		return "bridge_lease_rejected"
 	default:
 		return persistentDaemonErrorCategory(err)
 	}
 }
 
 func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) error {
+	return authenticatePersistentDaemonConnWithLease(reader, writer, verifier, nil)
+}
+
+func authenticatePersistentDaemonConnWithLease(
+	reader *bufio.Reader,
+	writer *stdioFrameWriter,
+	verifier persistentDaemonTokenVerifier,
+	onBridgeLease func(string) error,
+) error {
 	line, oversized, err := readRPCFrame(reader, maxRPCFrameBytes)
 	if err != nil || oversized {
 		rejection := fmt.Errorf("authentication frame read failed: %w", err)
@@ -1497,6 +1547,20 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 				Message: "invalid persistent daemon token",
 			},
 		}, errors.New("authentication token is invalid"))
+	}
+	bridgeLeaseID, _ := getStringParam(req.Params, persistentDaemonBridgeLeaseParam)
+	bridgeLeaseID = strings.TrimSpace(bridgeLeaseID)
+	if bridgeLeaseID != "" && onBridgeLease != nil {
+		if err := onBridgeLease(bridgeLeaseID); err != nil {
+			return writePersistentDaemonAuthRejection(writer, rpcResponse{
+				ID: req.ID,
+				OK: false,
+				Error: &rpcError{
+					Code:    "unauthorized",
+					Message: persistentDaemonBridgeLeaseError,
+				},
+			}, errors.New("persistent daemon bridge lease rejected"))
+		}
 	}
 	if err := writer.writeResponse(rpcResponse{
 		ID: req.ID,
@@ -1605,22 +1669,41 @@ func runRPCServerWithReader(
 }
 
 func dialPersistentDaemon(socketPath string, token string) (net.Conn, error) {
-	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	return dialPersistentDaemonWithBridgeLease(socketPath, token, "")
+}
+
+func dialPersistentDaemonWithBridgeLease(socketPath string, token string, bridgeLeaseID string) (net.Conn, error) {
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, err
 	}
-	if err := authenticatePersistentDaemonClient(conn, token); err != nil {
+	if err := authenticatePersistentDaemonClientWithBridgeLease(conn, token, bridgeLeaseID); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
 	return conn, nil
 }
 
-func authenticatePersistentDaemonClient(conn net.Conn, token string) error {
-	return authenticatePersistentDaemonClientWithTimeout(conn, token, persistentDaemonAuthTimeout)
+func authenticatePersistentDaemonClientWithTimeout(conn net.Conn, token string, timeout time.Duration) error {
+	return authenticatePersistentDaemonClientWithTimeoutAndBridgeLease(conn, token, timeout, "")
 }
 
-func authenticatePersistentDaemonClientWithTimeout(conn net.Conn, token string, timeout time.Duration) error {
+func authenticatePersistentDaemonClientWithBridgeLease(conn net.Conn, token string, bridgeLeaseID string) error {
+	return authenticatePersistentDaemonClientWithTimeoutAndBridgeLease(
+		conn,
+		token,
+		persistentDaemonAuthTimeout,
+		bridgeLeaseID,
+	)
+}
+
+func authenticatePersistentDaemonClientWithTimeoutAndBridgeLease(
+	conn net.Conn,
+	token string,
+	timeout time.Duration,
+	bridgeLeaseID string,
+) error {
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 			return err
@@ -1629,12 +1712,16 @@ func authenticatePersistentDaemonClientWithTimeout(conn net.Conn, token string, 
 	}
 
 	writer := bufio.NewWriter(conn)
+	params := map[string]any{
+		"token": token,
+	}
+	if normalizedLeaseID := strings.TrimSpace(bridgeLeaseID); normalizedLeaseID != "" {
+		params[persistentDaemonBridgeLeaseParam] = normalizedLeaseID
+	}
 	request := rpcRequest{
 		ID:     "auth",
 		Method: persistentDaemonAuthMethod,
-		Params: map[string]any{
-			"token": token,
-		},
+		Params: params,
 	}
 	data, err := json.Marshal(request)
 	if err != nil {
@@ -1966,10 +2053,11 @@ func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
 		timeoutMs = parsed
 	}
 
-	conn, err := net.DialTimeout(
+	dialer := net.Dialer{Timeout: time.Duration(timeoutMs) * time.Millisecond}
+	conn, err := dialer.DialContext(
+		context.Background(),
 		"tcp",
 		net.JoinHostPort(host, strconv.Itoa(port)),
-		time.Duration(timeoutMs)*time.Millisecond,
 	)
 	if err != nil {
 		return rpcResponse{
