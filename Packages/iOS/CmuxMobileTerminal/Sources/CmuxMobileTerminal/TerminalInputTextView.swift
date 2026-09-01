@@ -331,12 +331,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
     func refreshThemeColors() {
-        if #available(iOS 26.0, *), dismissButton?.configuration != nil {
-            dismissButton?.configuration?.baseForegroundColor =
-                themeChromeColor.withAlphaComponent(0.78)
-        } else {
-            dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
-        }
+        dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
         refreshAccessoryButtonStyles()
     }
@@ -366,16 +361,26 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // the keyboard down would otherwise keep whatever glyph was built
         // here — a workspace used to open showing "hide" while nothing was
         // up. The host syncs the real state right after the toolbar installs.
+        dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
+        dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         if #available(iOS 26.0, *) {
-            // Liquid Glass capsule behind the toggle, matching the accessory
-            // action pills, so the glyph stays legible over band rows.
-            var config = UIButton.Configuration.glass()
-            config.image = UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig)
-            config.baseForegroundColor = themeChromeColor.withAlphaComponent(0.78)
-            dismissButton.configuration = config
-        } else {
-            dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
-            dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
+            // Liquid Glass circle behind the toggle glyph so it stays
+            // legible over band rows. Non-interactive like the nub's: the
+            // button owns the tap; the glass is only a backdrop and must
+            // not add its own touch response (the .glass() button
+            // configuration would).
+            let glass = UIVisualEffectView(effect: UIGlassEffect())
+            glass.isUserInteractionEnabled = false
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            glass.layer.cornerRadius = 16
+            glass.clipsToBounds = true
+            dismissButton.insertSubview(glass, at: 0)
+            NSLayoutConstraint.activate([
+                glass.centerXAnchor.constraint(equalTo: dismissButton.centerXAnchor),
+                glass.centerYAnchor.constraint(equalTo: dismissButton.centerYAnchor),
+                glass.widthAnchor.constraint(equalToConstant: 32),
+                glass.heightAnchor.constraint(equalToConstant: 32),
+            ])
         }
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
@@ -889,13 +894,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let symbol = shown ? "keyboard.chevron.compact.down" : "keyboard"
         let image = UIImage(systemName: symbol, withConfiguration: Self.accessoryButtonSymbolConfig)
         UIView.transition(with: dismissButton, duration: 0.2, options: .transitionCrossDissolve) {
-            // A configuration-based button (the iOS 26 glass toggle) ignores
-            // setImage; route the glyph through whichever styling owns it.
-            if #available(iOS 26.0, *), dismissButton.configuration != nil {
-                dismissButton.configuration?.image = image
-            } else {
-                dismissButton.setImage(image, for: .normal)
-            }
+            dismissButton.setImage(image, for: .normal)
         }
         dismissButton.accessibilityLabel = shown
             ? String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")

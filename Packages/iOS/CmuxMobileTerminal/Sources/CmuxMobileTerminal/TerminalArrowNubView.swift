@@ -39,16 +39,25 @@ final class TerminalArrowNubView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         if #available(iOS 26.0, *) {
-            // Liquid Glass circle under the pad. Strictly non-interactive:
-            // the drag pan lives on this nub view and the glass must never
-            // intercept or respond to touches in its place.
+            // Liquid Glass circle under the pad, constraint-pinned to the
+            // nub's edges — the docked bar fixes the nub at nubSize², so
+            // this is exactly the circle the flat fill used to draw.
+            // (Autoresizing from the zero init bounds doubled the frame
+            // once constraints landed; constraints track the real size.)
+            // Strictly non-interactive: the drag pan lives on this nub view
+            // and the glass must never intercept or respond to touches.
             let glass = UIVisualEffectView(effect: UIGlassEffect())
             glass.isUserInteractionEnabled = false
-            glass.frame = CGRect(x: 0, y: 0, width: nubSize, height: nubSize)
-            glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            glass.translatesAutoresizingMaskIntoConstraints = false
             glass.layer.cornerRadius = nubSize / 2
             glass.clipsToBounds = true
             addSubview(glass)
+            NSLayoutConstraint.activate([
+                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+                glass.topAnchor.constraint(equalTo: topAnchor),
+                glass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
             glassBackgroundActive = true
             backgroundColor = .clear
         } else {
