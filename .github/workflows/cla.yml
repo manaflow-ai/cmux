@@ -615,29 +615,6 @@ jobs:
 
           issue_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}"
           lock_endpoint="${issue_endpoint}/lock"
-          if ! locked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
-            echo "::error::Could not query the pull request lock state"
-            exit 1
-          fi
-          if [[ "${locked}" == "true" ]]; then
-            echo "Pull request ${PR_NUMBER} is already locked"
-            exit 0
-          fi
-
-          # Re-fetch immediately before the state-changing call. A queued lock
-          # job must not lock a pull request that was reopened or retargeted
-          # after the closed event was delivered.
-          live_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the merged pull request before locking"
-          validate_live_merged_pr "${live_pr_json}" || fail "The pull request changed before locking"
-
-          if ! gh api --method PUT \
-            --header 'Accept: application/vnd.github+json' \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            "${lock_endpoint}" \
-            --field lock_reason=resolved >/dev/null 2>&1; then
-            echo "::error::Could not lock the merged pull request"
-            exit 1
-          fi
 
           unlock_after_state_change() {
             if ! gh api --method DELETE \
@@ -657,6 +634,41 @@ jobs:
               exit 1
             }
           }
+
+          if ! locked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
+            echo "::error::Could not query the pull request lock state"
+            exit 1
+          fi
+          if [[ "${locked}" == "true" ]]; then
+            # An existing lock may have been left behind by an earlier close
+            # event. Recheck the live state before treating it as valid, and
+            # remove it if the pull request was reopened or retargeted.
+            if ! live_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)"; then
+              unlock_after_state_change
+              fail "Could not verify the already-locked pull request"
+            fi
+            if ! validate_live_merged_pr "${live_pr_json}"; then
+              unlock_after_state_change
+              fail "The already-locked pull request changed; the stale lock was removed"
+            fi
+            echo "Pull request ${PR_NUMBER} is already locked"
+            exit 0
+          fi
+
+          # Re-fetch immediately before the state-changing call. A queued lock
+          # job must not lock a pull request that was reopened or retargeted
+          # after the closed event was delivered.
+          live_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not recheck the merged pull request before locking"
+          validate_live_merged_pr "${live_pr_json}" || fail "The pull request changed before locking"
+
+          if ! gh api --method PUT \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${lock_endpoint}" \
+            --field lock_reason=resolved >/dev/null 2>&1; then
+            echo "::error::Could not lock the merged pull request"
+            exit 1
+          fi
 
           if ! locked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
             echo "::error::Could not verify the pull request lock state"

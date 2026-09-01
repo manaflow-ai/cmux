@@ -75,6 +75,12 @@ gh() {
       local opener_login=contributor
       case "${FAKE_MODE:-}" in
         reopened) state=open; merged=false ;;
+        already-locked-reopen-after-read)
+          if [[ -f "${FAKE_LOCK_FILE}.recheck" ]]; then
+            state=open
+            merged=false
+          fi
+          ;;
         reopen-after-lock)
           if [[ -f "${FAKE_LOCK_FILE}" ]] && [[ "$(<"${FAKE_LOCK_FILE}")" == true ]]; then
             state=open
@@ -116,6 +122,9 @@ gh() {
       local locked=false
       [[ -f "${FAKE_LOCK_FILE}" ]] && locked="$(<"${FAKE_LOCK_FILE}")"
       if [[ " $* " == *" --jq .locked "* ]]; then
+        if [[ "${FAKE_MODE:-}" == already-locked-reopen-after-read ]]; then
+          printf 'seen\n' >"${FAKE_LOCK_FILE}.recheck"
+        fi
         printf '%s\n' "$locked"
       else
         jq -nc --argjson locked "$locked" '{locked:$locked}'
@@ -149,7 +158,7 @@ run_case() {
   local event_head_repo_id="$EVENT_HEAD_REPO_ID"
   : >"$work/posts-$mode"
   : >"$work/lock-$mode"
-  if [[ "$mode" == already-locked ]]; then
+  if [[ "$mode" == already-locked || "$mode" == already-locked-reopen-after-read ]]; then
     printf 'true\n' >"$work/lock-$mode"
   fi
   if [[ "$mode" == deleted-fork || "$mode" == deleted-fork-metadata-mismatch ]]; then
@@ -198,3 +207,4 @@ run_case deleted-fork-metadata-mismatch 0 "Pull request 123 is locked" 1
 run_case api-failure 1 "Could not query the merged pull request" 0
 run_case lock-failure 1 "Could not lock the merged pull request" 1
 run_case reopen-after-lock 1 "changed after locking; the stale lock was removed" 2
+run_case already-locked-reopen-after-read 1 "already-locked pull request changed; the stale lock was removed" 1
