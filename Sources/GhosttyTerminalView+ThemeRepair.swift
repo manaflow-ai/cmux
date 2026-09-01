@@ -43,6 +43,7 @@ extension GhosttyApp {
         }
     }
 
+    /// Returns the last raw theme directive found in cmux app-support config files.
     // This remains internal because the configuration reload path is declared
     // in GhosttyTerminalView.swift while the shared scanner lives here.
     func currentCmuxAppSupportThemeValue() -> String? {

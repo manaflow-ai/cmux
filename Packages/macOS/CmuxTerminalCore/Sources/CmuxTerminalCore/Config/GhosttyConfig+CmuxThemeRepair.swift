@@ -5,6 +5,10 @@ extension GhosttyConfig {
     // internal because Swift's `private` members cannot be referenced by a
     // same-type extension in another file; callers outside this module do not
     // need the tokenizer itself.
+    /// Splits a raw theme directive into its first light, dark, and fallback values.
+    ///
+    /// - Parameter rawThemeValue: The comma-separated value from a `theme` directive.
+    /// - Returns: The first recognized value for each conditional side and fallback.
     static func conditionalThemeComponents(
         from rawThemeValue: String
     ) -> (light: String?, dark: String?, fallback: String?) {

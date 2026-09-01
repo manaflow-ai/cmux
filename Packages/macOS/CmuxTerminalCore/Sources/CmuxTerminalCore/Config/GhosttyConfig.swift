@@ -770,6 +770,7 @@ public struct GhosttyConfig {
         }
     }
 
+    /// Parses one config file, repairs a legacy managed theme, and queues its includes.
     private static func loadConfigFile(
         at path: String,
         into config: inout GhosttyConfig,

@@ -76,6 +76,7 @@ extension CMUXCLI {
         )
     }
 
+    /// Chooses the picker target while ensuring incomplete state repairs both sides.
     private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
         // Ghostty rejects a conditional theme unless both sides are present. A
         // missing side means the on-disk value is either fresh or a stale
@@ -528,6 +529,7 @@ extension CMUXCLI {
         return ThemeSelection(rawValue: rawValue, light: resolvedLight, dark: resolvedDark, sourcePath: sourcePath)
     }
 
+    /// Encodes selected themes as the two-sided conditional form Ghostty accepts.
     private func encodedThemeValue(light: String?, dark: String?) -> String? {
         let normalizedLight = light?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedDark = dark?.trimmingCharacters(in: .whitespacesAndNewlines)

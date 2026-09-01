@@ -1149,6 +1149,7 @@ class GhosttyApp {
         )
     }
 
+    /// Injects a valid pair when the managed config contains a legacy one-sided theme.
     private func loadCmuxManagedThemeRepairIfNeeded(_ config: ghostty_config_t) {
         guard let repairedThemeValue = currentCmuxManagedThemeRepairValue() else { return }
         loadInlineGhosttyConfig(
