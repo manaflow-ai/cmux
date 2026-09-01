@@ -230,11 +230,14 @@ final class TerminalMutationBus: @unchecked Sendable {
     nonisolated func discardPendingNotifications(sequences: Set<UInt64>) {
         guard !sequences.isEmpty else { return }
         lock.lock()
+        let beforeCount = pending.count
         pending.removeAll { entry in
             guard case .deliverNotification = entry.mutation else { return false }
             return sequences.contains(entry.sequence)
         }
-        rebuildPendingPerformReplaceIndices()
+        if pending.count != beforeCount {
+            rebuildPendingPerformReplaceIndices()
+        }
         lock.unlock()
     }
 
@@ -296,13 +299,16 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.lock()
         let boundary = currentNotificationGeneration
         currentNotificationGeneration &+= 1
+        let beforeCount = pending.count
         pending.removeAll { entry in
             if case .deliverNotification(let notification) = entry.mutation {
                 return shouldDrop(notification)
             }
             return false
         }
-        rebuildPendingPerformReplaceIndices()
+        if pending.count != beforeCount {
+            rebuildPendingPerformReplaceIndices()
+        }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
@@ -361,8 +367,11 @@ final class TerminalMutationBus: @unchecked Sendable {
             lock.unlock()
             return false
         }
+        let beforeCount = pending.count
         pending.removeAll { $0.performReplaceKey == replaceKey }
-        rebuildPendingPerformReplaceIndices()
+        if pending.count != beforeCount {
+            rebuildPendingPerformReplaceIndices()
+        }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
@@ -436,6 +445,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         where shouldDiscard: (QueuedTerminalNotification, UInt64) -> Bool
     ) {
         lock.lock()
+        let beforeCount = pending.count
         pending.removeAll { entry in
             guard case .deliverNotification(let notification) = entry.mutation,
                   let generation = entry.notificationGeneration else {
@@ -443,7 +453,9 @@ final class TerminalMutationBus: @unchecked Sendable {
             }
             return shouldDiscard(notification, generation)
         }
-        rebuildPendingPerformReplaceIndices()
+        if pending.count != beforeCount {
+            rebuildPendingPerformReplaceIndices()
+        }
         if advanceGeneration {
             currentNotificationGeneration &+= 1
         }
