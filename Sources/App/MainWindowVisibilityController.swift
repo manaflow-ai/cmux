@@ -321,7 +321,9 @@ final class MainWindowVisibilityController {
                 allWindows.contains { $0 === dismissedWindow }
             }
             dismissedWindowRestoreTargets.removeAll()
-            revealTargets = dismissedTargets
+            revealTargets = dismissedTargets.isEmpty
+                ? allWindows.filter { dependencies.windowOperations.isMiniaturized($0) }
+                : dismissedTargets
         }
 
         trace("show.begin", reason: reason, windows: revealTargets)
