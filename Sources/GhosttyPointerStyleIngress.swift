@@ -122,6 +122,15 @@ actor GhosttyPointerStyleIngress {
         generation: UInt64
     ) {
         guard generation >= state.activeRuntimeGeneration else { return }
+        // A synchronous Ghostty constructor callback can reach the ingress
+        // before this activation task gets its actor turn. In that case the
+        // callback receiver has already inferred the same runtime identity;
+        // preserve its pending shape/link snapshot instead of clearing it.
+        if state.activeRuntimeLifetimeId == runtimeLifetimeId,
+           state.activeRuntimeGeneration == generation {
+            state.retiredRuntimeLifetimeIds.remove(runtimeLifetimeId)
+            return
+        }
         if state.activeRuntimeLifetimeId != runtimeLifetimeId ||
            state.activeRuntimeGeneration != generation {
             state.activeRuntimeLifetimeId = runtimeLifetimeId
@@ -186,6 +195,11 @@ actor GhosttyPointerStyleIngress {
 
         switch request.event {
         case .activate:
+            if state.activeRuntimeLifetimeId == request.runtimeLifetimeId,
+               state.activeRuntimeGeneration == request.runtimeGeneration {
+                state.retiredRuntimeLifetimeIds.remove(request.runtimeLifetimeId)
+                return
+            }
             state.activeRuntimeLifetimeId = request.runtimeLifetimeId
             state.retiredRuntimeLifetimeIds.remove(request.runtimeLifetimeId)
             state.lifecycleCutoffByRuntime.removeValue(forKey: request.runtimeLifetimeId)

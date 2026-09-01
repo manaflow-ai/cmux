@@ -53,11 +53,13 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         let host = FakeSurfaceHost()
         let first = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
         let second = GhosttySurfaceCallbackContext(
             surfaceHost: host,
-            surfaceController: controller
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
         )
 
         #expect(first.runtimeLifetimeId != second.runtimeLifetimeId)
