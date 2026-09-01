@@ -5350,6 +5350,10 @@ struct SelectionClickSequence {
     anchor: (u16, u64),
     dragged: bool,
     tracked_anchor: Option<TrackedScreenPoint>,
+    /// A failed semantic press keeps `tracked_anchor` alive for a same-press
+    /// cell drag, but it must not keep the repeat count alive for the next
+    /// press.
+    repeatable: bool,
 }
 
 /// The most recent semantic drag result. Pointer reports often repeat the
@@ -16786,6 +16790,14 @@ impl App {
         }
     }
 
+    fn invalidate_selection_repeat(&mut self, surface: SurfaceId) {
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.repeatable = false;
+        }
+    }
+
     fn selection_point(cell: (u16, u64)) -> Option<SelectionPoint> {
         Some(SelectionPoint { column: cell.0, row: u32::try_from(cell.1).ok()? })
     }
@@ -16845,7 +16857,8 @@ impl App {
         modifiers: KeyModifiers,
         now: Instant,
     ) -> bool {
-        if screen.is_none()
+        if !previous.repeatable
+            || screen.is_none()
             || previous.surface != surface
             || previous.screen != screen
             || previous.modifiers != KeyModifiers::NONE
@@ -16923,6 +16936,7 @@ impl App {
             anchor: cell,
             dragged: false,
             tracked_anchor,
+            repeatable: true,
         });
         mode
     }
@@ -22268,6 +22282,7 @@ impl App {
                             // value for an empty cell. Do not leave an older
                             // selection or semantic drag mode active.
                             self.clear_selection_for_cell_gesture(area.surface);
+                            self.invalidate_selection_repeat(area.surface);
                         }
                     }
                     self.drag = Some(Drag::Select { content, source_x, auto_scroll: None, col });
