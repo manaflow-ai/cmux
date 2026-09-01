@@ -4718,9 +4718,146 @@ fn validate_resource_client_label(
     Ok(Some(value))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SocketPathIdentity {
+    #[cfg(unix)]
+    Unix { device: u64, inode: u64 },
+    #[cfg(not(unix))]
+    Unavailable,
+}
+
+impl SocketPathIdentity {
+    fn capture(path: &Path) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+            let metadata = std::fs::symlink_metadata(path)?;
+            if !metadata.file_type().is_socket() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session socket path is not a Unix socket",
+                ));
+            }
+            Ok(Self::Unix { device: metadata.dev(), inode: metadata.ino() })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            Ok(Self::Unavailable)
+        }
+    }
+
+    fn matches_path(self, path: &Path) -> std::io::Result<bool> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+            let metadata = match std::fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(error),
+            };
+            Ok(metadata.file_type().is_socket()
+                && matches!(
+                    self,
+                    Self::Unix { device, inode }
+                        if metadata.dev() == device && metadata.ino() == inode
+                ))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (self, path);
+            Ok(true)
+        }
+    }
+}
+
+/// Identity-fenced ownership of one bound local server socket.
+///
+/// Unix cleanup removes the path only when it still names the socket inode
+/// captured after this server bound it. The start lock serializes that check
+/// and removal with other cmux server starts.
+pub struct ServedSocketLease {
+    path: PathBuf,
+    identity: SocketPathIdentity,
+    linked: bool,
+}
+
+impl ServedSocketLease {
+    /// Capture the identity of a successfully bound socket path.
+    pub fn claim(path: PathBuf) -> std::io::Result<Self> {
+        let identity = SocketPathIdentity::capture(&path)?;
+        Ok(Self { path, identity, linked: true })
+    }
+
+    /// Return the public path owned by this lease.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Remove this publication only while it still belongs to this lease.
+    pub fn unlink(&mut self) -> std::io::Result<()> {
+        if !self.linked {
+            return Ok(());
+        }
+
+        let _start_lock =
+            SocketStartLock::acquire(&self.path, Instant::now() + SOCKET_CLEANUP_DEADLINE)?;
+        if self.identity.matches_path(&self.path)? {
+            match std::fs::remove_file(&self.path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        self.linked = false;
+        Ok(())
+    }
+
+    /// Remove this lease and ignore cleanup errors, as required by `Drop`.
+    pub fn cleanup(mut self) {
+        let _ = self.unlink();
+    }
+
+    fn into_unfenced_path(mut self) -> PathBuf {
+        self.linked = false;
+        self.path.clone()
+    }
+
+    fn unlink_with_wake(mut self) {
+        let result = (|| {
+            if !self.linked {
+                return Ok(());
+            }
+            let _start_lock =
+                SocketStartLock::acquire(&self.path, Instant::now() + SOCKET_CLEANUP_DEADLINE)?;
+            if self.identity.matches_path(&self.path)? {
+                // Wake only this listener. If the path now names a successor,
+                // connecting would deliver an unsolicited client to it.
+                let _ = transport::connect(&self.path);
+                match std::fs::remove_file(&self.path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            self.linked = false;
+            Ok(())
+        })();
+        let _ = result;
+    }
+}
+
+impl Drop for ServedSocketLease {
+    fn drop(&mut self) {
+        let _ = self.unlink();
+    }
+}
+
 /// A bound local server whose lifecycle endpoint is not ready yet.
 pub struct PendingServer {
-    path: Option<PathBuf>,
+    lease: Option<ServedSocketLease>,
     mux: Arc<Mux>,
     shutdown: Arc<AtomicBool>,
 }
@@ -4729,21 +4866,37 @@ impl PendingServer {
     /// Publish lifecycle readiness and transfer socket cleanup to the caller.
     pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
         self.mux.mark_server_lifecycle_ready();
-        Ok(self.path.take().expect("pending server path is available"))
+        Ok(self
+            .lease
+            .take()
+            .expect("pending server socket lease is available")
+            .into_unfenced_path())
     }
 
-    /// Transfer socket cleanup while another startup owner publishes readiness.
+    /// Publish lifecycle readiness and retain identity-fenced socket ownership.
+    pub fn mark_ready_owned(mut self) -> anyhow::Result<ServedSocketLease> {
+        self.mux.mark_server_lifecycle_ready();
+        Ok(self.lease.take().expect("pending server socket lease is available"))
+    }
+
+    /// Transfer identity-fenced socket cleanup while another startup owner
+    /// publishes readiness.
+    pub fn into_bound_socket(mut self) -> ServedSocketLease {
+        self.lease.take().expect("pending server socket lease is available")
+    }
+
+    /// Transfer legacy path cleanup while another startup owner publishes
+    /// readiness. New owners should use [`Self::into_bound_socket`].
     pub fn into_bound_path(mut self) -> PathBuf {
-        self.path.take().expect("pending server path is available")
+        self.lease.take().expect("pending server socket lease is available").into_unfenced_path()
     }
 }
 
 impl Drop for PendingServer {
     fn drop(&mut self) {
-        if let Some(path) = self.path.take() {
+        if let Some(lease) = self.lease.take() {
             self.shutdown.store(true, Ordering::Release);
-            let _ = transport::connect(&path);
-            cleanup(&path);
+            lease.unlink_with_wake();
         }
     }
 }
@@ -4848,15 +5001,16 @@ pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()
     Ok(())
 }
 
-/// Exclusive lock serializing every local server start for one socket path:
-/// foreground `server start`, in-process TUI hosting, and detached-owner
-/// spawns. The stale-socket recovery below (probe, unlink, bind) is not
-/// atomic, so two unserialized starts can both classify a socket as stale,
-/// and the second unlink disconnects the first starter's freshly bound
-/// socket while its process keeps running unreachably. The lock file lives
-/// next to the socket and is left in place: unlinking it would reopen the
-/// very race it exists to close. The OS releases the lock when the holder
-/// exits, so a crashed starter never wedges the session.
+/// Exclusive lock serializing every local server start and identity-fenced
+/// cleanup for one socket path: foreground `server start`, in-process TUI
+/// hosting, and detached-owner spawns. The stale-socket recovery below
+/// (probe, unlink, bind) is not atomic, so two unserialized starts can both
+/// classify a socket as stale, and the second unlink disconnects the first
+/// starter's freshly bound socket while its process keeps running
+/// unreachably. The lock file lives next to the socket and is left in place:
+/// unlinking it would reopen the very race it exists to close. The OS releases
+/// the lock when the holder exits, so a crashed starter never wedges the
+/// session.
 pub struct SocketStartLock {
     _file: std::fs::File,
 }
@@ -4929,6 +5083,8 @@ impl SocketStartLock {
 /// healthy contender clears in milliseconds; the bound exists to surface a
 /// wedged holder as an error instead of a hang.
 const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
+/// Bound cleanup waits so a shutdown path cannot hang on a wedged starter.
+const SOCKET_CLEANUP_DEADLINE: Duration = Duration::from_secs(2);
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
@@ -4952,9 +5108,10 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     }
     let listener = transport::listen(&path)?;
+    let lease = ServedSocketLease::claim(path.clone())?;
     drop(start_lock);
     if let Err(error) = platform::restrict_file(&path) {
-        cleanup(&path);
+        lease.cleanup();
         return Err(error.into());
     }
     let active_connections = Arc::new(AtomicU64::new(0));
@@ -4978,10 +5135,10 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     });
     if let Err(error) = server {
-        cleanup(&path);
+        lease.cleanup();
         return Err(error.into());
     }
-    Ok(PendingServer { path: Some(path), mux, shutdown })
+    Ok(PendingServer { lease: Some(lease), mux, shutdown })
 }
 
 /// Bind the socket and serve connections on background threads.
