@@ -732,6 +732,7 @@ struct WorkspaceShellView: View {
             wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
             previewLineLimit: displaySettings.workspacePreviewLineCount,
             unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
+            unreadBadgeDiameter: displaySettings.unreadBadgeDiameter,
             selectWorkspace: resolvedSelectWorkspace,
             createWorkspace: resolvedCreateWorkspace,
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,

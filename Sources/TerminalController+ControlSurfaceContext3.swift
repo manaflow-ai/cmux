@@ -17,6 +17,10 @@ extension TerminalController {
             launchCommandMustBeValid: String(
                 localized: "socket.surface.resume.launchCommandMustBeValid",
                 defaultValue: "launch_command.arguments must be a non-empty array of strings"
+            ),
+            restoreClaimMustBeValid: String(
+                localized: "socket.surface.resume.restoreClaimMustBeValid",
+                defaultValue: "Missing or invalid restore claim"
             )
         )
     }
@@ -51,8 +55,9 @@ extension TerminalController {
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             var refreshedCount = 0
             for panel in dock.panels.values {
-                if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh.windowDock")
+                if panel is TerminalPanel,
+                   let target = dock.controlSocketTerminalTarget(for: panel.id) {
+                    target.forceRefresh(reason: "terminalController.v2SurfaceRefresh.windowDock")
                     refreshedCount += 1
                 }
             }
@@ -67,8 +72,9 @@ extension TerminalController {
         }
         var refreshedCount = 0
         for panel in controlSurfacePanels(workspace: ws) {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
+            if panel is TerminalPanel,
+               let target = ws.controlSocketTerminalTarget(for: panel.id) {
+                target.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
                 refreshedCount += 1
             }
         }
@@ -102,13 +108,14 @@ extension TerminalController {
             guard let surfaceId = target.surfaceID else {
                 return .noFocusedSurface
             }
-            guard let terminalPanel = target.terminalPanel else {
+            guard target.terminalPanel != nil else {
                 return .surfaceNotTerminal(surfaceId)
             }
-            guard terminalPanel.performBindingAction("clear_screen") else {
+            guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId),
+                  terminalTarget.performBindingAction("clear_screen") else {
                 return .bindingActionUnavailable
             }
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.windowDock")
+            terminalTarget.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.windowDock")
             return .cleared(
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
@@ -123,24 +130,30 @@ extension TerminalController {
         if hasSurfaceIDParam, surfaceID == nil {
             return .surfaceNotFoundForID
         }
-        let target: (surfaceID: UUID, panel: TerminalPanel)?
+        let structuralTarget: (surfaceID: UUID, panel: TerminalPanel)?
         if let surfaceID {
-            target = ws.controlTerminalTarget(for: surfaceID)
+            structuralTarget = ws.controlTerminalTarget(for: surfaceID)
         } else {
-            target = ws.controlDefaultTerminalTarget(paneID: routing.paneID)
+            structuralTarget = ws.controlDefaultTerminalTarget(paneID: routing.paneID)
         }
-        guard let target else {
+        guard let structuralTarget else {
             if let surfaceID { return .surfaceNotTerminal(surfaceID) }
             return .noFocusedSurface
         }
-        guard target.panel.performBindingAction("clear_screen") else {
+        let target: ControlTerminalSocketTarget?
+        if let surfaceID {
+            target = ws.controlSocketTerminalTarget(for: surfaceID)
+        } else {
+            target = ws.controlDefaultSocketTerminalTarget(paneID: routing.paneID)
+        }
+        guard let target, target.performBindingAction("clear_screen") else {
             return .bindingActionUnavailable
         }
-        target.panel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
+        target.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
         return .cleared(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            surfaceID: target.surfaceID
+            surfaceID: structuralTarget.surfaceID
         )
     }
 
@@ -265,13 +278,16 @@ extension TerminalController {
             guard let surfaceId = target.surfaceID else {
                 return .noFocusedSurface
             }
-            guard let terminalPanel = target.terminalPanel else {
+            guard target.terminalPanel != nil else {
                 return .surfaceNotTerminal(surfaceId)
             }
+            guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId) else {
+                return .surfaceUnavailable(surfaceId)
+            }
             let queued: Bool
-            switch terminalPanel.sendInputResult(text) {
+            switch terminalTarget.sendInputResult(text) {
             case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.windowDock")
+                terminalTarget.forceRefresh(reason: "terminalController.v2SurfaceSendText.windowDock")
                 queued = false
             case .queued:
                 queued = true
@@ -302,11 +318,13 @@ extension TerminalController {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
         }
-        guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
+        guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
             return .surfaceNotTerminal(requestedSurfaceID)
         }
+        guard let target = ws.controlSocketTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceUnavailable(requestedSurfaceID)
+        }
         let surfaceId = target.surfaceID
-        let terminalPanel = target.panel
         if let remote = controlRemoteTmuxSendText(
             workspace: ws,
             tabManager: tabManager,
@@ -316,9 +334,9 @@ extension TerminalController {
             return remote
         }
         let queued: Bool
-        switch terminalPanel.sendInputResult(text) {
+        switch target.sendInputResult(text) {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
+            target.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             queued = false
         case .queued:
             queued = true
@@ -359,13 +377,16 @@ extension TerminalController {
             guard let surfaceId = target.surfaceID else {
                 return .noFocusedSurface
             }
-            guard let terminalPanel = target.terminalPanel else {
+            guard target.terminalPanel != nil else {
                 return .surfaceNotTerminal(surfaceId)
             }
-            let sendResult = terminalPanel.sendNamedKeyResult(key)
+            guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId) else {
+                return .surfaceUnavailable(surfaceId)
+            }
+            let sendResult = terminalTarget.sendNamedKeyResult(key)
             switch sendResult {
             case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey.windowDock")
+                terminalTarget.forceRefresh(reason: "terminalController.v2SurfaceSendKey.windowDock")
             case .queued:
                 break
             case .unknownKey:
@@ -397,11 +418,13 @@ extension TerminalController {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
         }
-        guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
+        guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
             return .surfaceNotTerminal(requestedSurfaceID)
         }
+        guard let target = ws.controlSocketTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceUnavailable(requestedSurfaceID)
+        }
         let surfaceId = target.surfaceID
-        let terminalPanel = target.panel
         if let remote = controlRemoteTmuxSendKey(
             workspace: ws,
             tabManager: tabManager,
@@ -410,10 +433,10 @@ extension TerminalController {
         ) {
             return remote
         }
-        let sendResult = terminalPanel.sendNamedKeyResult(key)
+        let sendResult = target.sendNamedKeyResult(key)
         switch sendResult {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
+            target.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
         case .queued:
             break
         case .unknownKey:
