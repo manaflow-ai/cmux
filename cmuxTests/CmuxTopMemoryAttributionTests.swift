@@ -167,9 +167,11 @@ struct CmuxTopMemoryAttributionTests {
             defaultValue: "; %@ same-TTY RSS excluded (ownership unproven)"
         )
         let summaryParts = summaryTemplate.components(separatedBy: "%@")
+        let summary = try #require(payload["summary"] as? String)
         #expect(summaryParts.count == 2)
-        #expect((payload["summary"] as? String)?.contains(summaryParts[0]) == true)
-        #expect((payload["summary"] as? String)?.hasSuffix(summaryParts[1]) == true)
+        #expect(summary.contains(summaryParts[0]))
+        #expect(summary.hasSuffix(summaryParts[1]))
+        #expect(!summary.contains("%@"))
 
         let taskManager = CmuxTaskManagerSnapshot(payload: ["memory_diagnostic": payload])
         let row = try #require(taskManager.childMemoryRows.last)
