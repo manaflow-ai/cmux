@@ -1,5 +1,8 @@
 import CmuxSettings
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 #if DEBUG
 import CMUXDebugLog
 #endif
@@ -87,18 +90,38 @@ actor CloudTuiPipeIOProbe {
         } catch {
             return false
         }
-        async let output = CloudLinkPipe.readToEnd(stdout.fileHandleForReading)
-        let deadline = Task {
-            do {
-                try await Task.sleep(for: .seconds(10))
-            } catch {
-                return
+        let outputTask = Task { await CloudLinkPipe.readToEnd(stdout.fileHandleForReading) }
+        let timedOut = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                _ = await exit.result
+                return false
             }
-            process.terminate()
+            group.addTask {
+                do {
+                    try await Task.sleep(for: .seconds(10))
+                    return true
+                } catch {
+                    return false
+                }
+            }
+            let result = await group.next() ?? true
+            group.cancelAll()
+            return result
         }
-        _ = await exit.result
-        deadline.cancel()
-        let text = String(decoding: await output, as: UTF8.self)
+        guard !timedOut else {
+            // `terminate()` is cooperative and a wedged helper can ignore
+            // SIGTERM. Force-kill and reap the exact child, then close the
+            // pipe so its reader cannot keep this probe suspended.
+            process.terminate()
+#if canImport(Darwin)
+            _ = kill(process.processIdentifier, SIGKILL)
+#endif
+            stdout.fileHandleForReading.closeFile()
+            process.waitUntilExit()
+            outputTask.cancel()
+            return false
+        }
+        let text = String(decoding: await outputTask.value, as: UTF8.self)
         return text.contains("--pipe-io")
     }
 }
