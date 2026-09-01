@@ -42,15 +42,15 @@ def test_repository_contract(validator: ModuleType) -> None:
 
 def test_old_unscoped_forms_are_rejected(validator: ModuleType) -> None:
     browser = "cmux browser "
-    fixture = "```bash\n"
-    fixture += browser + "tab list\n"
-    fixture += browser + "url\n"
-    fixture += browser + "snapshot -i\n"
-    fixture += browser + "list\n"
-    fixture += "```\n"
+    fixture = [
+        browser + "tab list",
+        browser + "url",
+        browser + "snapshot -i",
+        browser + "list",
+    ]
     examples = [
         validator.ShellExample(Path("stale-fixture.md"), line, text)
-        for line, text in enumerate(fixture.splitlines(), start=1)
+        for line, text in enumerate(fixture, start=1)
     ]
     commands, parse_errors = validator.browser_commands(examples)
     if parse_errors:
@@ -65,17 +65,15 @@ def test_old_unscoped_forms_are_rejected(validator: ModuleType) -> None:
 
 
 def test_scoped_aliases_are_accepted(validator: ModuleType) -> None:
-    fixture = """
-```bash
-cmux browser --surface surface:1 get url
-cmux browser surface:1 get-url
-cmux browser surface:1 snapshot -i
-cmux browser --surface surface:1 tab list
-```
-"""
+    fixture = [
+        "cmux browser --surface surface:1 get url",
+        "cmux browser surface:1 get-url",
+        "cmux browser surface:1 snapshot -i",
+        "cmux browser --surface surface:1 tab list",
+    ]
     examples = [
         validator.ShellExample(Path("scoped-fixture.md"), line, text)
-        for line, text in enumerate(fixture.splitlines(), start=1)
+        for line, text in enumerate(fixture, start=1)
     ]
     commands, parse_errors = validator.browser_commands(examples)
     if parse_errors:
@@ -87,15 +85,15 @@ cmux browser --surface surface:1 tab list
 
 def test_nested_commands_are_checked(validator: ModuleType) -> None:
     browser = "cmux browser "
-    fixture = "```bash\n"
-    fixture += 'URL="$(' + browser + 'url)"\n'
-    fixture += 'TABS="$(' + browser + 'tab list)"\n'
-    fixture += 'NESTED="$(printf "%s" "$(' + browser + 'snapshot -i)")"\n'
-    fixture += 'QUOTED="$(printf \'%s\' \'x\\\' "$(' + browser + 'url)")"\n'
-    fixture += "```\n"
+    fixture = [
+        'URL="$(' + browser + 'url)"',
+        'TABS="$(' + browser + 'tab list)"',
+        'NESTED="$(printf "%s" "$(' + browser + 'snapshot -i)")"',
+        'QUOTED="$(printf \'%s\' \'x\\\' "$(' + browser + 'url)")"',
+    ]
     examples = [
         validator.ShellExample(Path("nested-fixture.md"), line, text)
-        for line, text in enumerate(fixture.splitlines(), start=1)
+        for line, text in enumerate(fixture, start=1)
     ]
     commands, parse_errors = validator.browser_commands(examples)
     if parse_errors:
@@ -107,19 +105,54 @@ def test_nested_commands_are_checked(validator: ModuleType) -> None:
 
 def test_literal_substitution_text_is_ignored(validator: ModuleType) -> None:
     browser = "cmux browser "
-    fixture = "```bash\n"
-    fixture += "MESSAGE='$(" + browser + "url)'\n"
-    fixture += "MESSAGE=\\$(" + browser + "tab list)\n"
-    fixture += "```\n"
+    fixture = [
+        "MESSAGE='$(" + browser + "url)'",
+        "MESSAGE=\\$(" + browser + "tab list)",
+    ]
     examples = [
         validator.ShellExample(Path("literal-substitution-fixture.md"), line, text)
-        for line, text in enumerate(fixture.splitlines(), start=1)
+        for line, text in enumerate(fixture, start=1)
     ]
     commands, parse_errors = validator.browser_commands(examples)
     if parse_errors or commands:
         raise AssertionError(
             f"literal/escaped substitution text was treated as executable: "
             f"commands={commands} errors={parse_errors}"
+        )
+
+
+def test_adjacent_shell_operators_do_not_cross_scope(validator: ModuleType) -> None:
+    browser = "cmux browser "
+    fixture = [
+        browser + "goto https://example.test;" + browser + "--surface surface:1 get url",
+        browser + "snapshot -i&&" + browser + "--surface surface:1 get title",
+    ]
+    examples = [
+        validator.ShellExample(Path("operator-fixture.md"), line, text)
+        for line, text in enumerate(fixture, start=1)
+    ]
+    commands, parse_errors = validator.browser_commands(examples)
+    if parse_errors:
+        raise AssertionError(f"operator fixture parser failed: {parse_errors}")
+    errors = [error for command in commands for error in validator.validate_command(command)]
+    if len(errors) != 2 or not all("explicit" in error for error in errors):
+        raise AssertionError(f"adjacent operators allowed a later surface to scope an earlier command: {errors}")
+
+
+def test_unterminated_substitutions_fail_closed(validator: ModuleType) -> None:
+    browser = "cmux browser "
+    fixture = [
+        'URL="$(' + browser + 'url"',
+        'URL=`' + browser + 'tab list',
+    ]
+    examples = [
+        validator.ShellExample(Path("unterminated-fixture.md"), line, text)
+        for line, text in enumerate(fixture, start=1)
+    ]
+    commands, parse_errors = validator.browser_commands(examples)
+    if len(parse_errors) != 2 or commands:
+        raise AssertionError(
+            f"unterminated substitutions were not rejected: commands={commands} errors={parse_errors}"
         )
 
 
@@ -182,6 +215,8 @@ def main() -> int:
         lambda: test_scoped_aliases_are_accepted(validator),
         lambda: test_nested_commands_are_checked(validator),
         lambda: test_literal_substitution_text_is_ignored(validator),
+        lambda: test_adjacent_shell_operators_do_not_cross_scope(validator),
+        lambda: test_unterminated_substitutions_fail_closed(validator),
         lambda: test_longer_markdown_fences_are_not_closed_early(validator),
         test_templates_require_a_surface,
         lambda: test_live_help_when_available(validator),

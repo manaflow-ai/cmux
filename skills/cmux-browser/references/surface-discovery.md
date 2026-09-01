@@ -46,8 +46,34 @@ cmux tree --all --json \
 ```
 
 Pick the surface by the workspace/pane the user named, or by a URL/title only
-when the user supplied enough context to disambiguate it. Do not print or store
-raw authenticated-page metadata unnecessarily.
+when the user supplied enough context to disambiguate it. For URL/title-only
+context, use this exact-match filter; it emits only the unique surface ref and
+does not print the matched metadata:
+
+```bash
+MATCH_FIELD="url" # use "title" when matching a page title
+MATCH_VALUE="${BROWSER_URL_OR_TITLE:?set BROWSER_URL_OR_TITLE without logging it}"
+SURFACE="$(
+  cmux tree --all --json |
+    jq -r --arg field "$MATCH_FIELD" --arg value "$MATCH_VALUE" '
+      [
+        .windows[]? as $window
+        | $window.workspaces[]? as $workspace
+        | $workspace.panes[]? as $pane
+        | $pane.surfaces[]?
+        | select(.type == "browser")
+        | select((if $field == "url" then (.url // "") else (.title // "") end) == $value)
+        | .ref
+      ] as $matches
+      | if ($matches | length) == 1 then $matches[0]
+        elif ($matches | length) == 0 then error("no matching browser surface")
+        else error("multiple matches; use workspace/pane context")
+        end'
+)"
+cmux browser --surface "$SURFACE" get url
+```
+
+Do not print or store raw authenticated-page metadata unnecessarily.
 
 ## Inspect the chosen surface
 

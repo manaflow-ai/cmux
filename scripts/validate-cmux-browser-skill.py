@@ -157,6 +157,10 @@ class BrowserCommand:
     tokens: tuple[str, ...]
 
 
+class ShellSyntaxError(ValueError):
+    """A shell example cannot be parsed into complete command substitutions."""
+
+
 def _fenced_shell_blocks(path: Path, text: str) -> Iterator[tuple[int, str]]:
     """Yield (start line, block text) for shell-language Markdown fences."""
 
@@ -264,7 +268,13 @@ def _looks_like_surface(token: str) -> bool:
 
 
 def _tokenize(line: str) -> list[str]:
-    return shlex.split(line, comments=True, posix=True)
+    # Ask shlex to keep shell operators as standalone tokens so an adjacent
+    # ``;``/``&&`` cannot make one browser invocation consume the next one.
+    # Quoted operator characters remain part of their quoted argument.
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    return list(lexer)
 
 
 def _substitution_bodies(text: str) -> Iterator[str]:
@@ -328,8 +338,7 @@ def _substitution_bodies(text: str) -> Iterator[str]:
                         break
                 cursor += 1
             else:
-                index += 2
-                continue
+                raise ShellSyntaxError("unterminated $() command substitution")
             continue
 
         if (quote is None or quote == '"') and character == "`":
@@ -348,8 +357,7 @@ def _substitution_bodies(text: str) -> Iterator[str]:
                     break
                 cursor += 1
             else:
-                index += 1
-                continue
+                raise ShellSyntaxError("unterminated backtick command substitution")
             continue
 
         index += 1
@@ -377,7 +385,13 @@ def _nested_browser_commands(
         return commands, errors
 
     commands.extend(_commands_from_tokens(example, tokens, text))
-    for body in _substitution_bodies(text):
+    try:
+        substitution_bodies = list(_substitution_bodies(text))
+    except ShellSyntaxError as exc:
+        errors.append(f"{example.path}:{example.line}: {exc}")
+        return commands, errors
+
+    for body in substitution_bodies:
         nested_commands, nested_errors = _nested_browser_commands(example, body, depth + 1)
         commands.extend(nested_commands)
         errors.extend(nested_errors)
@@ -418,11 +432,17 @@ def _commands_from_tokens(
 def browser_commands(examples: Iterable[ShellExample]) -> tuple[list[BrowserCommand], list[str]]:
     commands: list[BrowserCommand] = []
     errors: list[str] = []
+    seen: set[tuple[Path, int, tuple[str, ...]]] = set()
     for example in _logical_examples(examples):
         if not example.text.strip() or example.text.lstrip().startswith("#"):
             continue
         nested_commands, nested_errors = _nested_browser_commands(example, example.text)
-        commands.extend(nested_commands)
+        for command in nested_commands:
+            key = (command.path, command.line, command.tokens)
+            if key in seen:
+                continue
+            seen.add(key)
+            commands.append(command)
         errors.extend(nested_errors)
     return commands, errors
 

@@ -75,6 +75,33 @@ cmux browser --surface "$SURFACE" get url
 cmux browser --surface "$SURFACE" snapshot --interactive
 ```
 
+If the user gives a URL or title instead of a workspace/pane, match that
+metadata locally and emit only the unique surface ref. This never prints the
+matched URL or title:
+
+```bash
+MATCH_FIELD="url" # use "title" when matching a page title
+MATCH_VALUE="${BROWSER_URL_OR_TITLE:?set BROWSER_URL_OR_TITLE without logging it}"
+SURFACE="$(
+  cmux tree --all --json |
+    jq -r --arg field "$MATCH_FIELD" --arg value "$MATCH_VALUE" '
+      [
+        .windows[]? as $window
+        | $window.workspaces[]? as $workspace
+        | $workspace.panes[]? as $pane
+        | $pane.surfaces[]?
+        | select(.type == "browser")
+        | select((if $field == "url" then (.url // "") else (.title // "") end) == $value)
+        | .ref
+      ] as $matches
+      | if ($matches | length) == 1 then $matches[0]
+        elif ($matches | length) == 0 then error("no matching browser surface")
+        else error("multiple matches; use workspace/pane context")
+        end'
+)"
+cmux browser --surface "$SURFACE" get url
+```
+
 For one known workspace, `cmux --json list-pane-surfaces --workspace
 <workspace>` is a smaller read-only query. Raw tree/list payloads can contain
 page URLs and titles; filter or redact them before logging or pasting them.
