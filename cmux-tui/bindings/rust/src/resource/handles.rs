@@ -461,7 +461,8 @@ impl Session {
             mutation,
         )?;
         mutation_result(value, |value| {
-            let result = wire::decode_exact(value, "journal producer result")?;
+            let result: super::journal_plugin::JournalProducerPutResult =
+                wire::decode_exact(value, "journal producer result")?;
             result.validate()?;
             Ok(result)
         })
@@ -503,7 +504,8 @@ impl Session {
             mutation,
         )?;
         mutation_result(value, |value| {
-            let result = wire::decode_exact(value, "journal append result")?;
+            let result: super::journal_plugin::JournalAppendResult =
+                wire::decode_exact(value, "journal append result")?;
             result.validate()?;
             Ok(result)
         })
