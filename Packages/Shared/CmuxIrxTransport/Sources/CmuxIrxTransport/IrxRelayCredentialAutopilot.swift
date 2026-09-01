@@ -125,7 +125,10 @@ public actor IrxRelayCredentialAutopilot {
             }
             guard outcome != .stopped else { return }
             guard !Task.isCancelled else { return }
-            await self.run(generation: generation)
+            // The outer kick task owns the `loop` handle. A distinct token
+            // prevents the nested run's defer from clearing that handle while
+            // this task is still executing.
+            await self.run(generation: generation &+ 1)
         }
         journal.record("credential-autopilot", "hint-refresh-kicked")
     }
@@ -243,6 +246,8 @@ public actor IrxRelayCredentialAutopilot {
                 return
             case .exhausted:
                 self.scheduleHintRetry()
+            case .rejected:
+                return
             }
         }
     }
@@ -295,7 +300,7 @@ public actor IrxRelayCredentialAutopilot {
                         "credential-autopilot", "hint-refresh-rejected",
                         failure.journalAttributes
                     )
-                    return .exhausted
+                    return .rejected
                 }
                 guard let nextFailureCount = await waitForRetry(
                     after: failure,
