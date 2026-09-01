@@ -145,9 +145,14 @@ pub(crate) fn scan(
                 continue;
             }
         } else if mux.screen_detect_pending_for_terminal(&terminal_public_id) {
-            // A queued emission must be admitted before newer screen states;
-            // otherwise retry order can invert and regress the roster.
-            continue;
+            // Actively retry the durable row. The registry row owns its
+            // original idempotency key, so retries cannot duplicate events.
+            let _ = mux.retry_pending_agent_hooks_for_terminal(&terminal_public_id);
+            if mux.screen_detect_pending_for_terminal(&terminal_public_id) {
+                // A queued emission must be admitted before newer screen
+                // states, otherwise retry order can invert the roster.
+                continue;
+            }
         }
         if unknown {
             // Keep the prior identity and roster state. The next scan can
@@ -195,7 +200,12 @@ pub(crate) fn scan(
         };
         if let Some(emission) = emission {
             if mux.append_screen_detect_event(&emission).is_err() {
-                tracker.stage_failed_emission(emission);
+                // append_screen_detect_event stages the exact ingress and
+                // idempotency key durably. Keep an in-memory fallback only
+                // if that staging also failed.
+                if !mux.screen_detect_pending_for_terminal(&terminal_public_id) {
+                    tracker.stage_failed_emission(emission);
+                }
             }
         }
     }

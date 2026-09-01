@@ -2781,7 +2781,7 @@ impl Mux {
         Ok(())
     }
 
-    fn retry_pending_agent_hooks_for_terminal(
+    pub(crate) fn retry_pending_agent_hooks_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
