@@ -331,7 +331,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
     func refreshThemeColors() {
-        dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
+        if #available(iOS 26.0, *), dismissButton?.configuration != nil {
+            dismissButton?.configuration?.baseForegroundColor =
+                themeChromeColor.withAlphaComponent(0.78)
+        } else {
+            dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
+        }
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
         refreshAccessoryButtonStyles()
     }
@@ -361,8 +366,17 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // the keyboard down would otherwise keep whatever glyph was built
         // here — a workspace used to open showing "hide" while nothing was
         // up. The host syncs the real state right after the toolbar installs.
-        dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
-        dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
+        if #available(iOS 26.0, *) {
+            // Liquid Glass capsule behind the toggle, matching the accessory
+            // action pills, so the glyph stays legible over band rows.
+            var config = UIButton.Configuration.glass()
+            config.image = UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig)
+            config.baseForegroundColor = themeChromeColor.withAlphaComponent(0.78)
+            dismissButton.configuration = config
+        } else {
+            dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
+            dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
+        }
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
         dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
@@ -875,7 +889,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let symbol = shown ? "keyboard.chevron.compact.down" : "keyboard"
         let image = UIImage(systemName: symbol, withConfiguration: Self.accessoryButtonSymbolConfig)
         UIView.transition(with: dismissButton, duration: 0.2, options: .transitionCrossDissolve) {
-            dismissButton.setImage(image, for: .normal)
+            // A configuration-based button (the iOS 26 glass toggle) ignores
+            // setImage; route the glyph through whichever styling owns it.
+            if #available(iOS 26.0, *), dismissButton.configuration != nil {
+                dismissButton.configuration?.image = image
+            } else {
+                dismissButton.setImage(image, for: .normal)
+            }
         }
         dismissButton.accessibilityLabel = shown
             ? String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
