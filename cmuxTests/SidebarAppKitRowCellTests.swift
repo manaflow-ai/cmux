@@ -59,6 +59,7 @@ struct SidebarAppKitRowCellTests {
     fileprivate static func makeModel(
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
+        isMultiSelected: Bool = false,
         isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
@@ -81,7 +82,7 @@ struct SidebarAppKitRowCellTests {
             ),
             settings: resolvedSettings,
             isActive: isActive,
-            isMultiSelected: false,
+            isMultiSelected: isMultiSelected,
             hasUserCustomTitle: false,
             canCloseWorkspace: canClose,
             accessibilityWorkspaceCount: 1,
@@ -1951,6 +1952,34 @@ struct SidebarAppKitRowCellTests {
         defaults.set("#286983", forKey: catalog.workspaceColors.selectionColorHex.userDefaultsKey)
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         let model = Self.makeModel(isActive: true, settings: settings, shortcutHintText: "⌘1")
+        let cell = Self.configuredCell(model: model)
+        let pill = try #require(
+            Self.descendants(of: cell).compactMap { $0 as? SidebarShortcutHintPillView }.first
+        )
+        let label = try #require(
+            Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first
+        )
+
+        let expected = SidebarRowPalette(model: model).selectedForeground(1.0)
+        #expect(label.textColor?.hexString() == expected.hexString())
+    }
+
+    @Test
+    func multiSelectedBareShortcutHintUsesReadableRowForeground() throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let catalog = SettingCatalog()
+        defaults.set(
+            SidebarShortcutHintStyle.bare.rawValue,
+            forKey: catalog.sidebar.shortcutHintStyle.userDefaultsKey
+        )
+        defaults.set("#286983", forKey: catalog.sidebar.shortcutHintColorHex.userDefaultsKey)
+        defaults.set("#286983", forKey: catalog.workspaceColors.selectionColorHex.userDefaultsKey)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let model = Self.makeModel(
+            isMultiSelected: true,
+            settings: settings,
+            shortcutHintText: "⌘1"
+        )
         let cell = Self.configuredCell(model: model)
         let pill = try #require(
             Self.descendants(of: cell).compactMap { $0 as? SidebarShortcutHintPillView }.first
