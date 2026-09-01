@@ -9942,9 +9942,9 @@ final class GhosttySurfaceScrollView: NSView {
         let appDelegate = AppDelegate.shared
         chromePaletteObservation = ChromePaletteDropOverlayObservation(
             overlay: dropZoneOverlayView,
-            initialPalette: appDelegate?.chromePalette
+            initialPalette: appDelegate?.chromePaletteSnapshot()
                 ?? ChromePaletteRuntimeResolver(runtime: appDelegate?.settingsRuntime).resolve(),
-            updates: appDelegate?.chromePaletteUpdates
+            updates: appDelegate?.makeChromePaletteUpdateSource()
         )
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8

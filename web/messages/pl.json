@@ -1100,6 +1100,7 @@
       "exampleConfig": "Przykładowa konfiguracja",
       "metaTitle": "Konfiguracja",
       "schemaDescriptions": {
+        "chromeColorHex": "Szesnastkowy kolor sRGB zawierający 6 lub 8 cyfr, wielkimi albo małymi literami; początkowy znak # jest opcjonalny, a końcowa para oznacza kanał alfa.",
         "paneBorderColor": "Zastępuje kolor separatora paneli cmux w podzielonych obszarach roboczych. Dotyczy granic paneli cmux, a nie wewnętrznych podziałów Ghostty.",
         "activePaneBorderColor": "Opcjonalny kolor obramowania rysowany wokół aktywnego panelu cmux w podzielonych obszarach roboczych.",
         "chrome": {

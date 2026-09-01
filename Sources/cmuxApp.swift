@@ -294,15 +294,7 @@ struct cmuxApp: App {
         chromePaletteRuntimeCoordinator.setPaletteChangeHandler { [weak configuredAppDelegate] palette in
             configuredAppDelegate?.applyChromePaletteToOpenWindows(palette)
         }
-        appDelegate.configureChromePaletteRuntime(
-            initialPalette: chromePaletteRuntimeCoordinator.palette,
-            updates: ChromePaletteUpdateSource(streamFactory: {
-                chromePaletteRuntimeCoordinator.makeUpdateStream()
-            }),
-            refresh: { @MainActor @Sendable in
-                chromePaletteRuntimeCoordinator.refresh()
-            }
-        )
+        appDelegate.configureChromePaletteRuntime(chromePaletteRuntimeCoordinator)
         chromePaletteRuntimeCoordinator.start()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
@@ -2580,9 +2572,10 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
         let runtime = AppDelegate.shared?.settingsRuntime
         window.contentView = NSHostingView(
             rootView: SidebarDebugView().chromePaletteHost(
-                initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
+                initialPalette: AppDelegate.shared?.chromePaletteSnapshot()
+                    ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
                 settingsRuntime: runtime,
-                updates: AppDelegate.shared?.chromePaletteUpdates
+                updates: AppDelegate.shared?.makeChromePaletteUpdateSource()
             )
         )
         AppDelegate.shared?.applyWindowDecorations(to: window)

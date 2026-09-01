@@ -1099,6 +1099,7 @@
       "exampleConfig": "Eksempelkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "chromeColorHex": "sRGB-hexfarve med 6 eller 8 cifre og store eller små bogstaver; et indledende # er valgfrit, og det sidste par angiver gennemsigtighed.",
         "paneBorderColor": "Tilsidesæt farven på cmux-rudeadskilleren i opdelte arbejdsområder. Dette påvirker cmux-rudegrænser, ikke Ghosttys interne opdelinger.",
         "activePaneBorderColor": "Valgfri kantfarve, der tegnes omkring den fokuserede cmux-rude i opdelte arbejdsområder.",
         "chrome": {

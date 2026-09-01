@@ -1099,6 +1099,7 @@
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
+        "chromeColorHex": "Colore sRGB esadecimale di 6 o 8 cifre, maiuscole o minuscole; il prefisso # è facoltativo e l’ultima coppia facoltativa indica l’opacità.",
         "paneBorderColor": "Sovrascrive il colore del divisore dei riquadri cmux negli spazi di lavoro divisi. Influisce sui bordi dei riquadri cmux, non sulle divisioni interne di Ghostty.",
         "activePaneBorderColor": "Colore del bordo opzionale disegnato attorno al riquadro cmux focalizzato negli spazi di lavoro divisi.",
         "chrome": {

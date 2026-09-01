@@ -1099,6 +1099,7 @@
       "exampleConfig": "Exemple de configuration",
       "metaTitle": "Configuration",
       "schemaDescriptions": {
+        "chromeColorHex": "Couleur sRGB hexadécimale de 6 ou 8 chiffres, en majuscules ou minuscules ; le # initial est facultatif et la paire finale facultative indique l’opacité.",
         "paneBorderColor": "Remplace la couleur du séparateur de volets cmux dans les espaces de travail divisés. Cela affecte les limites des volets cmux, pas les divisions internes de Ghostty.",
         "activePaneBorderColor": "Couleur de bordure facultative dessinée autour du volet cmux focalisé dans les espaces de travail divisés.",
         "chrome": {

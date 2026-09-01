@@ -1832,6 +1832,7 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "chromeColorHex": "大文字または小文字の6桁または8桁のsRGB 16進カラー。先頭の#は省略でき、末尾のペアは任意のアルファ値です。",
         "computerUse": {
           "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
           "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",

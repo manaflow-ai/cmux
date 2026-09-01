@@ -1099,6 +1099,7 @@
       "exampleConfig": "Örnek yapılandırma",
       "metaTitle": "Yapılandırma",
       "schemaDescriptions": {
+        "chromeColorHex": "Büyük veya küçük harflerle yazılmış 6 ya da 8 haneli sRGB onaltılık renk; baştaki # isteğe bağlıdır, son çift ise isteğe bağlı alfa değeridir.",
         "paneBorderColor": "Bölünmüş çalışma alanlarında cmux bölme ayırıcı rengini geçersiz kılar. Bu, Ghostty iç bölmelerini değil cmux bölme sınırlarını etkiler.",
         "activePaneBorderColor": "Bölünmüş çalışma alanlarında odaktaki cmux bölmesinin etrafına çizilen isteğe bağlı kenarlık rengi.",
         "chrome": {

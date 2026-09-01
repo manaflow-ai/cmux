@@ -1099,6 +1099,7 @@
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
+        "chromeColorHex": "sRGB-heksfarge med 6 eller 8 sifre i store eller små bokstaver; innledende # er valgfritt, og det siste paret angir alfa.",
         "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
         "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "chrome": {

@@ -1099,6 +1099,7 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
+        "chromeColorHex": "sRGB heksadecimalna boja od 6 ili 8 cifara, velikim ili malim slovima; početni znak # je opcionalan, a završni par označava prozirnost.",
         "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
         "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "chrome": {

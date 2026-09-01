@@ -833,12 +833,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
-    /// Latest immutable palette snapshot supplied by the app composition root.
-    var chromePalette = ChromePaletteRuntimeResolver(runtime: nil).resolve()
-    /// Typed source for independent palette-update streams owned by the composition root.
-    var chromePaletteUpdates: ChromePaletteUpdateSource?
-    /// Lifecycle refresh callback supplied by the composition root.
-    var refreshChromePalette: (@MainActor @Sendable () -> Void)?
+    /// Palette coordinator injected by the composition root.
+    ///
+    /// The coordinator owns the mutable snapshot and update streams; the
+    /// delegate retains only that scoped dependency so AppKit-created windows
+    /// can request an immutable presentation snapshot without introducing a
+    /// second process-wide palette store.
+    private(set) var chromePaletteRuntimeCoordinator: ChromePaletteRuntimeCoordinator?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
@@ -933,7 +934,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
         layoutModel: titlebarControlsLayoutModel,
-        chromePaletteUpdates: chromePaletteUpdates
+        initialChromePalette: chromePaletteSnapshot(),
+        chromePaletteUpdates: makeChromePaletteUpdateSource()
     )
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
@@ -1476,7 +1478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
-        refreshChromePalette?()
+        chromePaletteRuntimeCoordinator?.refresh()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
@@ -9989,9 +9991,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // not inherit the App scene's SwiftUI environment. The palette host
             // exposes the runtime to settings descendants.
             .chromePaletteHost(
-                initialPalette: chromePalette,
+                initialPalette: chromePaletteSnapshot(),
                 settingsRuntime: settingsRuntime,
-                updates: chromePaletteUpdates
+                updates: makeChromePaletteUpdateSource()
             )
             .cmuxFontMagnificationEnvironment()
 

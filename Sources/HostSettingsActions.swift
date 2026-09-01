@@ -274,10 +274,10 @@ final class HostSettingsActions: SettingsHostActions {
         let appDelegate = AppDelegate.shared
         let runtime = appDelegate?.settingsRuntime
         let root = ConfigSettingsView().chromePaletteHost(
-            initialPalette: appDelegate?.chromePalette
+            initialPalette: appDelegate?.chromePaletteSnapshot()
                 ?? ChromePaletteRuntimeResolver(runtime: runtime).resolve(),
             settingsRuntime: runtime,
-            updates: appDelegate?.chromePaletteUpdates
+            updates: appDelegate?.makeChromePaletteUpdateSource()
         )
             .cmuxAppearanceColorScheme(appearanceMode)
         let hostingController = NSHostingController(rootView: root)

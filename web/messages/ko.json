@@ -1099,6 +1099,7 @@
       "exampleConfig": "예시 설정",
       "metaTitle": "설정",
       "schemaDescriptions": {
+        "chromeColorHex": "대문자 또는 소문자로 된 6자리 또는 8자리 sRGB 16진수 색상입니다. 앞의 #은 선택 사항이며 마지막 두 자리는 선택적 알파 값입니다.",
         "paneBorderColor": "분할된 작업 공간에서 cmux 창 구분선 색상을 재정의합니다. Ghostty 내부 분할이 아니라 cmux 창 경계에 적용됩니다.",
         "activePaneBorderColor": "분할된 작업 공간에서 포커스된 cmux 창 주위에 그릴 선택적 테두리 색상입니다.",
         "chrome": {

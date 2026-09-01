@@ -41,7 +41,7 @@ final class SidebarRowTaskStatusGlyphButton: NSControl {
         chromePalette: ChromePalette? = nil
     ) {
         let chromePalette = chromePalette
-            ?? AppDelegate.shared?.chromePalette
+            ?? AppDelegate.shared?.chromePaletteSnapshot()
             ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let changed = self.model != model
             || self.monochromeColor != monochromeColor

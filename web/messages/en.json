@@ -1909,6 +1909,7 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "chromeColorHex": "Uppercase or lowercase 6- or 8-digit sRGB hex color; an optional leading # is accepted, and the optional final pair is alpha.",
         "computerUse": {
           "description": "Local computer-use tools and menu-bar visibility.",
           "enabled": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",

@@ -111,7 +111,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         chromePalette: ChromePalette? = nil
     ) {
         let chromePalette = chromePalette
-            ?? AppDelegate.shared?.chromePalette
+            ?? AppDelegate.shared?.chromePaletteSnapshot()
             ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let paletteChanged = self.chromePalette != chromePalette
         suspendPresentation()
@@ -143,7 +143,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let chromePalette = chromePalette
-            ?? AppDelegate.shared?.chromePalette
+            ?? AppDelegate.shared?.chromePaletteSnapshot()
             ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let requiresFullApply = self.actions == nil
         let previous = self.model

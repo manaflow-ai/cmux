@@ -1099,6 +1099,7 @@
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "chromeColorHex": "sRGB-Hexfarbe mit 6 oder 8 Ziffern in Groß- oder Kleinschreibung; ein führendes # ist optional, das letzte Paar steht für Transparenz.",
         "paneBorderColor": "Überschreibt die Farbe des cmux-Fensterteilers in geteilten Workspaces. Dies betrifft cmux-Fenstergrenzen, nicht interne Ghostty-Aufteilungen.",
         "activePaneBorderColor": "Optionale Rahmenfarbe, die in geteilten Workspaces um das fokussierte cmux-Fenster gezeichnet wird.",
         "chrome": {

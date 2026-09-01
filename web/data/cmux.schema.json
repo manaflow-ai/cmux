@@ -1897,7 +1897,8 @@
     "chromeColorHex": {
       "type": "string",
       "pattern": "^#?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
-      "description": "Uppercase or lowercase 6- or 8-digit sRGB hex color, with an optional leading #; the optional final pair is alpha."
+      "description": "Uppercase or lowercase 6- or 8-digit sRGB hex color, with an optional leading #; the optional final pair is alpha.",
+      "descriptionKey": "schemaDescriptions.chromeColorHex"
     },
     "colorHexOrNull": {
       "oneOf": [

@@ -1885,6 +1885,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
     private let settingsRuntime: SettingsRuntime?
+    private let initialChromePalette: ChromePalette
     private let chromePaletteUpdates: ChromePaletteUpdateSource?
     private let layoutModel: TitlebarControlsLayoutModel
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
@@ -1906,12 +1907,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         notificationStore: TerminalNotificationStore,
         settingsRuntime: SettingsRuntime?,
         layoutModel: TitlebarControlsLayoutModel,
+        initialChromePalette: ChromePalette? = nil,
         chromePaletteUpdates: ChromePaletteUpdateSource? = nil
     ) {
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
         self.settingsRuntime = settingsRuntime
+        self.initialChromePalette = initialChromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
         self.chromePaletteUpdates = chromePaletteUpdates
         self.layoutModel = layoutModel
         let prepareOriginatingAction: () -> AppDelegate.MainWindowContext? = { [weak containerView] in
@@ -1955,7 +1959,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(rootView.chromePaletteHost(
-                initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
+                initialPalette: initialChromePalette,
                 settingsRuntime: settingsRuntime,
                 updates: chromePaletteUpdates
             ))
@@ -2205,7 +2209,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 }
             )
             .chromePaletteHost(
-                initialPalette: AppDelegate.shared?.chromePalette ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
+                initialPalette: initialChromePalette,
                 settingsRuntime: settingsRuntime,
                 updates: chromePaletteUpdates
             )
@@ -2702,6 +2706,7 @@ private struct NotificationsPopoverView: View {
 final class UpdateTitlebarAccessoryController {
     private let updateLog: UpdateLogStore
     private let settingsRuntime: SettingsRuntime?
+    private let initialChromePalette: ChromePalette
     private let chromePaletteUpdates: ChromePaletteUpdateSource?
     private let layoutModel: TitlebarControlsLayoutModel
     private var didStart = false
@@ -2719,10 +2724,13 @@ final class UpdateTitlebarAccessoryController {
         updateLog: UpdateLogStore,
         settingsRuntime: SettingsRuntime?,
         layoutModel: TitlebarControlsLayoutModel,
+        initialChromePalette: ChromePalette? = nil,
         chromePaletteUpdates: ChromePaletteUpdateSource? = nil
     ) {
         self.updateLog = updateLog
         self.settingsRuntime = settingsRuntime
+        self.initialChromePalette = initialChromePalette
+            ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve()
         self.chromePaletteUpdates = chromePaletteUpdates
         self.layoutModel = layoutModel
     }
@@ -2920,6 +2928,7 @@ final class UpdateTitlebarAccessoryController {
                 notificationStore: TerminalNotificationStore.shared,
                 settingsRuntime: settingsRuntime,
                 layoutModel: layoutModel,
+                initialChromePalette: initialChromePalette,
                 chromePaletteUpdates: chromePaletteUpdates
             )
             controls.layoutAttribute = .left
@@ -3098,8 +3107,7 @@ final class UpdateTitlebarAccessoryController {
                 }
             )
             .chromePaletteHost(
-                initialPalette: AppDelegate.shared?.chromePalette
-                    ?? ChromePaletteRuntimeResolver(runtime: settingsRuntime).resolve(),
+                initialPalette: initialChromePalette,
                 settingsRuntime: settingsRuntime,
                 updates: chromePaletteUpdates
             )

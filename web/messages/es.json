@@ -1099,6 +1099,7 @@
       "exampleConfig": "Configuración de ejemplo",
       "metaTitle": "Configuración",
       "schemaDescriptions": {
+        "chromeColorHex": "Color sRGB hexadecimalo de 6 u 8 dígitos, en mayúsculas o minúsculas; se acepta un # inicial opcional y el par final opcional indica la transparencia.",
         "paneBorderColor": "Sobrescribe el color del divisor de paneles de cmux en workspaces divididos. Afecta a los límites de paneles de cmux, no a las divisiones internas de Ghostty.",
         "activePaneBorderColor": "Color de borde opcional que se dibuja alrededor del panel de cmux enfocado en workspaces divididos.",
         "chrome": {

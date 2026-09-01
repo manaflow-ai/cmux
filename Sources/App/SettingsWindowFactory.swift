@@ -31,9 +31,9 @@ enum SettingsWindowFactory {
         let hostingController = NSHostingController(
             rootView: SettingsWindowHostRoot(
                 onContentAppear: onContentAppear,
-                initialPalette: appDelegate?.chromePalette
+                initialPalette: appDelegate?.chromePaletteSnapshot()
                     ?? ChromePaletteRuntimeResolver(runtime: appDelegate?.settingsRuntime).resolve(),
-                updates: appDelegate?.chromePaletteUpdates
+                updates: appDelegate?.makeChromePaletteUpdateSource()
             )
         )
         // Bridge only the navigation title. `.toolbars` is deliberately

@@ -176,7 +176,7 @@ enum AgentChatThemeSync {
         config.backgroundBlur = GhosttyApp.shared.defaultBackgroundBlur
         return AgentChatThemePayload(
             config: config,
-            chromePalette: AppDelegate.shared?.chromePalette
+            chromePalette: AppDelegate.shared?.chromePaletteSnapshot()
         )
     }
 

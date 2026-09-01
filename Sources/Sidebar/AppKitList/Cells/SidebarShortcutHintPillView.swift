@@ -55,7 +55,7 @@ final class SidebarShortcutHintPillView: NSView {
         chromePalette: ChromePalette? = nil
     ) {
         let chromePalette = chromePalette
-            ?? AppDelegate.shared?.chromePalette
+            ?? AppDelegate.shared?.chromePaletteSnapshot()
             ?? ChromePaletteRuntimeResolver(runtime: AppDelegate.shared?.settingsRuntime).resolve()
         let identityChanged = self.representedIdentity != representedIdentity
         self.representedIdentity = representedIdentity

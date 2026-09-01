@@ -1099,6 +1099,7 @@
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "chromeColorHex": "6 位或 8 位、可使用大小寫的 sRGB 十六進位顏色；開頭的 # 可省略，最後兩位（可選）表示 alpha。",
         "paneBorderColor": "覆寫分割工作區中的 cmux 窗格分隔線顏色。此設定影響 cmux 窗格邊界，而不是 Ghostty 的內部分割。",
         "activePaneBorderColor": "在分割工作區中圍繞目前聚焦的 cmux 窗格繪製的選用邊框顏色。",
         "chrome": {
