@@ -2425,8 +2425,7 @@ impl RemoteSession {
                     return;
                 };
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
-                let pipe_io_owned =
-                    self.pipe_io_forward(id, || PipeIoEvent::Output(bytes.clone()));
+                let pipe_io_owned = self.pipe_io_forward(id, || PipeIoEvent::Output(bytes.clone()));
                 if pipe_io_owned {
                     return;
                 }
@@ -3056,10 +3055,7 @@ impl RemoteSession {
     /// Claims only establish ownership; input and resize requests already use
     /// the same ordered writer, so a fire-and-forget claim cannot overtake the
     /// keystroke that follows it.
-    pub(crate) fn notify_claim_terminal_geometry(
-        &self,
-        surface: SurfaceId,
-    ) -> anyhow::Result<()> {
+    pub(crate) fn notify_claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
         self.notify(json!({
             "cmd": "set-client-sizing",
             "surface": surface,
@@ -3216,8 +3212,13 @@ impl RemoteSession {
         // A non-zero-sized allocation gives each tap a stable identity. A
         // zero-sized Arc token could share the allocator's dangling pointer.
         let token = Arc::new(0u8);
-        *self.pipe_io_tap.lock().unwrap() =
-            Some(PipeIoTap { surface, sender, lifecycle_sender, byte_budget, token: token.clone() });
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap {
+            surface,
+            sender,
+            lifecycle_sender,
+            byte_budget,
+            token: token.clone(),
+        });
         token
     }
 
