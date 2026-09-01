@@ -17,7 +17,7 @@ extern "C" {
 // Raw PTY output produced by the emulated slave side. Runs on an emulated
 // task's thread (or, for input echo, the caller of cmux_ish_session_input).
 typedef void (*cmux_ish_output_cb)(void *_Nullable context,
-                                   const char *_Nonnull bytes,
+                                   const char *_Nullable bytes,
                                    size_t length);
 
 // One-shot import of an Alpine rootfs tarball (.tar.gz) into a fakefs
@@ -41,7 +41,7 @@ int cmux_ish_boot(const char *_Nonnull fakefs_data_path,
 // "KEY=VALUE", NULL-terminated, may be NULL for a default TERM) attached to
 // the slave, and returns a session handle >= 0, or a negative Linux errno.
 // Output bytes stream to `cb` until cmux_ish_session_hangup.
-int cmux_ish_session_open(const char *_Nonnull const *_Nonnull argv,
+int cmux_ish_session_open(const char *_Nullable const *_Nonnull argv,
                           const char *_Nullable const *_Nullable envp,
                           int cols, int rows,
                           cmux_ish_output_cb _Nonnull cb,
