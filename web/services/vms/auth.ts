@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Team } from "@stackframe/stack";
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
@@ -85,6 +86,101 @@ const DEFAULT_SUBROUTER_STACK_AUTH_TIMEOUT_MS = 10_000;
 const MAX_SUBROUTER_STACK_AUTH_TIMEOUT_MS = 30_000;
 const MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS = 8;
 const MAX_QUEUED_STACK_AUTHORIZATION_CALLS = 32;
+
+// Native-bearer verification cache. Stack Auth rate-limits server-side token verification,
+// and the Mac client bursts several /api/vm calls per user action (create → attach → status),
+// which surfaced as HTTP 429 rate_limited to end users. Successful verifications are cached
+// for a short TTL keyed by a hash of the exact tokens plus the result-affecting options, so a
+// burst costs one Stack call. Failures and throttles are never cached, and the cookie and
+// subrouter paths are never cached (cookies vary per request; subrouter enforces permissions).
+const DEFAULT_AUTH_CACHE_TTL_MS = 30_000;
+const MAX_AUTH_CACHE_ENTRIES = 256;
+
+type AuthCacheEntry = {
+  readonly user: AuthedUser;
+  /** Hash of the exact native access/refresh pair, used for sign-out invalidation. */
+  readonly tokenFingerprint: string;
+  readonly expiresAt: number;
+};
+
+const nativeAuthCache = new Map<string, AuthCacheEntry>();
+
+function authCacheTtlMs(raw = process.env.CMUX_VM_AUTH_CACHE_TTL_MS): number {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === "") return DEFAULT_AUTH_CACHE_TTL_MS;
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return DEFAULT_AUTH_CACHE_TTL_MS;
+  return parsed;
+}
+
+function nativeAuthCacheKey(
+  tokens: NativeStackTokens,
+  options: VerifyRequestOptions,
+): string {
+  const material = [
+    tokens.accessToken,
+    tokens.refreshToken,
+    normalizedOptionalString(options.requestedTeamId) ?? "",
+    options.allowDeletingAccount === true ? "1" : "0",
+    options.listAllTeams === true ? "1" : "0",
+  ].join("\n");
+  return createHash("sha256").update(material).digest("hex");
+}
+
+function nativeAuthTokenFingerprint(tokens: NativeStackTokens): string {
+  return createHash("sha256")
+    .update(`${tokens.accessToken}\n${tokens.refreshToken}`)
+    .digest("hex");
+}
+
+function readNativeAuthCache(key: string): AuthedUser | null {
+  const entry = nativeAuthCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    nativeAuthCache.delete(key);
+    return null;
+  }
+  return entry.user;
+}
+
+function writeNativeAuthCache(
+  key: string,
+  user: AuthedUser,
+  tokens: NativeStackTokens,
+  ttlMs: number,
+): void {
+  if (ttlMs <= 0) return;
+  if (nativeAuthCache.size >= MAX_AUTH_CACHE_ENTRIES) {
+    const oldest = nativeAuthCache.keys().next().value;
+    if (oldest !== undefined) nativeAuthCache.delete(oldest);
+  }
+  nativeAuthCache.delete(key);
+  nativeAuthCache.set(key, {
+    user,
+    tokenFingerprint: nativeAuthTokenFingerprint(tokens),
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+/** Test hook: clear the native verification cache between cases. */
+export function clearNativeAuthCacheForTests(): void {
+  nativeAuthCache.clear();
+}
+
+/**
+ * Drop every cached verification for an exact native Stack token pair.
+ *
+ * Sign-out revokes the Stack session asynchronously, while this process may
+ * otherwise continue serving a short-lived positive cache entry. The VM
+ * sign-out route calls this immediately after authenticating the request so a
+ * second request cannot reuse that entry during the revocation tail.
+ */
+export function invalidateNativeAuthCacheForTokens(tokens: NativeStackTokens): void {
+  const fingerprint = nativeAuthTokenFingerprint(tokens);
+  for (const [key, entry] of nativeAuthCache) {
+    if (entry.tokenFingerprint === fingerprint) nativeAuthCache.delete(key);
+  }
+}
 
 let activeStackAuthorizationCalls = 0;
 let timedOutStackAuthorizationCalls = 0;
@@ -362,12 +458,22 @@ export async function verifyRequest(
   if (authHeader !== null || refreshHeader !== null) {
     const tokens = parseNativeStackTokens(request);
     if (!tokens) return null;
+    const cacheable = options.subrouterAuthorizationSignal === undefined;
+    const cacheKey = cacheable ? nativeAuthCacheKey(tokens, options) : null;
+    if (cacheKey) {
+      const cached = readNativeAuthCache(cacheKey);
+      if (cached) return cached;
+    }
     const user = await stackAuthorizationCall(
       () => stackServerApp.getUser({ tokenStore: tokens }),
       options.subrouterAuthorizationSignal,
     );
     if (user) {
-      return await authedUserFromStackUser(user, options);
+      const authed = await authedUserFromStackUser(user, options);
+      if (authed && cacheKey) {
+        writeNativeAuthCache(cacheKey, authed, tokens, authCacheTtlMs());
+      }
+      return authed;
     }
     // A caller that presents native credentials must succeed or fail as that
     // native session. Falling back to an ambient browser cookie would let an

@@ -28,8 +28,12 @@ export default async function DashboardLayout({
       <StackProvider app={getStackServerApp()}>
         <StackTheme>
           <DashboardQueryProvider>
+            {/* Keep the current tab mounted while fresh page data resolves.
+                A nested full-page Suspense fallback makes rapid tab switches
+                flash the dashboard skeleton. The dashboard loading boundary
+                above still covers first entry into the dashboard. */}
             <DashboardShell vaultEnabled={isVaultEnabled()}>
-              <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
+              {children}
             </DashboardShell>
           </DashboardQueryProvider>
         </StackTheme>
