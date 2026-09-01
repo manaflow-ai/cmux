@@ -141,6 +141,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #endif
 
     deinit {
+        reorderPollTimer?.invalidate()
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
@@ -814,11 +815,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             )
         }
 #endif
+        let handsOffReorderTransforms = clearsReorderTransformsOnNextApply && hasStructuralChanges
+        if handsOffReorderTransforms {
+            clearsReorderTransformsOnNextApply = false
+        }
         if hasStructuralChanges {
             if forceTableReload {
                 let table = containerView.tableView
                 let postUpdateActions = detachLoadedCells()
                 performTableGeometryUpdateWithoutAnimation(heightChanges, in: table) {
+                    if handsOffReorderTransforms { endReorderLift(animated: false) }
                     table.reloadData()
                     restoreViewportOrigin(forcedReloadViewportOrigin, in: table)
                     viewportAnchor?.restore(table: table, rows: nextRows)
@@ -834,6 +840,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 // clipping checklist or notification content.
                 let table = containerView.tableView
                 performTableGeometryUpdateWithoutAnimation(in: table) {
+                    if handsOffReorderTransforms { endReorderLift(animated: false) }
                     table.beginUpdates()
                     var current = previousIds
                     for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
@@ -1393,16 +1400,33 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
             guard let workspaceId else { return }
             let count = actionBundle?.movingWorkspaceCount?(workspaceId) ?? 1
-            guard count > 1,
-                  let image = workspaceDragImage(
-                      tableView: tableView,
-                      row: row,
-                      size: draggingItem.draggingFrame.size,
-                      count: count
-                  ) else {
-                return
+            if count > 1,
+               let image = workspaceDragImage(
+                   tableView: tableView,
+                   row: row,
+                   size: draggingItem.draggingFrame.size,
+                   count: count
+               ) {
+                draggingItem.setDraggingFrame(draggingItem.draggingFrame, contents: image)
+            } else {
+                // Single-row drags have no floating ghost: the real row is
+                // the drag visual, lifted and translated by the freeform
+                // reorder session. Multi-row drags keep the badge image,
+                // which is the only place the moved-count shows.
+                let clearImage = NSImage(
+                    size: draggingItem.draggingFrame.size,
+                    flipped: false
+                ) { _ in true }
+                draggingItem.setDraggingFrame(draggingItem.draggingFrame, contents: clearImage)
             }
-            draggingItem.setDraggingFrame(draggingItem.draggingFrame, contents: image)
+        }
+        // The real row settles via its own transforms; a ghost flying home
+        // from the release point would be a second copy at the exact moment
+        // the drag ends.
+        session.animatesToStartingPositionsOnCancelOrFail = false
+        if let workspaceId = pendingWorkspaceDragWorkspaceId
+            ?? draggedRows.first.flatMap({ rows.indices.contains($0) ? rows[$0].workspaceId : nil }) {
+            startReorderPoll(workspaceId: workspaceId)
         }
     }
 
@@ -1462,6 +1486,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
+        stopReorderPoll()
+        // Covers every way a session can end without a local drop (Escape,
+        // release outside, a cross-window drop): if the transforms were not
+        // handed to a commit apply, glide the rows home.
+        if !clearsReorderTransformsOnNextApply {
+            endReorderLift(animated: true)
+        }
         workspaceDragSessionDidEnd(session: session)
     }
 
@@ -1812,12 +1843,25 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #endif
         if performed {
             suppressSelectedScrollAfterLocalDrop = true
+            // The rows already stand at their new positions via transforms;
+            // the apply that lands the committed order clears them in the
+            // same update, so the real frames take over in place.
+            clearsReorderTransformsOnNextApply = true
+        } else {
+            endReorderLift(animated: true)
         }
         retireReorderIndicator()
         return performed
     }
 
     func reorderDropDragExited() {
+#if DEBUG
+        cmuxDebugLog("sidebar.reorder.exited")
+#endif
+        // Visual-inert on purpose: destination exit fires at churn rate
+        // whenever the plan goes nil (the overlay's operation flips to none
+        // and AppKit re-resolves the destination). The poll owns the
+        // visuals; the session ends only at endedAt.
         reorderDragPayloadWorkspaceId = nil
         guard reorderDragWindowPoint != nil || reorderIndicatorPainter != nil else { return }
         reorderDragWindowPoint = nil
@@ -1865,18 +1909,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         else {
             reorderDragWindowPoint = nil
             retireReorderIndicator()
+#if DEBUG
+            cmuxDebugLog("sidebar.reorder.plan-nil payload=\(payloadWorkspaceId?.uuidString.prefix(5) ?? "none")")
+#endif
+            // No legal gap at this point (commonly: hovering the dragged
+            // row's own slot). Harmless: the poll owns the visuals, and this
+            // callback owns only the plan.
             return false
         }
-        reorderIndicatorPainter = SidebarWorkspaceTableReorderIndicatorPainter(
-            indicator: update.indicator,
-            scope: update.scope,
-            draggedWorkspaceId: update.draggedWorkspaceId,
-            indicatorRowIds: update.indicatorRowIds
-        )
+        // The plan is still tracked exactly as stock (the release commits
+        // it), but it is drawn as displacement, not indicator lines: the
+        // rows shifting around the lifted row are the drop preview.
         lastAcceptedReorderDropPlan = update.plan
-        enforceReorderIndicatorPaintOnVisibleCells()
-        setAppKitDropIndicator(update.indicator, scope: update.scope, includeRowTargets: false)
         reorderDragWindowPoint = windowPoint
+#if DEBUG
+        cmuxDebugLog("sidebar.reorder.tick y=\(Int(point.y))")
+#endif
         return true
     }
 
@@ -1887,6 +1935,206 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         clearReorderIndicatorPaintOnVisibleCells()
         actions?.clearWorkspaceDropIndicator()
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+    }
+
+    // MARK: Freeform reorder visuals
+
+    /// Pointer poll driving the drag visuals.
+    ///
+    /// A 120Hz timer reading `NSEvent.mouseLocation`, not any AppKit drag
+    /// callback: the destination callbacks churn (a nil plan near the
+    /// dragged row's own slot flips the overlay's operation to none, AppKit
+    /// re-resolves the destination, and exited fires at ~60Hz), and the
+    /// source's movedTo callback silently broke the drop commit when it was
+    /// tried. Polling has no interaction surface with the drag machinery at
+    /// all, so nothing can interrupt or reset the visuals mid-session.
+    ///
+    /// `nonisolated(unsafe)` so deinit can invalidate; every other access is
+    /// main-actor.
+    private nonisolated(unsafe) var reorderPollTimer: Timer?
+    private var reorderPollWorkspaceId: UUID?
+
+    private func startReorderPoll(workspaceId: UUID) {
+        stopReorderPoll()
+        reorderPollWorkspaceId = workspaceId
+        let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reorderPollTick()
+            }
+        }
+        // .common so the timer keeps firing inside the drag's event-tracking
+        // loop, which is the only time it exists.
+        RunLoop.main.add(timer, forMode: .common)
+        reorderPollTimer = timer
+    }
+
+    private func stopReorderPoll() {
+        reorderPollTimer?.invalidate()
+        reorderPollTimer = nil
+        reorderPollWorkspaceId = nil
+    }
+
+    private func reorderPollTick() {
+        guard let workspaceId = reorderPollWorkspaceId,
+              let containerView,
+              let window = containerView.tableView.window else { return }
+        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let table = containerView.tableView
+        let point = table.convert(windowPoint, from: nil)
+        // Outside the sidebar horizontally (a cross-window or into-terminal
+        // excursion): freeze the shift state rather than keep reacting to a
+        // pointer that is no longer about this list. The session ends only
+        // at endedAt.
+        guard point.x >= -48, point.x <= table.bounds.width + 48 else { return }
+        updateReorderLift(windowPoint: windowPoint, workspaceId: workspaceId)
+    }
+
+    /// Frozen drag geometry. Captured once when the drag first hovers, and
+    /// never updated until the drag ends: every visual decision during the
+    /// drag is made against these frames, so displacement boundaries cannot
+    /// move mid-drag and the interaction cannot oscillate. The model is not
+    /// touched until release; everything the user sees during the drag is
+    /// layer transforms over an unchanged table.
+    private struct ReorderLiftSession {
+        let workspaceId: UUID
+        let sourceIndex: Int
+        let rowHeight: CGFloat
+        let frames: [CGRect]
+        /// The applied translation target per row index, so a row only
+        /// animates when its target actually flips.
+        var appliedTargets: [CGFloat]
+    }
+
+    private var reorderLiftSession: ReorderLiftSession?
+    /// Set at drop-commit time: the structural apply that lands the new
+    /// order clears every drag transform in the same update, so the rows'
+    /// real frames take over exactly where the transforms left them.
+    private var clearsReorderTransformsOnNextApply = false
+
+    /// Glides a row's vertical shift to `target` with a soft spring.
+    ///
+    /// Explicit animation on purpose: view-backing layers on macOS ignore
+    /// implicit CATransaction animations (NSView's layer delegate returns
+    /// no action), so transform changes here otherwise land instantly no
+    /// matter what the transaction says. Starting from the presentation
+    /// layer's live value means a retarget mid-glide continues from where
+    /// the row visually is instead of jumping.
+    private func glideRowShift(layer: CALayer, to target: CGFloat) {
+        let currentY = (layer.presentation() ?? layer)
+            .value(forKeyPath: "transform.translation.y") as? CGFloat ?? 0
+        let spring = CASpringAnimation(keyPath: "transform.translation.y")
+        spring.fromValue = currentY
+        spring.toValue = target
+        spring.mass = 1
+        spring.stiffness = 300
+        spring.damping = 30
+        spring.duration = spring.settlingDuration
+        layer.add(spring, forKey: "cmux.reorderShift")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = CATransform3DMakeTranslation(0, target, 0)
+        CATransaction.commit()
+    }
+
+    /// Drives the freeform drag visuals for the pointer at `windowPoint`.
+    private func updateReorderLift(windowPoint: NSPoint, workspaceId: UUID) {
+        guard let containerView else { return }
+        let table = containerView.tableView
+        let point = table.convert(windowPoint, from: nil)
+
+        if reorderLiftSession?.workspaceId != workspaceId {
+            endReorderLift(animated: false)
+            guard let sourceIndex = rows.firstIndex(where: { $0.workspaceId == workspaceId }) else { return }
+            let frames = (0..<rows.count).map { table.rect(ofRow: $0) }
+            guard frames.indices.contains(sourceIndex), frames[sourceIndex].height > 0 else { return }
+            reorderLiftSession = ReorderLiftSession(
+                workspaceId: workspaceId,
+                sourceIndex: sourceIndex,
+                rowHeight: frames[sourceIndex].height,
+                frames: frames,
+                appliedTargets: Array(repeating: 0, count: rows.count)
+            )
+        }
+        guard var session = reorderLiftSession else { return }
+
+        // The dragged row's visual centre: the pointer, clamped so the row
+        // cannot leave the list. The top clamp is the first row's slot (a
+        // tab cannot go above the new-workspace row); the bottom is the
+        // full extent of the list area, so a tab can be carried all the way
+        // down past the last row.
+        let minCenter = session.frames[0].midY
+        let maxCenter = max(minCenter, table.bounds.maxY - session.rowHeight / 2)
+        let draggedCenter = min(max(point.y, minCenter), maxCenter)
+
+        // Insertion slot from frozen midpoints: how many other rows sit
+        // above the dragged row's centre.
+        var insertion = 0
+        for index in session.frames.indices where index != session.sourceIndex {
+            if session.frames[index].midY < draggedCenter { insertion += 1 }
+        }
+
+        table.enumerateAvailableRowViews { rowView, row in
+            guard session.frames.indices.contains(row) else { return }
+            rowView.wantsLayer = true
+            guard let layer = rowView.layer else { return }
+            if row == session.sourceIndex {
+                // Pointer-driven, never animated: any smoothing here reads
+                // as the row lagging the hand.
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.zPosition = 100
+                layer.transform = CATransform3DMakeTranslation(
+                    0, draggedCenter - session.frames[row].midY, 0
+                )
+                CATransaction.commit()
+                return
+            }
+            // Final position of this row if dropped now: removing the
+            // dragged row shifts later rows up one; inserting at the slot
+            // pushes rows at or past it down one. The offset is always
+            // exactly one dragged-row height or zero.
+            var finalPosition = row - (row > session.sourceIndex ? 1 : 0)
+            if finalPosition >= insertion { finalPosition += 1 }
+            let target = CGFloat(finalPosition - row) * session.rowHeight
+            if session.appliedTargets[row] != target {
+                session.appliedTargets[row] = target
+                layer.zPosition = 0
+                glideRowShift(layer: layer, to: target)
+            } else if layer.animation(forKey: "cmux.reorderShift") == nil {
+                // Reused row views arrive with whatever transform their
+                // previous tenant had; keep visible rows pinned to their
+                // current target every tick (but never stamp over a glide
+                // that is still in flight).
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.transform = CATransform3DMakeTranslation(0, target, 0)
+                CATransaction.commit()
+            }
+        }
+        reorderLiftSession = session
+    }
+
+    /// Ends the visual session. Animated: rows glide back to their real
+    /// frames (a cancelled drag). Not animated: transforms drop instantly
+    /// (the structural apply is about to redraw the true order).
+    private func endReorderLift(animated: Bool) {
+        guard reorderLiftSession != nil else { return }
+        reorderLiftSession = nil
+        guard let containerView else { return }
+        let table = containerView.tableView
+        table.enumerateAvailableRowViews { [self] rowView, _ in
+            guard let layer = rowView.layer else { return }
+            if animated {
+                glideRowShift(layer: layer, to: 0)
+            } else {
+                layer.removeAnimation(forKey: "cmux.reorderShift")
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.transform = CATransform3DIdentity
+                CATransaction.commit()
+            }
+            layer.zPosition = 0
+        }
     }
 
     private func enforceReorderIndicatorPaintOnVisibleCells() {

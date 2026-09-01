@@ -276,7 +276,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             representedIdentity: model.groupId
         )
 
-        alphaValue = model.isBeingDragged ? 0.6 : 1
+        // Full opacity while dragged: the freeform reorder suppresses the
+        // floating ghost, so the row itself is the drag visual and must keep
+        // its exact resting appearance (the dim was a ghost-era cue).
+        alphaValue = 1
         updatePlusVisibility()
         setAccessibilityIdentifier("sidebarWorkspaceGroup.\(model.groupId.uuidString)")
         setAccessibilityLabel(model.name)
