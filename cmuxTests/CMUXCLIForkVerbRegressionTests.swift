@@ -259,6 +259,22 @@ struct CMUXCLIForkVerbRegressionTests {
     }
 
     @Test
+    func forkRecordUsesPreparedArgumentsWhenPrimaryFieldIsNull() throws {
+        let cli = CMUXCLI(args: ["cmux", "fork"])
+        let record = try cli.restoreRecord(
+            from: [
+                "mode": "forkAgent",
+                "kind": "custom-agent",
+                "checkpoint_id": "mixed-checkpoint",
+                "fork_arguments": NSNull(),
+                "prepared_fork_arguments": ["custom-agent", "--fork", "mixed-checkpoint"],
+            ],
+            verb: .fork
+        )
+        #expect(record.forkArguments == ["custom-agent", "--fork", "mixed-checkpoint"])
+    }
+
+    @Test
     func contextMenuForkQueuesForkVerbAndStagesParentRecord() async throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }

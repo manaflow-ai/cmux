@@ -467,8 +467,14 @@ extension CMUXCLI {
         }
         let forkArguments: [String]?
         if verb == .fork {
+            let forkArgumentValue: Any?
+            if let primary = object["fork_arguments"], !(primary is NSNull) {
+                forkArgumentValue = primary
+            } else {
+                forkArgumentValue = object["prepared_fork_arguments"]
+            }
             forkArguments = try optionalStringArray(
-                object["fork_arguments"] ?? object["prepared_fork_arguments"],
+                forkArgumentValue,
                 verb: verb
             )
         } else {
