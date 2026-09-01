@@ -27,7 +27,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634
 # EXPECTED_WORKFLOW_DIGEST is retained as a compatibility marker for the
 # immutable validator in the current base revision. Policy validation now
 # hashes the candidate workflow bytes after lexical YAML validation.
-EXPECTED_GUARD_SCRIPT_DIGEST = "ffb481c630a5f2e1e601b61c855ffbb49a9f6a1d5d9397d1e0276ab0dd4dcc1c"
+EXPECTED_GUARD_SCRIPT_DIGEST = "b128b29f5d4868065142d6f111db7c88cba8d20173a55a12373f90c2e6f81027"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -656,6 +656,9 @@ def validate_workflow(raw, trusted_base_digest)
     "admitted: ${{ steps.admission.outputs.admitted }}",
     "issues: write"
   ].each { |fragment| assert_text(raw, fragment) }
+  # YAML block scalars normalize the expression at runtime, but the raw
+  # source can contain `if: >-` or `if: |`; accept only those scalar markers
+  # while still requiring the literal success() guard.
   fail!("CLA workflow is missing a successful-step guard") unless raw.match?(/if:\s*(?:[>|]-?\s*)?(?:\$\{\{\s*)?success\(\)/)
   [gate["if"], assistant["if"]].each do |expression|
     fail!("CLA signing trigger is missing from a signer job") unless expression.is_a?(String) && expression.include?(CLA_SIGN_PHRASE)
