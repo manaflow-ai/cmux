@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Pure desired-playback state that turns native changes into embed scripts.
 ///
