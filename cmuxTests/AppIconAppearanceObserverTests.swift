@@ -236,6 +236,10 @@ struct AppIconAppearanceObserverTests {
                 "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:svg=\"http://www.w3.org/2000/svg\"><svg:script>alert(1)</svg:script></svg>"
             ),
             (
+                "prefixed-style.svg",
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:svg=\"http://www.w3.org/2000/svg\"><svg:style>@\\69mport '//example.com/theme.css';</svg:style></svg>"
+            ),
+            (
                 "escaped-import.svg",
                 "<svg xmlns=\"http://www.w3.org/2000/svg\"><style>@\\69mport '//example.com/theme.css';</style></svg>"
             ),
@@ -261,7 +265,7 @@ struct AppIconAppearanceObserverTests {
     }
 
     @Test
-    func testCustomImageRejectionLogDoesNotExposePath() {
+    func testCustomImageRejectionLogsDoNotExposePaths() throws {
         let privatePath = FileManager.default.temporaryDirectory
             .appendingPathComponent("Private Project \(UUID().uuidString)")
             .appendingPathComponent("missing-icon.png")
@@ -275,6 +279,20 @@ struct AppIconAppearanceObserverTests {
         ) == nil)
         #expect(messages.count == 1)
         #expect(!messages.joined().contains(privatePath))
+
+        let invalidImageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Private Invalid Icon \(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: invalidImageURL) }
+        try Data("not an image".utf8).write(to: invalidImageURL)
+        messages.removeAll()
+
+        #expect(AppIconImageResolver.image(
+            for: invalidImageURL.path,
+            relativeToConfig: nil,
+            log: { messages.append($0) }
+        ) == nil)
+        #expect(messages.count == 1)
+        #expect(!messages.joined().contains(invalidImageURL.path))
     }
 
     @Test
