@@ -27659,6 +27659,30 @@ mod tests {
     }
 
     #[test]
+    fn forwarded_pty_click_resets_host_repeat_sequence() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("forwarded-pty-click-repeat-reset-test", b"alpha beta");
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        assert!(app.selection_click_sequence.is_some());
+
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        app.handle_mouse(click).unwrap();
+        assert!(app.selection_click_sequence.is_none());
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn plain_click_clears_an_existing_selection() {
         let (mut app, mux, surface, content) =
             selection_fixture("plain-click-clears-selection-test", b"alpha beta gamma");
