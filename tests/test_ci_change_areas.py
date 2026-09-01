@@ -569,7 +569,7 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     ]
 
 
-def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
+def test_ghosttykit_guard_wiring_router_precedence_runs_all_areas() -> None:
     # A provenance file combined with a router edit must fail open to the full
     # suite; the router guard takes precedence over the cheap release path.
     result, outputs = run_detect_step_for_paths(
