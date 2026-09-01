@@ -17980,20 +17980,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let candidateContext: MainWindowContext?
-        if browserCaptureShouldRunCandidatePreflight(event) {
+        // Bare Space is the only common unmodified candidate. Preflight it
+        // before ownership resolution so ordinary spaces do not allocate an
+        // event cache; modified printable keys resolve the responder first so
+        // terminal Shift/Option typing does not pay matcher work at all.
+        let shouldPreflightCandidate = browserCaptureShouldRunCandidatePreflight(event)
+        let isBareSpace = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+            .isEmpty && event.keyCode == 49
+        var candidateContext: MainWindowContext?
+        if shouldPreflightCandidate && isBareSpace {
             let context = preferredMainWindowContextForShortcutRouting(event: event)
             guard browserCaptureHasShortcutCandidate(event: event, context: context) else {
                 return false
             }
             candidateContext = context
-        } else {
-            candidateContext = nil
         }
 
         guard let webView = shortcutEventBrowserWebView(event),
               expectedWebView == nil || expectedWebView === webView else {
             return false
+        }
+
+        if shouldPreflightCandidate && !isBareSpace {
+            let context = preferredMainWindowContextForShortcutRouting(event: event)
+            guard browserCaptureHasShortcutCandidate(event: event, context: context) else {
+                return false
+            }
+            candidateContext = context
         }
 
         if let cache = event.cmuxBrowserWebViewCache,
@@ -19456,11 +19471,12 @@ private extension NSWindow {
             if result {
                 return true
             }
-            let normalizedFlags = event.modifierFlags
-                .intersection(.deviceIndependentFlagsMask)
-                .subtracting([.numericPad, .function, .capsLock])
-            guard normalizedFlags.contains(.command) else {
-                return false
+            // A captured printable/non-Command equivalent can decline at the
+            // WebKit boundary while still needing one native keyDown. Claim
+            // the event after the single guarded dispatch so AppKit cannot
+            // continue into a competing menu equivalent.
+            guard !cmuxBrowserWebKitKeyDownDispatchIsActive() else {
+                return true
             }
             _ = cmuxForceDispatchKeyDownOnce(
                 event,
