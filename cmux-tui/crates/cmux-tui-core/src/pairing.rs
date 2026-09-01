@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::IpAddr;
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Mutex;
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
