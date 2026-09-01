@@ -368,12 +368,23 @@ struct SessionIndexTableViewportTests {
             entry: entries[0].id
         )))
         let selectedRect = try #require(cell.popoverAnchorRect(for: selectedIdentity))
+        let selectedAnchorView = try #require(
+            cell.popoverAnchorView(for: selectedIdentity)
+        )
+        let nativeAnchorRect = selectedAnchorView.convert(
+            selectedAnchorView.bounds,
+            to: cell
+        )
 
         // The cell is unflipped, so a lower visual row has a smaller AppKit
         // y-coordinate even though SwiftUI's top-left coordinate increases.
         #expect(selectedRect.midY < firstRect.midY)
         #expect(selectedRect.maxY <= cell.bounds.maxY + 0.5)
         #expect(selectedRect.minY >= cell.bounds.minY - 0.5)
+        #expect(selectedAnchorView.bounds.height > 0)
+        #expect(selectedAnchorView.isDescendant(of: cell))
+        #expect(abs(nativeAnchorRect.midY - selectedRect.midY) < 0.5)
+        #expect(presenter.isAnchored(in: selectedAnchorView))
         #expect(presenter.isPopoverShown)
     }
 

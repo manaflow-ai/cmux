@@ -26,6 +26,11 @@ extension SessionIndexStore {
     /// Two bounded phases: metadata match against `entries`, then the
     /// existing capped per-agent transcript search for the free-text part of
     /// the query (issue #4535: no new scan primitives, existing caps reused).
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated static func searchAllSessions(
         rawQuery: String,
         entries: [SessionEntry],
@@ -89,6 +94,12 @@ extension SessionIndexStore {
                     for await result in group { collected.append(result) }
                     return collected
                 }
+                // A cancellation can arrive while the task group drains its
+                // children. Do not merge the completed subset into an
+                // intersection that no longer represents the full query.
+                guard !Task.isCancelled else {
+                    return SearchOutcome(entries: [], errors: [])
+                }
                 errors.append(contentsOf: bag.snapshot())
                 var termIDs: Set<String> = []
                 for result in outcomes {
@@ -98,6 +109,9 @@ extension SessionIndexStore {
                     }
                 }
                 perTermIDs.append(termIDs)
+                guard !Task.isCancelled else {
+                    return SearchOutcome(entries: [], errors: [])
+                }
             }
             if let first = perTermIDs.first {
                 let intersected = perTermIDs.dropFirst().reduce(first) { $0.intersection($1) }

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// A pointer into an agent session's transcript: either the start of a user
@@ -26,10 +27,36 @@ struct VaultSessionCheckpoint: Identifiable, Equatable, Sendable, Codable {
     /// BEFORE this line ("before that prompt ran"); `.manual` forks copy
     /// THROUGH it inclusive. nil when the harness can't anchor (no fork).
     let anchor: String?
+    /// Stable digest of the anchored JSON object. Positional anchors use this
+    /// to reject a line that was inserted, removed, or rewritten after the
+    /// checkpoint was captured. Older stored checkpoints may omit it.
+    let anchorFingerprint: String?
     /// Workspace git HEAD captured at creation (manual checkpoints only).
     let gitSHA: String?
     /// First ~80 chars of the prompt that started the anchored turn.
     let promptSnippet: String?
+
+    init(
+        id: String,
+        source: Source,
+        timestamp: Date?,
+        name: String?,
+        turnIndex: Int,
+        anchor: String?,
+        anchorFingerprint: String? = nil,
+        gitSHA: String?,
+        promptSnippet: String?
+    ) {
+        self.id = id
+        self.source = source
+        self.timestamp = timestamp
+        self.name = name
+        self.turnIndex = turnIndex
+        self.anchor = anchor
+        self.anchorFingerprint = anchorFingerprint
+        self.gitSHA = gitSHA
+        self.promptSnippet = promptSnippet
+    }
 }
 
 /// Derives turn-boundary checkpoints from session transcripts, per harness.
@@ -48,6 +75,21 @@ enum VaultSessionCheckpoints {
         /// anchor for a manual "checkpoint now". nil when the harness has no
         /// stable line anchors.
         let lastAnchor: String?
+        /// Digest for `lastAnchor`, when the harness uses a positional anchor.
+        /// Older/manual projections may leave this nil.
+        let lastAnchorFingerprint: String?
+
+        init(
+            checkpoints: [VaultSessionCheckpoint],
+            isTruncated: Bool,
+            lastAnchor: String?,
+            lastAnchorFingerprint: String? = nil
+        ) {
+            self.checkpoints = checkpoints
+            self.isTruncated = isTruncated
+            self.lastAnchor = lastAnchor
+            self.lastAnchorFingerprint = lastAnchorFingerprint
+        }
     }
 
     /// Streams a JSONL transcript, mapping each line through
@@ -60,37 +102,41 @@ enum VaultSessionCheckpoints {
     ) -> Derivation {
         var checkpoints: [VaultSessionCheckpoint] = []
         var userTurnIndex = 0
-        var lineIndex = -1
         var lastAnchor: String?
-        let fileSize = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-        _ = SessionIndexJSONLReader().fromStart(url: fileURL, maxBytes: maxBytes) { obj in
-            lineIndex += 1
-            let anchor = anchorToken(obj, lineIndex)
-            if let anchor {
-                lastAnchor = anchor
-            }
-            guard let prompt = userPrompt(obj) else { return false }
-            userTurnIndex += 1
-            checkpoints.append(
-                VaultSessionCheckpoint(
-                    id: anchor.map { "turn:" + $0 } ?? "turn-index:\(userTurnIndex)",
-                    source: .turn,
-                    timestamp: lineTimestamp(from: obj),
-                    name: nil,
-                    turnIndex: userTurnIndex,
-                    anchor: anchor,
-                    gitSHA: nil,
-                    promptSnippet: snippet(from: prompt)
+        var lastAnchorFingerprint: String?
+        let metrics = SessionIndexJSONLReader().fromStart(
+            url: fileURL,
+            maxBytes: maxBytes,
+            indexedBody: { obj, lineIndex in
+                let anchor = anchorToken(obj, lineIndex)
+                let fingerprint = anchorFingerprint(for: obj)
+                if let anchor {
+                    lastAnchor = anchor
+                    lastAnchorFingerprint = fingerprint
+                }
+                guard let prompt = userPrompt(obj) else { return false }
+                userTurnIndex += 1
+                checkpoints.append(
+                    VaultSessionCheckpoint(
+                        id: anchor.map { "turn:" + $0 } ?? "turn-index:\(userTurnIndex)",
+                        source: .turn,
+                        timestamp: lineTimestamp(from: obj),
+                        name: nil,
+                        turnIndex: userTurnIndex,
+                        anchor: anchor,
+                        gitSHA: nil,
+                        promptSnippet: snippet(from: prompt),
+                        anchorFingerprint: fingerprint
+                    )
                 )
-            )
-            return false
-        }
-        // The reader has no reached-EOF signal; a file exactly at the cap is
-        // fully read, so compare against the true size instead of bytesRead.
+                return false
+            }
+        )
         return Derivation(
             checkpoints: checkpoints,
-            isTruncated: (fileSize ?? 0) > maxBytes,
-            lastAnchor: lastAnchor
+            isTruncated: metrics.didReachByteLimit,
+            lastAnchor: lastAnchor,
+            lastAnchorFingerprint: lastAnchorFingerprint
         )
     }
 
@@ -269,5 +315,27 @@ enum VaultSessionCheckpoints {
             return fractional
         }
         return try? Date(raw, strategy: .iso8601)
+    }
+
+    /// Canonical digest used to validate positional transcript anchors.
+    /// JSON objects are sorted before hashing so equivalent key ordering does
+    /// not look like transcript drift, while changed content still fails
+    /// closed. Hex encoding avoids locale-sensitive C formatting because this
+    /// path can run on a concurrent transcript worker.
+    nonisolated static func anchorFingerprint(for object: [String: Any]) -> String? {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: object,
+            options: [.sortedKeys]
+        ) else {
+            return nil
+        }
+        var hex = ""
+        hex.reserveCapacity(SHA256.Digest.byteCount * 2)
+        for byte in SHA256.hash(data: data) {
+            let digits = String(byte, radix: 16)
+            if digits.count == 1 { hex.append("0") }
+            hex.append(contentsOf: digits)
+        }
+        return hex
     }
 }

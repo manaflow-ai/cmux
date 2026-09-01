@@ -67,6 +67,22 @@ final class SessionIndexTableCellView: NSTableCellView {
         popoverAnchorRects[identity]
     }
 
+    /// Returns the native row-sized view for a transcript identity, if the
+    /// session is currently realized inside this recycled cell.
+    func popoverAnchorView(for identity: SessionIndexTablePopoverIdentity) -> NSView? {
+        guard case .transcript(_, let entryID) = identity else { return nil }
+        var pending = subviews
+        while let view = pending.popLast() {
+            if let sourceView = view as? SessionDragSourceView,
+               sourceView.entry.id == entryID,
+               sourceView.window != nil {
+                return sourceView
+            }
+            pending.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
     private func updatePopoverAnchor(
         _ identity: SessionIndexTablePopoverIdentity,
         rect: CGRect?

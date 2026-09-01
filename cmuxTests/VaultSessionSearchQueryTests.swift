@@ -44,7 +44,10 @@ struct VaultSessionSearchQueryTests {
         #expect(query.repoTerms == ["cmux"])
         #expect(query.workspaceTerms == ["projects"])
         #expect(query.textTerms == ["fix", "bug"])
-        #expect(query.residualText == "fix bug")
+        #expect(query.residualText == "fix")
+
+        let selective = VaultSessionSearchQuery.parse("a verylongterm")
+        #expect(selective.residualText == "verylongterm")
     }
 
     @Test
@@ -170,5 +173,24 @@ struct VaultSessionSearchRankingTests {
         let b = makeEntry(id: "b", title: "same", modified: sameDate)
         let ranked = VaultSessionSearchRanking.rank([b, a], query: VaultSessionSearchQuery.parse("same"))
         #expect(ranked.map(\.id) == ["a", "b"])
+    }
+}
+
+@Suite
+struct VaultSessionSearchErrorTests {
+    @Test
+    func providerDiagnosticsStayOutOfUserFacingErrors() {
+        let bag = SessionIndexStore.ErrorBag()
+        bag.addSafe(diagnostic: "/Users/private/opencode.db: unsupported schema")
+
+        #expect(
+            bag.snapshot() == [
+                String(
+                    localized: "sessionIndex.search.providerFailure",
+                    defaultValue: "Some session history could not be searched"
+                ),
+            ]
+        )
+        #expect(!bag.snapshot().joined().contains("opencode.db"))
     }
 }
