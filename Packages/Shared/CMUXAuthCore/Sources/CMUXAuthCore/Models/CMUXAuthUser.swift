@@ -11,6 +11,12 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
     /// server-side only; clients can read but never set it.
     public static let demonstrationContentMetadataKey = "cmuxReviewDemoContent"
 
+    /// The Stack Auth `clientReadOnlyMetadata` key that opts an account into
+    /// verbose diagnostics reporting (the app streams its privacy-safe
+    /// diagnostic events to the cmux backend). Written server-side only;
+    /// clients can read but never set it.
+    public static let verboseDiagnosticsMetadataKey = "cmuxVerboseDiagnostics"
+
     /// The Stack Auth user id.
     public let id: String
     /// The user's primary email, if one is set.
@@ -27,6 +33,15 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
     /// cached identity. Defaults to `false` for every payload that predates
     /// the flag.
     public let demonstrationContentEnabled: Bool
+    /// Whether this account is server-flagged for verbose diagnostics: the
+    /// app batches its structured diagnostic events (bounded integer codes,
+    /// never terminal contents or credentials) to the cmux backend so an App
+    /// Review session can be reconstructed from server logs. Mirrored from
+    /// the account's `clientReadOnlyMetadata` exactly like
+    /// ``demonstrationContentEnabled`` and persisted with the cached
+    /// identity. Defaults to `false` for every payload that predates the
+    /// flag.
+    public let verboseDiagnosticsEnabled: Bool
 
     /// Creates a user value.
     /// - Parameters:
@@ -36,18 +51,22 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
     ///   - profileImageURL: The user's profile image URL, if any.
     ///   - demonstrationContentEnabled: Whether the account is server-flagged
     ///     for demonstration content. Defaults to `false`.
+    ///   - verboseDiagnosticsEnabled: Whether the account is server-flagged
+    ///     for verbose diagnostics reporting. Defaults to `false`.
     public init(
         id: String,
         primaryEmail: String?,
         displayName: String?,
         profileImageURL: String? = nil,
-        demonstrationContentEnabled: Bool = false
+        demonstrationContentEnabled: Bool = false,
+        verboseDiagnosticsEnabled: Bool = false
     ) {
         self.id = id
         self.primaryEmail = primaryEmail
         self.displayName = displayName
         self.profileImageURL = profileImageURL
         self.demonstrationContentEnabled = demonstrationContentEnabled
+        self.verboseDiagnosticsEnabled = verboseDiagnosticsEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -56,6 +75,7 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
         case displayName
         case profileImageURL
         case demonstrationContentEnabled
+        case verboseDiagnosticsEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -69,6 +89,11 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
         self.demonstrationContentEnabled = try container.decodeIfPresent(
             Bool.self,
             forKey: .demonstrationContentEnabled
+        ) ?? false
+        // Same fail-closed default for the verbose-diagnostics opt-in.
+        self.verboseDiagnosticsEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .verboseDiagnosticsEnabled
         ) ?? false
     }
 
@@ -84,7 +109,29 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
     public static func demonstrationContentEnabled(
         fromClientReadOnlyMetadata metadata: [String: Any]?
     ) -> Bool {
-        guard let value = metadata?[demonstrationContentMetadataKey] else { return false }
+        explicitBooleanFlag(demonstrationContentMetadataKey, in: metadata)
+    }
+
+    /// Resolves the verbose-diagnostics flag from a Stack Auth
+    /// `clientReadOnlyMetadata` dictionary, with the same fail-closed parse
+    /// as ``demonstrationContentEnabled(fromClientReadOnlyMetadata:)``: only
+    /// an explicit boolean `true` under ``verboseDiagnosticsMetadataKey``
+    /// activates it.
+    /// - Parameter metadata: The raw metadata dictionary from the Stack user.
+    /// - Returns: Whether verbose diagnostics are enabled for the account.
+    public static func verboseDiagnosticsEnabled(
+        fromClientReadOnlyMetadata metadata: [String: Any]?
+    ) -> Bool {
+        explicitBooleanFlag(verboseDiagnosticsMetadataKey, in: metadata)
+    }
+
+    /// `true` only for an explicit JSON boolean `true` under `key`; every
+    /// other shape (absent key, strings, numbers, objects) fails closed.
+    private static func explicitBooleanFlag(
+        _ key: String,
+        in metadata: [String: Any]?
+    ) -> Bool {
+        guard let value = metadata?[key] else { return false }
         guard let number = value as? NSNumber else { return false }
         // Reject non-boolean numbers (1, 2.5) so only a JSON `true` counts.
         guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }

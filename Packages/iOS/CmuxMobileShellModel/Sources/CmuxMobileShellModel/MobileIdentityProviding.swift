@@ -33,6 +33,12 @@ public protocol MobileIdentityProviding: Sendable {
     /// local demonstration computer with sample workspaces alongside any real
     /// Macs. `false` when signed out or when the account carries no flag.
     @MainActor var demonstrationContentEnabled: Bool { get }
+
+    /// Whether the signed-in account is server-flagged for verbose
+    /// diagnostics reporting (the app streams its privacy-safe diagnostic
+    /// events to the cmux backend). `false` when signed out or when the
+    /// account carries no flag.
+    @MainActor var verboseDiagnosticsEnabled: Bool { get }
 }
 
 public extension MobileIdentityProviding {
@@ -49,4 +55,8 @@ public extension MobileIdentityProviding {
     /// Default `false`: only the app's live provider (reading the account's
     /// server-written flag) opts a session into demonstration content.
     @MainActor var demonstrationContentEnabled: Bool { false }
+
+    /// Default `false`: only the app's live provider (reading the account's
+    /// server-written flag) opts a session into verbose diagnostics.
+    @MainActor var verboseDiagnosticsEnabled: Bool { false }
 }

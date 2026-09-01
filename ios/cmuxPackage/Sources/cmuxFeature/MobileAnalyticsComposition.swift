@@ -42,6 +42,12 @@ public struct MobileAnalyticsComposition {
     public let sessionStore: AnalyticsSessionStore
     /// The 30-minute-window sessionizer used with ``sessionStore``.
     public let sessionizer = AnalyticsSessionizer()
+    /// Streams diagnostic-ring events to the cmux backend for accounts the
+    /// server has flagged with `cmuxVerboseDiagnostics` (App Review verbose
+    /// logging). Inert (a single boolean check per event) until the app
+    /// root mirrors the signed-in account's server-written flag into
+    /// ``CmuxMobileAnalytics/VerboseDiagnosticsReporter/setAuthorization(enabled:)``.
+    public let verboseDiagnostics: VerboseDiagnosticsReporter
 
     /// Builds the analytics graph.
     ///
@@ -83,6 +89,19 @@ public struct MobileAnalyticsComposition {
         // by the time the shell resolves the id, `created` is already false.
         let resolved = MobileClientIDRepository(defaults: defaults).resolveClientID()
         let anonymousID = resolved.id
+        // Same short-timeout session policy as the analytics uploader so a
+        // hung diagnostics POST cannot pin the reporter's consumer for long.
+        // Reuses `resolved` so the first-launch mint above stays the single
+        // client-id read.
+        self.verboseDiagnostics = VerboseDiagnosticsReporter(
+            uploader: HTTPVerboseDiagnosticsUploader(
+                apiBaseURL: apiBaseURL,
+                tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
+                session: session ?? Self.analyticsSession()
+            ),
+            buildStamp: DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary),
+            clientID: anonymousID
+        )
         let emitter = AnalyticsEmitter(
             uploader: uploader,
             consent: consent,
