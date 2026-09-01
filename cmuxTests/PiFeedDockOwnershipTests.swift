@@ -765,7 +765,7 @@ struct PiFeedDockOwnershipTests {
     func acknowledgedFeedRehomesStaleWorkspaceClaimToWorkspaceDockOwner() async throws {
         try await withAppContext { _, manager, workspace, _ in
             let staleWorkspace = manager.addWorkspace(select: false)
-            let panel = try workspace.dockSplit.seedPiFeedPanel()
+            let panel = try workspace.requiredDockSplitForTesting.seedPiFeedPanel()
             var insertedEvent: WorkstreamEvent?
             let store = WorkstreamStore(ringCapacity: 10) {
                 insertedEvent = $0
@@ -796,7 +796,7 @@ struct PiFeedDockOwnershipTests {
     @Test("Blocking Feed clears attention from its exact workspace Dock owner")
     func blockingFeedClearsAttentionFromExactWorkspaceDockOwner() async throws {
         try await withAppContext { _, manager, workspace, _ in
-            let dock = workspace.dockSplit
+            let dock = try #require(workspace.dockSplit)
             let panel = try dock.seedPiFeedPanel()
             let target = try #require(
                 FeedCoordinator.shared.surfaceBlockingDecisionAttention(
@@ -886,6 +886,7 @@ struct PiFeedDockOwnershipTests {
             let workspace = manager.addWorkspace(select: true)
             defer {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 appDelegate.tabManager = nil
                 AppDelegate.shared = previousAppDelegate

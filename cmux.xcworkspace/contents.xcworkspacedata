@@ -29,6 +29,9 @@
          location = "group:CmuxIrohTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxIrxTransport">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
