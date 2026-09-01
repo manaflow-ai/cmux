@@ -85,4 +85,13 @@ public struct TerminalTitleChurnFilter: Sendable {
             return false
         }
     }
+
+    private func brailleScalarValue(for character: Character) -> UInt32? {
+        guard character.unicodeScalars.count == 1,
+              let scalar = character.unicodeScalars.first else {
+            return nil
+        }
+        guard (0x2800...0x28FF).contains(scalar.value) else { return nil }
+        return scalar.value
+    }
 }

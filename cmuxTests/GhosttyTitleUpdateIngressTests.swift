@@ -7,6 +7,31 @@ import Testing
 @testable import cmux
 #endif
 
+/// Collects the title changes posted to a test-owned notification center. The
+/// ingress posts from its consumer task, so the reads are locked.
+final class GhosttyTitleChangeRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [GhosttyTitleChange] = []
+
+    var values: [GhosttyTitleChange] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func append(_ change: GhosttyTitleChange) {
+        lock.lock()
+        recorded.append(change)
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        recorded.removeAll()
+        lock.unlock()
+    }
+}
+
 @Suite("Ghostty title update ingress")
 @MainActor
 struct GhosttyTitleUpdateIngressTests {
@@ -42,9 +67,32 @@ struct GhosttyTitleUpdateIngressTests {
 
     /// Frames are forwarded, not collapsed, so the tab label keeps animating.
     /// The saving comes from what they carry, not from dropping them.
+    ///
+    /// The assertions read the changes that actually reach `.ghosttyDidSetTitle`
+    /// rather than `submit`'s return value, so a later stage that dropped a
+    /// frame's `stableTitle` or its spinner-only marking would fail here. The
+    /// ingress stream buffers the newest update, so the number of posted changes
+    /// is not fixed; what every posted frame carries is.
     /// https://github.com/manaflow-ai/cmux/issues/10348
-    @Test func spinnerFramesAreForwardedSoTheTabLabelKeepsAnimating() {
-        let ingress = GhosttyTitleUpdateIngress()
+    @Test func spinnerFramesAreForwardedSoTheTabLabelKeepsAnimating() async {
+        let center = NotificationCenter()
+        let scheduler = TitleScheduleRecorder()
+        let observed = GhosttyTitleChangeRecorder()
+        let token = center.addObserver(
+            forName: .ghosttyDidSetTitle,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if let change = GhosttyTitleChange(notification: notification) {
+                observed.append(change)
+            }
+        }
+        defer { center.removeObserver(token) }
+
+        let ingress = GhosttyTitleUpdateIngress(
+            center: center,
+            schedule: { interval, action in scheduler.schedule(interval, action: action) }
+        )
         let tabId = UUID()
         let surfaceId = UUID()
         let sourceIdentifier = ObjectIdentifier(NSObject())
@@ -60,14 +108,41 @@ struct GhosttyTitleUpdateIngressTests {
                 title: "\(frame) pnpm install"
             ))
         }
+        await scheduler.awaitFirstSchedule()
+        await scheduler.fire()
 
+        let spinnerChanges = observed.values
+        let everySpinnerChangeSharesTheStableTitle = spinnerChanges
+            .allSatisfy { $0.stableTitle == "pnpm install" }
+        let everySpinnerChangeIsMarkedSpinnerOnly = spinnerChanges.allSatisfy(\.isSpinnerFrameOnly)
+        let everySpinnerChangeKeepsItsFrame = spinnerChanges
+            .allSatisfy { $0.title.hasSuffix(" pnpm install") }
+        #expect(!spinnerChanges.isEmpty)
+        #expect(everySpinnerChangeSharesTheStableTitle)
+        #expect(everySpinnerChangeIsMarkedSpinnerOnly)
+        #expect(everySpinnerChangeKeepsItsFrame)
+
+        observed.reset()
         #expect(ingress.submit(
             tabId: tabId,
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceIdentifier,
             terminalLifecycleID: terminalLifecycleID,
-            title: "⠋ pnpm run build"
+            title: "pnpm run build"
         ))
+        await scheduler.awaitFirstSchedule()
+        await scheduler.fire()
+
+        // A frame-free title: `isSpinnerFrameOnly` is `title != stableTitle`, so a
+        // real label change only reads as one when the raw title has no frame in
+        // it. That is the case a consumer must not skip.
+        let labelChanges = observed.values
+        let everyLabelChangeCarriesTheNewTitle = labelChanges
+            .allSatisfy { $0.stableTitle == "pnpm run build" }
+        let noLabelChangeIsMarkedSpinnerOnly = labelChanges.allSatisfy { !$0.isSpinnerFrameOnly }
+        #expect(!labelChanges.isEmpty)
+        #expect(everyLabelChangeCarriesTheNewTitle)
+        #expect(noLabelChangeIsMarkedSpinnerOnly)
     }
 
     /// A repeated identical frame still dedups; only genuinely new frames pass.
@@ -106,9 +181,10 @@ struct GhosttyTitleUpdateIngressTests {
             )
         }
 
+        let everyFrameIsMarkedSpinnerOnly = frames.allSatisfy(\.isSpinnerFrameOnly)
         #expect(Set(frames.map(\.title)).count == 3)
         #expect(Set(frames.map(\.stableTitle)) == ["pnpm install"])
-        #expect(frames.allSatisfy(\.isSpinnerFrameOnly))
+        #expect(everyFrameIsMarkedSpinnerOnly)
     }
 
     @Test func aRealLabelChangeIsNotMarkedSpinnerOnly() {
@@ -123,7 +199,8 @@ struct GhosttyTitleUpdateIngressTests {
     }
 
     /// A payload from a legacy in-process post carries no stable title. Treating
-    /// it as a real change is the safe direction: stale chrome beats churn.
+    /// it as a real change is the safe direction: it permits a refresh, and
+    /// churn beats stale chrome.
     @Test func missingStableTitleFallsBackToTheRawTitle() {
         let change = GhosttyTitleChange(
             tabId: UUID(),
