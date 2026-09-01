@@ -53,6 +53,30 @@ struct AgentForkPlannerTests {
         ) == nil)
     }
 
+    @Test("Custom templates retain quoted whitespace and empty words")
+    func customTemplateRetainsQuotedWhitespaceAndEmptyWords() throws {
+        let renderer = AgentLaunchTemplateRenderer()
+        #expect(renderer.arguments(
+            template: "agent '  {{sessionId}}  ' '' tail",
+            executable: "agent",
+            sessionID: "session",
+            workingDirectory: nil,
+            sessionDirectory: nil
+        ) == ["agent", "  session  ", "", "tail"])
+    }
+
+    @Test("Custom templates retain ordinary double-quoted backslashes")
+    func customTemplateRetainsDoubleQuotedOrdinaryBackslashes() throws {
+        let renderer = AgentLaunchTemplateRenderer()
+        #expect(renderer.arguments(
+            template: #"agent "a\q""#,
+            executable: "agent",
+            sessionID: "session",
+            workingDirectory: nil,
+            sessionDirectory: nil
+        ) == ["agent", "a\\q"])
+    }
+
     @Test("Uses prepared fork argv with restore environment policy")
     func preparedForkArgumentsStayStructured() throws {
         let checkpointID = "fork-session"

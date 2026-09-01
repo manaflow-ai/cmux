@@ -35,9 +35,7 @@ public struct AgentLaunchTemplateRenderer: Sendable, Equatable {
             guard let value = resolveTemplatePart(part, replacements: replacements) else {
                 return nil
             }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            resolved.append(trimmed)
+            resolved.append(value)
         }
         return resolved
     }
@@ -75,40 +73,64 @@ public struct AgentLaunchTemplateRenderer: Sendable, Equatable {
         var current = ""
         var quote: Quote?
         var escaping = false
+        var wordStarted = false
 
         func finishWord() {
-            guard !current.isEmpty else { return }
+            guard wordStarted else { return }
             words.append(current)
             current = ""
+            wordStarted = false
         }
 
         for character in command {
             if escaping {
+                if quote == .double,
+                   !Self.isDoubleQuoteEscapable(character) {
+                    current.append("\\")
+                }
                 current.append(character)
                 escaping = false
                 continue
             }
-            // Backslashes are literal inside POSIX single quotes.
-            if character == "\\", quote != .single {
-                escaping = true
+            if character == "\\" {
+                if quote == .single {
+                    // Backslashes are literal inside POSIX single quotes.
+                    current.append(character)
+                    wordStarted = true
+                } else {
+                    escaping = true
+                    wordStarted = true
+                }
                 continue
             }
             switch (quote, character) {
             case (.single, "'"), (.double, "\""):
                 quote = nil
+                wordStarted = true
             case (nil, "'"):
                 quote = .single
+                wordStarted = true
             case (nil, "\""):
                 quote = .double
+                wordStarted = true
             case (nil, " "), (nil, "\t"), (nil, "\n"):
                 finishWord()
             default:
                 current.append(character)
+                wordStarted = true
             }
         }
         guard !escaping, quote == nil else { return nil }
         finishWord()
         return words
+    }
+
+    private static func isDoubleQuoteEscapable(_ character: Character) -> Bool {
+        character == "$"
+            || character == "`"
+            || character == "\""
+            || character == "\\"
+            || character == "\n"
     }
 
     private func normalized(_ value: String?) -> String? {
