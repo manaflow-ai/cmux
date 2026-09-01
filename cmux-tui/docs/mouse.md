@@ -61,6 +61,8 @@ Clicks, releases, and motion inside a PTY pane are forwarded when the inner app 
 
 Drag inside a PTY pane to select text when mouse tracking is disabled or Shift is held. Releasing copies non-empty selected text to the host clipboard with OSC 52. The selection stores absolute scrollback rows, so it remains stable while the viewport scrolls.
 
+Double-click a terminal word, or its surrounding whitespace run, to select the complete Ghostty-defined word. Keep the button down after the second press and drag to extend the selection by complete words in either direction. A third nearby click selects the complete logical line and line drag extends it. A click that is too slow, too far away, on another screen, or on another UI target starts a new selection gesture.
+
 Holding a selection drag at the top or bottom content edge auto-scrolls and extends the selection. Typing clears the selection. If the selected surface exits, the selection is cleared.
 
 Browser panes receive left press, drag, and release as CDP mouse events instead of starting text selection.

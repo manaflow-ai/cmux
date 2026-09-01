@@ -406,7 +406,7 @@ extension CmxIrohHostRuntimeTests {
             broker: TestIrohHostBroker(
                 registrationBinding: fixture.binding,
                 discovery: fixture.discovery,
-                registrationError: .connectivity
+                registrationError: .connectivity(nil)
             ),
             configuration: fixture.configuration(
                 cachedHostPolicy: try cachedFixture.policy()
@@ -435,7 +435,7 @@ extension CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: factory,
@@ -472,7 +472,7 @@ extension CmxIrohHostRuntimeTests {
         let broker = TestIrohHostBroker(
             registrationBinding: changedBinding,
             discovery: fixture.discovery,
-            discoveryError: .connectivity
+            discoveryError: .connectivity(nil)
         )
         let runtime = CmxIrohHostRuntime(
             factory: factory,

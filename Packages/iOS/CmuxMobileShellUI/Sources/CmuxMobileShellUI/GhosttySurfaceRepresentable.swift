@@ -30,6 +30,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var isComposerActive: Bool = false
     /// Theme for this exact Mac terminal surface.
     var terminalTheme: TerminalTheme
+    /// The top safe-area band the surface underlaps for the iOS 26
+    /// scroll-edge band (0 = band off). Captured by the detail screen from
+    /// SwiftUI geometry OUTSIDE the safe-area expansion, because a UIKit
+    /// view inside `ignoresSafeArea` reads a zero top inset.
+    var topContentInset: CGFloat = 0
     /// Raw Mac Ghostty defaults installed into the local mirror surface.
     var terminalConfigTheme: TerminalTheme
     /// The store's raw config generation. This drives a surface-local
@@ -112,6 +117,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
+        view.setTopContentInset(topContentInset)
         context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
         // The composition root's tracker spans host lifetimes, so a host built
         // for a reattached surface recovers keyboard transitions it missed.
@@ -138,6 +144,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
+        surfaceView.setTopContentInset(topContentInset)
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged

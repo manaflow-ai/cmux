@@ -226,6 +226,13 @@ final class AppCompositionRoot {
                             refreshToken: refreshToken
                         )
                     }
+                    if let irx {
+                        // Drop the device-list lease (memory, Keychain/file,
+                        // UI projection) with the account's other state.
+                        group.addTask {
+                            await irx.handleSignOut()
+                        }
+                    }
                 }
                 await diagnosticLog.clear()
             }
