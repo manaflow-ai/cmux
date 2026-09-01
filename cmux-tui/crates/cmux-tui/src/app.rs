@@ -401,7 +401,7 @@ fn send_bounded_cancelable<T>(
 struct SessionEventWorker {
     cancellation: EventCancellation,
     start: Arc<AtomicBool>,
-    stop: Option<cmux_tui_core::MuxEventReceiver>,
+    stop: Arc<Mutex<Option<cmux_tui_core::MuxEventReceiver>>>,
     mux: Option<JoinHandle<()>>,
 }
 
@@ -415,7 +415,7 @@ impl SessionEventWorker {
         self.activate();
         // Closing the receiver wakes a worker blocked in recv(). This avoids
         // polling the session event mailbox on a fixed 100 ms timer.
-        if let Some(stop) = self.stop.take() {
+        if let Some(stop) = self.stop.lock().unwrap().take() {
             stop.close();
         }
         if let Some(mux) = self.mux.take() {
@@ -647,6 +647,7 @@ struct MuxTitleIngress {
 fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
+    stop_receiver: Arc<Mutex<Option<cmux_tui_core::MuxEventReceiver>>>,
     destination_mutation_committed: Arc<AtomicU64>,
     mux_recovery_generation: Arc<AtomicU64>,
     tx: SessionEventSender,
@@ -679,7 +680,16 @@ fn forward_mux_events(
         mux_recovery_generation.store(recovery_generation, Ordering::Release);
         // Subscribe before draining the closed mailbox so new events are
         // retained while every event accepted before overflow is delivered.
-        let overflowed_events = std::mem::replace(&mut session_events, event_source.events());
+        let next_session_events = event_source.events();
+        {
+            let mut stop = stop_receiver.lock().unwrap();
+            if tx.cancellation.stop.load(Ordering::Acquire) {
+                next_session_events.close();
+                return;
+            }
+            *stop = Some(next_session_events.clone());
+        }
+        let overflowed_events = std::mem::replace(&mut session_events, next_session_events);
         for event in overflowed_events.try_iter() {
             if tx.cancellation.stop.load(Ordering::Acquire) {
                 return;
@@ -818,12 +828,13 @@ fn start_ordered_session_inner(
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
     let event_source = session.inner.clone();
     let session_events = event_source.events();
-    let stop = session_events.clone();
+    let stop = Arc::new(Mutex::new(Some(session_events.clone())));
     let destination_mutation_committed = session.destination_mutation_committed.clone();
     let mux_recovery_sequence = mux_recovery_generation.clone();
     let worker_events = events;
     let worker_titles = mux_titles.clone();
     let worker_start = start.clone();
+    let worker_stop = stop.clone();
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
             while !worker_start.load(Ordering::Acquire)
@@ -837,6 +848,7 @@ fn start_ordered_session_inner(
             forward_mux_events(
                 event_source,
                 session_events,
+                worker_stop,
                 destination_mutation_committed,
                 mux_recovery_sequence,
                 worker_events,
@@ -845,7 +857,7 @@ fn start_ordered_session_inner(
         })?;
     Ok((
         session,
-        SessionEventWorker { cancellation, start, stop: Some(stop), mux: Some(mux) },
+        SessionEventWorker { cancellation, start, stop, mux: Some(mux) },
         mux_titles,
         mux_recovery_generation,
     ))
@@ -34119,6 +34131,7 @@ mod tests {
         let mux = Mux::new("mux-forwarder-overflow-test", SurfaceOptions::default());
         let event_source = Session::Local(mux.clone());
         let session_events = event_source.events();
+        let stop_receiver = Arc::new(Mutex::new(Some(session_events.clone())));
         for surface in 0..5_000 {
             mux.emit(MuxEvent::Bell(surface));
         }
@@ -34131,6 +34144,7 @@ mod tests {
             forward_mux_events(
                 event_source,
                 session_events,
+                stop_receiver,
                 destination_generation,
                 forwarder_recovery_generation,
                 SessionEventSender::unscoped(tx),
@@ -34183,6 +34197,53 @@ mod tests {
             AppEvent::Mux(MuxEvent::Empty)
         ));
         drop(rx);
+        forwarder.join().unwrap();
+    }
+
+    #[test]
+    fn mux_forwarder_stop_wakes_after_overflow_replaces_mailbox() {
+        let mux = Mux::new("mux-forwarder-overflow-stop-test", SurfaceOptions::default());
+        let event_source = Session::Local(mux.clone());
+        let session_events = event_source.events();
+        let stop_receiver = Arc::new(Mutex::new(Some(session_events.clone())));
+        let stop_for_test = stop_receiver.clone();
+        for surface in 0..5_000 {
+            mux.emit(MuxEvent::Bell(surface));
+        }
+        let (tx, rx) = crossbeam_channel::bounded(8_192);
+        let titles = Arc::new(MuxTitleIngress::default());
+        let destination_generation = Arc::new(AtomicU64::new(0));
+        let recovery_generation = Arc::new(AtomicU64::new(0));
+        let forwarder_recovery_generation = recovery_generation.clone();
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_events(
+                event_source,
+                session_events,
+                stop_receiver,
+                destination_generation,
+                forwarder_recovery_generation,
+                SessionEventSender::unscoped(tx),
+                titles,
+            );
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut recovered = false;
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(AppEvent::MuxRecoveryComplete { .. }) => {
+                    recovered = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        assert!(recovered, "overflow recovery must install a replacement mailbox");
+
+        // The forwarder is blocked on the replacement mailbox here. Closing
+        // the currently active receiver must wake it without timer polling.
+        stop_for_test.lock().unwrap().take().unwrap().close();
         forwarder.join().unwrap();
     }
 
