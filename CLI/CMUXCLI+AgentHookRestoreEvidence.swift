@@ -178,7 +178,6 @@ extension CMUXCLI {
         rejectionReason == .launcherDoesNotDescribeKind
             || rejectionReason == .nativeProcessDoesNotDescribeKind
             || rejectionReason == .argvLooksLikeShellWrapper
-            || rejectionReason == .argvUnavailable
             || rejectionReason == .argvDecodeFailed
     }
 

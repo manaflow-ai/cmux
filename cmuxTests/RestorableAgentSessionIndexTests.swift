@@ -791,7 +791,7 @@ struct RestorableAgentSessionIndexTests {
             updatedAt: 10
         )
         // Force restore eligibility to come from the usable argv/source rule,
-        // rather than the helper's default transcript-backed marker.
+        // rather than the helper's default isRestorable: true marker.
         record["isRestorable"] = NSNull()
         record["launchCommand"] = [
             "launcher": "codex",

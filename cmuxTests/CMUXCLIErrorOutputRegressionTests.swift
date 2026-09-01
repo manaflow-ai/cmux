@@ -494,6 +494,8 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
 
         let result = runProcess(
             executablePath: cliPath,
