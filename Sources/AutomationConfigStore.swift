@@ -8,7 +8,9 @@ import Foundation
 /// in tests; no environment variable is consulted for the default location.
 final class AutomationConfigStore {
     static let fileName = "automations.json"
-    private static let maximumFileBytes: UInt64 = 4 * 1024 * 1024
+    /// Maximum JSON input accepted by either the config store or offline tests.
+    static let maximumJSONInputBytes = 4 * 1024 * 1024
+    private static let maximumFileBytes = UInt64(maximumJSONInputBytes)
     private static let maximumJSONArrayItems = 256
     private static let maximumJSONObjectEntries = 256
     private static let maximumJSONDepth = 12
@@ -57,7 +59,7 @@ final class AutomationConfigStore {
         guard data.count <= Self.maximumFileBytes else {
             throw AutomationConfigStoreError.fileTooLarge
         }
-        try validateJSONDepth(in: data)
+        try Self.validateJSONDepth(in: data)
         let configuration = try decoder.decode(AutomationConfiguration.self, from: data)
         guard configuration.version == AutomationConfiguration.currentVersion else {
             throw AutomationConfigStoreError.unsupportedVersion(configuration.version)
@@ -265,7 +267,7 @@ final class AutomationConfigStore {
     /// Rejects excessive JSON container nesting before `JSONDecoder` recurses.
     /// The scanner is deliberately lexical and ignores braces inside strings;
     /// structural validation remains the decoder's responsibility.
-    private func validateJSONDepth(in data: Data) throws {
+    nonisolated static func validateJSONDepth(in data: Data) throws {
         let maximumNesting = Self.maximumJSONDepth + 8
         var nesting = 0
         var inString = false

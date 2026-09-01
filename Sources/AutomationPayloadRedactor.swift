@@ -55,6 +55,8 @@ nonisolated struct AutomationPayloadRedactor: Sendable {
                 redacted[childKey] = value(childValue, key: childKey)
             }
             return .object(redacted)
+        case .string(let string):
+            return .string(redactedURL(string, key: key))
         default:
             return item
         }
@@ -71,9 +73,41 @@ nonisolated struct AutomationPayloadRedactor: Sendable {
             return redacted
         case let array as [Any]:
             return array.map { redactedFoundationObject($0, key: nil) }
+        case let string as String:
+            return redactedURL(string, key: key)
         default:
             return item
         }
+    }
+
+    /// Removes userinfo and credential-like query values from URL fields.
+    private func redactedURL(_ raw: String, key: String?) -> String {
+        guard isURLKey(key), var components = URLComponents(string: raw) else {
+            return raw
+        }
+        var changed = false
+        if components.user != nil {
+            components.user = "[redacted]"
+            changed = true
+        }
+        if components.password != nil {
+            components.password = "[redacted]"
+            changed = true
+        }
+        if let queryItems = components.queryItems {
+            components.queryItems = queryItems.map { item in
+                guard isSensitiveKey(item.name) else { return item }
+                changed = true
+                return URLQueryItem(name: item.name, value: "[redacted]")
+            }
+        }
+        return changed ? (components.string ?? raw) : raw
+    }
+
+    private func isURLKey(_ key: String?) -> Bool {
+        guard let key else { return false }
+        let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
+        return normalized.contains("url") || normalized.contains("endpoint")
     }
 
     private func isSensitiveKey(_ key: String?) -> Bool {

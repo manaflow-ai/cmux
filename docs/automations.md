@@ -86,6 +86,8 @@ cmux automation reload
 
 test is a dry run: it reads the config and evaluates a synthetic event
 without dispatching actions or changing rate-limit state. show and test redact
-credential-like predicate, action, session, and event fields before returning
-them. logs reports the bounded in-memory firing ring from the running cmux
-process.
+credential-like predicate, action, session, event, and webhook-URL fields
+(including query credentials) before returning them. Event JSON supplied with
+@file is read only from a regular file and is bounded to 4 MiB with the same
+nesting guard as the configuration loader. logs reports the bounded in-memory
+firing ring from the running cmux process.

@@ -121,14 +121,30 @@ extension CMUXCLI {
             }
             raw = args[valueStart...].joined(separator: " ")
         }
-        let expanded: String
+        let data: Data
         if raw.hasPrefix("@") {
-            let url = URL(fileURLWithPath: String(raw.dropFirst())).standardizedFileURL
-            expanded = try String(contentsOf: url, encoding: .utf8)
+            data = try boundedAutomationEventData(
+                at: URL(fileURLWithPath: String(raw.dropFirst())).standardizedFileURL
+            )
         } else {
-            expanded = raw
+            guard let encoded = raw.data(using: .utf8),
+                  encoded.count <= AutomationConfigStore.maximumJSONInputBytes else {
+                throw CLIError(message: automationLocalized(
+                    "cli.automation.error.eventObject",
+                    defaultValue: "automation test event must be a JSON object"
+                ))
+            }
+            data = encoded
         }
-        guard let data = expanded.data(using: .utf8),
+        do {
+            try AutomationConfigStore.validateJSONDepth(in: data)
+        } catch {
+            throw CLIError(message: automationLocalized(
+                "cli.automation.error.eventObject",
+                defaultValue: "automation test event must be a JSON object"
+            ))
+        }
+        guard
               let object = try? JSONSerialization.jsonObject(with: data),
               let event = object as? [String: Any] else {
             throw CLIError(message: automationLocalized(
@@ -137,6 +153,36 @@ extension CMUXCLI {
             ))
         }
         return event
+    }
+
+    private func boundedAutomationEventData(at url: URL) throws -> Data {
+        let fileManager = FileManager.default
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw CLIError(message: automationLocalized(
+                "cli.automation.error.eventObject",
+                defaultValue: "automation test event must be a JSON object"
+            ))
+        }
+        if let size = attributes[.size] as? NSNumber,
+           size.uint64Value > UInt64(AutomationConfigStore.maximumJSONInputBytes) {
+            throw CLIError(message: automationLocalized(
+                "cli.automation.error.eventObject",
+                defaultValue: "automation test event must be a JSON object"
+            ))
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(
+            upToCount: AutomationConfigStore.maximumJSONInputBytes + 1
+        ) ?? Data()
+        guard data.count <= AutomationConfigStore.maximumJSONInputBytes else {
+            throw CLIError(message: automationLocalized(
+                "cli.automation.error.eventObject",
+                defaultValue: "automation test event must be a JSON object"
+            ))
+        }
+        return data
     }
 
     private func printAutomationResponse(_ response: [String: Any], subcommand: String) {

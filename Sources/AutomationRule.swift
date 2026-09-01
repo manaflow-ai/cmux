@@ -443,7 +443,7 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
             return nil
         case "surface.kind", "surface_kind":
             for key in ["kind", "type", "surface_kind"] {
-                if let value = payload[key] ?? event[key],
+                if let value = payload[key],
                    let converted = AutomationJSONValue(foundationObject: value) {
                     return converted
                 }

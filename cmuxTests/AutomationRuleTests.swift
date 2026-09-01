@@ -122,6 +122,26 @@ struct AutomationRuleTests {
         )
     }
 
+    @Test("surface kind matching ignores the event envelope type")
+    func surfaceKindDoesNotUseEventEnvelopeType() {
+        let rule = AutomationRule(
+            id: "surface-kind",
+            when: AutomationWhen(event: "surface.changed"),
+            predicates: ["surface.kind": .object(["not": .string("browser")])],
+            actions: [AutomationAction(action: "notify")]
+        )
+        #expect(!rule.matches(event: [
+            "name": "surface.changed",
+            "type": "event",
+            "payload": [:]
+        ]))
+        #expect(rule.matches(event: [
+            "name": "surface.changed",
+            "type": "event",
+            "payload": ["kind": "terminal"]
+        ]))
+    }
+
     @Test("automation RPCs preserve focus unless explicitly allowed")
     func focusPolicyIsOptIn() {
         let suppressed = CmuxAutomationInvocationContext.$focusAllowed.withValue(false) {
@@ -279,6 +299,21 @@ struct AutomationRuleTests {
         #expect(redacted.predicates["authorization"] == .string("[redacted]"))
         #expect(redacted.predicates["nested"] == .object(["session_id": .string("[redacted]")]))
         #expect(redacted.actions[0].value(for: "token") == .string("[redacted]"))
+
+        let webhook = AutomationRule(
+            id: "webhook",
+            when: AutomationWhen(event: "secret"),
+            actions: [AutomationAction(
+                action: "webhook",
+                parameters: [
+                    "url": .string("https://hooks.example/hook?token=query-secret&keep=visible")
+                ]
+            )]
+        )
+        let redactedWebhook = AutomationPayloadRedactor().rule(webhook)
+        let redactedURL = try #require(redactedWebhook.actions[0].string(for: "url"))
+        #expect(!redactedURL.contains("query-secret"))
+        #expect(redactedURL.contains("keep=visible"))
     }
 
     @Test("configuration validation rejects empty selectors and oversized action objects")

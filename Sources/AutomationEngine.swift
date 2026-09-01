@@ -130,6 +130,16 @@ final class AutomationEngine {
         subscription = snapshot.subscription
         let subscription = snapshot.subscription
         lastSequence = max(lastSequence ?? effectiveAfterSequence, effectiveAfterSequence)
+        if let resume = snapshot.ack["resume"] as? [String: Any],
+           (resume["gap"] as? Bool) == true {
+            record(
+                ruleID: "",
+                eventName: "automation.subscription",
+                status: "gap",
+                detail: "event replay began after the retained sequence window",
+                chain: []
+            )
+        }
         for event in snapshot.replay {
             receive(event)
         }
@@ -156,8 +166,8 @@ final class AutomationEngine {
         subscription = nil
         eventTask = nil
         guard shouldRun else { return }
-        // A slow consumer closes its bounded queue. Re-arm from the
-        // authoritative event-bus tail with one coalesced, cancellable retry.
+        // A slow consumer closes its bounded queue. Re-arm from the last
+        // processed sequence with one coalesced, cancellable retry.
         // The bounded clock delay prevents a sustained flood from spinning the
         // main actor while preserving automatic recovery.
         guard restartTask == nil else { return }
@@ -173,7 +183,8 @@ final class AutomationEngine {
             }
             self.restartTask = nil
             guard self.shouldRun else { return }
-            self.installSubscription(afterSequence: self.eventBus.latestSequence)
+            let resumeSequence = self.lastSequence ?? self.eventBus.latestSequence
+            self.installSubscription(afterSequence: resumeSequence)
         }
     }
 
