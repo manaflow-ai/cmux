@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxWorkspaceEnvironment
 import Foundation
 import Testing
 
@@ -49,7 +50,7 @@ struct WorkspaceEnvironmentTests {
 
     @Test
     func workspaceEnvironmentEditorParsesAssignmentsAndPreservesValueEqualsSigns() throws {
-        let parsed = try WorkspaceEnvironmentEditor.parse(
+        let parsed = try WorkspaceEnvironmentParser.parse(
             "# comment\nFOO=bar=baz\n  TRIMMED =value\n\n"
         )
         #expect(parsed == ["FOO": "bar=baz", "TRIMMED": "value"])
@@ -58,7 +59,7 @@ struct WorkspaceEnvironmentTests {
     @Test
     func workspaceEnvironmentEditorParsesEscapedCommentLikeKeysAndMultilineValues() throws {
         let serialized = "\\#COMMENT=first\\nsecond\\rthird\\\\tail\nURL=https://example.test?a=b"
-        let parsed = try WorkspaceEnvironmentEditor.parse(serialized)
+        let parsed = try WorkspaceEnvironmentParser.parse(serialized)
         #expect(parsed == [
             "#COMMENT": "first\nsecond\rthird\\tail",
             "URL": "https://example.test?a=b",
@@ -68,18 +69,18 @@ struct WorkspaceEnvironmentTests {
     @Test
     func workspaceEnvironmentEditorRejectsMalformedAndDuplicateEntries() {
         do {
-            _ = try WorkspaceEnvironmentEditor.parse("GOOD=value\nBROKEN\n")
+            _ = try WorkspaceEnvironmentParser.parse("GOOD=value\nBROKEN\n")
             Issue.record("Expected a malformed assignment to be rejected")
-        } catch let error as WorkspaceEnvironmentEditor.ParseError {
+        } catch let error as WorkspaceEnvironmentParser.ParseError {
             #expect(error == .invalidAssignment(line: 2))
         } catch {
             Issue.record("Unexpected parser error: \(error)")
         }
 
         do {
-            _ = try WorkspaceEnvironmentEditor.parse("DUPLICATE=one\nDUPLICATE=two\n")
+            _ = try WorkspaceEnvironmentParser.parse("DUPLICATE=one\nDUPLICATE=two\n")
             Issue.record("Expected a duplicate key to be rejected")
-        } catch let error as WorkspaceEnvironmentEditor.ParseError {
+        } catch let error as WorkspaceEnvironmentParser.ParseError {
             #expect(error == .duplicateKey(line: 2))
         } catch {
             Issue.record("Unexpected parser error: \(error)")

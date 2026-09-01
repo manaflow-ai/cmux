@@ -1,5 +1,6 @@
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxWorkspaceEnvironment
 import Foundation
 import CmuxCore
 import CmuxRemoteDaemon
@@ -2554,7 +2555,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// `mergedStartupEnvironment(...)`, so a workspace env entry can never clobber
     /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
     /// Persisted in the session manifest and restored before surfaces are rebuilt.
-    @Published var workspaceEnvironment: [String: String] = [:]
+    @Published var workspaceEnvironment: [String: String] = [:] {
+        didSet {
+            serializedWorkspaceEnvironment = WorkspaceEnvironmentDocument(
+                environment: workspaceEnvironment
+            ).serialized
+        }
+    }
+    /// Canonical editor text cached when the environment changes, so autosave
+    /// fingerprinting does not sort the dictionary on every timer tick.
+    private var serializedWorkspaceEnvironment = ""
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
@@ -3821,6 +3831,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
+        self.serializedWorkspaceEnvironment = WorkspaceEnvironmentDocument(
+            environment: sanitizedWorkspaceEnvironment
+        ).serialized
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
@@ -7107,15 +7120,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     // can call this pure helper without hopping to the main actor; `Workspace` is `@MainActor`,
     // so its statics are main-actor-isolated by default.
     nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
-        environment.reduce(into: [String: String]()) { result, pair in
-            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty,
-                  !pair.value.isEmpty,
-                  !key.contains("\0"),
-                  !key.contains("="),
-                  !pair.value.contains("\0") else { return }
-            result[key] = pair.value
-        }
+        WorkspaceEnvironmentDocument.sanitized(environment)
     }
 
     /// Pure merge core: overlays `explicit` on top of `workspaceEnvironment`.

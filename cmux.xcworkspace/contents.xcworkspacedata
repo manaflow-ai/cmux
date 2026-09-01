@@ -229,6 +229,9 @@
          location = "group:CmuxWindowing">
       </FileRef>
       <FileRef
+         location = "group:CmuxWorkspaceEnvironment">
+      </FileRef>
+      <FileRef
          location = "group:CmuxWorkspaces">
       </FileRef>
    </Group>
