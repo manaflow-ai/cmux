@@ -439,7 +439,6 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    /// Parses app settings while allowing one invalid value to leave later fields intact.
     private func parseAppSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -482,6 +481,7 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        // This field logs an invalid value without stopping later app settings from parsing.
         if let raw = jsonString(section["teamsSpawnPlacement"]) {
             if let placement = TeamsSpawnPlacement(rawValue: raw) {
                 snapshot.managedUserDefaults[SettingCatalog().app.teamsSpawnPlacement.userDefaultsKey] = .string(placement.rawValue)

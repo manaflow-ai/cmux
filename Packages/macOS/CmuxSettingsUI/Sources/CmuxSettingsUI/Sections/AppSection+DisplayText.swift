@@ -54,7 +54,7 @@ extension AppSection {
     }
 
     /// Returns the localized explanation for a Claude Teams placement choice.
-    func teamsSpawnPlacementSubtitle(_ placement: TeamsSpawnPlacement) -> String {
+    nonisolated func teamsSpawnPlacementSubtitle(_ placement: TeamsSpawnPlacement) -> String {
         switch placement {
         case .workspace:
             return String(

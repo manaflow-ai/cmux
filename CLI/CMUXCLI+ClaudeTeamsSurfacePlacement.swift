@@ -130,11 +130,19 @@ extension CMUXCLI {
             ))
         }
 
-        try tmuxRecordSurfaceAlias(
-            aliasToken: aliasToken,
-            workspaceId: target.workspaceId,
-            surfaceId: surfaceId
-        )
+        do {
+            try tmuxRecordSurfaceAlias(
+                aliasToken: aliasToken,
+                workspaceId: target.workspaceId,
+                surfaceId: surfaceId
+            )
+        } catch {
+            _ = try? client.sendV2(method: "surface.close", params: [
+                "workspace_id": target.workspaceId,
+                "surface_id": surfaceId,
+            ])
+            throw error
+        }
 
         if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = try? client.sendV2(method: "tab.action", params: [

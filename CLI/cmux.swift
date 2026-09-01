@@ -22961,6 +22961,20 @@ struct CMUXCLI {
         throw CLIError(message: "Workspace target not found: \(token)")
     }
 
+    /// Resolves a tmux window target without discarding a synthetic surface identity.
+    private func tmuxResolveWindowTarget(
+        _ raw: String?,
+        client: SocketClient
+    ) throws -> (workspaceId: String, surfaceId: String?) {
+        if tmuxIsSurfaceAliasTarget(raw) {
+            guard let alias = try tmuxValidatedSurfaceAliasMapping(raw, client: client) else {
+                throw CLIError(message: "Workspace target not found")
+            }
+            return (alias.workspaceId, alias.surfaceId)
+        }
+        return (try tmuxResolveWorkspaceTarget(raw, client: client), nil)
+    }
+
     /// Resolves a tmux pane selector to a live cmux workspace and pane identity.
     func tmuxResolvePaneTarget(_ raw: String?, client: SocketClient) throws -> (workspaceId: String, paneId: String) {
         let paneSelector = tmuxPaneSelector(from: raw)
@@ -26346,8 +26360,15 @@ struct CMUXCLI {
 
         case "select-window", "selectw":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
+            let target = try tmuxResolveWindowTarget(parsed.value("-t"), client: client)
+            if let surfaceId = target.surfaceId {
+                _ = try client.sendV2(method: "surface.focus", params: [
+                    "workspace_id": target.workspaceId,
+                    "surface_id": surfaceId
+                ])
+            } else {
+                _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": target.workspaceId])
+            }
 
         case "select-pane", "selectp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-P", "-T", "-t"], boolFlags: [])
@@ -26370,9 +26391,21 @@ struct CMUXCLI {
 
         case "kill-window", "killw":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-            try? tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
+            let target = try tmuxResolveWindowTarget(parsed.value("-t"), client: client)
+            if let surfaceId = target.surfaceId {
+                _ = try client.sendV2(method: "surface.close", params: [
+                    "workspace_id": target.workspaceId,
+                    "surface_id": surfaceId
+                ])
+                try tmuxPruneCompatSurfaceState(
+                    workspaceId: target.workspaceId,
+                    surfaceId: surfaceId,
+                    client: client
+                )
+            } else {
+                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": target.workspaceId])
+                try? tmuxPruneCompatWorkspaceState(workspaceId: target.workspaceId)
+            }
 
         case "kill-pane", "killp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
@@ -26548,11 +26581,20 @@ struct CMUXCLI {
             guard !title.isEmpty else {
                 throw CLIError(message: "rename-window requires a title")
             }
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            _ = try client.sendV2(method: "workspace.rename", params: [
-                "workspace_id": workspaceId,
-                "title": title
-            ])
+            let target = try tmuxResolveWindowTarget(parsed.value("-t"), client: client)
+            if let surfaceId = target.surfaceId {
+                _ = try client.sendV2(method: "tab.action", params: [
+                    "workspace_id": target.workspaceId,
+                    "surface_id": surfaceId,
+                    "action": "rename",
+                    "title": title
+                ])
+            } else {
+                _ = try client.sendV2(method: "workspace.rename", params: [
+                    "workspace_id": target.workspaceId,
+                    "title": title
+                ])
+            }
 
         case "resize-pane", "resizep":
             let parsed = try parseTmuxArguments(
