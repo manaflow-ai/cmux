@@ -1131,7 +1131,7 @@
       "id": "terminal-rendering",
       "wire_status": "partial",
       "programmability": "partial",
-      "route": "render attach is implemented; terminal-host-v1 resize replay is incompatible until its decoder is repaired; typed SDK parity is incomplete"
+      "route": "render attach is implemented; terminal-host-v4 resize replay supports negotiated v1-v4 payloads; typed SDK parity is incomplete"
     },
     {
       "id": "terminal-selection-search-history",
@@ -1386,8 +1386,8 @@
       "spec": "events.md"
     },
     {
-      "id": "terminal-host-v1",
-      "status": "partial",
+      "id": "terminal-host-v4",
+      "status": "implemented",
       "spec": "terminal-host.md"
     },
     {
