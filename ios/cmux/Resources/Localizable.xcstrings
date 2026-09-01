@@ -60,6 +60,23 @@
         }
       }
     },
+    "mobile.demo.computerName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモMac"
+          }
+        }
+      }
+    },
     "mobile.buildType.demo": {
       "extractionState": "manual",
       "localizations": {
@@ -70089,6 +70106,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "계속하다"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.keepAwake.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevent your Mac from sleeping while cmux is open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxが開いている間、Macがスリープするのを防ぎます。"
           }
         }
       }
