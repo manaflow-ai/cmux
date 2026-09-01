@@ -376,6 +376,17 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.restorableTmuxStartCommand(command) == command)
         #expect(service.localTmuxStartCommand(command) == command)
         #expect(service.restorableTmuxStartCommand("CMUX_LOCAL_TMUX=1 exec tmux attach -t work") == nil)
+
+        let malformedCommands = [
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'/tmp/.cmux/local-tmux/other.sock'"),
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'relative/server.sock'"),
+            command.replacingOccurrences(of: "'$7'", with: "'workbench'"),
+            command.replacingOccurrences(of: "'$7'", with: "'work;rm'"),
+            command.replacingOccurrences(of: "'$7'", with: "'wo\u{0007}rk'"),
+        ]
+        for malformed in malformedCommands {
+            #expect(service.localTmuxStartCommand(malformed) == nil)
+        }
     }
 
     @Test("local tmux restore rejects shell substitutions in persisted commands")

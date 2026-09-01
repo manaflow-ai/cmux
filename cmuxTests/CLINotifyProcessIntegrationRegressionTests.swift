@@ -41,7 +41,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "/opt/homebrew/bin/tmux",
             "/usr/local/bin/tmux",
             "/usr/bin/tmux",
-        ].first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+        ].first { path in
+            var isDirectory = ObjCBool(false)
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                && !isDirectory.boolValue
+                && FileManager.default.isExecutableFile(atPath: path)
+        }
+        try XCTSkipUnless(
+            tmuxPath != nil,
+            "Requires a system tmux binary; skipping durable-server lifecycle coverage."
+        )
         let tmux = try XCTUnwrap(tmuxPath)
         let stateRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-local-tmux-\(UUID().uuidString)", isDirectory: true)
@@ -191,6 +200,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
           start:*display-message*'#{session_name}'*) printf '%s\t%s\t66666666-6666-6666-6666-666666666666\t%s\n' "$FAKE_TMUX_SESSION_NAME" "$FAKE_TMUX_SESSION_ID" "$FAKE_TMUX_SESSION_CREATED"; exit 0 ;;
           start:*has-session*) exit 1 ;;
           start:*) exit 0 ;;
+          missing-close:*display-message*'#{session_name}'*) printf '%s\t%s\t66666666-6666-6666-6666-666666666666\t%s\n' "$FAKE_TMUX_SESSION_NAME" "$FAKE_TMUX_SESSION_ID" "$FAKE_TMUX_SESSION_CREATED"; exit 0 ;;
+          missing-close:*has-session*) exit 0 ;;
+          missing-close:*kill-session*) echo "can't find session: $FAKE_TMUX_SESSION_NAME" >&2; exit 1 ;;
           stopped:*list-sessions*) echo "no server running on $2" >&2; exit 1 ;;
           large:*list-sessions*)
             /usr/bin/yes 'unmanaged-session-with-padding' | /usr/bin/head -c 9000000
@@ -264,6 +276,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(secondStart.timedOut, secondStart.stderr)
         XCTAssertEqual(secondStart.status, 0, secondStart.stderr)
+
+        environment["FAKE_TMUX_MODE"] = "missing-close"
+        let closeMissing = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "close", "pipe-\(sessionName)"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(closeMissing.timedOut, closeMissing.stderr)
+        XCTAssertEqual(closeMissing.status, 0, closeMissing.stderr)
+        XCTAssertTrue(closeMissing.stdout.contains("closed"), closeMissing.stdout)
 
         environment["FAKE_TMUX_MODE"] = "large"
         let largeCleanup = runProcess(

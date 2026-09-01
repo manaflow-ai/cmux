@@ -2,6 +2,47 @@ import Darwin
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testLocalTmuxLifecycleRejectsAttachmentOptions() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+
+        let cases: [[String]] = [
+            ["list", "--workspace", "workspace:1"],
+            ["status", "work", "--surface", "surface:1"],
+            ["cleanup", "--pane", "pane:1"],
+            ["close", "work", "--focus", "true"],
+            ["detach", "work", "--detached"],
+        ]
+        for arguments in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["local-tmux"] + arguments,
+                environment: environment,
+                timeout: 10
+            )
+
+            XCTAssertFalse(result.timedOut, arguments.joined(separator: " "))
+            XCTAssertNotEqual(result.status, 0, arguments.joined(separator: " "))
+            XCTAssertTrue(
+                result.stderr.contains("only valid with start or attach"),
+                "Expected attachment-option validation for \(arguments), saw \(result.stderr)"
+            )
+        }
+
+        let globalWindow = runProcess(
+            executablePath: cliPath,
+            arguments: ["--window", "window:1", "local-tmux", "list"],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(globalWindow.timedOut, globalWindow.stderr)
+        XCTAssertNotEqual(globalWindow.status, 0, globalWindow.stdout)
+        XCTAssertTrue(globalWindow.stderr.contains("only valid with start or attach"), globalWindow.stderr)
+    }
+
     func testLocalTmuxAliasRejectsNonAttachActions() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
@@ -244,7 +285,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         case "$*" in
           *display-message*'#{session_name}'*) printf 'already-live\t$103\t33333333-3333-3333-3333-333333333333\t103\n'; exit 0 ;;
           *has-session*) exit 0 ;;
-          *display-message*'#{session_path}'*) printf '%s\n' "$EXISTING_TMUX_CWD"; exit 0 ;;
+          *display-message*'#{session_path}'*)
+            if [ "$FAIL_SESSION_PATH" = "1" ]; then exit 1; fi
+            printf '%s\n' "$EXISTING_TMUX_CWD"; exit 0 ;;
           *) exit 0 ;;
         esac
         """
@@ -282,6 +325,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("state=detached"), result.stdout)
+
+        environment["FAIL_SESSION_PATH"] = "1"
+        let unreadablePath = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "local-tmux", "start", "already-live", "--cwd", root.path, "--detached",
+            ],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(unreadablePath.timedOut, unreadablePath.stderr)
+        XCTAssertNotEqual(unreadablePath.status, 0, unreadablePath.stdout)
+        XCTAssertTrue(unreadablePath.stderr.contains("different working directory"), unreadablePath.stderr)
     }
 
     func testLocalTmuxWorkspaceRefResolvesAcrossWindows() throws {
