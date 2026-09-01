@@ -70,6 +70,23 @@ jobs:
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
 
+      # CmuxLocalLinux uses a generated local-path IshKernel binary target.
+      # Provision it before upload-testflight.sh resolves the iOS workspace.
+      - name: Resolve iSH kernel revision
+        id: ish-revision
+        run: |
+          set -euo pipefail
+          echo "sha=$(git -C vendor/ish rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache iSH kernel xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: IshKernel.xcframework
+          key: ish-kernel-device-${{ runner.os }}-${{ steps.ish-revision.outputs.sha }}-${{ hashFiles('scripts/build-ish-ios.sh', 'scripts/ensure-ish-build-tools.sh', 'scripts/verify-ish-ios-artifacts.sh', 'Packages/iOS/CmuxLocalLinux/ShimSource/**', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz') }}
+
+      - name: Provision iSH kernel
+        run: ./scripts/verify-ish-ios-artifacts.sh --build --device-only
+
       - name: Materialize App Store Connect API key
         env:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}

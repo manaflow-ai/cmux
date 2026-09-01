@@ -65,7 +65,15 @@ let package = Package(
                 "CmuxMobileBrowser",
                 "CmuxMobileBrowserStream",
                 "CmuxMobileCamera",
-                "CmuxLocalLinux",
+                // The local Linux provider is a product from the neighboring
+                // package, not a target in this composition package. Keep the
+                // product edge conditional so host-side package tests do not
+                // link the iOS-only binary slice.
+                .product(
+                    name: "CmuxLocalLinux",
+                    package: "CmuxLocalLinux",
+                    condition: .when(platforms: [.iOS])
+                ),
                 "CmuxMobileCrashReporting",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",

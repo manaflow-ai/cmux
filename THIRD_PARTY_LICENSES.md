@@ -279,6 +279,47 @@ The following packages are linked into the cmux app binary.
 - **Copyright:** Copyright (c) 2014, Kyle Fuller
 - **Source:** https://github.com/kylef/PathKit
 
+---
+
+## iSH and the Alpine Linux rootfs (iOS local Linux)
+
+cmux iOS can embed the iSH user-mode x86 kernel and an Alpine Linux fakefs
+resource for its local Linux terminal. The vendored source is the Manaflow fork
+at `vendor/ish`, pinned at commit
+`efd2fa7a2b5a46d601fb0b9e667032591c7ad54d` for this release.
+
+### iSH
+
+- **License:** GNU General Public License v3.0; contributions after iSH commit
+  `0e3a4144f93135c4fd618c8397d2cfd87194f69f` are additionally licensed under
+  GPLv2.
+- **Source:** https://github.com/manaflow-ai/ish
+- **License text:** `vendor/ish/LICENSE.md`
+- **iOS App Store notice:** `vendor/ish/LICENSE.IOS`
+
+`LICENSE.IOS` contains the iSH copyright holders' commitment not to pursue a
+license violation that results solely from a conflict between GPLv2 or GPLv3
+and Apple App Store terms, provided the GPL obligations are otherwise met. The
+complete notice is also shipped in the `CmuxLocalLinux` package resource.
+
+### Alpine Linux fakefs
+
+The bundled `CmuxLocalLinux` fakefs archive is generated with iSH's
+`tools/fakefsify` from the Alpine Linux 3.24.1 x86 minirootfs:
+
+- **Source:** https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86/alpine-minirootfs-3.24.1-x86.tar.gz
+- **Archive:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz`
+- **SHA-256:** `634355e2245c9d56186d1b86fb6e034453eb303aea15b573ca250b343376fffd`
+- **Package manifest:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json`
+
+The archive's package database reports GPL-2.0-only for Alpine base layout,
+apk-tools, libapk, scanelf, and BusyBox; MIT for Alpine keys, Alpine release,
+and musl; MPL-2.0 and MIT for the CA certificate bundle; Apache-2.0 for
+OpenSSL's libcrypto3 and libssl3; MIT, BSD-2-Clause, and GPL-2.0-or-later for
+musl-utils; and the zlib license for zlib. The package resource
+`CmuxLocalLinux/Resources/THIRD_PARTY_NOTICES.md` records this list and points
+to the package metadata and upstream license sources.
+
 ### iroh-ffi
 
 - **License:** MIT License or Apache License 2.0 (dual-licensed; cmux elects MIT)

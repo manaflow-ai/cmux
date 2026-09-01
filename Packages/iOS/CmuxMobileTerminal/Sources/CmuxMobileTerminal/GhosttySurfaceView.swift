@@ -34,6 +34,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var appliedTerminalConfigTheme: TerminalTheme?
     weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
+    /// Whether the input accessory should use macOS modifier labels and expose
+    /// the Command key. Local and non-Mac terminals use Ctrl/Alt labels and do
+    /// not offer Command, which has no terminal byte representation there.
+    private let isMacRemote: Bool
     /// Surface-owned live font size (points). Zoom mutates this; it is the
     /// source of truth for the current size, so the size accumulates correctly
     /// across taps even though the actual libghostty apply is coalesced.
@@ -960,12 +964,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - terminalTheme: Renderer-effective colors used by surrounding UIKit chrome.
     ///   - terminalConfigTheme: Raw Ghostty configuration defaults. Defaults to
     ///     `terminalTheme` for callers that do not mirror a remote surface.
+    ///   - isMacRemote: Whether the target uses macOS modifier conventions.
+    ///     Defaults to `true` for existing paired-Mac surfaces.
     public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
                 fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai,
-                terminalConfigTheme: TerminalTheme? = nil) {
+                terminalConfigTheme: TerminalTheme? = nil,
+                isMacRemote: Bool = true) {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
+        self.isMacRemote = isMacRemote
         self.liveFontSize = fontSize
         self.userBaseFontSize = fontSize
         self.terminalTheme = terminalTheme.validatedOrDefault()
@@ -995,6 +1003,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         installBottomDockContainer()
         installPersistentToolbar()
+        // `TerminalInputTextView` builds its toolbar lazily with the historic
+        // paired-Mac default. Apply the explicit target after that setup so a
+        // local Linux surface removes Command and shows Ctrl/Alt immediately.
+        inputProxy.updateModifierLabels(isMacRemote: isMacRemote)
         installComposerContainer()
         installBottomDockConstraints()
         installArtifactChipContainer()
@@ -2957,6 +2969,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public func processOutput(_ data: Data) {
         processOutput(data, completion: nil)
+    }
+
+    /// Replaces the terminal model with a complete replay in one queued
+    /// operation.
+    ///
+    /// A local terminal keeps its shell and bounded output ring while this
+    /// view can be detached from a window. Re-attaching the view therefore
+    /// replays bytes into a Ghostty model that may already contain those
+    /// bytes. Prefixing the replay with RIS (ESC c) clears the screen,
+    /// scrollback, modes, and cursor state before the history is applied.
+    /// Keeping both byte sequences in one `processOutput` call preserves FIFO
+    /// ordering on the surface work queue and avoids displaying a transient
+    /// blank reset between the reset and the replay.
+    public func processTerminalReplay(_ data: Data) {
+        var resetAndReplay = Data(capacity: data.count + 2)
+        resetAndReplay.append(contentsOf: [0x1B, 0x63])
+        resetAndReplay.append(data)
+        processOutput(resetAndReplay)
     }
 
     func makeSurfaceOperationID() -> UInt64 {
@@ -5296,6 +5326,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func handleOutboundBytes(_ bytes: Data) {
+        guard !bytes.isEmpty else { return }
+
+        // A local PTY is the source of truth for this surface. When its
+        // terminal parser receives a query (for example DA, cursor-position,
+        // or focus reporting), libghostty writes the response through the
+        // manual-I/O callback. Route those bytes back to the local host so the
+        // emulated process receives the response. Paired-Mac mirrors keep the
+        // display-only behavior below: the Mac owns the real PTY and must not
+        // receive duplicate focus/query responses from the phone renderer.
+        if !isMacRemote {
+            delegate?.ghosttySurfaceView(self, didProduceTerminalOutput: bytes)
+            return
+        }
+
         // The mirror is display-only, so any bytes its libghostty writes toward a
         // PTY are spurious: the Mac is the real terminal and already produces
         // them. The clearest case is focus reporting — `set_focus` on

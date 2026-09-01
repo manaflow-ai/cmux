@@ -289,6 +289,23 @@ public actor LocalLinuxScrollbackRing {
         sequenceAfterAppending(byteCount: buffer.count, to: baseSequence)
     }
 
+    /// Binds this ring to one output source and starts draining it immediately.
+    ///
+    /// Call this as soon as a session is installed, before a terminal lane is
+    /// attached. The source stream can buffer output before its first consumer;
+    /// starting the ring here moves those bytes into this ring's bounded replay
+    /// buffer and prevents a detached shell from growing that source buffer.
+    /// Calling this method again with the same source is a no-op. A ring cannot
+    /// be rebound to a different source because that would mix two processes in
+    /// one absolute sequence space.
+    ///
+    /// - Parameter source: The sole pty output source for this ring.
+    /// - Throws: ``LocalLinuxLaneError/sourceMismatch`` when already bound to a
+    ///   different source.
+    public func start(source candidate: any LocalLinuxOutputSource) throws {
+        try bind(source: candidate)
+    }
+
     /// Appends one output chunk to the history and returns its sequence stamp.
     /// Empty chunks do not consume sequence space.
     @discardableResult
@@ -318,7 +335,7 @@ public actor LocalLinuxScrollbackRing {
         maximumPendingFrames: Int,
         maximumFrameByteCount: Int
     ) throws -> Subscription {
-        try bind(source: source)
+        try start(source: source)
         frameByteLimit = min(frameByteLimit, max(1, maximumFrameByteCount))
 
         let replaySnapshot = try validatedSnapshot(from: cursor)

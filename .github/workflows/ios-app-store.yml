@@ -63,6 +63,24 @@ jobs:
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
 
+      # CmuxLocalLinux uses a generated local-path IshKernel binary target.
+      # The production upload below archives the workspace directly, so this
+      # artifact must exist before SwiftPM resolves that graph.
+      - name: Resolve iSH kernel revision
+        id: ish-revision
+        run: |
+          set -euo pipefail
+          echo "sha=$(git -C vendor/ish rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache iSH kernel xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: IshKernel.xcframework
+          key: ish-kernel-device-${{ runner.os }}-${{ steps.ish-revision.outputs.sha }}-${{ hashFiles('scripts/build-ish-ios.sh', 'scripts/ensure-ish-build-tools.sh', 'scripts/verify-ish-ios-artifacts.sh', 'Packages/iOS/CmuxLocalLinux/ShimSource/**', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz') }}
+
+      - name: Provision iSH kernel
+        run: ./scripts/verify-ish-ios-artifacts.sh --build --device-only
+
       - name: Install asc CLI
         run: |
           set -euo pipefail
@@ -78,7 +96,7 @@ jobs:
             exit 1
           fi
           "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
-          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
+          dirname "$BREW_BIN" >> "$GITHUB_PATH"
 
       - name: Verify asc CLI
         run: |
@@ -102,10 +120,12 @@ jobs:
           mkdir -p "$KEY_DIR"
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
-          echo "ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-          echo "ASC_KEY_ID=$ASC_API_KEY_ID" >> "$GITHUB_ENV"
-          echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID" >> "$GITHUB_ENV"
-          echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          {
+            echo "ASC_API_KEY_PATH=$KEY_PATH"
+            echo "ASC_KEY_ID=$ASC_API_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID"
+            echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH"
+          } >> "$GITHUB_ENV"
 
       - name: Import iOS distribution signing cert
         env:

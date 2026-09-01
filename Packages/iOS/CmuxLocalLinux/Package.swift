@@ -11,6 +11,9 @@ let package = Package(
     name: "CmuxLocalLinux",
     platforms: [
         .iOS(.v18),
+        // Keep the protocol, ring, and test seams buildable on the host. The
+        // iSH bridge is conditionally compiled when the iOS module is present.
+        .macOS(.v14),
     ],
     products: [
         .library(
@@ -32,12 +35,18 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxMobileRPC",
-                "IshKernel",
+                // The generated binary contains iOS slices only. Keep the
+                // protocol and test seams available to the macOS host without
+                // asking SwiftPM to link an iOS archive there.
+                .target(name: "IshKernel", condition: .when(platforms: [.iOS])),
             ],
             resources: [
-                // Fetched by scripts/build-ish-ios.sh (gitignored); imported
-                // into the persistent fakefs on first boot.
+                // Imported into the persistent fakefs on first boot. The
+                // archive and its provenance are checked in so package
+                // resolution does not depend on a network fetch.
                 .copy("Resources/alpine-rootfs.tar.gz"),
+                .copy("Resources/alpine-rootfs.json"),
+                .copy("Resources/THIRD_PARTY_NOTICES.md"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -45,8 +54,18 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
+                // libarchive uses the system bzip2 implementation on iOS.
+                .linkedLibrary("bz2", .when(platforms: [.iOS])),
                 .linkedLibrary("z"),
                 .linkedLibrary("iconv"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxLocalLinuxTests",
+            dependencies: ["CmuxLocalLinux"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
             ]
         ),
     ]

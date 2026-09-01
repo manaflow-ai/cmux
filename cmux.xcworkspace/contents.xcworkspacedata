@@ -54,6 +54,9 @@
          location = "group:CmuxAgentChatUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxLocalLinux">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileAnalytics">
       </FileRef>
       <FileRef

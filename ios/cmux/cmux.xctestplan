@@ -39,6 +39,13 @@
     },
     {
       "target" : {
+        "containerPath" : "container:../Packages/iOS/CmuxLocalLinux",
+        "identifier" : "CmuxLocalLinuxTests",
+        "name" : "CmuxLocalLinuxTests"
+      }
+    },
+    {
+      "target" : {
         "containerPath" : "container:cmux-ios.xcodeproj",
         "identifier" : "8B41F65B2DEDD0D6001A66F9",
         "name" : "cmuxUITests"

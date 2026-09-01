@@ -30,6 +30,14 @@ typedef void (*cmux_ish_output_cb)(void *_Nullable context,
                                    const char *_Nullable bytes,
                                    size_t length);
 
+// Called after the emulated process consumes bytes from the tty input buffer.
+// The callback runs while the tty lock is held. It may run on an iSH task
+// thread, or on the host thread that calls cmux_ish_session_input when input
+// echo or a line-discipline operation consumes bytes. It must return
+// immediately and must not call back into this API synchronously. Hosts use it
+// only to signal a non-blocking input waiter.
+typedef void (*cmux_ish_input_ready_cb)(void *_Nullable context);
+
 // One-shot import of an Alpine rootfs tarball (.tar.gz) into a fakefs
 // directory. Returns false and fills err_out (NUL-terminated) on failure.
 // Must run before cmux_ish_boot; safe on any thread.
@@ -63,6 +71,17 @@ int cmux_ish_session_open(const char *_Nullable const *_Nonnull argv,
 // returns bytes accepted (may be < length if the 4KB line buffer is full)
 // or a negative errno.
 long cmux_ish_session_input(int session, const char *_Nonnull bytes, size_t length);
+
+// Installs or clears the input-readiness callback for an active session. A
+// replacement or clear waits for an older readiness callback to return, and
+// hangup also quiesces callbacks before it returns. Do not call this function
+// from an output or readiness callback. Passing NULL clears the callback and
+// its context. Returns 0 on success or a negative Linux errno when the handle
+// is stale or no longer active.
+int cmux_ish_session_set_input_ready_cb(
+    int session,
+    cmux_ish_input_ready_cb _Nullable cb,
+    void *_Nullable context);
 
 // Updates the tty window size and signals SIGWINCH to the foreground group.
 void cmux_ish_session_resize(int session, int cols, int rows);

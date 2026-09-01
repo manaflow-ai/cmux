@@ -246,6 +246,44 @@ struct LocalLinuxRuntimeTests {
         }
     }
 
+    @Test("input readiness callback wakes a blocked writer and finishes on hangup")
+    func inputReadinessIsCoalescedAndFinished() async throws {
+        let fixture = try RuntimeFixture()
+        defer { fixture.remove() }
+        try fixture.seedValidRootfs()
+
+        let bridge = LocalLinuxTestKernelBridge(
+            boot: { _, _ in },
+            openSessionWithTerminationAndInputReady: { _, _, _, _, _, _, onInputReady in
+                // Emit before the runtime returns so the stream's one-element
+                // buffer covers the write-to-waiter hand-off race.
+                onInputReady()
+                onInputReady()
+                return LocalLinuxTestKernelSession(processID: 11)
+            }
+        )
+        let runtime = LocalLinuxRuntime(
+            kernel: bridge,
+            fileSystem: LocalLinuxFileSystemClient(),
+            rootURL: fixture.rootURL,
+            rootfsArchiveURL: nil
+        )
+        try await runtime.bootIfNeeded()
+
+        let session = try await runtime.openSession(
+            command: ["/bin/sh"],
+            environment: [],
+            columns: 80,
+            rows: 24
+        )
+        var iterator = session.inputReady.makeAsyncIterator()
+
+        #expect(await iterator.next() != nil)
+
+        await session.hangup()
+        #expect(await iterator.next() == nil)
+    }
+
     @Test("output overflow bounds chunks and hangs up the kernel")
     func outputOverflowFinishesAndRequestsHangup() async throws {
         let fixture = try RuntimeFixture()

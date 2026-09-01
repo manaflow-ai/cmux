@@ -237,16 +237,12 @@ public final class LocalLinuxComputerController {
         }
     }
 
-    /// Gives a blocked input write another ownership-safe retry opportunity.
-    /// The iSH tty API is deliberately non-blocking. A full canonical input
-    /// buffer can therefore return zero until the foreground process consumes
-    /// bytes. Output activity is the bridge's only asynchronous progress signal
-    /// today, so the coordinator calls this after each output frame. The
-    /// pending bytes stay at the head of the bounded FIFO; this method never
-    /// polls or silently discards them.
+    /// Gives a blocked input write a fallback retry signal. Production iSH
+    /// sessions signal their readiness stream directly; this path remains for
+    /// older bridges that only expose output activity.
     public func notifyOutputActivity() {
-        guard !inputQueue.isEmpty else { return }
-        startInputWorkerIfNeeded()
+        guard !inputQueue.isEmpty, let session else { return }
+        session.signalInputReady()
     }
 
     public func resize(columns: Int, rows: Int) {
@@ -348,8 +344,34 @@ public final class LocalLinuxComputerController {
                 await session.hangup()
                 return false
             }
+            let newRing = LocalLinuxScrollbackRing()
+            do {
+                // Start the sole output consumer before publishing the session.
+                // This drains the runtime's bounded ingress into a fixed-size
+                // replay ring immediately, including while the app is inactive
+                // or no Ghostty view is mounted.
+                try await newRing.start(source: session)
+            } catch {
+                await session.hangup()
+                guard generation == lifecycleGeneration else { return false }
+                let localError = LocalLinuxError.operationFailed(
+                    "terminal output retention could not start"
+                )
+                lastError = localError
+                state = .failed
+                localLinuxProductionLog.error(
+                    "local Linux output retention failed: \(String(describing: error), privacy: .public)"
+                )
+                return false
+            }
+            // `start(source:)` crosses the ring actor. Teardown can win while
+            // it is suspended, so revalidate ownership before installing.
+            guard generation == lifecycleGeneration else {
+                await session.hangup()
+                return false
+            }
             self.session = session
-            ring = LocalLinuxScrollbackRing()
+            ring = newRing
             resize(columns: columns, rows: rows)
             if !pendingInput.isEmpty {
                 let bytes = pendingInput
@@ -374,9 +396,10 @@ public final class LocalLinuxComputerController {
     /// one cancellable task instead.
     private func startInputWorkerIfNeeded() {
         guard inputWorker == nil else { return }
+        guard let workerSession = session else { return }
         let workerID = UUID()
         inputWorkerID = workerID
-        inputWorker = Task { @MainActor [weak self, workerID] in
+        inputWorker = Task { @MainActor [weak self, workerID, workerSession] in
             guard let self else { return }
             defer {
                 if self.inputWorkerID == workerID {
@@ -385,16 +408,24 @@ public final class LocalLinuxComputerController {
                 }
             }
 
+            // Keep one iterator for the worker's entire lifetime. The
+            // bufferingNewest(1) stream preserves an edge that arrives between
+            // a zero-byte write and this await, so no polling or timer is
+            // needed.
+            let readiness = workerSession.inputReady
+            var readinessIterator = readiness.makeAsyncIterator()
+
             while !Task.isCancelled,
                   self.inputWorkerID == workerID,
-                  let session = self.session,
+                  self.session === workerSession,
                   !self.inputQueue.isEmpty {
+                let session = workerSession
                 // Keep the current element in the FIFO while it is being
                 // written. This preserves the exact remainder when the
                 // non-blocking tty reports EAGAIN (zero accepted bytes).
                 let bytes = self.inputQueue[0]
                 var offset = 0
-                var shouldRetryLater = false
+                var waitForReadiness = false
 
                 do {
                     while offset < bytes.count, !Task.isCancelled {
@@ -415,17 +446,16 @@ public final class LocalLinuxComputerController {
                             self.markInputFailure(
                                 .operationFailed("terminal input returned an invalid byte count")
                             )
-                            shouldRetryLater = true
-                            break
+                            return
                         }
                         guard accepted > 0 else {
                             // The C shim uses zero for a full non-blocking tty
                             // buffer. Leave the remainder in place and wait
-                            // for a later output/input notification.
+                            // for the next coalesced input-readiness edge.
                             localLinuxProductionLog.error(
                                 "local Linux input backpressured with \(remainder.count, privacy: .public) bytes pending"
                             )
-                            shouldRetryLater = true
+                            waitForReadiness = true
                             break
                         }
 
@@ -445,18 +475,17 @@ public final class LocalLinuxComputerController {
                     }
                     // iSH's non-blocking tty API reports a full line buffer as
                     // -EAGAIN. This is temporary backpressure, not a broken
-                    // shell. Keep the FIFO head and wait for output activity
-                    // or another input callback to schedule a retry.
+                    // shell. Keep the FIFO head and await the readiness stream.
                     if case let LocalLinuxError.inputFailed(errno) = error,
                        errno == Self.wouldBlockErrno {
-                        shouldRetryLater = true
+                        waitForReadiness = true
                         break
                     }
                     self.markInputFailure(
                         (error as? LocalLinuxError)
                             ?? .operationFailed("terminal input failed")
                     )
-                    shouldRetryLater = true
+                    return
                 }
 
                 guard self.inputWorkerID == workerID,
@@ -466,8 +495,11 @@ public final class LocalLinuxComputerController {
                     // `inputQueueByteCount` was decremented per accepted
                     // chunk, so no additional count adjustment is needed.
                 }
-                if shouldRetryLater {
-                    return
+                if waitForReadiness {
+                    guard await readinessIterator.next() != nil else { return }
+                    guard !Task.isCancelled,
+                          self.inputWorkerID == workerID,
+                          self.session === session else { return }
                 }
             }
         }
@@ -785,14 +817,35 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
 
                 self.lane = lane
                 var outputStreamEnded = false
+                var isFirstFrame = true
                 while !Task.isCancelled, self.outputGeneration == generation {
                     do {
                         guard let frame = try await lane.receiveOutput() else {
                             outputStreamEnded = true
                             break
                         }
-                        guard !Task.isCancelled, sceneIsActive else { break }
-                        surfaceView?.processOutput(frame.bytes)
+                        // Re-check attachment ownership after the receive
+                        // suspension. A detach or renderer recovery can
+                        // cancel this task while a frame is already queued;
+                        // never let that stale frame land after a replacement
+                        // lane has started its authoritative replay.
+                        guard !Task.isCancelled,
+                              self.outputGeneration == generation,
+                              self.lane === lane,
+                              self.isWindowAttached,
+                              self.sceneIsActive,
+                              let surfaceView = self.surfaceView else { break }
+                        if isFirstFrame, frame.kind == .replay {
+                            // The local lane's first frame is a complete
+                            // bounded history. Ghostty survives a transient
+                            // window detach, so clear its retained terminal
+                            // model before applying that history. The helper
+                            // queues RIS and replay as one FIFO operation.
+                            surfaceView.processTerminalReplay(frame.bytes)
+                        } else {
+                            surfaceView.processOutput(frame.bytes)
+                        }
+                        isFirstFrame = false
                         controller.notifyOutputActivity()
                     } catch {
                         localLinuxProductionLog.error(
@@ -845,6 +898,10 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         // MARK: GhosttySurfaceViewDelegate
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool) {
+            // UIKit may deliver a final callback from a dismantled view after
+            // SwiftUI has assigned this coordinator to a replacement view.
+            // Never let that stale callback toggle the replacement lane.
+            guard self.surfaceView === surfaceView else { return }
             isWindowAttached = isAttached
             if isAttached {
                 startIfNeeded()
@@ -854,10 +911,24 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
+            guard self.surfaceView === surfaceView else { return }
+            controller.send(data)
+        }
+
+        /// Routes terminal-protocol replies generated by Ghostty back to the
+        /// embedded PTY. This is separate from user input: programs can issue
+        /// device-attribute, cursor-position, or focus queries whose response
+        /// originates in the terminal parser rather than the UIKit keyboard.
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didProduceTerminalOutput data: Data
+        ) {
+            guard self.surfaceView === surfaceView else { return }
             controller.send(data)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
+            guard self.surfaceView === surfaceView else { return }
             guard size.columns > 0, size.rows > 0 else { return }
             lastGrid = size
             controller.resize(columns: size.columns, rows: size.rows)
@@ -866,6 +937,16 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
                 rows: size.rows,
                 reportID: reportID
             )
+        }
+
+        func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView,
+                  sceneIsActive else { return }
+            // Render recovery creates a fresh Ghostty surface but keeps the
+            // local iSH session alive. Reopen the attachment so its replay
+            // restores the terminal model on the replacement surface.
+            stopLane()
+            startIfNeeded()
         }
 
         func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool {

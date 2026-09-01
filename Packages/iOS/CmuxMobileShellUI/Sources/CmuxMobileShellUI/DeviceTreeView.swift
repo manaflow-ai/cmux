@@ -32,6 +32,10 @@ struct DeviceTreeView: View {
     var dismissAction: (() -> Void)? = nil
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
+    /// Optional phone-owned computer supplied by the app feature module. It is
+    /// intentionally a protocol-backed destination, so this list never needs
+    /// to import or model the embedded Linux kernel as a Mac connection.
+    @Environment(\.mobileLocalComputerProvider) private var localComputerProvider
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -60,7 +64,15 @@ struct DeviceTreeView: View {
     var body: some View {
         NavigationStack {
             List {
-                if computers.isEmpty && store.hiddenComputers.isEmpty {
+                if let localComputerProvider, localComputerProvider.isAvailable {
+                    Section {
+                        MobileLocalComputerRow(provider: localComputerProvider)
+                    } header: {
+                        Text(localComputerProvider.title)
+                    }
+                }
+                if computers.isEmpty && store.hiddenComputers.isEmpty
+                    && !(localComputerProvider?.isAvailable ?? false) {
                     emptySection
                 } else {
                     // One row per Computer, grouped under the connection
@@ -97,15 +109,21 @@ struct DeviceTreeView: View {
                             ))
                         }
                     }
-                    Section {
-                        if showAddDevice != nil {
+                    if !computers.isEmpty || !store.hiddenComputers.isEmpty {
+                        Section {
+                            if showAddDevice != nil {
+                                addComputerRow
+                            }
+                        } footer: {
+                            Text(L10n.string(
+                                "mobile.connections.footer",
+                                defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
+                            ))
+                        }
+                    } else if showAddDevice != nil {
+                        Section {
                             addComputerRow
                         }
-                    } footer: {
-                        Text(L10n.string(
-                            "mobile.connections.footer",
-                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
-                        ))
                     }
                 }
             }

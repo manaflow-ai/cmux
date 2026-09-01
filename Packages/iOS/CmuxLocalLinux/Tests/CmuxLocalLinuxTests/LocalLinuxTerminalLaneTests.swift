@@ -295,6 +295,31 @@ struct LocalLinuxTerminalLaneTests {
         await source.hangup()
     }
 
+    @Test("starting a ring before subscription retains a bounded replay suffix")
+    func startDrainsDetachedOutputIntoBoundedHistory() async throws {
+        let ring = LocalLinuxScrollbackRing(limit: 4)
+        let source = TestLocalLinuxOutputSource()
+
+        // Start the pump before creating a lane. This is the production order
+        // used while a local computer is detached from the terminal view.
+        try await ring.start(source: source)
+        await source.emit(Data("abcdef".utf8))
+
+        // `emit` only enqueues into the source stream. Wait for the ring's
+        // actor to observe the full write without using a timing delay.
+        #expect(await Self.waitForSequence(ring, expected: 6))
+
+        let lane = LocalLinuxTerminalLane(source: source, ring: ring, cursor: nil)
+        let replay = try #require(try await lane.receiveOutput())
+        #expect(replay.kind == .replay)
+        #expect(replay.retainedBaseSequence == 2)
+        #expect(replay.sequence == 2)
+        #expect(replay.currentSequence == 6)
+        #expect(replay.bytes == Data("cdef".utf8))
+
+        await lane.terminate()
+    }
+
     @Test("a shared ring rejects attaching a different source")
     func ringRejectsSourceReplacement() async throws {
         let ring = LocalLinuxScrollbackRing()
@@ -361,6 +386,20 @@ struct LocalLinuxTerminalLaneTests {
         #expect(await pending.value == nil)
         await firstLane.close()
         await secondLane.close()
+    }
+
+    private static func waitForSequence(
+        _ ring: LocalLinuxScrollbackRing,
+        expected: UInt64,
+        attempts: Int = 1_000
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            if await ring.currentSequence >= expected {
+                return true
+            }
+            await Task.yield()
+        }
+        return await ring.currentSequence >= expected
     }
 }
 

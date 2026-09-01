@@ -127,6 +127,16 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || die "missing required command '$1'"
 }
 
+require_clean_ish_tree() {
+    local status
+    status="$(git -C "$ISH" status --porcelain=v1 --untracked-files=all --ignore-submodules=none 2>/dev/null)" \
+        || die "cannot inspect vendor/ish working tree"
+    if [[ -n "$status" ]]; then
+        echo "$status" >&2
+        die "vendor/ish has local changes; commit them before building a provenance-tracked artifact"
+    fi
+}
+
 sha256_file() {
     local path="$1"
     if command -v shasum >/dev/null 2>&1; then
@@ -183,6 +193,7 @@ validate_tree() {
     [[ -f "$SHIM/cmux_ish.c" && -f "$SHIM/cmux_ish.h" ]] || die "cmux iSH shim sources are missing"
     [[ ! -L "$ROOTFS_DEST" ]] || die "rootfs destination is a symlink, refusing to overwrite it"
     [[ ! -L "$ROOTFS_PROVENANCE" ]] || die "rootfs provenance is a symlink: $ROOTFS_PROVENANCE"
+    require_clean_ish_tree
 }
 
 rootfs_entries=""
