@@ -251,13 +251,22 @@ final class MobilePairedPhoneStore {
 private extension MobilePairedPhoneStore {
     static func decodeRecords(from defaults: UserDefaults) -> [String: MobilePairedPhoneRecord] {
         guard let data = defaults.data(forKey: defaultsKey),
-              let decoded = try? JSONDecoder().decode(
-                  LossyPairedPhoneRecordArray.self,
-                  from: data
-              ) else {
+              let rawRecords = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
             return [:]
         }
-        return decoded.records.reduce(into: [:]) { records, record in
+        let decoder = JSONDecoder()
+        let decoded = rawRecords.compactMap { rawRecord -> MobilePairedPhoneRecord? in
+            guard let object = rawRecord as? [String: Any],
+                  let elementData = try? JSONSerialization.data(withJSONObject: object),
+                  let record = try? decoder.decode(
+                      MobilePairedPhoneRecord.self,
+                      from: elementData
+                  ) else {
+                return nil
+            }
+            return record
+        }
+        return decoded.reduce(into: [:]) { records, record in
             guard let clientID = normalized(record.clientID),
                   clientID.utf16.count <= maximumClientIDLength,
                   validBundleIdentifier(record.bundleIdentifier) != nil else {
@@ -271,27 +280,6 @@ private extension MobilePairedPhoneStore {
                 source: record.source,
                 handshakeIdentity: normalized(record.handshakeIdentity)
             )
-        }
-    }
-
-    /// Decodes records independently so one future/invalid element cannot
-    /// erase every known pairing when the persisted schema evolves.
-    private struct LossyPairedPhoneRecordArray: Decodable {
-        let records: [MobilePairedPhoneRecord]
-
-        init(from decoder: Decoder) throws {
-            var container = try decoder.unkeyedContainer()
-            var records: [MobilePairedPhoneRecord] = []
-            records.reserveCapacity(container.count ?? 0)
-            while !container.isAtEnd {
-                guard let elementDecoder = try? container.superDecoder() else {
-                    break
-                }
-                if let record = try? MobilePairedPhoneRecord(from: elementDecoder) {
-                    records.append(record)
-                }
-            }
-            self.records = records
         }
     }
 
