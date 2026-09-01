@@ -175,6 +175,19 @@ pub(crate) fn scan(
             // Screen text alone must not promote a stale or unknown process.
             continue;
         }
+        if tracker.has_live_emission(terminal_id)
+            && !matches!(
+                mux.agent_roster_source_for_terminal(&terminal_public_id),
+                Some(crate::AgentSource::Detected) | Some(crate::AgentSource::Hook)
+            )
+        {
+            // A hook can claim and later release a terminal while the
+            // foreground process remains unchanged. Re-arm the screen state
+            // when the durable roster no longer has a stronger owner, so the
+            // detected entry returns on the next scan instead of waiting for
+            // the long stale-state interval.
+            tracker.clear_emitted_state(terminal_id);
+        }
         let stale_rearm = tracker.rearm_stale_emission(terminal_id, now);
         // `detected_manifest` comes from the lookup performed for this scan.
         // Never attribute screen text from a cached process name.

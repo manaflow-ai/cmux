@@ -2773,8 +2773,10 @@ impl Mux {
         }
         {
             let mut host = self.agent_roster.lock().unwrap();
-            host.roster = crate::journal_reducers::AgentRoster::default();
-            host.cursor = 0;
+            // Retention-gap recovery seeds active entries from durable agent
+            // projections and anchors the cursor at the retained head. Keep
+            // that state while folding the retained tail; resetting to an
+            // empty roster would erase agents whose original events pruned.
             host.needs_projection_rebuild = false;
         }
         let ingress = crate::JournalIngress {
@@ -2868,6 +2870,19 @@ impl Mux {
             .pending_agent_hook_projections_for_terminal(terminal_id)
             .map(|rows| !rows.is_empty())
             .unwrap_or(false)
+    }
+
+    pub(crate) fn agent_roster_source_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<AgentSource> {
+        self.agent_roster
+            .lock()
+            .unwrap()
+            .roster
+            .entries
+            .get(terminal_id.as_str())
+            .map(|entry| entry.agent_source())
     }
 
     pub(crate) fn discard_screen_detect_pending_for_terminal(

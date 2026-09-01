@@ -231,6 +231,12 @@ impl ScreenDetectTracker {
         self.pending_emissions.remove(terminal_id);
     }
 
+    pub(crate) fn clear_emitted_state(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.emitted = None;
+        }
+    }
+
     pub(crate) fn pending_retry_due(&self, terminal_id: &str, now: Instant) -> bool {
         self.pending_retry_after.get(terminal_id).is_none_or(|retry_after| now >= *retry_after)
     }
