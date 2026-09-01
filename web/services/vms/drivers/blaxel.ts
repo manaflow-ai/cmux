@@ -34,6 +34,7 @@ import {
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand as sharedCmuxTuiDaemonCommand,
   cmuxTuiHomeViewMissingCondition,
+  CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiInstallCommand as sharedCmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand as sharedCmuxTuiPinCheckCommand,
   cmuxTuiUserUsableCondition,
@@ -1279,11 +1280,18 @@ export class BlaxelProvider implements VMProvider {
   private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
     // Blaxel restarts this named process after the mount watcher returns 75.
     // Re-run the idempotent setup in that same command so a lost bindfs view
-    // is repaired before the daemon chooses its root backing fallback.
-    // The timeout keeps a broken package mirror from holding the supervisor forever.
+    // is repaired before the daemon chooses its root backing fallback. A
+    // bounded second attempt covers a short package-lock or mirror failure
+    // before the daemon accepts a deliberate root fallback.
     const setup = shellQuote(CMUX_CLOUD_USER_SETUP_COMMAND);
     const daemon = sharedCmuxTuiDaemonCommand(undefined, CMUX_CLOUD_LAYOUT);
-    const command = `( if command -v timeout >/dev/null 2>&1; then timeout 300 sh -c ${setup}; else sh -c ${setup}; fi ) || true; ${daemon}`;
+    const setupAttempt = `if command -v timeout >/dev/null 2>&1; then timeout 300 sh -c ${setup}; else sh -c ${setup}; fi`;
+    const command =
+      `for _ in 1 2; do ` +
+      `${setupAttempt} >/dev/null 2>&1 || true; ` +
+      `if ${CMUX_CLOUD_USER_USABLE_CONDITION}; then break; fi; ` +
+      `done; ` +
+      `${daemon}`;
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
       name: CMUX_TUI_PROCESS_NAME,
       command,
@@ -1294,6 +1302,60 @@ export class BlaxelProvider implements VMProvider {
       restartOnFailure: true,
       maxRestarts: 10,
     });
+  }
+
+  /** Stops the named daemon supervisor without turning an already-gone process into an error. */
+  private async stopCmuxTuiProcess(sandboxUrl: string, context: string): Promise<boolean> {
+    try {
+      await blaxelFetch(
+        "DELETE",
+        `${sandboxUrl}/process/${encodeURIComponent(CMUX_TUI_PROCESS_NAME)}`,
+      );
+      return true;
+    } catch (err) {
+      if (err instanceof ProviderError && /-> 404/.test(err.message)) return true;
+      console.warn(`[blaxel] ${context}: could not stop the named cmux-tui process`, err);
+      return false;
+    }
+  }
+
+  /** Reconciles a healthy root fallback after setup later restores the non-root layout. */
+  private async reconcileCmuxTuiRootFallback(
+    vmId: string,
+    sandboxUrl: string,
+    proc: BlaxelProcess,
+    source: CmuxTuiSource,
+  ): Promise<void> {
+    if (proc.status !== "running") return;
+    const marker = await this.sandboxExec(
+      sandboxUrl,
+      `cat ${CMUX_TUI_LAYOUT_MARKER_PATH} 2>/dev/null`,
+      10_000,
+    ).catch(() => null);
+    if (marker?.stdout.trim() !== "root") return;
+    // A /root mount is the intentional pre-layout state. Keep that daemon root-owned
+    // until resurrection moves the volume to the current layout.
+    const legacy = await this.sandboxExec(sandboxUrl, "mountpoint -q /root 2>/dev/null", 10_000).catch(() => null);
+    if (legacy?.exitCode === 0) return;
+
+    // Retry the same idempotent setup used by the process command. This is the
+    // attach-time reconciliation for a transient lock or package mirror failure.
+    await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS).catch(() => undefined);
+    await this.healSudo(sandboxUrl, `attach ${vmId} root-fallback-reconcile`);
+    const usable = await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_USABLE_CONDITION, 10_000).catch(() => null);
+    if (usable?.exitCode !== 0) return;
+
+    const installed = await this.sandboxExec(
+      sandboxUrl,
+      sharedCmuxTuiPinCheckCommand(source, CMUX_CLOUD_LAYOUT),
+    ).catch(() => null);
+    if (!(await this.stopCmuxTuiProcess(sandboxUrl, `attach ${vmId} root-fallback-reconcile`))) return;
+    if (installed?.exitCode !== 0) {
+      await this.bootstrapCmuxTui(vmId, sandboxUrl);
+    } else {
+      await this.startCmuxTuiProcess(sandboxUrl);
+      await this.waitForCmuxTuiReady(vmId, sandboxUrl);
+    }
   }
 
   private waitForCmuxTuiReady(name: string, sandboxUrl: string): Promise<void> {
@@ -1333,7 +1395,9 @@ export class BlaxelProvider implements VMProvider {
   private async ensureCmuxTuiRunning(vmId: string, sandboxUrl: string): Promise<void> {
     const source = await sharedResolveCmuxTuiSource("blaxel");
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
-    if (proc?.status !== "running") {
+    if (proc?.status === "running") {
+      await this.reconcileCmuxTuiRootFallback(vmId, sandboxUrl, proc, source);
+    } else {
       // The daemon is about to (re)start with the layout command; make sure the work
       // user it drops to exists even on a sandbox whose create predates the layout
       // (best-effort: the daemon command itself falls back to root without the user).
@@ -1632,17 +1696,7 @@ export class BlaxelProvider implements VMProvider {
       // daemon owns a mount-health watcher and a child process; killing only
       // the child would make restartOnFailure launch it again. The shell
       // fallback below still cleans up legacy daemons on older API versions.
-      try {
-        await blaxelFetch(
-          "DELETE",
-          `${sandboxUrl}/process/${encodeURIComponent(CMUX_TUI_PROCESS_NAME)}`,
-        );
-      } catch (err) {
-        const alreadyGone = err instanceof ProviderError && /-> 404/.test(err.message);
-        if (!alreadyGone) {
-          console.warn(`[blaxel] revokeEndpointLeases(${vmId}) could not stop the named cmux-tui process`, err);
-        }
-      }
+      await this.stopCmuxTuiProcess(sandboxUrl, `revokeEndpointLeases(${vmId})`);
       const result = await this.sandboxExec(
         sandboxUrl,
         [

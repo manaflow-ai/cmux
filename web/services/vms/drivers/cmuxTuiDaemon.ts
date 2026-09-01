@@ -233,6 +233,9 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource, layout?: CmuxTuiHo
 
 /** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
 export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
+// Rootfs state lets the Blaxel provider distinguish an intentional root
+// fallback from a still-running non-root daemon and reconcile it on attach.
+export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
 
 const CMUX_TUI_HOME_VIEW_LOST_EXIT_CODE = 75;
 const CMUX_TUI_BACKING_EXPECTED_VAR = "cmux_tui_backing_expected";
@@ -293,6 +296,7 @@ function cmuxTuiUserDaemonInvocation(
     // cleanly when Blaxel stops the named process during lease revocation.
     `trap '${viewLost}=1; kill -TERM "$${daemonPid}" 2>/dev/null || true' USR1`,
     `trap 'kill -TERM "$${daemonPid}" "$${watcherPid}" 2>/dev/null || true; exit 143' TERM INT HUP`,
+    `{ mkdir -p /etc/cmux 2>/dev/null; printf 'user\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null`,
     `${daemon} & ${daemonPid}=$!`,
     `( ${mountWatcher} ) & ${watcherPid}=$!`,
     `wait "$${daemonPid}"; ${daemonStatus}=$?`,
@@ -360,6 +364,7 @@ export function cmuxTuiDaemonCommand(
     `${CMUX_TUI_BACKING_EXPECTED_VAR}=0; ` +
     `if mountpoint -q ${backing} 2>/dev/null; then ${CMUX_TUI_BACKING_EXPECTED_VAR}=1; fi; ` +
     `if mountpoint -q /root 2>/dev/null; then ` +
+    `{ mkdir -p /etc/cmux 2>/dev/null; printf 'root\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
     `cd /root && if [ -x ${legacyBin} ]; then exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; ` +
     `elif [ -x ${bin} ]; then exec env HOME=/root TERM=xterm-256color ${bin} ${args}; ` +
     `else exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; fi; ` +
@@ -371,7 +376,7 @@ export function cmuxTuiDaemonCommand(
     // user setup, which retries the view mount; the breadcrumb makes the state
     // findable on the machine instead of silent.
     // Overwrite-latest, not append: a crash-looping daemon must not grow this file.
-    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s view-missing\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; } 2>/dev/null; ` +
+    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s view-missing\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; printf 'root\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
     backingInvocation +
     // A cmux session is promised passwordless sudo; without the binary it would be
     // trapped unprivileged, so fall back to a (breadcrumbed) root session until
@@ -379,7 +384,7 @@ export function cmuxTuiDaemonCommand(
     `elif ${usable}; then ` +
     `${cmuxTuiUserDaemonInvocation(layout, bin, args)}; ` +
     `else ` +
-    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s user-unusable\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; } 2>/dev/null; ` +
+    `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s user-unusable\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; printf 'root\\n' > ${CMUX_TUI_LAYOUT_MARKER_PATH}; } 2>/dev/null; ` +
     `${rootFallbackInvocation}; fi`
   );
 }

@@ -111,7 +111,7 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain(
       "runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start",
     );
-    expect(command).toContain("cd /home/cmux; cmux_tui_view_lost=0;");
+    expect(command).toContain("cd /home/cmux || exit 1; cmux_tui_view_lost=0;");
     expect(command).toContain("runuser -u cmux -- env HOME=/home/cmux");
     expect(command).toContain("cmux_tui_backing_expected=0");
     expect(command).toContain("if mountpoint -q /cmux/home 2>/dev/null; then cmux_tui_backing_expected=1; fi");
@@ -120,9 +120,11 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("--mountpoint /cmux/home");
     expect(command).toContain("kill -USR1");
     expect(command).toContain("exit 75");
+    expect(command).toContain("printf 'user\\n' > /etc/cmux/daemon-layout");
+    expect(command).toContain("printf 'root\\n' > /etc/cmux/daemon-layout");
     // A sandbox born before the layout change still has its persistent volume (data
     // AND daemon state) at /root; it must keep the root daemon until resurrection.
-    expect(command).toContain("if mountpoint -q /root 2>/dev/null; then cd /root && ");
+    expect(command).toContain("if mountpoint -q /root 2>/dev/null; then { mkdir -p /etc/cmux 2>/dev/null; printf 'root\\n'");
     expect(command).toContain("exec env HOME=/root TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
     expect(command).toContain("exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
     // Volume mounted but the identity view missing (bindfs failed): home on the
