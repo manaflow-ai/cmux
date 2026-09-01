@@ -11,6 +11,14 @@ extension TerminalController {
         )
     }
 
+    nonisolated static func automationRuleNotFoundMessage(_ id: String) -> String {
+        let format = String(
+            localized: "automation.error.ruleNotFound",
+            defaultValue: "Automation rule not found: %@"
+        )
+        return String.localizedStringWithFormat(format, id)
+    }
+
     nonisolated static func automationCommandEnvelope(
         from command: String
     ) -> (command: String, origin: CmuxAutomationEventOrigin)? {
@@ -88,7 +96,7 @@ extension TerminalController {
               let payload = automationEngine.showPayload(id: id) else {
             return .err(
                 code: "not_found",
-                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: \(id)"),
+                message: Self.automationRuleNotFoundMessage(id),
                 data: ["id": id]
             )
         }
@@ -115,7 +123,7 @@ extension TerminalController {
               let payload = automationEngine.testPayload(id: id, event: event) else {
             return .err(
                 code: "not_found",
-                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: \(id)"),
+                message: Self.automationRuleNotFoundMessage(id),
                 data: ["id": id]
             )
         }
@@ -141,14 +149,15 @@ extension TerminalController {
         guard automationEngine.scheduleSetEnabled(id: id, enabled: enabled) else {
             return .err(
                 code: "not_found",
-                message: String(localized: "automation.error.ruleNotFound", defaultValue: "Automation rule not found: \(id)"),
+                message: Self.automationRuleNotFoundMessage(id),
                 data: ["id": id]
             )
         }
         return .ok([
             "id": id,
             "enabled": enabled,
-            "pending": true
+            "pending": true,
+            "completion": "automation.logs"
         ])
     }
 
