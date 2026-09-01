@@ -9,6 +9,9 @@ import { testerGroupStatus } from "@/services/asc/testflight";
 import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
 
+// Eligibility and App Store status are request-fresh values. Keep the current
+// tab visible while this page resolves instead of caching mutable user data.
+export const instant = false;
 
 type SearchParams = {
   testflight?: string | string[];

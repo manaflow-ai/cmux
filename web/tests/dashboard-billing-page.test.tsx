@@ -185,6 +185,21 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("Confirm cancellation");
   });
 
+  test("renders a past-due banner that links to the Stripe portal", async () => {
+    subscriptionRows = [stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      status: "past_due",
+    })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain(
+      "Your latest payment failed. Update your payment method to keep your plan active.",
+    );
+    expect(html).toContain('href="/api/billing/portal"');
+  });
+
   test("renders active Stripe Team with seats, cancel, and team portal actions", async () => {
     proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
     subscriptionResults = [
@@ -359,6 +374,7 @@ async function renderBillingPage(searchParams: Record<string, string> = {}) {
 
 function stripeSubscriptionRow({
   cancelAtPeriodEnd,
+  status = "active",
   plan = "pro",
   scope = "user",
   seats = null,
@@ -367,6 +383,7 @@ function stripeSubscriptionRow({
   recurringInterval,
 }: {
   cancelAtPeriodEnd: boolean;
+  status?: string;
   plan?: string;
   scope?: string;
   seats?: number | null;
@@ -376,7 +393,7 @@ function stripeSubscriptionRow({
 }) {
   return {
     id: "sub_123",
-    status: "active",
+    status,
     priceId: "price_123",
     plan,
     scope,
