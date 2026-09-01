@@ -1,5 +1,8 @@
 import CmuxTerminal
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 #if DEBUG
 import CMUXDebugLog
 #endif
@@ -277,9 +280,8 @@ struct TuiManualIOResizeScheduler: Equatable {
                 self.inFlight = pending
                 return pending
             }
-            lastDelivered = inFlight
             self.inFlight = nil
-            if pending == lastDelivered {
+            if pending == inFlight {
                 self.pending = nil
             }
             return nil
@@ -867,6 +869,12 @@ final class TuiManualIOPump {
             // from the terminated process.
             process?.terminationHandler = nil
             process?.terminate()
+#if canImport(Darwin)
+            if let process, process.isRunning {
+                _ = kill(process.processIdentifier, SIGKILL)
+            }
+#endif
+            process?.waitUntilExit()
         }
         inputChannel.setHandle(nil)
         process = nil

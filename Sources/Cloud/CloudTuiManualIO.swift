@@ -91,24 +91,12 @@ actor CloudTuiPipeIOProbe {
             return false
         }
         let outputTask = Task { await CloudLinkPipe.readToEnd(stdout.fileHandleForReading) }
-        let timedOut = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                _ = await exit.result
-                return false
-            }
-            group.addTask {
-                do {
-                    try await Task.sleep(for: .seconds(10))
-                    return true
-                } catch {
-                    return false
-                }
-            }
-            let result = await group.next() ?? true
-            group.cancelAll()
-            return result
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while process.isRunning, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
         }
-        guard !timedOut else {
+        guard !process.isRunning else {
             // `terminate()` is cooperative and a wedged helper can ignore
             // SIGTERM. Force-kill and reap the exact child, then close the
             // pipe so its reader cannot keep this probe suspended.
