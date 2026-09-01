@@ -51,9 +51,11 @@ public final class SocketCredentialResolver: @unchecked Sendable {
     /// Shared mode state for clients targeting this route.
     public let authenticationModeCoordinator: SocketAuthenticationModeCoordinator
     // The resolver is shared by synchronous CLI and detached readiness paths.
-    // Security's lookup and SocketClient's send are synchronous, so an actor
-    // hop cannot preserve one-shot ordering here; this lock guards only the
-    // once-per-session state publication and source invocation.
+    // Security's lookup and SocketClient's send are synchronous; an actor hop
+    // would require a blocking bridge and could reorder the auth retry. This
+    // lock is the synchronous single-flight boundary: it guards state and one
+    // source invocation, never socket I/O, so concurrent paths cannot create
+    // duplicate LocalAuthentication contexts.
     private let resolutionLock = NSLock()
     private var resolutionState = ResolutionState.unresolved
 

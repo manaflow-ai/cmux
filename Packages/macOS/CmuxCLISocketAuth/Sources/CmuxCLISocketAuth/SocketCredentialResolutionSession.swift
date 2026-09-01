@@ -13,6 +13,12 @@ private final class KeychainLookupMemoizer: @unchecked Sendable {
     private var states: [String: State] = [:]
 
     /// Returns the cached result for a service scope, loading it once when needed.
+    ///
+    /// The provider wraps synchronous `SecItemCopyMatching`/`LAContext` calls.
+    /// Holding this short process-local lock across that one call is intentional:
+    /// releasing it would let concurrent synchronous CLI paths duplicate the
+    /// keychain read. An actor would require a blocking bridge at the same API
+    /// boundary and would not improve the wire-level ordering guarantee.
     func password(
         services: [String],
         provider: SocketCredentialResolver.KeychainPasswordProvider
@@ -34,6 +40,10 @@ public final class SocketCredentialResolutionSession: @unchecked Sendable {
     private let environment: [String: String]
     private let filePasswordProvider: (() -> String?)?
     private let keychainPasswordProvider: SocketCredentialResolver.KeychainPasswordProvider
+    // Resolver publication is called from synchronous CLI setup, while the
+    // resulting resolver may be handed to detached readiness work. This lock
+    // protects only the tiny dictionary publication section; source I/O stays
+    // inside each resolver's single-flight boundary below.
     private let resolverLock = NSLock()
     private var resolvers: [String: SocketCredentialResolver] = [:]
     private var authenticationModeCoordinators: [String: SocketAuthenticationModeCoordinator] = [:]

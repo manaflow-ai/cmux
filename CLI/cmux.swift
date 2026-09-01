@@ -3257,13 +3257,7 @@ final class SocketClient {
             try connect()
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
-        if authenticationPassword != nil,
-           !authenticationPasswordResolutionAttempted {
-            try authenticateIfNeeded(
-                responseTimeout: writeTimeout,
-                deadline: Date.now.addingTimeInterval(writeTimeout)
-            )
-        }
+        try prepareOneWayAuthentication(responseTimeout: writeTimeout)
         let shouldCloseAfterSend = relayEndpoint != nil
 
         try configureSocketWriteSafety(writeTimeout)

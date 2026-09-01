@@ -27,4 +27,31 @@ public nonisolated enum SocketAuthenticationChallenge {
         }
         return normalizedMessage.contains(challengeMarker)
     }
+
+    /// Returns whether a response positively proves credential-free access.
+    ///
+    /// A non-challenge error is not proof of allow-all mode. Restricting this
+    /// transition to explicit success responses keeps a failed or unrelated
+    /// request from suppressing a later authentication probe.
+    public static func isCredentialFreeSuccess(_ response: String) -> Bool {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let normalized = trimmed.lowercased()
+        if normalized.hasPrefix("error:") {
+            return false
+        }
+        if normalized == "ok" || normalized == "pong" ||
+            normalized.hasPrefix("ok ") || normalized.hasPrefix("ok:") {
+            return true
+        }
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return false
+        }
+        if let ok = object["ok"] as? Bool {
+            return ok
+        }
+        return object["error"] == nil
+    }
 }

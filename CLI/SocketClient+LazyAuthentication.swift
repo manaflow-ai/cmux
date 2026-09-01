@@ -38,10 +38,9 @@ extension SocketClient {
 
     /// Records that this socket accepted a request without credentials.
     func recordCredentialFreeResponseIfNeeded(_ response: String) {
-        if authenticationPasswordProvider != nil,
-           !SocketAuthenticationChallenge.isRequired(response) {
-            authenticationModeCoordinator.recordCredentialFree()
-        }
+        guard authenticationPasswordProvider != nil,
+              SocketAuthenticationChallenge.isCredentialFreeSuccess(response) else { return }
+        authenticationModeCoordinator.recordCredentialFree()
     }
 
     /// Resolves the deferred provider within the request's remaining deadline.
@@ -79,7 +78,11 @@ extension SocketClient {
             )
             do {
                 try probeClient.connectWithoutRetry(responseTimeout: responseTimeout)
-                _ = try probeClient.send(command: "ping", responseTimeout: responseTimeout)
+                let probeResponse = try probeClient.send(command: "ping", responseTimeout: responseTimeout)
+                if coordinator.current == .probing,
+                   !SocketAuthenticationChallenge.isCredentialFreeSuccess(probeResponse) {
+                    coordinator.recordProbeFailure()
+                }
             } catch {
                 coordinator.recordProbeFailure()
                 throw error
@@ -88,6 +91,24 @@ extension SocketClient {
                 try authenticateOneWayClientIfNeeded(responseTimeout: responseTimeout)
             }
         }
+    }
+
+    /// Prepares a one-way client without turning unknown-mode writes into reads.
+    func prepareOneWayAuthentication(responseTimeout: TimeInterval) throws {
+        if authenticationPassword != nil,
+           !authenticationPasswordResolutionAttempted {
+            try authenticateIfNeeded(
+                responseTimeout: responseTimeout,
+                deadline: Date.now.addingTimeInterval(responseTimeout)
+            )
+            return
+        }
+        guard authenticationPassword == nil,
+              authenticationPasswordProvider != nil,
+              authenticationModeCoordinator.current == .passwordRequired else {
+            return
+        }
+        try authenticateOneWayClientIfNeeded(responseTimeout: responseTimeout)
     }
 
     /// Authenticates a one-way client after the shared mode requires a password.

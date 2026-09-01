@@ -311,4 +311,14 @@ struct SocketCredentialResolverTests {
             )
         )
     }
+
+    @Test
+    func onlyPositiveResponsesEstablishCredentialFreeMode() {
+        #expect(SocketAuthenticationChallenge.isCredentialFreeSuccess("PONG"))
+        #expect(SocketAuthenticationChallenge.isCredentialFreeSuccess("OK: Authenticated"))
+        #expect(SocketAuthenticationChallenge.isCredentialFreeSuccess(#"{"ok":true,"result":{}}"#))
+        #expect(!SocketAuthenticationChallenge.isCredentialFreeSuccess("ERROR: forbidden"))
+        #expect(!SocketAuthenticationChallenge.isCredentialFreeSuccess(#"{"ok":false,"error":{"code":"forbidden"}}"#))
+        #expect(!SocketAuthenticationChallenge.isCredentialFreeSuccess(#"{"error":{"code":"auth_required"}}"#))
+    }
 }
