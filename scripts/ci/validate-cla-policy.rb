@@ -6,6 +6,7 @@
 # from the PR is sourced, loaded as Ruby, or executed.
 
 require "base64"
+require "digest"
 require "fileutils"
 require "json"
 require "open3"
@@ -18,6 +19,12 @@ SHA = /\A[0-9a-f]{40}\z/
 REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956"
+# The privileged workflow is an explicit reviewed policy, not an extensible
+# script. A digest of its parsed document prevents a PR from adding a command,
+# secret reference, action input, or permission while retaining the fragments
+# checked below. Policy changes require a separate, reviewed update to this
+# base-controlled guard, followed by the workflow change.
+EXPECTED_WORKFLOW_DIGEST = "d4db98df5a1b1e6f3b006a82639761a0513eeeaf153a9eb2b98d42d1af782145"
 
 def fail!(message)
   raise PolicyError, message
@@ -68,6 +75,19 @@ def walk(value, &block)
   end
 end
 
+def canonical(value)
+  case value
+  when Hash
+    value.keys.sort_by(&:to_s).each_with_object({}) do |key, result|
+      result[key.to_s] = canonical(value[key])
+    end
+  when Array
+    value.map { |child| canonical(child) }
+  else
+    value
+  end
+end
+
 def job(document, name)
   jobs = document["jobs"]
   fail!("jobs is not a mapping") unless jobs.is_a?(Hash)
@@ -101,6 +121,8 @@ end
 def validate_workflow(raw)
   document = YAML.safe_load(raw, aliases: false)
   fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
+  digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
+  fail!("privileged CLA workflow is not the reviewed policy digest") unless digest == EXPECTED_WORKFLOW_DIGEST
 
   triggers = document["on"] || document[true]
   fail!("CLA workflow has no mapping of triggers") unless triggers.is_a?(Hash)
@@ -242,6 +264,9 @@ begin
     exit 0
   end
 
+  if base_script && head_script.nil?
+    fail!("the pull-request revision deletes the rerun helper used by the base workflow")
+  end
   if base_workflow != head_workflow
     fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
     validate_workflow(head_workflow)
