@@ -115,6 +115,19 @@ public final class GhosttySurfaceHostView: UIView {
         ]
         return fade
     }()
+    /// The bottom sibling: rows below the grid (visible only when scrolled
+    /// into scrollback) dissolve into the background as they run under the
+    /// dock chrome. A constraint-anchored VIEW, not a bare layer, because
+    /// the dock moves inside keyboard animation transactions and the fade
+    /// must ride the same solve; the gradient fills it via `layerClass`.
+    private let bottomScrollEdgeFadeView: ScrollEdgeFadeGradientView = {
+        let view = ScrollEdgeFadeGradientView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = false
+        view.layer.zPosition = 900
+        view.isHidden = true
+        return view
+    }()
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
@@ -184,6 +197,9 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
         layer.addSublayer(scrollEdgeFadeLayer)
+        // Added before the dock reparents into this host so the dock's
+        // chrome always draws above the fade.
+        addSubview(bottomScrollEdgeFadeView)
         refreshScrollEdgeFadeColors(background: surfaceView.backgroundColor)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
         // The artifact chip joins the dock in this host's keyboard-invariant
@@ -215,7 +231,12 @@ public final class GhosttySurfaceHostView: UIView {
             terminalClipView.topAnchor.constraint(equalTo: topAnchor),
             terminalClipView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalClipView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            terminalClipView.bottomAnchor.constraint(equalTo: surfaceView.hostedBottomDockTopAnchor),
+            // The clip extends to the host bottom (not the dock top) so the
+            // bottom scroll-edge band — render-only rows below the grid,
+            // glued under the dock by the same constraint system — stays
+            // visible behind the dock chrome. The grid itself still ends at
+            // the dock top minus the seam, so nothing else changes.
+            terminalClipView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             terminalPresentationView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalPresentationView.widthAnchor.constraint(equalTo: widthAnchor),
@@ -228,6 +249,17 @@ public final class GhosttySurfaceHostView: UIView {
             surfaceView.leadingAnchor.constraint(equalTo: terminalPresentationView.leadingAnchor),
             surfaceView.trailingAnchor.constraint(equalTo: terminalPresentationView.trailingAnchor),
             surfaceView.bottomAnchor.constraint(equalTo: terminalPresentationView.bottomAnchor),
+
+            // The bottom fade spans from the grid's bottom edge (dock top
+            // minus the seam) to the screen bottom, riding the dock through
+            // keyboard legs in the same constraint solve.
+            bottomScrollEdgeFadeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bottomScrollEdgeFadeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bottomScrollEdgeFadeView.topAnchor.constraint(
+                equalTo: surfaceView.hostedBottomDockTopAnchor,
+                constant: -surfaceView.hostedDockSeamPadding
+            ),
+            bottomScrollEdgeFadeView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         NotificationCenter.default.addObserver(
@@ -596,8 +628,9 @@ public final class GhosttySurfaceHostView: UIView {
         refreshScrollEdgeFadeColors(background: color)
     }
 
-    /// Sizes the fade to the live band (zero hides it) without implicit
-    /// animation, so it lands in the same frame as the layout pass.
+    /// Sizes the top fade to the live band (zero hides it) without implicit
+    /// animation, so it lands in the same frame as the layout pass. The
+    /// bottom fade is constraint-driven; only its visibility toggles here.
     private func layoutScrollEdgeFade() {
         let height = surfaceView.hostedScrollEdgeFadeHeight
         CATransaction.begin()
@@ -611,6 +644,7 @@ public final class GhosttySurfaceHostView: UIView {
         } else {
             scrollEdgeFadeLayer.isHidden = true
         }
+        bottomScrollEdgeFadeView.isHidden = !surfaceView.hostedBottomScrollEdgeFadeActive
         CATransaction.commit()
     }
 
@@ -620,6 +654,13 @@ public final class GhosttySurfaceHostView: UIView {
             bg.withAlphaComponent(0.95).cgColor,
             bg.withAlphaComponent(0.55).cgColor,
             bg.withAlphaComponent(0).cgColor,
+        ]
+        // Reversed ramp: transparent at the grid seam, solid at the screen
+        // bottom where the chrome sits.
+        bottomScrollEdgeFadeView.gradientLayer.colors = [
+            bg.withAlphaComponent(0).cgColor,
+            bg.withAlphaComponent(0.55).cgColor,
+            bg.withAlphaComponent(0.95).cgColor,
         ]
     }
 
@@ -674,5 +715,30 @@ public final class GhosttySurfaceHostView: UIView {
         return abs(terminalBottom - (dockTop - surfaceView.hostedDockSeamPadding))
     }
     #endif
+}
+
+/// A view whose backing layer IS a vertical gradient, so Auto Layout drives
+/// the gradient's geometry inside the same animation transactions as its
+/// anchors (a bare layer would jump while its anchor animates).
+private final class ScrollEdgeFadeGradientView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    var gradientLayer: CAGradientLayer {
+        // Safe by construction: `layerClass` above.
+        // swiftlint:disable:next force_cast
+        layer as! CAGradientLayer
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        gradientLayer.locations = [0, 0.65, 1]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
 }
 #endif
