@@ -39,6 +39,14 @@ import Testing
         return "cmux-ios://attach?v=\(version)&payload=\(encoded)"
     }
 
+    private func versionlessAttachURL(payload: Data) -> String {
+        let encoded = payload.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "cmux-ios://attach?payload=" + encoded
+    }
+
     @Test func decodesCompactPayloadAttachURL() throws {
         // New-phone-scans-new-QR.
         let ticket = try makeTicket(authToken: "minted-but-not-in-qr")
@@ -86,6 +94,17 @@ import Testing
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
         #expect(decoded.routes == ticket.routes)
+        #expect(decoded.authToken == "legacy-token")
+    }
+
+    @Test func versionlessLegacyPayloadRemainsCompatible() throws {
+        let ticket = try makeTicket(authToken: "legacy-token")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoded = try CmxAttachTicketInput.decode(
+            versionlessAttachURL(payload: try encoder.encode(ticket))
+        )
+        #expect(decoded.macDeviceID == "mac-1")
         #expect(decoded.authToken == "legacy-token")
     }
 

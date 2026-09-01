@@ -21,6 +21,7 @@ public struct CmxPairingURLSchemeResolver: Sendable {
         targetIOSBundleIdentifier =
             environment["CMUX_IOS_PAIRING_BUNDLE_IDENTIFIER"]
         macInstanceTag = environment["CMUX_TAG"]
+            ?? Self.macInstanceTag(bundleIdentifier: bundle.bundleIdentifier)
         #if DEBUG
         isDevelopmentBuild = true
         #else
@@ -32,11 +33,13 @@ public struct CmxPairingURLSchemeResolver: Sendable {
         currentIOSBundleIdentifier: String?,
         targetIOSBundleIdentifier: String?,
         macInstanceTag: String?,
-        isDevelopmentBuild: Bool
+        isDevelopmentBuild: Bool,
+        macBundleIdentifier: String? = nil
     ) {
         self.currentIOSBundleIdentifier = currentIOSBundleIdentifier
         self.targetIOSBundleIdentifier = targetIOSBundleIdentifier
         self.macInstanceTag = macInstanceTag
+            ?? Self.macInstanceTag(bundleIdentifier: macBundleIdentifier)
         self.isDevelopmentBuild = isDevelopmentBuild
     }
 
@@ -77,5 +80,51 @@ public struct CmxPairingURLSchemeResolver: Sendable {
             iOSBundleIdentifier: namespace.bundleIdentifier
         )
         #endif
+    }
+
+    /// Mirrors the app's bundle-derived lane when a launcher did not export
+    /// `CMUX_TAG`. This keeps a Finder/Dock launch of a tagged DEV bundle on
+    /// the same exact iOS namespace as a tagged-script launch.
+    private static func macInstanceTag(bundleIdentifier: String?) -> String? {
+        let bundleID = bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        guard !bundleID.isEmpty else { return nil }
+        let stable = "com.cmuxterm.app"
+        let channels: [(prefix: String, fallback: String)] = [
+            (stable + ".nightly", "nightly"),
+            (stable + ".staging", "staging"),
+            (stable + ".rc", "rc"),
+            (stable + ".debug", "dev"),
+        ]
+        if bundleID == stable { return "default" }
+        for channel in channels {
+            if bundleID == channel.prefix { return channel.fallback }
+            let prefix = channel.prefix + "."
+            guard bundleID.hasPrefix(prefix) else { continue }
+            let suffix = String(bundleID.dropFirst(prefix.count))
+            return Self.sanitizeMacInstanceTag(suffix) ?? channel.fallback
+        }
+        return nil
+    }
+
+    private static func sanitizeMacInstanceTag(_ rawValue: String) -> String? {
+        let normalized = rawValue.lowercased()
+        let allowed = CharacterSet.alphanumerics.union(
+            CharacterSet(charactersIn: "-_")
+        )
+        var result = ""
+        var previousWasSeparator = false
+        for scalar in normalized.unicodeScalars {
+            if allowed.contains(scalar) {
+                result.unicodeScalars.append(scalar)
+                previousWasSeparator = false
+            } else if !previousWasSeparator {
+                result.append("-")
+                previousWasSeparator = true
+            }
+        }
+        let trimmed = result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

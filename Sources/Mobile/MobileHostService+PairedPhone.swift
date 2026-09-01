@@ -14,10 +14,17 @@ extension MobileHostService {
 
     /// Returns the authenticated target or a lane-scoped legacy backup
     /// namespace while a phone has not completed the modern metadata handshake.
-    /// This fallback is for paired-Mac restore only; push delivery uses the
-    /// strict ``pairedPhoneBundleIdentifier(accountID:)`` path.
+    /// Push delivery uses a separate migration-only fallback until that
+    /// handshake replaces it; paired-Mac restore uses the lane fallback.
     func pairedPhoneBackupBundleIdentifier(accountID: String?) -> String? {
         pairedPhoneStore.backupBundleIdentifier(accountID: accountID)
+    }
+
+    /// Returns the handshake target, or the one-time migrated picker target
+    /// while an upgraded Mac waits for its first modern phone status response.
+    /// The migration value is replaced as soon as that handshake completes.
+    func pairedPhonePushBundleIdentifier(accountID: String?) -> String? {
+        pairedPhoneStore.pushBundleIdentifier(accountID: accountID)
     }
 
     /// Persists phone identity only after an authenticated host-status response

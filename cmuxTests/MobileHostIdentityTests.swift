@@ -44,9 +44,10 @@ struct MobileHostIdentityTests {
             macInstanceTag: "default"
         )
 
-        // Migration is recorded for audit/cleanup, but it is not an
-        // authenticated pairing and therefore cannot drive runtime routing.
+        // The strict handshake target remains unset; push compatibility may
+        // use the migrated value only until a modern handshake supersedes it.
         #expect(store.targetBundleIdentifier(accountID: "account-a") == nil)
+        #expect(store.pushBundleIdentifier(accountID: "account-a") == "dev.cmux.app.demo")
         #expect(defaults.string(forKey: MobilePairedPhoneStore.legacyDefaultsKey) == nil)
         let migrated = try #require(defaults.data(forKey: MobilePairedPhoneStore.defaultsKey))
         let migratedRecords = try JSONDecoder().decode(
@@ -73,6 +74,7 @@ struct MobileHostIdentityTests {
             pairedAt: Date(timeIntervalSince1970: 100)
         )
         #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.app.internal")
+        #expect(store.pushBundleIdentifier(accountID: "account-a") == "dev.cmux.app.internal")
         let paired = try #require(defaults.data(forKey: MobilePairedPhoneStore.defaultsKey))
         let pairedRecords = try JSONDecoder().decode(
             [MobilePairedPhoneRecord].self,

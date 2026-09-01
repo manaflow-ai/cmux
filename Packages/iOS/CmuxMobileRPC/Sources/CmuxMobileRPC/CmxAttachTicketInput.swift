@@ -59,22 +59,22 @@ public struct CmxAttachTicketInput {
         // a generic invalid-code failure.
         let isUnknownBundleScheme = scheme?.hasPrefix("cmux-ios-") == true
             && knownScheme == nil
-        if isUnknownBundleScheme, version != nil {
+        if isUnknownBundleScheme {
+            guard let version else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(
-                max(version ?? 0, CmxPairingQRCode.version + 1)
+                max(version, CmxPairingQRCode.version + 1)
             )
         }
         guard knownScheme != nil else {
-            throw MobileSyncPairingPayloadError.invalidURL
-        }
-        guard let version else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         // A QR minted by a newer cmux whose grammar version this build does not
         // understand. Distinguished from a malformed code so the user is told
         // to update the app instead of seeing the generic "not valid" copy (the
         // real field report: beta 1.0.2 predated the v2 QR a newer Mac emitted).
-        if version > CmxPairingQRCode.version {
+        if let version, version > CmxPairingQRCode.version {
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(version)
         }
         // The plain pairing grammars: v2 carries bare Tailscale routes and v3

@@ -6,8 +6,9 @@ import Foundation
 /// The QR intentionally does not choose an iOS variant. A phone reports its
 /// exact bundle after the authenticated host handshake, and this store keeps
 /// that fact for push and paired-Mac backup routing. The old picker preference
-/// is imported once as a migration marker, but only an authenticated handshake
-/// record can ever be selected for runtime routing.
+/// is imported once as a migration marker. Strict routing selects only an
+/// authenticated record; push has a temporary migration fallback for upgraded
+/// Macs until the first modern handshake arrives.
 @MainActor
 final class MobilePairedPhoneStore {
     /// The serialized records written to the Mac's defaults domain.
@@ -246,6 +247,16 @@ final class MobilePairedPhoneStore {
     func backupBundleIdentifier(accountID: String?) -> String? {
         guard Self.normalized(accountID) != nil else { return nil }
         return targetBundleIdentifier(accountID: accountID) ?? fallbackBundleIdentifier
+    }
+
+    /// Returns the push target for an authenticated account. A migrated picker
+    /// value is a temporary compatibility target until the first modern
+    /// handshake replaces it; a fresh install remains held until that
+    /// handshake so it cannot invent a namespace.
+    func pushBundleIdentifier(accountID: String?) -> String? {
+        guard Self.normalized(accountID) != nil else { return nil }
+        return targetBundleIdentifier(accountID: accountID)
+            ?? legacyPickerBundleIdentifier
     }
 
     private var fallbackBundleIdentifier: String? {

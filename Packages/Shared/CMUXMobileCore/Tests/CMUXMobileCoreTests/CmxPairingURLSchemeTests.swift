@@ -113,6 +113,17 @@ import Testing
             ).resolved?.rawValue == "cmux-ios-com.cmux.app"
         )
     }
+
+    @Test func taggedMacBundleDerivesItsExactIOSSchemeWithoutLaunchEnvironment() {
+        let resolver = CmxPairingURLSchemeResolver(
+            currentIOSBundleIdentifier: nil,
+            targetIOSBundleIdentifier: nil,
+            macInstanceTag: nil,
+            isDevelopmentBuild: true,
+            macBundleIdentifier: "com.cmuxterm.app.debug.feature-a"
+        )
+        #expect(resolver.resolved?.rawValue == "cmux-ios-dev.cmux.ios.feature-a")
+    }
     #endif
 
     @Test func parserAcceptsNamespacedSchemes() {

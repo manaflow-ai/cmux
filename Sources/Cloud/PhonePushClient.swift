@@ -319,7 +319,7 @@ final class PhonePushClient {
             return .authenticationUnavailable
         }
         let targetBundleIdentifier = MobileHostService.shared
-            .pairedPhoneBundleIdentifier(accountID: identity.accountID)
+            .pairedPhonePushBundleIdentifier(accountID: identity.accountID)
         if targetBundleIdentifier == nil {
             deliveryQueue.stop()
         }
@@ -365,7 +365,7 @@ final class PhonePushClient {
               !ids.isEmpty,
               let identity = auth?.authenticatedSessionIdentity else { return }
         let targetBundleIdentifier = MobileHostService.shared
-            .pairedPhoneBundleIdentifier(accountID: identity.accountID)
+            .pairedPhonePushBundleIdentifier(accountID: identity.accountID)
         if targetBundleIdentifier == nil {
             deliveryQueue.stop()
         }
@@ -498,7 +498,7 @@ final class PhonePushClient {
         // handshake yet, hold the events outside the delivery queue and leave
         // the durable snapshot untouched until that handshake arrives.
         let pairedBundleIdentifier = MobileHostService.shared
-            .pairedPhoneBundleIdentifier(accountID: identity.accountID)
+            .pairedPhonePushBundleIdentifier(accountID: identity.accountID)
         let accountScoped = restored.filter {
             $0.expectedAccountID == identity.accountID
         }
@@ -597,7 +597,7 @@ final class PhonePushClient {
             activeIdentity = identity
             pairedPhoneTargetDidChange()
             if MobileHostService.shared
-                .pairedPhoneBundleIdentifier(accountID: identity.accountID) != nil {
+                .pairedPhonePushBundleIdentifier(accountID: identity.accountID) != nil {
                 deliveryQueue.start()
             } else {
                 // A same-account token refresh can arrive before the first
