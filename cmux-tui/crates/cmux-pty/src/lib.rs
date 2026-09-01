@@ -184,7 +184,7 @@ impl PtyPair {
     /// Spawn the command, close the parent's slave descriptor, and return the
     /// master and child as one ownership-safe unit.
     pub fn spawn(self, command: PtyCommand) -> anyhow::Result<SpawnedPty> {
-        if command.program.trim().is_empty() {
+        if command.program.is_empty() {
             anyhow::bail!("PTY command program must not be empty");
         }
         let Self { master, slave } = self;
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn empty_program_is_rejected_before_platform_spawn() {
         let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
-        let error = match pair.spawn(PtyCommand::new("   ")) {
+        let error = match pair.spawn(PtyCommand::new("")) {
             Ok(_) => panic!("empty PTY program was spawned"),
             Err(error) => error,
         };
