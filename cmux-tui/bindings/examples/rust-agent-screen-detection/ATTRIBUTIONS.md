@@ -19,7 +19,7 @@ The files under `manifests/` are derived from the herdr project:
   bounded manifest engine. It does not use herdr's network update path.
 
 The attribution and capability audit was rerun against herdr revision
-`99c23cd1ea7468bd3661f6483c7105396503b417` after the pinned snapshot. It found
+`0032c3b42751b6da9c5b1a91546b3c1a425d67f1` after the pinned snapshot. It found
 the first-acquisition OSC retention fix in
 `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`; `src/detect.rs` ports that policy
 with a local revision fence because the generic host API cannot clear OSC
@@ -30,13 +30,14 @@ herdr-specific CWD code is copied. Later upstream commits
 `207be3c771d281baae6e5fa0fb74be9a056e97a2`,
 `5158adab10b6dcfea9370782043392f80fa0643c`,
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
-`da8c7b05f9ef7898cfb7494989df8a533b947bb9`, and
-`99c23cd1ea7468bd3661f6483c7105396503b417` change Windows launch, process
-environment, process-job, input handling, or the application/client shell
-rendering architecture. The shell-render refactor is not detector logic and
-is not copied. This package has no Windows SDK transport, native process
-backend, launch path, or input path, so those files are not copied. Recheck
-them before publishing a Windows package.
+`da8c7b05f9ef7898cfb7494989df8a533b947bb9`, `99c23cd1ea7468bd3661f6483c7105396503b417`,
+and `0032c3b42751b6da9c5b1a91546b3c1a425d67f1` change Windows launch, process
+environment, process-job, input handling, remote multiline paste, or the
+application/client shell rendering architecture. The shell-render refactor
+and the Windows paste fix are not detector logic and are not copied. This
+package has no Windows SDK transport, native process backend, launch path, or
+input path, so those files are not copied. Recheck them before publishing a
+Windows package.
 
 The original cmux portions of this package are licensed under MIT. The full
 text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is

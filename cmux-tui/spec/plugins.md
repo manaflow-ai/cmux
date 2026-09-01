@@ -318,7 +318,7 @@ application policy into cmux core.
 | OMP and Mastracode screen manifests | Not present at the manifest snapshot revision | Herdr lists these process kinds but ships no screen manifests. Hooks can still cover them. We do not invent state rules. |
 
 This inventory was rechecked against herdr revision
-`99c23cd1ea7468bd3661f6483c7105396503b417`. It ported the first-acquisition
+`0032c3b42751b6da9c5b1a91546b3c1a425d67f1`. It ported the first-acquisition
 OSC retention fix from `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` inside the
 userland tracker. The foreground group-leader CWD fix from
 `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by cmux's
@@ -328,8 +328,12 @@ Windows launch, process environment and job handling, and native input
 identity. The shell-render refactor `207be3c771d281baae6e5fa0fb74be9a056e97a2`
 is application/client architecture, not detector behavior, and is not copied.
 The reference package has no Windows SDK transport or native process backend
-and does not own launch or input handling, so those changes remain outside this
-plugin. Review them before publishing Windows support.
+and does not own launch, input, or remote paste handling, so those changes
+remain outside this plugin. Review them before publishing Windows support.
+
+The latest audited commit, `0032c3b42751b6da9c5b1a91546b3c1a425d67f1`, fixes
+remote multiline paste on Windows. It is outside detector behavior and is not
+copied.
 
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling

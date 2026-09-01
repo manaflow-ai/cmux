@@ -56,7 +56,7 @@ Derived material and vendored material:
   generic custom title and keeps explicit braille-spinner activity stronger.
 
 The capability audit was rerun against herdr revision
-`99c23cd1ea7468bd3661f6483c7105396503b417`. The first-acquisition OSC
+`0032c3b42751b6da9c5b1a91546b3c1a425d67f1`. The first-acquisition OSC
 retention fix in `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted in the
 userland tracker with a local revision fence. The foreground group-leader CWD
 fix in `3a3792622e59c7f2dc20f9c0236167161e4a5035` is already covered by the
@@ -66,10 +66,11 @@ The shell-render refactor in
 not detector behavior, and is not copied. Later upstream commits
 `5158adab10b6dcfea9370782043392f80fa0643c`,
 `5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
-`da8c7b05f9ef7898cfb7494989df8a533b947bb9`, and
-`99c23cd1ea7468bd3661f6483c7105396503b417` are Windows launch, process
-environment, process-job, or input changes. They are outside this Unix-only
-reference package and must be reviewed before Windows support is published.
+`da8c7b05f9ef7898cfb7494989df8a533b947bb9`, `99c23cd1ea7468bd3661f6483c7105396503b417`,
+and `0032c3b42751b6da9c5b1a91546b3c1a425d67f1` are Windows launch, process
+environment, process-job, input, or remote multiline paste changes. They are
+outside this Unix-only reference package and must be reviewed before Windows
+support is published.
 
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.
