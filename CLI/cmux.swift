@@ -5011,7 +5011,8 @@ struct CMUXCLI {
                 try runLocalTmuxOfflineCommand(
                     commandArgs: commandArgs,
                     jsonOutput: jsonOutput,
-                    idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
+                    idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg),
+                    windowOverride: windowId
                 )
                 return
             }

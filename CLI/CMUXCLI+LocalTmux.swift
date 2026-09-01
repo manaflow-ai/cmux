@@ -89,9 +89,16 @@ extension CMUXCLI {
     func runLocalTmuxOfflineCommand(
         commandArgs: [String],
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String? = nil
     ) throws {
-        let invocation = try LocalTmuxInvocation.parse(commandArgs)
+        var effectiveArguments = commandArgs
+        if let windowOverride,
+           !commandArgs.contains("--window"),
+           !commandArgs.contains(where: { $0.hasPrefix("--window=") }) {
+            effectiveArguments.append(contentsOf: ["--window", windowOverride])
+        }
+        let invocation = try LocalTmuxInvocation.parse(effectiveArguments)
         guard invocation.canRunWithoutCmux else {
             throw CLIError(message: String.localizedStringWithFormat(
                 String(localized: "cli.localTmux.error.requiresApp", defaultValue: "local-tmux %@ requires a running cmux app; use --headless for a direct tmux client"),
@@ -210,10 +217,10 @@ extension CMUXCLI {
                 builder: builder,
                 runner: runner
             )
-            if let requestedCwd,
-               let existingPath,
-               requestedCwd != existingPath {
-                throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCwd", defaultValue: "local-tmux session already exists with a different working directory; use attach or close it first"))
+            if let requestedCwd {
+                guard let existingPath, requestedCwd == existingPath else {
+                    throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCwd", defaultValue: "local-tmux session already exists with a different working directory; use attach or close it first"))
+                }
             }
             if let command = invocation.command,
                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

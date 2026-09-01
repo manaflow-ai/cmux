@@ -1510,7 +1510,7 @@ extension Workspace {
                 restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
         switch snapshot.type {
         case .terminal:
-            let localTmuxStartCommand = Self.makeSessionRestorePolicyService()
+            let localTmuxStartCommand = sessionRestorePolicy
                 .localTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
             let snapshotRestorableAgent = localTmuxStartCommand == nil ? snapshot.terminal?.agent : nil
             let persistedResumeBinding = localTmuxStartCommand == nil ? snapshot.terminal?.resumeBinding : nil

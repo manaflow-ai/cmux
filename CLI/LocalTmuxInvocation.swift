@@ -189,6 +189,13 @@ struct LocalTmuxInvocation {
         if action != .start, command != nil || cwd != nil {
             throw CLIError(message: String(localized: "cli.localTmux.error.startOnly", defaultValue: "local-tmux --cwd and --command are only valid with start"))
         }
+        if action != .start && action != .attach,
+           workspace != nil || surface != nil || pane != nil || window != nil || focus != nil || detached {
+            throw CLIError(message: String(
+                localized: "cli.localTmux.error.attachOrStartOnly",
+                defaultValue: "local-tmux workspace and attachment options are only valid with start or attach"
+            ))
+        }
         if action != .detach, clientID != nil || all {
             throw CLIError(message: String(localized: "cli.localTmux.error.detachOnly", defaultValue: "local-tmux --client/--all are only valid with detach"))
         }

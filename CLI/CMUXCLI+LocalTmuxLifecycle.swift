@@ -89,7 +89,7 @@ extension CMUXCLI {
         } else {
             for row in rows {
                 let name = row["session_name"] as? String ?? "?"
-                let state = (row["live"] as? Bool) == true ? "live" : "stale"
+                let state = localTmuxDisplayState((row["live"] as? Bool) == true ? "live" : "stale")
                 let clients = row["clients"] as? Int ?? 0
                 let id = row["id"] as? String
                 let rowText = String.localizedStringWithFormat(
@@ -98,7 +98,13 @@ extension CMUXCLI {
                     state,
                     clients
                 )
-                print(rowText + (id.map { " id=\($0)" } ?? ""))
+                let idSuffix = id.map {
+                    String.localizedStringWithFormat(
+                        String(localized: "cli.localTmux.output.idSuffix", defaultValue: " id=%@"),
+                        $0
+                    )
+                } ?? ""
+                print(rowText + idSuffix)
             }
         }
     }
@@ -153,7 +159,7 @@ extension CMUXCLI {
             print(String.localizedStringWithFormat(
                 String(localized: "cli.localTmux.output.status", defaultValue: "%@ [%@] clients=%lld socket=%@"),
                 effectiveRecord.name,
-                liveSession != nil ? "live" : "stale",
+                localTmuxDisplayState(liveSession != nil ? "live" : "stale"),
                 clients.count,
                 builder.socketPath
             ))
@@ -293,7 +299,8 @@ extension CMUXCLI {
             let result = try runner.run(arguments: builder.killSessionArguments(binding: session.binding))
             guard result.succeeded
                 || result.stderr.localizedCaseInsensitiveContains("no server running")
-                || result.stderr.localizedCaseInsensitiveContains("session not found") else {
+                || result.stderr.localizedCaseInsensitiveContains("session not found")
+                || result.stderr.localizedCaseInsensitiveContains("can't find session") else {
                 let message = String(localized: "cli.localTmux.error.closeFailed", defaultValue: "local-tmux close failed")
                 throw CLIError(message: message)
             }
@@ -381,7 +388,7 @@ extension CMUXCLI {
                 print(String.localizedStringWithFormat(
                     String(localized: "cli.localTmux.output.detached", defaultValue: "OK detached session=%@ client=%@"),
                     session.record.name,
-                    target ?? "unknown"
+                    target ?? localTmuxDisplayState("unknown")
                 ))
             }
         }
@@ -437,9 +444,22 @@ extension CMUXCLI {
                 String(localized: "cli.localTmux.output.record", defaultValue: "OK session=%@ id=%@ state=%@ socket=%@"),
                 record.name,
                 record.id.uuidString,
-                state,
+                localTmuxDisplayState(state),
                 record.socketPath
             ))
+        }
+    }
+
+    private func localTmuxDisplayState(_ state: String) -> String {
+        switch state {
+        case "live":
+            return String(localized: "cli.localTmux.state.live", defaultValue: "live")
+        case "stale":
+            return String(localized: "cli.localTmux.state.stale", defaultValue: "stale")
+        case "detached":
+            return String(localized: "cli.localTmux.state.detached", defaultValue: "detached")
+        default:
+            return String(localized: "cli.localTmux.state.unknown", defaultValue: "unknown")
         }
     }
 }

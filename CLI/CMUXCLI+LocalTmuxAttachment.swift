@@ -87,7 +87,7 @@ extension CMUXCLI {
             } else if let paneRaw = invocation.pane {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
-                    "pane",
+                    String(localized: "cli.localTmux.target.pane", defaultValue: "pane"),
                     paneRaw
                 ))
             }
@@ -101,7 +101,7 @@ extension CMUXCLI {
             } else if let surfaceRaw = invocation.surface {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(localized: "cli.localTmux.error.targetNotFound", defaultValue: "local-tmux could not resolve %@ target %@"),
-                    "surface",
+                    String(localized: "cli.localTmux.target.surface", defaultValue: "surface"),
                     surfaceRaw
                 ))
             } else {
@@ -158,7 +158,7 @@ extension CMUXCLI {
         let fallback = String.localizedStringWithFormat(
             String(localized: "cli.localTmux.output.attached", defaultValue: "OK session=%@ surface=%@ mode=local-tmux"),
             updated.name,
-            surfaceID ?? "unknown"
+            surfaceID ?? String(localized: "cli.localTmux.state.unknown", defaultValue: "unknown")
         )
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }

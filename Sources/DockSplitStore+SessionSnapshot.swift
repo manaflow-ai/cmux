@@ -239,7 +239,8 @@ extension DockSplitStore {
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
-            let localTmuxStartCommand = Workspace.makeSessionRestorePolicyService()
+            let policy = Workspace.makeSessionRestorePolicyService()
+            let localTmuxStartCommand = policy
                 .localTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
@@ -276,7 +277,6 @@ extension DockSplitStore {
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
-            let policy = Workspace.makeSessionRestorePolicyService()
             let tmuxStartCommand = localTmuxStartCommand
                 ?? (restorableAgent == nil
                     ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())

@@ -71,10 +71,11 @@ Detach refuses to guess when multiple clients are present unless `--client` or
 `--all` is supplied.
 
 The state directory is created mode `0700`, the registry and lock mode `0600`,
-and tmux's Unix socket is never exposed by cmux. GUI/API operations still use
-cmux's authenticated control socket. Headless operations are limited by the
-operating-system user and those filesystem permissions; do not share the
-state directory or socket with another Unix user.
+and the tmux Unix socket path may appear in CLI lifecycle output. It is not a
+cmux control endpoint and remains protected by those filesystem permissions.
+GUI/API operations still use cmux's authenticated control socket. Headless
+operations are limited by the operating-system user; do not share the state
+directory or socket with another Unix user.
 
 ## Limitations
 

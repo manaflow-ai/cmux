@@ -40022,6 +40022,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --client/--all は detach でのみ使用できます" } }
       }
     },
+    "cli.localTmux.error.attachOrStartOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux workspace and attachment options are only valid with start or attach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のワークスペースとアタッチ用オプションは start または attach でのみ使用できます" } }
+      }
+    },
     "cli.localTmux.error.detachSelectorConflict": {
       "extractionState": "manual",
       "localizations": {
@@ -40393,6 +40400,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "古い local tmux セッションが %lld 件見つかりました。削除するには --prune を指定してください" } }
       }
     },
+    "cli.localTmux.output.idSuffix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": " id=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": " id=%@" } }
+      }
+    },
     "cli.localTmux.output.noSessions": {
       "extractionState": "manual",
       "localizations": {
@@ -40433,6 +40447,48 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld socket=%@" } },
         "ja": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld socket=%@" } }
+      }
+    },
+    "cli.localTmux.state.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "detached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "切断済み" } }
+      }
+    },
+    "cli.localTmux.state.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "稼働中" } }
+      }
+    },
+    "cli.localTmux.state.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "stale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古い" } }
+      }
+    },
+    "cli.localTmux.state.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "cli.localTmux.target.pane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン" } }
+      }
+    },
+    "cli.localTmux.target.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェス" } }
       }
     },
     "cli.localTmux.usage": {
