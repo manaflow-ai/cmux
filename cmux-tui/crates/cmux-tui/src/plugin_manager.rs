@@ -802,7 +802,16 @@ fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result
     let mut command = manifest.run.command.clone();
     let first = Path::new(&command[0]);
     if first.is_relative() {
-        command[0] = canonical_path(&dir.join(first))?.display().to_string();
+        let canonical_dir = canonical_path(dir)?;
+        let resolved = canonical_path(&canonical_dir.join(first))?;
+        if resolved.strip_prefix(&canonical_dir).is_err() {
+            anyhow::bail!(
+                "run.command[0] {} escapes plugin directory {}",
+                first.display(),
+                canonical_dir.display()
+            );
+        }
+        command[0] = resolved.display().to_string();
     }
     Ok(command)
 }
