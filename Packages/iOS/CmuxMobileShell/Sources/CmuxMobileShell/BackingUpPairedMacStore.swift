@@ -1351,13 +1351,41 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             inFlight[scope] = created
             task = created
         }
+        // A scope that already has rows on disk serves them now and lets the
+        // restore merge in the background: on a cold launch the first read of
+        // every code path (the reconnect preamble, instance-authority checks,
+        // the ticket persist before `.connected`) used to pay the backup round
+        // trip here, measured as ~1.3s of the claim→dial gap. Only a scope with
+        // nothing persisted (fresh install, reinstall) has the backup as its
+        // sole source and waits. The merge is LWW into the same store, so the
+        // background completion needs no publish step; a row deleted from
+        // another device stays visible until that merge lands.
+        let hasPersistedRows = ((try? await inner.loadAll(
+            stackUserID: account,
+            teamID: restoreTeam
+        )) ?? []).isEmpty == false
+        if hasPersistedRows {
+            Task { await self.settleRestore(task, scope: scope, account: account, teamID: restoreTeam) }
+            return
+        }
+        await settleRestore(task, scope: scope, account: account, teamID: restoreTeam)
+    }
+
+    /// Post-restore bookkeeping shared by the blocking and background paths;
+    /// idempotent so several waiters on one task can each run it.
+    private func settleRestore(
+        _ task: Task<RestoreOutcome, Never>,
+        scope: String,
+        account: String,
+        teamID restoreTeam: String?
+    ) async {
         let generation = resetGeneration
         let outcome = await task.value
         // A sign-out wipe across the await already cleared inFlight/restoredScopes;
         // do not re-touch them (we'd clobber a post-wipe inFlight entry or memoize a
         // scope the wipe removed, suppressing a same-launch re-sign-in restore).
         guard resetGeneration == generation else { return }
-        inFlight[scope] = nil
+        if inFlight[scope] == task { inFlight[scope] = nil }
         if outcome.completed {
             restoredScopes.insert(scope)
             await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)

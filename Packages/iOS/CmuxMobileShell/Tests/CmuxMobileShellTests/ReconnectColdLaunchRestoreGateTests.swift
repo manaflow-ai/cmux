@@ -138,4 +138,53 @@ actor GatedFetchBackup: PairedMacBackingUp {
         #expect(await reconnect.value)
         await store.remoteClient?.disconnect()
     }
+
+    /// A scope with nothing on disk (fresh install, reinstall) has only the
+    /// backup, so the dial must still wait for the restore instead of
+    /// concluding "no Mac" from an empty local store.
+    @Test func coldLaunchWithNothingPersistedWaitsForBackupRestore() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: []
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inner = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let backup = GatedFetchBackup()
+        let pairedStore = BackingUpPairedMacStore(inner: inner, backup: backup)
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "cold-launch-restore-fallback-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+
+        let reconnect = Task { await store.reconnectActiveMacIfAvailable(stackUserID: "user-1") }
+        await backup.waitUntilFetchStarted()
+        let finishedBeforeRestore = try await pollUntil(attempts: 30) {
+            store.didFinishStoredMacReconnectAttempt
+        }
+        #expect(!finishedBeforeRestore, "an empty local store must not settle the attempt ahead of the restore")
+
+        await backup.release()
+        #expect(await reconnect.value == false, "the released restore carried no Mac")
+        #expect(store.didFinishStoredMacReconnectAttempt)
+    }
 }

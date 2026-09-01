@@ -2997,7 +2997,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
         }
         // SQLite reads on the store actor (milliseconds). These stay pre-dial:
-        // the dial cannot start without the persisted candidate rows.
+        // the dial cannot start without the persisted candidate rows. The
+        // production store serves rows already on disk without waiting for
+        // its backup restore (see `BackingUpPairedMacStore.restoreIfNeeded`).
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
         do {
