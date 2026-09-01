@@ -3964,7 +3964,8 @@ struct CrossWindowWorkspaceSplitZoomTests {
         _ = try #require(
             moving.newTerminalSplit(from: focusedPanelId, orientation: .horizontal)
         )
-        #expect(source.addWorkspaceIfActive(select: false) != nil)
+        _ = try #require(source.addWorkspaceIfActive(select: false))
+        #expect(source.selectedTabId == moving.id)
 
         moving.focusPanel(focusedPanelId)
         #expect(moving.toggleSplitZoom(panelId: focusedPanelId))
