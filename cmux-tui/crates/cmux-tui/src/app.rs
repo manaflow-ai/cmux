@@ -5350,6 +5350,7 @@ struct SelectionClickSequence {
     anchor: (u16, u64),
     dragged: bool,
     tracked_anchor: Option<TrackedScreenPoint>,
+    semantic_range: Option<SelectionRange>,
 }
 
 const SELECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(500);
@@ -16883,6 +16884,7 @@ impl App {
             anchor: cell,
             dragged: false,
             tracked_anchor,
+            semantic_range: None,
         });
         mode
     }
@@ -16966,10 +16968,10 @@ impl App {
             .flatten();
         if let Some(range) = range {
             let range = if mode == SelectionMode::Word {
-                self.selection
-                    .filter(|selection| selection.surface == surface)
-                    .map(|selection| {
-                        let initial = selection.range();
+                self.selection_click_sequence
+                    .as_ref()
+                    .and_then(|sequence| sequence.semantic_range)
+                    .map(|initial| {
                         SelectionRange {
                             start: initial.0.min(range.start),
                             end: initial.1.max(range.end),
@@ -22198,6 +22200,14 @@ impl App {
                     self.selection_mode = mode;
                     self.selection_mode_surface = Some(area.surface);
                     if let Some(selection) = self.selection_for_click(area.surface, cell, mode) {
+                        if let Some(sequence) = self.selection_click_sequence.as_mut()
+                            && mode != SelectionMode::Cell
+                        {
+                            sequence.semantic_range = Some(SelectionRange {
+                                start: selection.range().0,
+                                end: selection.range().1,
+                            });
+                        }
                         self.replace_selection(Some(selection));
                     }
                     self.drag = Some(Drag::Select { content, source_x, auto_scroll: None, col });
