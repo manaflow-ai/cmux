@@ -8617,7 +8617,14 @@ impl MachineActionWorker {
         // at its transport deadline, then the worker observes stop and closes
         // the controller. Join so provider cleanup cannot outlive the owner.
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            // Provider calls are synchronous and may remain blocked until
+            // their transport deadline. Reap the owned handle asynchronously
+            // so shutdown stays responsive without detaching the worker.
+            let _ = std::thread::Builder::new()
+                .name("machine-actions-reaper".into())
+                .spawn(move || {
+                    let _ = worker.join();
+                });
         }
     }
 }
@@ -43673,8 +43680,10 @@ mod tests {
             .unwrap();
         assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
 
-        release.send(()).unwrap();
+        let started_shutdown = Instant::now();
         worker.shutdown();
+        assert!(started_shutdown.elapsed() < Duration::from_millis(50));
+        release.send(()).unwrap();
         closes.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
