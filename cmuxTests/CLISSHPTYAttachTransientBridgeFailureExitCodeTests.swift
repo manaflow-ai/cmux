@@ -332,11 +332,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             with: fakeAuth.path
         )
         let bundledCLI = try bundledCLIPath()
+        XCTAssertTrue(
+            injectedScript.contains(bundledCLI),
+            "Expected generated wrapper to reference the bundled CLI"
+        )
         let rewrittenScript = injectedScript.replacingOccurrences(
             of: bundledCLI,
             with: fakeAttach.path
         )
-        XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
+        XCTAssertNotEqual(
+            rewrittenScript,
+            injectedScript,
+            "Expected generated wrapper to replace the bundled CLI"
+        )
         try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
         for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
