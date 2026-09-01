@@ -29080,3 +29080,29 @@ mod tests {
         *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
     }
 }
+#[test]
+fn initial_bootstrap_lock_serializes_concurrent_callers() {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    let mux = Mux::new("bootstrap-lock-test", SurfaceOptions::default());
+    let barrier = Arc::new(Barrier::new(2));
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = Arc::new(AtomicUsize::new(0));
+    thread::scope(|scope| {
+        for _ in 0..2 {
+            let barrier = barrier.clone();
+            let active = active.clone();
+            let max_active = max_active.clone();
+            let mux = mux.clone();
+            scope.spawn(move || {
+                barrier.wait();
+                let _guard = mux.lock_initial_bootstrap();
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                max_active.fetch_max(now, Ordering::SeqCst);
+                active.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+    });
+    assert_eq!(max_active.load(Ordering::SeqCst), 1);
+}
