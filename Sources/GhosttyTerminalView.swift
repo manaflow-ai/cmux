@@ -6592,6 +6592,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if handled { return }
         }
 
+        // AppKit sends Option+Backspace through `interpretKeyEvents`, where it
+        // becomes the printable U+2202 character (and Option is marked as
+        // consumed). That loses the word-delete meaning for shells and TUI
+        // programs. Forward both macOS delete directions as raw Ghostty key
+        // events before AppKit can perform that text transformation. Command
+        // delete uses the same path so its configured Ghostty binding remains
+        // authoritative after the window-level menu-equivalent route.
+        if shouldUseRawMacDeleteKeyPath(event) {
+            _ = reassertTerminalFocusForInputIfFirstResponder(forceNative: true)
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+            keyEvent.keycode = UInt32(event.keyCode)
+            keyEvent.mods = modsFromEvent(event)
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.composing = false
+            keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
+            keyEvent.text = nil
+
+            let handled: Bool
+#if DEBUG
+            let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+            handled = sendTimedGhosttyKey(
+                surface,
+                keyEvent,
+                path: "terminal.keyDown.macDeleteGhosttySend",
+                event: event
+            )
+            ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+#else
+            handled = sendGhosttyKey(surface, keyEvent)
+#endif
+            if handled { return }
+        }
+
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)
@@ -7410,6 +7444,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return chars
+    }
+
+    /// Returns whether AppKit text interpretation must be bypassed for a
+    /// terminal delete equivalent. Option and Command are intentionally
+    /// accepted only without Shift or Control, and marked text stays owned by
+    /// the active input method.
+    private func shouldUseRawMacDeleteKeyPath(_ event: NSEvent) -> Bool {
+        guard !hasMarkedText() else { return false }
+        guard event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) else {
+            return false
+        }
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return flags == [.command] || flags == [.option]
     }
 
     /// Get the unshifted codepoint for the key event
