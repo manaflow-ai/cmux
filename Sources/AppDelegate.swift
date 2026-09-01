@@ -15762,7 +15762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Ordinary hard reload stays in its established browser-routing position;
-        // only the explicit legacy Rename Workspace overlap is pre-routed above.
+        // only the Rename Workspace/browser pair is pre-routed above.
         if handleBrowserHardReloadShortcut(event) {
             return true
         }
