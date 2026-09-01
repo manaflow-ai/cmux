@@ -20328,22 +20328,14 @@ struct CMUXCLI {
         return (values, remaining)
     }
 
-    /// Rejects explicit caller selectors when identify opts out of caller context.
+    /// Rejects explicit caller selectors whenever identify's caller opt-out is active.
     private func validateIdentifyCallerOptions(_ args: [String]) throws {
-        var sawNoCaller = false
+        let sawNoCaller = hasFlag(args, name: "--no-caller")
         var selectorFlags: [String] = []
-        var pastTerminator = false
 
         for arg in args {
-            if pastTerminator {
-                continue
-            }
             if arg == "--" {
-                pastTerminator = true
-                continue
-            }
-            if arg == "--no-caller" {
-                sawNoCaller = true
+                break
             }
             if arg == "--workspace" || arg.hasPrefix("--workspace=") {
                 if !selectorFlags.contains("--workspace") {
