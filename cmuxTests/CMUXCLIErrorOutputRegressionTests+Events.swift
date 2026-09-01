@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @Suite(.serialized) struct CMUXCLIEventsStreamErrorTests: Sendable {
+    /// Verifies that `cmux events` sanitizes a plain-text stream authorization response.
     @Test func testEventsCommandSanitizesPlainTextStreamSocketError() throws {
         let support = CMUXCLIErrorOutputRegressionTests()
         let cliPath = try support.bundledCLIPath()
