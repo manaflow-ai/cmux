@@ -109,6 +109,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// a surface whose portal is visible.
     var rendererPortalVisible = false
 
+    /// Whether the hosting `NSWindow` is visible on screen (not miniaturized,
+    /// fully covered, on an inactive Space, or a hidden bootstrap window).
+    /// Driven by `NSWindow.didChangeOcclusionStateNotification` through the
+    /// hosted view; a nil-window reparenting transition keeps the last state so
+    /// portal moves cannot flap occlusion. Defaults to visible so surfaces that
+    /// never observe a window (tests, headless) behave as before.
+    public internal(set) var rendererWindowVisible = true
+
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
     /// Use this as a quick availability check. Before passing `surface` to
