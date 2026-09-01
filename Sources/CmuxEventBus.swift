@@ -135,6 +135,8 @@ final class CmuxEventBus: @unchecked Sendable {
     private let eventLogWriter: CmuxEventLogWriter?
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
+    private let sequenceFloor: CmuxEventSequenceFloor?
+    private var sequenceFloorGap = false
     private var retained: [[String: Any]] = []
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
     private let durableReplayStore: CmuxEventLogReplayStore?
@@ -165,6 +167,10 @@ final class CmuxEventBus: @unchecked Sendable {
         } else {
             onPersisted = nil
         }
+        let durableSnapshot = replayStore?.snapshot()
+        let floor = eventLogURL.map(CmuxEventSequenceFloor.init(eventLogURL:))
+        let restoration = floor?.restoration(durableLatestSequence: durableSnapshot?.latestSequence)
+        let restoredNextSequence = restoration?.nextSequence ?? 1
         self.durableReplayStore = replayStore
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
@@ -174,8 +180,12 @@ final class CmuxEventBus: @unchecked Sendable {
                 onPersisted: onPersisted
             )
         }
-        if let latestSequence = durableReplayStore?.snapshot().latestSequence {
-            self.nextSequence = latestSequence == Int64.max ? Int64.max : latestSequence + 1
+        self.sequenceFloor = floor
+        self.nextSequence = restoredNextSequence
+        self.sequenceFloorGap = restoration?.hasGap ?? false
+        if let floor,
+           !floor.write(nextSequence: restoredNextSequence) {
+            self.sequenceFloorGap = true
         }
     }
 
@@ -193,7 +203,8 @@ final class CmuxEventBus: @unchecked Sendable {
         retained: [[String: Any]],
         latestSequence: Int64,
         bootId: String,
-        durableReplayStore: CmuxEventLogReplayStore?
+        durableReplayStore: CmuxEventLogReplayStore?,
+        sequenceFloorGap: Bool
     ) {
         let subscription = CmuxEventSubscription(
             names: names,
@@ -207,7 +218,8 @@ final class CmuxEventBus: @unchecked Sendable {
             retained: retained,
             latestSequence: nextSequence - 1,
             bootId: bootId,
-            durableReplayStore: durableReplayStore
+            durableReplayStore: durableReplayStore,
+            sequenceFloorGap: sequenceFloorGap
         )
         subscriptions[subscription.id] = subscription
         lock.unlock()
@@ -229,7 +241,19 @@ final class CmuxEventBus: @unchecked Sendable {
 
         lock.lock()
         let sequence = nextSequence
-        nextSequence += 1
+        let nextSequence = sequence == Int64.max ? Int64.max : sequence + 1
+        // The floor write is intentionally synchronous and happens before the
+        // sequence is allocated. A queued JSONL write may be lost, but its
+        // sequence must never be reused after restart. If the floor cannot be
+        // persisted, drop this best-effort event rather than expose a sequence
+        // that a later process could safely allocate again.
+        if let sequenceFloor,
+           !sequenceFloor.write(nextSequence: nextSequence) {
+            sequenceFloorGap = true
+            lock.unlock()
+            return
+        }
+        self.nextSequence = nextSequence
 
         var event: [String: Any] = [
             "type": "event",
@@ -304,10 +328,18 @@ final class CmuxEventBus: @unchecked Sendable {
     func resetForTesting() {
         lock.lock()
         nextSequence = 1
+        sequenceFloorGap = false
+        let floor = sequenceFloor
         retained.removeAll()
         let active = Array(subscriptions.values)
         subscriptions.removeAll()
         lock.unlock()
+        if let floor,
+           !floor.write(nextSequence: 1) {
+            lock.lock()
+            sequenceFloorGap = true
+            lock.unlock()
+        }
         active.forEach { $0.close() }
         eventLogWriter?.resetForTesting()
     }

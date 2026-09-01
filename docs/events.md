@@ -112,7 +112,9 @@ cutover so a newer snapshot cannot be followed by older replay events:
    `extension.sidebar.snapshot`, whose response includes the event boundary in
    `seq` (also named `sequence`). Use the equivalent sequence field for another
    snapshot command when its contract provides one.
-3. Apply the snapshot atomically, recording its returned sequence as the
+3. Apply the snapshot atomically. Once it succeeds, persist its returned `seq`
+   (also named `sequence` where that snapshot contract uses the alias) as the
+   client cursor before continuing or reconnecting. That persisted cursor is the
    snapshot boundary.
 4. From the buffered stream frames, discard frames with `seq` at or below that
    boundary, deduplicate by `id`, and apply only frames newer than the boundary
@@ -218,9 +220,13 @@ The durable event log is bounded too. cmux writes current events to
 `~/.cmuxterm/events.jsonl`, rotates the previous file to
 `~/.cmuxterm/events.jsonl.1`, and caps each file at 16 MiB. `events.stream`
 replays both generations, so a reconnect can cross a process restart while the
-records remain on disk. On startup, cmux seeds the next sequence from the
-highest valid durable record. Disk writes are best-effort and batched behind a
-bounded 1,024-line queue. Under sustained disk backpressure, cmux drops the
+records remain on disk. On startup, cmux restores the separately persisted
+sequence floor at `~/.cmuxterm/events.jsonl.seq` before allocating a new `seq`;
+this floor is independent of the JSONL records, so a queued event that is lost
+before disk append cannot reuse its sequence after restart. If the floor is
+missing or unreadable, cmux advances conservatively and reports a durable gap so
+clients must use snapshot recovery. Disk writes are best-effort and batched
+behind a bounded 1,024-line queue. Under sustained disk backpressure, cmux drops the
 oldest pending disk-only lines; the resulting sequence gap is reported in
 `ack.resume` so clients can refresh from a snapshot. Consumers of the JSONL
 files must treat them as potentially incomplete rather than as a complete audit

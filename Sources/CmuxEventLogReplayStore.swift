@@ -1,6 +1,72 @@
 import Foundation
 import os
 
+/// Persists the next sequence independently of the best-effort JSONL log.
+/// A floor value survives a restart even when an enqueued event never reaches
+/// the writer, so sequence numbers cannot be silently reused.
+struct CmuxEventSequenceFloor {
+    struct State {
+        let nextSequence: Int64?
+        let isPresent: Bool
+        let isUnreadable: Bool
+    }
+
+    let url: URL
+
+    init(eventLogURL: URL) {
+        self.url = eventLogURL.appendingPathExtension("seq")
+    }
+
+    func read() -> State {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else {
+            return State(nextSequence: nil, isPresent: false, isUnreadable: false)
+        }
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8),
+              let nextSequence = Int64(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              nextSequence >= 1 else {
+            return State(nextSequence: nil, isPresent: true, isUnreadable: true)
+        }
+        return State(nextSequence: nextSequence, isPresent: true, isUnreadable: false)
+    }
+
+    func restoration(durableLatestSequence: Int64?) -> (nextSequence: Int64, hasGap: Bool) {
+        let durableNextSequence = Self.nextSequence(after: durableLatestSequence)
+        let state = read()
+        let restoredNextSequence = max(durableNextSequence, state.nextSequence ?? 1)
+        let hasGap: Bool
+        if state.isUnreadable {
+            hasGap = true
+        } else if let persistedNextSequence = state.nextSequence {
+            hasGap = persistedNextSequence > durableNextSequence
+        } else {
+            hasGap = state.isPresent || durableLatestSequence != nil
+        }
+        return (restoredNextSequence, hasGap)
+    }
+
+    /// Replaces the floor atomically after creating its parent directory.
+    func write(nextSequence: Int64) -> Bool {
+        guard nextSequence >= 1 else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("\(nextSequence)\n".utf8).write(to: url, options: [.atomic])
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func nextSequence(after latestSequence: Int64?) -> Int64 {
+        guard let latestSequence else { return 1 }
+        return latestSequence == Int64.max ? Int64.max : latestSequence + 1
+    }
+}
+
 /// Maintains an ordered, bounded replay view of the event-log generations.
 // Sendable safety: the file configuration is immutable and the cached state is
 // replaced or mutated only while `cachedState` is held.
@@ -11,8 +77,28 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
         let events: [[String: Any]]
         let eventsByID: [String: [String: Any]]
         let sequences: [Int64]
+        let sequenceStartIndices: [Int]
         let latestSequence: Int64?
         let hasUnavailableRange: Bool
+
+        /// Returns the first event whose sequence is greater than `sequence`.
+        /// `sequenceStartIndices` makes this a binary search over sequence
+        /// groups instead of a scan through the durable event history.
+        func firstEventIndex(after sequence: Int64) -> Int {
+            var lower = 0
+            var upper = sequences.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if sequences[middle] <= sequence {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+            return lower < sequenceStartIndices.count
+                ? sequenceStartIndices[lower]
+                : events.count
+        }
     }
 
     private struct IndexedEvent {
@@ -33,6 +119,7 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
         var events: [[String: Any]]
         var eventsByID: [String: [String: Any]]
         var sequences: [Int64]
+        var sequenceStartIndices: [Int]
         var latestSequence: Int64?
         var hasUnavailableRange: Bool
 
@@ -41,6 +128,7 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
                 events: events,
                 eventsByID: eventsByID,
                 sequences: sequences,
+                sequenceStartIndices: sequenceStartIndices,
                 latestSequence: latestSequence,
                 hasUnavailableRange: hasUnavailableRange
             )
@@ -60,12 +148,13 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
             }
 
             for indexed in indexedEvents {
+                if sequences.last != indexed.sequence {
+                    sequences.append(indexed.sequence)
+                    sequenceStartIndices.append(events.count)
+                }
                 events.append(indexed.event)
                 if let id = indexed.id {
                     eventsByID[id] = indexed.event
-                }
-                if sequences.last != indexed.sequence {
-                    sequences.append(indexed.sequence)
                 }
             }
             latestSequence = previousSequence
@@ -191,15 +280,17 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
         var events: [[String: Any]] = []
         var eventsByID: [String: [String: Any]] = [:]
         var sequences: [Int64] = []
+        var sequenceStartIndices: [Int] = []
         events.reserveCapacity(ordered.count)
 
         for indexed in ordered {
+            if sequences.last != indexed.sequence {
+                sequences.append(indexed.sequence)
+                sequenceStartIndices.append(events.count)
+            }
             events.append(indexed.event)
             if let id = indexed.id {
                 eventsByID[id] = indexed.event
-            }
-            if sequences.last != indexed.sequence {
-                sequences.append(indexed.sequence)
             }
         }
 
@@ -207,6 +298,7 @@ final class CmuxEventLogReplayStore: @unchecked Sendable {
             events: events,
             eventsByID: eventsByID,
             sequences: sequences,
+            sequenceStartIndices: sequenceStartIndices,
             latestSequence: ordered.last?.sequence,
             hasUnavailableRange: hasUnavailableRange
         )

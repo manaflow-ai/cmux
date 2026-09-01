@@ -19,7 +19,8 @@ extension CmuxEventBus {
                 retainedSnapshot: retainedSnapshot,
                 latestSequence: latestSequence,
                 afterSequence: afterSequence,
-                subscription: subscription
+                subscription: subscription,
+                sequenceFloorGap: context.sequenceFloorGap
             )
             return makeSubscriptionSnapshot(
                 subscription: subscription,
@@ -73,9 +74,19 @@ extension CmuxEventBus {
         retainedSnapshot: [[String: Any]],
         latestSequence: Int64,
         afterSequence: Int64?,
-        subscription: CmuxEventSubscription
+        subscription: CmuxEventSubscription,
+        sequenceFloorGap: Bool
     ) -> (replay: [[String: Any]], oldestSequence: Int64, gapReason: String?) {
         let requestedAfter = afterSequence ?? latestSequence
+        let retainedOldestSequence = retainedSnapshot.first.flatMap { CmuxEventBus.int64($0["seq"]) }
+        let oldestSequence: Int64 = {
+            switch (durableSnapshot.sequences.first, retainedOldestSequence) {
+            case let (durable?, retained?): return min(durable, retained)
+            case let (durable?, nil): return durable
+            case let (nil, retained?): return retained
+            case (nil, nil): return nextSequenceAfter(latestSequence)
+            }
+        }()
 
         // The retained tail is small and may contain writes that have not made
         // it to disk yet. Index only that tail; the durable index is maintained
@@ -95,11 +106,11 @@ extension CmuxEventBus {
             }
         }
 
-        var durableIndex = 0
-        var retainedIndex = 0
+        let mergeAfter = afterSequence ?? latestSequence
+        var durableIndex = durableSnapshot.firstEventIndex(after: mergeAfter)
+        var retainedIndex = firstRetainedEventIndex(after: mergeAfter, in: retainedSnapshot)
         var seenRetainedIDs = Set<String>()
-        var firstSequence: Int64?
-        var previousSequence: Int64?
+        var previousSequence: Int64? = afterSequence
         var sequenceGap = false
         var replay: [[String: Any]] = []
 
@@ -199,11 +210,10 @@ extension CmuxEventBus {
                 let expected = nextSequenceAfter(previousSequence)
                 if sequence > expected,
                    expected <= latestSequence,
-                   sequence > requestedAfter {
+                   sequence > requestedAfter,
+                   requestedAfter >= oldestSequence - 1 {
                     sequenceGap = true
                 }
-            } else {
-                firstSequence = sequence
             }
             previousSequence = sequence
 
@@ -220,16 +230,19 @@ extension CmuxEventBus {
             sequenceGap = true
         }
 
-        let oldestSequence = firstSequence ?? nextSequenceAfter(latestSequence)
         let gapReason: String? = afterSequence.flatMap { after in
             if after > latestSequence {
                 return "requested sequence is newer than this cmux process; cmux probably restarted"
             }
+            if (sequenceFloorGap || durableSnapshot.hasUnavailableRange),
+               after < latestSequence || durableSnapshot.events.isEmpty {
+                return "durable event log has a sequence gap"
+            }
             if after < oldestSequence - 1 {
                 return "requested sequence is older than the durable event log"
             }
-            if (sequenceGap || durableSnapshot.hasUnavailableRange),
-               after < latestSequence || firstSequence == nil {
+            if sequenceGap,
+               after < latestSequence {
                 return "durable event log has a sequence gap"
             }
             return nil
@@ -255,6 +268,22 @@ extension CmuxEventBus {
             }
         }
         return lower < sequences.count && sequences[lower] == value
+    }
+
+    /// Finds the first retained event after a cursor without walking its prefix.
+    private func firstRetainedEventIndex(after sequence: Int64, in events: [[String: Any]]) -> Int {
+        var lower = 0
+        var upper = events.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            let middleSequence = CmuxEventBus.int64(events[middle]["seq"]) ?? Int64.max
+            if middleSequence <= sequence {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        return lower
     }
 
     /// Builds the protocol acknowledgement and replay payload for a subscription.
