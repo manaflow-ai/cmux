@@ -30,7 +30,7 @@ cmux vm new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g|MB>] [--name <label
 ```
 
 Socket `vm.create` with the machine **kind** (`desktop` by default: xfce + noVNC + a shell; `--base`/`--no-desktop` for shell-only). The backend picks the image for the kind; `--image <id>` is the explicit override and the only way an image id leaves the client. `--size` is a memory preset (`2g|4g|8g|16g|24g|32g`, aliases `small|medium|large|xl|xxl`, or MB ≥ 512); plans cap it. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
-Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`) plus the desktop split for desktop machines. `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). At the plan cap the backend returns an upgrade error (exit 1).
+Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`) plus the desktop split for desktop machines. `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, kind, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro`; at the plan cap, an upgrade error (both exit 1).
 
 ### `cmux vm status`
 
@@ -420,7 +420,7 @@ Every `cmux vm` verb requires a signed-in app.
 
 ### Plan meter and limits
 
-`cmux vm ls` prints `N of M machines on the <plan> plan`; free plans get one machine and a 7-day cloud window, and `cmux vm ls --json` carries `limits.freeAccessExpiresAt`. Creates past `maxActiveVms` fail with an upgrade action — report it; never delete machines to make room without asking. Sizes above the plan's ceiling are refused by the backend.
+`cmux vm ls` prints `N of M machines on the <plan> plan`, and `cmux vm ls --json` carries `limits` (`maxActiveVms`, `planId`, and `freeAccessExpiresAt` when a free window applies). **Provisioning is gated to paid plans**: `vm new`, a first `vm base open`, `base reset`, `fork`, `restore`, and the router's provisioning path return the `vm_requires_pro` error (with the pricing link) on free or unknown plans; creates past `maxActiveVms` fail with an upgrade action. Report either — never delete machines to make room without asking. Sizes above the plan's ceiling are refused by the backend.
 
 ### `cmux ai-accounts`
 

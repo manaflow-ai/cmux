@@ -10,7 +10,7 @@ You are helping the user work with cmux Cloud machines through the `cmux` CLI. T
 - Base is a separate single per-user persistent slot, pinned to the top of the sidebar. `cmux vm new` mints fresh machines; `cmux vm base` always reopens the same one.
 - Terminals on a machine live in its cmux-tui session (workspaces `ws_…`, terminals `term_…`). They keep running detached. `cmux vm tree` catalogs every surface, and every line is an address `cmux vm open` (machine targets) or `cmux surface open` (any entry, including This Mac) accepts: `brave-otter/main/term_2f9c…`, `brave-otter:desktop`, `brave-otter:port/3000`.
 - Pool machines (labeled `agent-pool` in `cmux vm ls`) are provisioned by the `vm run`/`vm agent` router and reused for routed work. The router never drafts machines a person made by hand.
-- Plans cap active machine count and memory. `cmux vm ls` prints the meter and, on free plans, when free cloud access expires.
+- Plans cap active machine count and memory, and provisioning (`vm new`, first `vm base open`, `base reset`, `fork`, `restore`, the router creating a pool machine) requires a paid plan — free or unknown plans get `vm_requires_pro` with the pricing link. `cmux vm ls` prints the meter and, when a free window applies, when it expires.
 
 ## Commands
 

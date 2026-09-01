@@ -17,7 +17,7 @@ Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, C
 | **Surface** | A terminal, VNC screen, or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one or lands it at a pane edge; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine per user (`cmux vm base open`; `base reset` mints a new generation and keeps the old VM) — the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (labeled `agent-pool` in `vm ls`, membership persisted in `~/.cmuxterm/vm-run-pool.json`). `vm run`/`vm agent` only draft these; any other machine needs `--machine <id>`. |
-| **Plan meter** | `cmux vm ls` prints `N of M machines on the <plan> plan`. Free plans get **1 machine and a 7-day cloud window** (`vm ls --json` → `limits.freeAccessExpiresAt`). At the cap, creates fail with an upgrade action — never delete machines to make room without asking. |
+| **Plan meter** | `cmux vm ls` prints `N of M machines on the <plan> plan` (`vm ls --json` → `limits`). **Provisioning requires a paid plan**: `vm new`, the first `vm base open`, `base reset`, `fork`, `restore`, and the router's own provisioning answer `vm_requires_pro` with the pricing link on free or unknown plans; at the plan's machine cap, creates fail with an upgrade action. Never delete machines to make room without asking. |
 | **Checkpoint / fork** | `vm snapshot` mints a restorable checkpoint, `vm fork` clones a machine for a parallel experiment, `vm restore` brings a snapshot back — where the provider supports it (`vm ls --json` → `capabilities`). |
 
 ## Decide: cloud or local?
@@ -93,7 +93,7 @@ Agents started with `vm agent` authenticate inside the machine the way they woul
 ## Agent policy
 
 - **Prefer `vm route` / `vm run` / `vm agent` over naming machines.** They only draft pool machines; `--machine <id>` is the deliberate way to use another.
-- **Reuse before create.** `vm ls`, then an idle machine or Base. Free plans: one machine, 7 days.
+- **Reuse before create.** `vm ls`, then an idle machine or Base. Creating machines needs a paid plan and counts against its cap.
 - **Stay headless while working** (`--detach`, `--no-open`, `--print`, `terminal send|read|wait`); open panes (`vm open`, `vm tree`'s addresses) to *show* results, and `--focus true` only when the user should be looking.
 - **Checkpoint before risky operations** (`vm snapshot`); fork instead of experimenting on a machine the user relies on.
 - **Only destroy what you created this session.** `vm rm` and `vm workspace rm` are permanent; `vm base reset` keeps the old VM but the user must ask for it.
@@ -107,7 +107,7 @@ Agents started with `vm agent` authenticate inside the machine the way they woul
 | `claude`/`codex` not found on a brand-new machine | Provisioning is still running: `cmux vm exec <id> -- tail /tmp/cmux/provision.log`; the agents land in `/root/.npm-global/bin` (on PATH in login shells). |
 | First command after idle is slow | The machine was asleep: `cmux vm wait <id> --wake`. |
 | `vm route` says it would provision | The pool is empty/busy. Check the plan meter; `--provision` (or `vm run`) creates one. |
-| Create fails with an active-limit error | Plan cap (free: 1). Report it; let the user upgrade or choose a machine to remove. |
+| Create fails with `vm_requires_pro` or an active-limit error | Provisioning needs a paid plan (`cmux.com/pricing`), or the plan's machine cap is reached. Report it; let the user upgrade or choose a machine to remove. |
 | `vm open <m>/<ws>` says no such workspace | Names are the cmux-tui workspace names; copy the `ws_…` id from `cmux vm tree <m>` (`--refresh` right after a link attach). |
 | `vm terminal wait` exits 1 | Timeout (default 30 s; raise `--timeout`) — the error carries the screen tail; `terminal read` shows the whole screen. |
 | Pushed a repo but `.git` is missing | `push` skips `.git`, `node_modules`, `.venv`, `__pycache__`, `.DS_Store` by default; `--no-default-excludes`, or ship a `git bundle` (recipes). |
