@@ -414,6 +414,17 @@ struct CMUXMobileRootView: View {
             presentAutoConnectMigrationIfEligible()
             #endif
         }
+        .onChange(of: authManager.currentUser?.demonstrationContentEnabled ?? false) { _, _ in
+            // Session revalidation refreshes the published user — including
+            // its server-written demonstration-content flag — WITHOUT an
+            // isAuthenticated edge, so neither onChange above re-fires. A
+            // launch that mounts already authenticated syncs against the
+            // cached identity card (not-flagged when it predates the flag),
+            // and without this edge the demo computer's workspace and
+            // notification seeds would never land. Re-running the ordinary
+            // auth sync lets the shell's activation re-evaluate.
+            syncShellAuthentication(isAuthenticated)
+        }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 #if os(iOS)
@@ -883,12 +894,16 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
+            onSetKeepAwake: { [store] enabled in
+                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+            },
             onComplete: completeOnboarding
         )
         #else
