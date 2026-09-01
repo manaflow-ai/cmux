@@ -765,25 +765,32 @@ mod tests {
         spawn_gate: Option<Arc<Notify>>,
         spawn_started: Option<Arc<Notify>>,
         spawn_dropped: Option<Arc<AtomicBool>>,
+        spawn_completed: Option<Arc<AtomicBool>>,
     }
 
-    struct SpawnDrop(Arc<AtomicBool>);
+    struct SpawnDrop {
+        dropped: Arc<AtomicBool>,
+    }
 
     impl Drop for SpawnDrop {
         fn drop(&mut self) {
-            self.0.store(true, Ordering::Release);
+            self.dropped.store(true, Ordering::Release);
         }
     }
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
-            let _spawn_drop = self.spawn_dropped.as_ref().map(|flag| SpawnDrop(Arc::clone(flag)));
+            let _spawn_drop =
+                self.spawn_dropped.as_ref().map(|flag| SpawnDrop { dropped: Arc::clone(flag) });
             if let Some(started) = &self.spawn_started {
                 started.notify_one();
             }
             if let Some(gate) = &self.spawn_gate {
                 gate.notified().await;
+            }
+            if let Some(completed) = &self.spawn_completed {
+                completed.store(true, Ordering::Release);
             }
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
@@ -833,6 +840,7 @@ mod tests {
             spawn_gate: None,
             spawn_started: None,
             spawn_dropped: None,
+            spawn_completed: None,
         });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
@@ -858,16 +866,19 @@ mod tests {
         Rig { manager, spawned, port, cancel }
     }
 
-    async fn rig_with_blocked_spawn() -> (Rig, Arc<Notify>, Arc<Notify>, Arc<AtomicBool>) {
+    async fn rig_with_blocked_spawn()
+    -> (Rig, Arc<Notify>, Arc<Notify>, Arc<AtomicBool>, Arc<AtomicBool>) {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
         let started = Arc::new(Notify::new());
         let gate = Arc::new(Notify::new());
         let dropped = Arc::new(AtomicBool::new(false));
+        let completed = Arc::new(AtomicBool::new(false));
         let deps = Arc::new(FakeDeps {
             spawned: Arc::clone(&spawned),
             spawn_gate: Some(Arc::clone(&gate)),
             spawn_started: Some(Arc::clone(&started)),
             spawn_dropped: Some(Arc::clone(&dropped)),
+            spawn_completed: Some(Arc::clone(&completed)),
         });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
@@ -884,7 +895,7 @@ mod tests {
         )
         .await
         .expect("bind test listener");
-        (Rig { manager, spawned, port, cancel }, started, gate, dropped)
+        (Rig { manager, spawned, port, cancel }, started, gate, dropped, completed)
     }
 
     async fn rig() -> Rig {
@@ -1148,7 +1159,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn parent_cancellation_closes_a_pending_open() {
-        let (rig, spawn_started, gate, spawn_dropped) = rig_with_blocked_spawn().await;
+        let (rig, spawn_started, gate, spawn_dropped, spawn_completed) =
+            rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1160,19 +1172,24 @@ mod tests {
             .await
             .expect("open reached the blocked PTY spawn");
         rig.cancel.cancel();
-        gate.notify_one();
 
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
             .expect("parent cancellation must close the tunnel promptly");
+        gate.notify_one();
         assert!(spawn_dropped.load(Ordering::Acquire), "blocked open task must be dropped");
+        assert!(
+            !spawn_completed.load(Ordering::Acquire),
+            "cancellation must precede spawn completion"
+        );
         assert_eq!(rig.manager.opening_count(), 0, "open reservation must be released");
         assert_eq!(rig.manager.attachment_count(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn peer_eof_closes_a_pending_open() {
-        let (rig, spawn_started, gate, spawn_dropped) = rig_with_blocked_spawn().await;
+        let (rig, spawn_started, gate, spawn_dropped, spawn_completed) =
+            rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1184,12 +1201,13 @@ mod tests {
             .await
             .expect("open reached the blocked PTY spawn");
         drop(write);
-        gate.notify_one();
 
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
             .expect("peer EOF must close the tunnel promptly");
+        gate.notify_one();
         assert!(spawn_dropped.load(Ordering::Acquire), "blocked open task must be dropped");
+        assert!(!spawn_completed.load(Ordering::Acquire), "peer EOF must precede spawn completion");
         assert_eq!(rig.manager.opening_count(), 0, "open reservation must be released");
         assert_eq!(rig.manager.attachment_count(), 0);
         rig.cancel.cancel();
