@@ -476,6 +476,17 @@ struct MasterControl {
     killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
 }
 
+impl Drop for MasterControl {
+    fn drop(&mut self) {
+        // A cancelled spawn_blocking task can finish after its JoinHandle has
+        // been aborted. Dropping the late handle must still terminate the
+        // child, since the wait thread owns the Child value separately.
+        if let Ok(mut killer) = self.killer.lock() {
+            let _ = killer.kill();
+        }
+    }
+}
+
 impl PtyControl for MasterControl {
     fn write(&self, data: &[u8]) {
         if let Ok(mut writer) = self.writer.lock() {

@@ -601,6 +601,10 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                             tokio::select! {
                                 biased;
                                 _ = connection.done.cancelled() => break 'reader,
+                                _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
+                                    connection.protocol_error("bad_request", "open timed out");
+                                    break 'reader;
+                                }
                                 result = dispatch_tx.send(frame) => {
                                     if result.is_err() {
                                         connection.finish();
@@ -752,11 +756,21 @@ mod tests {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
         spawn_gate: Option<Arc<Notify>>,
         spawn_started: Option<Arc<Notify>>,
+        spawn_dropped: Option<Arc<AtomicBool>>,
+    }
+
+    struct SpawnDrop(Arc<AtomicBool>);
+
+    impl Drop for SpawnDrop {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
     }
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+            let _spawn_drop = self.spawn_dropped.as_ref().map(|flag| SpawnDrop(Arc::clone(flag)));
             if let Some(started) = &self.spawn_started {
                 started.notify_one();
             }
@@ -810,6 +824,7 @@ mod tests {
             spawned: Arc::clone(&spawned),
             spawn_gate: None,
             spawn_started: None,
+            spawn_dropped: None,
         });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
@@ -835,13 +850,15 @@ mod tests {
         Rig { manager, spawned, port, cancel }
     }
 
-    async fn rig_with_blocked_spawn() -> (Rig, Arc<Notify>) {
+    async fn rig_with_blocked_spawn() -> (Rig, Arc<Notify>, Arc<AtomicBool>) {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
         let started = Arc::new(Notify::new());
+        let dropped = Arc::new(AtomicBool::new(false));
         let deps = Arc::new(FakeDeps {
             spawned: Arc::clone(&spawned),
             spawn_gate: Some(Arc::new(Notify::new())),
             spawn_started: Some(Arc::clone(&started)),
+            spawn_dropped: Some(Arc::clone(&dropped)),
         });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
@@ -858,7 +875,7 @@ mod tests {
         )
         .await
         .expect("bind test listener");
-        (Rig { manager, spawned, port, cancel }, started)
+        (Rig { manager, spawned, port, cancel }, started, dropped)
     }
 
     async fn rig() -> Rig {
@@ -1122,7 +1139,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn parent_cancellation_closes_a_pending_open() {
-        let (rig, spawn_started) = rig_with_blocked_spawn().await;
+        let (rig, spawn_started, spawn_dropped) = rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1138,12 +1155,13 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
             .expect("parent cancellation must close the tunnel promptly");
+        assert!(spawn_dropped.load(Ordering::Acquire), "blocked open task must be dropped");
         assert_eq!(rig.manager.attachment_count(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn peer_eof_closes_a_pending_open() {
-        let (rig, spawn_started) = rig_with_blocked_spawn().await;
+        let (rig, spawn_started, spawn_dropped) = rig_with_blocked_spawn().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
@@ -1159,6 +1177,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), read_eof(&mut read))
             .await
             .expect("peer EOF must close the tunnel promptly");
+        assert!(spawn_dropped.load(Ordering::Acquire), "blocked open task must be dropped");
         assert_eq!(rig.manager.attachment_count(), 0);
         rig.cancel.cancel();
     }
