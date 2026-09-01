@@ -79,14 +79,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // upsert, so the prompt-stop transaction itself must retain the
         // authoritative running runtime status while background work remains.
         let suppressedSessionId = "\(sessionId)-background"
-        _ = run(
+        let suppressedStart = run(
             "session-start",
             payload: #"{"conversationId":"\#(suppressedSessionId)","workspacePaths":["\#(context.root.path)"],"hook_event_name":"SessionStart"}"#
         )
-        _ = run(
+        XCTAssertFalse(suppressedStart.timedOut, suppressedStart.stderr)
+        XCTAssertEqual(suppressedStart.status, 0, suppressedStart.stderr)
+        let suppressedPrompt = run(
             "prompt-submit",
             payload: #"{"conversationId":"\#(suppressedSessionId)","workspacePaths":["\#(context.root.path)"],"hook_event_name":"PreInvocation"}"#
         )
+        XCTAssertFalse(suppressedPrompt.timedOut, suppressedPrompt.stderr)
+        XCTAssertEqual(suppressedPrompt.status, 0, suppressedPrompt.stderr)
         let suppressedStop = run(
             "stop",
             payload: #"{"conversationId":"\#(suppressedSessionId)","fullyIdle":false,"workspacePaths":["\#(context.root.path)"],"hook_event_name":"Stop"}"#,
