@@ -83,10 +83,10 @@ struct VideoBackgroundEmbedPageTests {
 
     @Test func directIdentifiersAreEscapedAsJavaScriptLiterals() {
         let html = VideoBackgroundEmbedPage(
-            source: .youTubeVideo(id: "bad\";window.pwned=true;//")
+            source: .youTubeVideo(id: "bad\";window.pwned=true;</script>")
         ).html
-        #expect(html.contains("videoId: \"bad\\\";window.pwned=true;//\""))
-        #expect(!html.contains("videoId: 'bad\";window.pwned=true;//'"))
+        #expect(html.contains("videoId: \"bad\\\";window.pwned=true;<\\/script>\""))
+        #expect(!html.contains("videoId: \"bad\\\";window.pwned=true;</script>\""))
     }
 
     @Test func localSourcesProduceAnExplicitUnsupportedPageWithoutYouTubePlayer() {
