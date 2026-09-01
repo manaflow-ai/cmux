@@ -516,21 +516,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// then supply a narrower HOME for each subprocess. Keep all three user
     /// configuration roots on that per-test home so the inherited app-host
     /// redirects cannot make sibling CLI tests share state.
+    ///
+    /// Core Foundation prefers `CFFIXED_USER_HOME` over `HOME`, so whenever the
+    /// inherited environment carries that redirect (the hosted lanes forward it
+    /// into the console session even when the isolation flag is absent), the
+    /// child's `NSHomeDirectory()` would ignore the test's HOME and read the
+    /// runner's home instead. Align it with HOME in that case too.
     private func isolatedCLIChildEnvironment(
         _ environment: [String: String]
     ) -> [String: String] {
-        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
-              let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawHome.isEmpty else {
+            return environment
+        }
+        let isolationRequired = environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1"
+        guard isolationRequired || environment["CFFIXED_USER_HOME"] != nil else {
             return environment
         }
 
         var resolved = environment
         resolved["CFFIXED_USER_HOME"] = rawHome
-        resolved["XDG_CONFIG_HOME"] = URL(
-            fileURLWithPath: rawHome,
-            isDirectory: true
-        ).appendingPathComponent(".config", isDirectory: true).path
+        if isolationRequired {
+            resolved["XDG_CONFIG_HOME"] = URL(
+                fileURLWithPath: rawHome,
+                isDirectory: true
+            ).appendingPathComponent(".config", isDirectory: true).path
+        }
         return resolved
     }
 
