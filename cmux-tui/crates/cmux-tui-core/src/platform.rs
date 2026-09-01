@@ -881,14 +881,11 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     if url.scheme() != "file" {
         return None;
     }
-    if let Some(host) = url.host_str()
-        && !terminal_pwd_host_is_local(host)
-    {
+    let host = url.host_str()?;
+    if !terminal_pwd_host_is_local(host) {
         return None;
     }
-    if url.host_str().is_some() {
-        url.set_host(Some("localhost")).ok()?;
-    }
+    url.set_host(Some("localhost")).ok()?;
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
 }
 
