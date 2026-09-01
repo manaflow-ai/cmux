@@ -149,6 +149,7 @@ public struct AppSection: View {
         }
         .task(id: appIconImagePath.current) {
             let path = appIconImagePath.current
+            customAppIconIsValid = false
             let isValid: Bool
             if path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 isValid = false

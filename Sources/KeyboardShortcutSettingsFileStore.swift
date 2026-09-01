@@ -51,6 +51,8 @@ final class CmuxSettingsFileStore {
     /// change would loop forever against it.
     private let isUserDefaultsKeyForcedByProfile: (String) -> Bool
     private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
+    /// Applies an imported app-icon setting through the app lifecycle owner.
+    private let onAppIconSettingsChanged: @MainActor @Sendable (UserDefaults) -> Void
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -88,7 +90,8 @@ final class CmuxSettingsFileStore {
             }
             return policy.isKeyForcedInAppDomain(key)
         },
-        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
+        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+        onAppIconSettingsChanged: @escaping @MainActor @Sendable (UserDefaults) -> Void = { _ in }
     ) {
         self.isUserDefaultsKeyForcedByProfile = isUserDefaultsKeyForcedByProfile
         self.primaryPath = primaryPath
@@ -103,6 +106,7 @@ final class CmuxSettingsFileStore {
         self.languageSettingsStore = languageSettingsStore
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
+        self.onAppIconSettingsChanged = onAppIconSettingsChanged
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
         bootstrapPrimaryTemplateIfNeeded()
         reload(applyLiveDefaultSideEffects: false)
@@ -1632,6 +1636,7 @@ final class CmuxSettingsFileStore {
         let notificationCenter = notificationCenter
         let userDefaults = userDefaults
         let languageSettingsStore = languageSettingsStore
+        let onAppIconSettingsChanged = onAppIconSettingsChanged
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
@@ -1678,7 +1683,9 @@ final class CmuxSettingsFileStore {
                     languageSettingsStore?.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
                 } else if change.defaultsKey == AppIconSettings.modeKey ||
                     change.defaultsKey == AppIconSettings.imagePathKey {
-                    AppIconSettings.applyCurrentIcon(defaults: userDefaults)
+                    MainActor.assumeIsolated {
+                        onAppIconSettingsChanged(userDefaults)
+                    }
                 } else if change.defaultsKey == GlobalFontMagnification.percentKey {
                     notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
                 }

@@ -51,6 +51,9 @@ enum CmuxMain {
 }
 
 struct cmuxApp: App {
+    /// Composition-root owner for asynchronous custom app-icon resolution.
+    private let appIconSettingsApplication: AppIconSettingsApplication
+
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
@@ -88,6 +91,8 @@ struct cmuxApp: App {
         // it owns localized search-index text for the process lifetime.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
+        let appIconSettingsApplication = AppIconSettingsApplication()
+        self.appIconSettingsApplication = appIconSettingsApplication
         // Relocate a pre-existing socket password out of the legacy
         // Application Support directory before any store reads it. The CLI reads
         // this file on every agent hook, and a cross-identity reach into
@@ -229,7 +234,8 @@ struct cmuxApp: App {
             accountFlow: authComposition.accountFlow,
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService
+                computerUseRuntimeService: computerUseRuntimeService,
+                appIconSettingsApplication: appIconSettingsApplication
             )
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
@@ -291,7 +297,8 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
-            computerUseRuntimeService: computerUseRuntimeService
+            computerUseRuntimeService: computerUseRuntimeService,
+            appIconSettingsApplication: appIconSettingsApplication
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
@@ -5470,35 +5477,14 @@ enum AppIconSettings {
     /// Applies the one effective app-icon selection. A valid custom image
     /// wins over the built-in mode; an invalid image is logged by the
     /// resolver and falls back to the selected Automatic / Light / Dark mode.
+    @MainActor
     static func applyCurrentIcon(
+        application: AppIconSettingsApplication,
         defaults: UserDefaults = .standard,
         environment: Environment? = nil
     ) {
         let environment = environment ?? liveEnvironmentProvider()
-        guard environment.isApplicationFinishedLaunching() else { return }
-
-        if let path = resolvedImagePath(defaults: defaults) {
-            if let prepareImageForPath = environment.prepareImageForPath {
-                Task { @MainActor in
-                    guard let prepared = await prepareImageForPath(path) else {
-                        guard resolvedImagePath(defaults: defaults) == path else { return }
-                        applyIcon(resolvedMode(defaults: defaults), environment: environment)
-                        return
-                    }
-                    guard resolvedImagePath(defaults: defaults) == path else { return }
-                    environment.stopAppearanceObservation()
-                    environment.setApplicationIconImage(prepared.image)
-                    environment.notifyDockTilePlugin()
-                }
-                return
-            }
-
-            // The live environment always supplies the asynchronous prepared
-            // image closure above. Test/preview environments that omit it use
-            // the selected built-in mode as their deterministic fallback.
-        }
-
-        applyIcon(resolvedMode(defaults: defaults), environment: environment)
+        application.applyCurrentIcon(defaults: defaults, environment: environment)
     }
 
     static func applyIcon(

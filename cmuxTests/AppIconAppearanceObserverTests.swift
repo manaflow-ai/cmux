@@ -350,6 +350,7 @@ struct AppIconAppearanceObserverTests {
         var fallbackModeRequests = 0
         var notificationCount = 0
         let prepared = AppIconImageResolver.PreparedImage(image: expectedIcon)
+        let application = AppIconSettingsApplication()
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let environment = AppIconSettings.Environment(
@@ -371,11 +372,80 @@ struct AppIconAppearanceObserverTests {
                 notifyDockTilePlugin: { notificationCount += 1 }
             )
 
-            AppIconSettings.applyCurrentIcon(defaults: defaults, environment: environment)
+            AppIconSettings.applyCurrentIcon(
+                defaults: defaults,
+                environment: environment,
+                application: application
+            )
         }
 
         #expect(stopCount == 1)
         #expect(fallbackModeRequests == 0)
         #expect(notificationCount == 1)
+    }
+
+    @Test(.timeLimit(.seconds(10)))
+    @MainActor
+    func testReplacingCustomImageCancelsOlderResolution() async throws {
+        let suiteName = "AppIconAppearanceObserverTests.cancellation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let firstPath = "/tmp/first-custom-icon.png"
+        let secondPath = "/tmp/second-custom-icon.png"
+        defaults.set(firstPath, forKey: AppIconSettings.imagePathKey)
+
+        let firstStarted = AsyncStream<Void>.makeStream()
+        let firstCancelled = AsyncStream<Void>.makeStream()
+        let firstRelease = AsyncStream<Void>.makeStream()
+        let secondApplied = AsyncStream<Void>.makeStream()
+        defer {
+            firstStarted.continuation.finish()
+            firstCancelled.continuation.finish()
+            firstRelease.continuation.finish()
+            secondApplied.continuation.finish()
+        }
+        var firstStartedIterator = firstStarted.stream.makeAsyncIterator()
+        var firstCancelledIterator = firstCancelled.stream.makeAsyncIterator()
+        var secondAppliedIterator = secondApplied.stream.makeAsyncIterator()
+
+        let firstIcon = NSImage(size: NSSize(width: 16, height: 16))
+        let secondIcon = NSImage(size: NSSize(width: 32, height: 32))
+        let firstPrepared = AppIconImageResolver.PreparedImage(image: firstIcon)
+        let secondPrepared = AppIconImageResolver.PreparedImage(image: secondIcon)
+        let application = AppIconSettingsApplication()
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            imageForMode: { _ in nil },
+            prepareImageForPath: { path in
+                guard path == firstPath else { return secondPrepared }
+                firstStarted.continuation.yield()
+                return await withTaskCancellationHandler {
+                    for await _ in firstRelease.stream { return firstPrepared }
+                    return firstPrepared
+                } onCancel: {
+                    firstCancelled.continuation.yield()
+                    firstRelease.continuation.finish()
+                }
+            },
+            setApplicationIconImage: { icon in
+                if icon === firstIcon {
+                    Issue.record("A cancelled resolution must not apply its stale icon")
+                } else if icon === secondIcon {
+                    secondApplied.continuation.yield()
+                }
+            },
+            startAppearanceObservation: {},
+            stopAppearanceObservation: {},
+            notifyDockTilePlugin: {}
+        )
+
+        application.applyCurrentIcon(defaults: defaults, environment: environment)
+        _ = await firstStartedIterator.next()
+        defaults.set(secondPath, forKey: AppIconSettings.imagePathKey)
+        application.applyCurrentIcon(defaults: defaults, environment: environment)
+
+        _ = await firstCancelledIterator.next()
+        _ = await secondAppliedIterator.next()
     }
 }

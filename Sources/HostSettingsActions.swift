@@ -19,6 +19,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
     private nonisolated let appIconConfigPath: String
+    private let appIconSettingsApplication: AppIconSettingsApplication
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
@@ -51,10 +52,12 @@ final class HostSettingsActions: SettingsHostActions {
 
     init(
         configFileURL: URL,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        appIconSettingsApplication: AppIconSettingsApplication
     ) {
         self.configFileURL = configFileURL
         self.appIconConfigPath = configFileURL.path
+        self.appIconSettingsApplication = appIconSettingsApplication
         self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
@@ -62,29 +65,32 @@ final class HostSettingsActions: SettingsHostActions {
     deinit {
         appIconModeObservation?.invalidate()
         appIconImagePathObservation?.invalidate()
+        appIconSettingsApplication.cancel()
     }
 
     private func startObservingAppIconMode() {
         // Apply once on construction so a value persisted before this
         // instance existed (e.g. from the config file) is reflected.
-        AppIconSettings.applyCurrentIcon()
+        AppIconSettings.applyCurrentIcon(application: appIconSettingsApplication)
 
         appIconModeObservation = UserDefaults.standard.observe(
             \.appIconMode,
             options: [.new]
-        ) { _, _ in
+        ) { [weak self] _, _ in
             // KVO delivers on the thread that mutated the key; @AppStorage
             // writes happen on the main actor, so hop to it to apply.
-            Task { @MainActor in
-                AppIconSettings.applyCurrentIcon()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                AppIconSettings.applyCurrentIcon(application: self.appIconSettingsApplication)
             }
         }
         appIconImagePathObservation = UserDefaults.standard.observe(
             \.appIconImagePath,
             options: [.new]
-        ) { _, _ in
-            Task { @MainActor in
-                AppIconSettings.applyCurrentIcon()
+        ) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                AppIconSettings.applyCurrentIcon(application: self.appIconSettingsApplication)
             }
         }
     }
