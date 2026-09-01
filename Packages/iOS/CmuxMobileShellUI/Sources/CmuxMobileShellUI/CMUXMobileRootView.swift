@@ -482,7 +482,11 @@ struct CMUXMobileRootView: View {
                     insertion: .move(edge: .trailing).combined(with: .opacity),
                     removal: .opacity
                 ))
-        } else if !isAuthenticated {
+        } else if MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+            isRestoringSession: authManager.isRestoringSession
+        ) {
             SignInView()
                 .transition(reduceMotion ? .opacity : .asymmetric(
                     insertion: .opacity,
