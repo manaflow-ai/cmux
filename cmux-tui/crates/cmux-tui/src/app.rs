@@ -401,6 +401,7 @@ fn send_bounded_cancelable<T>(
 struct SessionEventWorker {
     cancellation: EventCancellation,
     start: Arc<AtomicBool>,
+    stop: Option<cmux_tui_core::MuxEventReceiver>,
     mux: Option<JoinHandle<()>>,
 }
 
@@ -412,6 +413,11 @@ impl SessionEventWorker {
     fn stop_and_join(&mut self) {
         self.cancellation.cancel();
         self.activate();
+        // Closing the receiver wakes a worker blocked in recv(). This avoids
+        // polling the session event mailbox on a fixed 100 ms timer.
+        if let Some(stop) = self.stop.take() {
+            stop.close();
+        }
         if let Some(mux) = self.mux.take() {
             let _ = mux.join();
         }
@@ -648,15 +654,14 @@ fn forward_mux_events(
 ) {
     let mut next_recovery_generation = 0_u64;
     while !tx.cancellation.stop.load(Ordering::Acquire) {
-        let needs_recovery = match session_events.recv_timeout(Duration::from_millis(100)) {
+        let needs_recovery = match session_events.recv() {
             Ok(event) => {
                 if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
                     return;
                 }
                 false
             }
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => {
+            Err(_) => {
                 if session_events.overflowed() {
                     true
                 } else {
@@ -813,6 +818,7 @@ fn start_ordered_session_inner(
     let mux_recovery_generation = Arc::new(AtomicU64::new(0));
     let event_source = session.inner.clone();
     let session_events = event_source.events();
+    let stop = session_events.clone();
     let destination_mutation_committed = session.destination_mutation_committed.clone();
     let mux_recovery_sequence = mux_recovery_generation.clone();
     let worker_events = events;
@@ -839,7 +845,7 @@ fn start_ordered_session_inner(
         })?;
     Ok((
         session,
-        SessionEventWorker { cancellation, start, mux: Some(mux) },
+        SessionEventWorker { cancellation, start, stop: Some(stop), mux: Some(mux) },
         mux_titles,
         mux_recovery_generation,
     ))

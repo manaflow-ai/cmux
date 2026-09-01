@@ -97,29 +97,32 @@ pub struct DrawCursors {
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
     let panes_accept_focus = app.focus == FocusTarget::Pane;
-    let areas = app.pane_areas.clone();
-    let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
+    let visible_surfaces: HashSet<_> = app.pane_areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_kitty_graphics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_terminal_pointer_semantics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
-    for area in &areas {
+    // PaneArea is Copy, so take one snapshot per iteration instead of cloning
+    // the entire vector on every frame. The copy also ends the borrow before
+    // the drawing helpers mutate the app's render hit maps.
+    for index in 0..app.pane_areas.len() {
+        let area = app.pane_areas[index];
         let focused = panes_accept_focus && Some(area.pane) == active_pane;
-        draw_box(app, frame, area, focused);
+        draw_box(app, frame, &area, focused);
         if area.bar.is_some() {
-            draw_tab_bar(app, frame, area, focused);
+            draw_tab_bar(app, frame, &area, focused);
         }
-        let cursors = draw_content(app, frame, area, focused);
+        let cursors = draw_content(app, frame, &area, focused);
         if cursors.input.is_some() {
             input_cursor = cursors.input;
         }
         if cursors.terminal.is_some() {
             terminal_cursor = cursors.terminal;
         }
-        draw_scrollbar(app, frame, area, focused);
-        push_resize_hits(app, area);
+        draw_scrollbar(app, frame, &area, focused);
+        push_resize_hits(app, &area);
     }
     DrawCursors { input: input_cursor, terminal: terminal_cursor }
 }
