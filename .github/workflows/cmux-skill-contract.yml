@@ -28,8 +28,8 @@ concurrency:
   group: cmux-skill-contract-${{ github.ref }}
   cancel-in-progress: true
 
-  jobs:
-    browser-skill:
+jobs:
+  browser-skill:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
