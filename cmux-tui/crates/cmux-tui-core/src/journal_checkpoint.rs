@@ -4,7 +4,7 @@ use std::io::Write;
 use anyhow::Context;
 use base64::Engine;
 use flate2::{Compression, GzBuilder};
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::resource::TerminalPublicId;
@@ -273,8 +273,8 @@ impl RestoreReducer {
 
     pub(crate) fn apply(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.sequence > self.last_sequence,
-            "journal records are not strictly ordered after checkpoint"
+            record.sequence == self.last_sequence.saturating_add(1),
+            "journal records are not contiguous after checkpoint"
         );
         self.last_sequence = record.sequence;
         if record.replay != JournalReplayPolicy::Required {
@@ -821,6 +821,44 @@ mod tests {
         assert_eq!(preview["fully_reducible"], true);
         assert_eq!(preview["state"]["session_snapshot"]["workspaces"][0]["id"], "workspace_new");
         assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "2");
+    }
+
+    #[test]
+    fn reducer_rejects_duplicate_and_gapped_sequences() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_test".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({"session_snapshot":{"cursor":{}},"journal_extensions":{"producers":[],"hooks":[]}}),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_4".into(),
+            schema_version: 1,
+            kind: "unknown".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Ignored,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        };
+        assert!(restore_preview(&checkpoint, &[record.clone(), record.clone()], 4).is_err());
+        let mut gapped = record;
+        gapped.sequence = 5;
+        assert!(restore_preview(&checkpoint, &[gapped], 5).is_err());
     }
 
     #[test]
