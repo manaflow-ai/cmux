@@ -16090,6 +16090,20 @@ struct CMUXCLI {
             }
         }
 
+        func requiredBrowserCollection(_ payload: [String: Any], field: String) throws -> [Any] {
+            guard let value = payload[field] as? [Any] else {
+                let message = String(
+                    format: String(
+                        localized: "cli.browser.error.missingResponseField",
+                        defaultValue: "Browser response is missing required field: %@"
+                    ),
+                    field
+                )
+                throw CLIError(message: message, v2Code: "invalid_response")
+            }
+            return value
+        }
+
         func displaySnapshotText(_ payload: [String: Any]) -> String {
             let snapshotText = (payload["snapshot"] as? String) ?? "Empty page"
             guard snapshotText.contains("\n- (empty)") else {
@@ -17428,7 +17442,8 @@ struct CMUXCLI {
             switch cookieVerb {
             case "get":
                 let payload = try client.sendV2(method: "browser.cookies.get", params: params)
-                output(payload, fallback: "OK", textValue: payload["cookies"] ?? [])
+                let cookies = try requiredBrowserCollection(payload, field: "cookies")
+                output(payload, fallback: "OK", textValue: cookies)
             case "set":
                 var setParams = params
                 if hasFlag(cookieArgs, name: "--http-only") {
@@ -17510,7 +17525,8 @@ struct CMUXCLI {
             switch tabVerb {
             case "list":
                 let payload = try client.sendV2(method: "browser.tab.list", params: ["surface_id": sid])
-                output(payload, fallback: "OK", textValue: payload["tabs"] ?? [])
+                let tabs = try requiredBrowserCollection(payload, field: "tabs")
+                output(payload, fallback: "OK", textValue: tabs)
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
                 let url = tabArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)

@@ -22,8 +22,9 @@ struct BrowserValueTextFormatter {
         if let dictionary = value as? [String: Any], dictionary.isEmpty {
             return "{}"
         }
-        if JSONSerialization.isValidJSONObject(value),
-           let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
+        let sanitizedValue = sanitizedJSONValue(value)
+        if JSONSerialization.isValidJSONObject(sanitizedValue),
+           let data = try? JSONSerialization.data(withJSONObject: sanitizedValue, options: [.prettyPrinted]),
            let text = String(data: data, encoding: .utf8) {
             return text
         }
@@ -55,5 +56,20 @@ struct BrowserValueTextFormatter {
                 ? Character("\u{FFFD}")
                 : Character(scalar)
         })
+    }
+
+    private func sanitizedJSONValue(_ value: Any) -> Any {
+        if let string = value as? String {
+            return sanitizedTerminalString(string)
+        }
+        if let array = value as? [Any] {
+            return array.map(sanitizedJSONValue)
+        }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.reduce(into: [String: Any]()) { result, entry in
+                result[sanitizedTerminalString(entry.key)] = sanitizedJSONValue(entry.value)
+            }
+        }
+        return value
     }
 }
