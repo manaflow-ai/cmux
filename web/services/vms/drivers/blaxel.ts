@@ -684,13 +684,33 @@ function volumeListItems(payload: unknown): unknown[] {
   return [];
 }
 
-function hasVolumePaginationMetadata(payload: unknown): boolean {
+/**
+ * Completion must be an explicit provider signal: a continuation-cursor key
+ * present with an empty value, or hasMore === false. A meta object that only
+ * carries counts (e.g. { total: 1000 }) proves nothing about exhaustion and
+ * must leave coverage marked partial.
+ */
+function volumePaginationComplete(payload: unknown): boolean {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const explicitEnd = (source: unknown): boolean => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) return false;
+    const value = source as {
+      nextCursor?: unknown;
+      next_cursor?: unknown;
+      hasMore?: unknown;
+      has_more?: unknown;
+    };
+    if (value.hasMore === false || value.has_more === false) return true;
+    const cursorKeyPresent = "nextCursor" in value || "next_cursor" in value;
+    if (!cursorKeyPresent) return false;
+    const cursor = value.nextCursor ?? value.next_cursor;
+    return cursor === null || cursor === undefined || cursor === "";
+  };
   const candidate = payload as { meta?: unknown; data?: unknown };
-  if (candidate.meta && typeof candidate.meta === "object" && !Array.isArray(candidate.meta)) return true;
+  if (explicitEnd(payload)) return true;
+  if (explicitEnd(candidate.meta)) return true;
   if (candidate.data && typeof candidate.data === "object" && !Array.isArray(candidate.data)) {
-    const data = candidate.data as { meta?: unknown };
-    return !!data.meta && typeof data.meta === "object" && !Array.isArray(data.meta);
+    return explicitEnd((candidate.data as { meta?: unknown }).meta);
   }
   return false;
 }
@@ -779,7 +799,7 @@ export function parseBlaxelVolumePage(payload: unknown, limit = 100): VMVolumePa
     // retain or sort an unbounded provider inventory.
     volumes: parseBlaxelVolumeItems(items.slice(0, boundedLimit)),
     nextCursor: volumeNextCursor(payload),
-    complete: hasVolumePaginationMetadata(payload) && !truncated,
+    complete: volumeNextCursor(payload) === null && volumePaginationComplete(payload) && !truncated,
   };
 }
 
