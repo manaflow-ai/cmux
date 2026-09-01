@@ -30,11 +30,11 @@ struct MobilePairingAccountPreflight: Sendable {
     /// A user-id mismatch is explained as
     /// ``MobilePairingFailureCategory/authEnvironmentMismatch(macChannelIsRelease:)``
     /// only when the two auth channels are declared to differ. The emitting Mac
-    /// stamps its channel into the pairing URL's scheme (release Macs emit
-    /// ``CmxPairingURLScheme/release``, dev Macs
-    /// ``CmxPairingURLScheme/development``; #6038), so `scannedScheme` is an
-    /// explicit Mac-side signal. Same-channel and unknown-scheme mismatches
-    /// keep ``MobilePairingFailureCategory/authFailed``.
+    /// stamps its channel into the pairing URL's scheme (official Macs emit the
+    /// canonical App Store namespace; tagged DEV Macs emit their exact tagged
+    /// namespace), so `scannedScheme` is an explicit Mac-side signal.
+    /// Same-channel and unknown-scheme mismatches keep
+    /// ``MobilePairingFailureCategory/authFailed``.
     func failure(for ticket: CmxAttachTicket) -> MobilePairingFailureCategory? {
         if let expectedUserID = normalizedNonEmpty(ticket.macUserID) {
             guard let actualUserID = normalizedNonEmpty(actualUserID) else {

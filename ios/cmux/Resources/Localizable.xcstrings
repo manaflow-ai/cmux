@@ -6450,13 +6450,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+            "value": "Update cmux to the latest version on your iPhone, then scan again. A DEV iPhone build connects to its same-tag DEV Mac build, plus tags granted with 'cmux mobile compatible-tags'. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
+            "value": "iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。DEV iPhone ビルドは同じタグの DEV Mac ビルドと、「cmux mobile compatible-tags」で許可されたタグに接続できます。BETA、INTERNAL、App Store ビルドは Stable または Nightly にのみ接続できます。"
           }
         }
       }
@@ -6637,13 +6637,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Update cmux from the App Store (or TestFlight), then scan again."
+            "value": "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "App Store（またはTestFlight）でcmuxを更新してから、もう一度スキャンしてください。"
+            "value": "App Store（またはTestFlight）で iPhone の cmux を最新バージョンに更新してから、もう一度スキャンしてください。"
           }
         }
       }
@@ -6688,13 +6688,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
+            "value": "This isn't a cmux pairing QR. Open Tailscale Pairing on the Mac and scan the code shown there."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これはcmuxのペアリングQRコードではありません。cmux 0.64.17では「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」のコードをスキャンしてください。"
+            "value": "これは cmux のペアリング QR コードではありません。Mac で「Tailscale ペアリング」を開き、表示されたコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.externalCodeRequiresInAppScan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pairing link was opened outside cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペアリングリンクは cmux の外部から開かれました。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.externalCodeRequiresInAppScan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux on your iPhone, choose Tailscale, and scan the code with the in-app scanner."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone で cmux を開き、Tailscale を選択して、アプリ内スキャナーでコードをスキャンしてください。"
           }
         }
       }
@@ -7011,13 +7045,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This QR needs a newer version of cmux. Update the app and try again."
+            "value": "This QR uses a newer cmux pairing format."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このQRコードには新しいバージョンのcmuxが必要です。アプリを更新してからもう一度お試しください。"
+            "value": "この QR コードは新しい cmux のペアリング形式を使用しています。"
           }
         }
       }

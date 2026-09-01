@@ -1565,18 +1565,21 @@
 		A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
 		C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */; };
+		D9E800000000000000000004 /* MobileHostService+PairedPhone.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E800000000000000000003 /* MobileHostService+PairedPhone.swift */; };
 		C0DE00000000000000000C8D /* MobileHostService+TicketAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */; };
 		F67FBC88671C40AC3A3284CE /* MobileHostService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ACA497A6831165EA879C642 /* MobileHostService.swift */; };
 		C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */; };
+		D9E800000000000000000008 /* MobileHostStatusResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E800000000000000000007 /* MobileHostStatusResolution.swift */; };
 		4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */; };
 		4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */; };
 		C7A50B000000000000000020 /* MobileHostTerminalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */; };
 		7A1B2C3D4E5F60718293A4B6 /* MobileHostTerminalThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1B2C3D4E5F60718293A4B5 /* MobileHostTerminalThemeTests.swift */; };
 		C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */; };
 		C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */; };
-		58812E32EA724C5CAB36BE98 /* MobileIOSAppTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */; };
-		86BEAF78BDAB4871996E9EF2 /* MobileIOSPairingTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1148AEDC5E59435E879326ED /* MobileIOSPairingTargetStore.swift */; };
 		C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */; };
+		D9E800000000000000000006 /* MobilePairedPhoneRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E800000000000000000005 /* MobilePairedPhoneRecord.swift */; };
+		D9E800000000000000000010 /* MobilePairedPhoneRecordSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E800000000000000000009 /* MobilePairedPhoneRecordSource.swift */; };
+		D9E800000000000000000002 /* MobilePairedPhoneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E800000000000000000001 /* MobilePairedPhoneStore.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
 		325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */; };
@@ -1734,6 +1737,7 @@
 		D1F0A003000000000000000F /* PhonePushSerialDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */; };
 		D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */; };
 		D1F0A0030000000000000011 /* PhonePushServerSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0030000000000000012 /* PhonePushServerSummary.swift */; };
+		D9E800000000000000000011 /* PhonePushTargetRebindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E800000000000000000012 /* PhonePushTargetRebindingTests.swift */; };
 		D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */; };
 		D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */; };
 		C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */; };
@@ -4538,18 +4542,21 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedRequestQueue.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+Capabilities.swift"; sourceTree = "<group>"; };
+		D9E800000000000000000003 /* MobileHostService+PairedPhone.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostService+PairedPhone.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+TicketAuthorization.swift"; sourceTree = "<group>"; };
 		7ACA497A6831165EA879C642 /* MobileHostService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostService.swift; sourceTree = "<group>"; };
 		C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostServiceSettingsTests.swift; sourceTree = "<group>"; };
+		D9E800000000000000000007 /* MobileHostStatusResolution.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostStatusResolution.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiter.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiterTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTerminalTheme.swift; sourceTree = "<group>"; };
 		7A1B2C3D4E5F60718293A4B5 /* MobileHostTerminalThemeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTerminalThemeTests.swift; sourceTree = "<group>"; };
 		C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTransportAuthorization.swift; sourceTree = "<group>"; };
 		C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostWorkspaceTicketAuthorizationTests.swift; sourceTree = "<group>"; };
-		0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobileIOSAppTarget.swift"; sourceTree = "<group>"; };
-		1148AEDC5E59435E879326ED /* MobileIOSPairingTargetStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileIOSPairingTargetStore.swift; sourceTree = "<group>"; };
 		C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNotificationFeedWireItem.swift; sourceTree = "<group>"; };
+		D9E800000000000000000005 /* MobilePairedPhoneRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobilePairedPhoneRecord.swift; sourceTree = "<group>"; };
+		D9E800000000000000000009 /* MobilePairedPhoneRecordSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobilePairedPhoneRecordSource.swift; sourceTree = "<group>"; };
+		D9E800000000000000000001 /* MobilePairedPhoneStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobilePairedPhoneStore.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
 		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
@@ -4707,6 +4714,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D1F0A0030000000000000010 /* PhonePushSerialDeliveryQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueue.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushSerialDeliveryQueueTests.swift; sourceTree = "<group>"; };
 		D1F0A0030000000000000012 /* PhonePushServerSummary.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushServerSummary.swift; sourceTree = "<group>"; };
+		D9E800000000000000000012 /* PhonePushTargetRebindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushTargetRebindingTests.swift; sourceTree = "<group>"; };
 		D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxClient.swift; sourceTree = "<group>"; };
 		D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneReplyInboxCoordinator.swift; sourceTree = "<group>"; };
 		C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiCompactedFeedEventExpander.swift; sourceTree = "<group>"; };
@@ -6260,7 +6268,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */,
 				A7C0F0030000000000000002 /* MobileAttachTarget.swift */,
 				8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */,
-				1148AEDC5E59435E879326ED /* MobileIOSPairingTargetStore.swift */,
+				D9E800000000000000000001 /* MobilePairedPhoneStore.swift */,
+				D9E800000000000000000005 /* MobilePairedPhoneRecord.swift */,
+				D9E800000000000000000007 /* MobileHostStatusResolution.swift */,
+				D9E800000000000000000009 /* MobilePairedPhoneRecordSource.swift */,
+				D9E800000000000000000003 /* MobileHostService+PairedPhone.swift */,
 				B8B056D90000000000000002 /* MobileHostIdentity.swift */,
 				47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */,
 				A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */,
@@ -6299,7 +6311,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */,
 				7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */,
 				04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */,
-				0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */,
 				B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */,
 				F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */,
 				C1A070000000000000000016 /* MobilePairingView+Connected.swift */,
@@ -8873,6 +8884,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */,
 				D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */,
 				D1F0A00400000000000000C2 /* PhonePushSerialDeliveryQueueTests.swift */,
+				D9E800000000000000000012 /* PhonePushTargetRebindingTests.swift */,
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
@@ -10488,14 +10500,17 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
 				C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */,
+				D9E800000000000000000004 /* MobileHostService+PairedPhone.swift in Sources */,
 				C0DE00000000000000000C8D /* MobileHostService+TicketAuthorization.swift in Sources */,
 				F67FBC88671C40AC3A3284CE /* MobileHostService.swift in Sources */,
+				D9E800000000000000000008 /* MobileHostStatusResolution.swift in Sources */,
 				4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */,
 				C7A50B000000000000000020 /* MobileHostTerminalTheme.swift in Sources */,
 				C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */,
-				58812E32EA724C5CAB36BE98 /* MobileIOSAppTarget.swift in Sources */,
-				86BEAF78BDAB4871996E9EF2 /* MobileIOSPairingTargetStore.swift in Sources */,
 				C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */,
+				D9E800000000000000000006 /* MobilePairedPhoneRecord.swift in Sources */,
+				D9E800000000000000000010 /* MobilePairedPhoneRecordSource.swift in Sources */,
+				D9E800000000000000000002 /* MobilePairedPhoneStore.swift in Sources */,
 				0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */,
 				325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */,
 				C1A070000000000000000006 /* MobilePairingView+Connected.swift in Sources */,
@@ -12158,6 +12173,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */,
 					D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
 					D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */,
+					D9E800000000000000000011 /* PhonePushTargetRebindingTests.swift in Sources */,
 				8672F0038672F0038672F003 /* PiFeedDecodeErrorPrivacyTests.swift in Sources */,
 				8672D0058672D0058672D005 /* PiFeedDockOwnershipTests.swift in Sources */,
 				8672F0088672F0088672F008 /* PiFeedEventRecorder.swift in Sources */,

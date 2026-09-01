@@ -194,10 +194,10 @@ final class MobileAttachTicketStore {
             routeDisclosureMode: routeDisclosureMode
         )
         let payload = Self.base64URLEncode(data)
-        // Channel-specific scheme (see ``CmxPairingURLScheme``): the v1 fallback
-        // QR must open the matching iOS channel just like the v2 path in
-        // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
-        // phone a code the system camera routes to a dev build (or vice versa).
+        // Official Macs use the canonical App Store scheme and tagged DEV Macs
+        // use their exact-tag scheme. In-app scanners accept every classified
+        // scheme; the system camera intentionally routes only the canonical
+        // release code to the App Store build.
         guard let scheme = pairingURLScheme?.rawValue,
               let url = URL(string: "\(scheme)://attach?v=\(ticket.version)&payload=\(payload)") else {
             throw MobileAttachTicketStoreError.invalidAttachURL

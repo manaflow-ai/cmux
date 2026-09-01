@@ -1195,7 +1195,10 @@ struct CMUXMobileRootView: View {
         let token = UUID()
         openURLTaskToken = token
         openURLTask = Task { @MainActor in
-            let result = await store.connectPairingURLResult(rawURL)
+            let result = await store.connectPairingURLResult(
+                rawURL,
+                externalURL: true
+            )
             guard !Task.isCancelled, openURLTaskToken == token else { return }
             let failure: DiagnosticFailureKind? = switch result {
             case .connected:

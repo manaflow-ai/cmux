@@ -95,6 +95,46 @@ import Testing
             )
         }
     }
+
+    @Test func officialMacUsesOneCanonicalScheme() {
+        for tag in ["default", "nightly", "rc", "staging"] {
+            #expect(
+                CmxPairingURLSchemeResolver(
+                    currentIOSBundleIdentifier: nil,
+                    targetIOSBundleIdentifier: nil,
+                    macInstanceTag: tag,
+                    isDevelopmentBuild: true
+                ).resolved?.rawValue == "cmux-ios-com.cmux.app"
+            )
+        }
+        #expect(
+            CmxPairingURLSchemeResolver(
+                currentIOSBundleIdentifier: nil,
+                targetIOSBundleIdentifier: nil,
+                macInstanceTag: "feature-a",
+                isDevelopmentBuild: true
+            ).resolved?.rawValue == "cmux-ios-dev.cmux.ios.feature-a"
+        )
+    }
+
+    @Test func officialMacLanePredicateMatchesCanonicalReleaseLanes() {
+        for tag in ["default", "nightly", "rc", "staging"] {
+            #expect(CmxPairingURLSchemeResolver.isOfficialMacInstanceTag(tag))
+        }
+        #expect(!CmxPairingURLSchemeResolver.isOfficialMacInstanceTag("feature-a"))
+        #expect(!CmxPairingURLSchemeResolver.isOfficialMacInstanceTag(nil))
+    }
+
+    @Test func taggedMacBundleDerivesItsExactIOSSchemeWithoutLaunchEnvironment() {
+        let resolver = CmxPairingURLSchemeResolver(
+            currentIOSBundleIdentifier: nil,
+            targetIOSBundleIdentifier: nil,
+            macInstanceTag: nil,
+            isDevelopmentBuild: true,
+            macBundleIdentifier: "com.cmuxterm.app.debug.feature-a"
+        )
+        #expect(resolver.resolved?.rawValue == "cmux-ios-dev.cmux.ios.feature-a")
+    }
     #endif
 
     @Test func parserAcceptsNamespacedSchemes() {
@@ -112,6 +152,24 @@ import Testing
         #expect(CmxPairingURLScheme(rawValue: "") == nil)
         #expect(CmxPairingURLScheme(rawValue: "https") == nil)
         #expect(CmxPairingURLScheme(rawValue: "cmux-ios-*") == nil)
+    }
+
+    @Test func pairingURLCandidateKeepsFutureBundleSchemesOnTheDecoderPath() {
+        #expect(CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-dev.cmux.app.future://attach?v=4"
+        ))
+        #expect(CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-com.cmux.app://pair?v=1&payload=abc"
+        ))
+        #expect(!CmxPairingURLScheme.isPairingURLCandidate(
+            "https://example.com/attach"
+        ))
+        #expect(!CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-dev.cmux.app.future://settings"
+        ))
+        #expect(!CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-unknown://attach?v=4"
+        ))
     }
 
     @Test func channelClassificationRecognizesOnlyAuthoritativeLanes() throws {

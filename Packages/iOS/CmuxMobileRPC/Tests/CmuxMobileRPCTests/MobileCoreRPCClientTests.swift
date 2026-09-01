@@ -5,6 +5,94 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCClientTests {
+    @Test func hostStatusCarriesTheExactPairingAppIdentity() async throws {
+        let transport = ControllableResponseTransport(
+            closeEndsReceive: true,
+            automaticallyRespondingRequestIDs: ["pairing-status"]
+        )
+        let route = try hostPortRoute(
+            kind: .debugLoopback,
+            host: "127.0.0.1",
+            port: 59_123
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport),
+            stackAccessTokenForStatus: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route]
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            clientID: "phone-install-1",
+            clientBundleIdentifier: "dev.cmux.app.demo",
+            allowsStackAuthFallback: true
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(
+                method: "mobile.host.status",
+                id: "pairing-status"
+            )
+        )
+        let request = try #require(await transport.recordedRequests().first)
+        #expect(request.clientID == "phone-install-1")
+        #expect(request.iosBundleIdentifier == "dev.cmux.app.demo")
+        await client.disconnect()
+    }
+
+    @Test func hostStatusOmitsPairingIdentityOnMissingOrBlankManualToken() async throws {
+        let transport = QueuedCancellationProbeTransport()
+        let route = try hostPortRoute(
+            kind: .tailscale,
+            host: "192.168.1.20",
+            port: 58_465
+        )
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: nil,
+            // A status provider can transiently return an empty/whitespace
+            // token while auth restoration is settling. Treat that as absent;
+            // it must not become identity metadata on the wire.
+            stackAccessTokenForStatus: "   "
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try qrPairingTicket(route: route),
+            clientID: "phone-install-1",
+            clientBundleIdentifier: "dev.cmux.app.demo",
+            allowsStackAuthFallback: true
+        )
+
+        let task = Task {
+            try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.host.status",
+                    params: [
+                        "client_id": "spoofed",
+                        "ios_bundle_identifier": "com.cmux.app",
+                    ]
+                )
+            )
+        }
+        _ = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let request = try #require(await transport.sentRequests().first)
+        #expect(request.clientID == nil)
+        #expect(request.iosBundleIdentifier == nil)
+        #expect(request.hasAuth == false)
+        await client.disconnect()
+    }
+
     @Test func connectedTransportReceivesLiveSessionPurposeUpdates()
         async throws {
         let transport = SessionPurposeRecordingTransport(

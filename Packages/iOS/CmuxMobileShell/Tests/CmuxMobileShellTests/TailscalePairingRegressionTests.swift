@@ -182,6 +182,38 @@ import Testing
         #expect(await router.authorization(for: "workspace.list").isEmpty)
     }
 
+    @Test func futureLegacyPairPayloadTellsUserToUpdateTheIOSApp() async throws {
+        let runtime = LivenessTestRuntime(
+            transportFactory: KindRecordingTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.tailscale]
+        )
+        let store = makeStore(runtime: runtime)
+        let futurePayload = """
+        {"version":2,"mac_device_id":"mac-1","mac_display_name":"Legacy Mac",\
+        "host":"100.71.210.41","port":58465,\
+        "expires_at":"2033-01-01T00:00:00Z","transport":"tailscale"}
+        """
+        let encoded = Data(futurePayload.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+
+        let result = await store.connectPairingURLResult(
+            "cmux-ios://pair?v=1&payload=" + encoded
+        )
+
+        #expect(result == .failed)
+        // The production text is localized and varies by distribution lane;
+        // compare the semantic category projection instead of English words.
+        #expect(store.connectionError == MobilePairingFailureCategory.unrecognizedVersion.message)
+        #expect(store.connectionErrorGuidance == MobilePairingFailureCategory.unrecognizedVersion.guidance)
+    }
+
     private func makeStore(
         runtime: any MobileSyncRuntime,
         pairedMacStore: (any MobilePairedMacStoring)? = nil,

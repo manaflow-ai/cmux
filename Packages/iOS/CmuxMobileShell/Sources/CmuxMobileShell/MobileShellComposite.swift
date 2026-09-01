@@ -1056,6 +1056,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let multiMacAggregationDefaults: UserDefaults
     let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
+    /// Exact iOS bundle identifier reported to the Mac after pairing.
+    let clientBundleIdentifier: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
     /// UI surfaces an error rather than silently dropping the report.
@@ -1814,6 +1816,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
         self.feedbackStampProvider = feedbackStampProvider
+        self.clientBundleIdentifier = feedbackStampProvider().bundleIdentifier
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
         // determined there is no paired Mac). didSet is not called for these
@@ -2546,7 +2549,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil
+            || CmxPairingURLScheme.isPairingURLCandidate(trimmedCode) {
             return
         }
         let attemptID = beginPairingAttempt()
@@ -2570,7 +2574,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !trimmedCode.isEmpty else {
             return
         }
-        if CmxPairingURLScheme(urlString: trimmedCode) != nil {
+        if CmxPairingURLScheme(urlString: trimmedCode) != nil
+            || CmxPairingURLScheme.isPairingURLCandidate(trimmedCode) {
             // The pairing input field is an explicit in-app code entry (scan
             // or paste), the act that authorizes a compatibility Tailscale dial.
             await connectPairingURLResult(trimmedCode, userEnteredPairingCode: true)
@@ -4673,12 +4678,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func connectPairingURLResult(
         _ rawValue: String? = nil,
-        userEnteredPairingCode: Bool = false
+        userEnteredPairingCode: Bool = false,
+        externalURL: Bool = false
     ) async -> MobilePairingURLConnectionResult {
         await connectPairingURLResult(
             rawValue,
             acceptedVersionWarning: false,
-            userEnteredPairingCode: userEnteredPairingCode
+            userEnteredPairingCode: userEnteredPairingCode,
+            externalURL: externalURL
         )
     }
 
@@ -4686,7 +4693,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func connectPairingURLResult(
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool,
-        userEnteredPairingCode: Bool = false
+        userEnteredPairingCode: Bool = false,
+        externalURL: Bool = false
     ) async -> MobilePairingURLConnectionResult {
         MobileDebugLog.shared.append(
             "pairing.qr_connect.begin user_entered=\(userEnteredPairingCode) accepted_version_warning=\(acceptedVersionWarning)"
@@ -4737,6 +4745,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // fix is updating the app, not re-scanning, so say so instead of
                 // the generic "not a valid code" copy.
                 applyPairingValidationFailure(.unrecognizedVersion)
+            } else if case let MobileSyncPairingPayloadError.unsupportedVersion(version) = error,
+                      version > MobileSyncPairingPayload.currentVersion {
+                // The legacy `pair` envelope reports its newer grammar through
+                // the shared payload validator rather than the plain-URL
+                // decoder. Keep that stale-code path on the same update copy.
+                applyPairingValidationFailure(.unrecognizedVersion)
+            } else if case let CmxAttachTicketError.unsupportedVersion(version) = error,
+                      version > CmxAttachTicket.currentVersion {
+                // A future ticket revision can still be wrapped in today's
+                // attach URL envelope. Treat that payload as a stale cmux QR,
+                // rather than collapsing it into generic invalid-code copy.
+                applyPairingValidationFailure(.unrecognizedVersion)
             } else {
                 applyPairingValidationFailure(.invalidCode)
             }
@@ -4759,6 +4779,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "pairing.account_preflight.failed category=\(emailFailure)"
             )
             applyPairingValidationFailure(emailFailure)
+            if connectionState != .connected {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+            }
+            return .failed
+        }
+
+        if MobilePairingURLAuthorizationPolicy().requiresInAppScan(
+            ticket: ticket,
+            userEnteredPairingCode: userEnteredPairingCode,
+            externalURL: externalURL
+        ) {
+            // A custom-scheme URL can be launched by any app or website. Only
+            // the in-app scanner proves the user physically read this exact
+            // Tailscale destination from their Mac, so external opens fail
+            // closed with a direct route back to that scanner.
+            applyPairingValidationFailure(.externalCodeRequiresInAppScan)
             if connectionState != .connected {
                 connectionState = .disconnected
                 macConnectionStatus = .unavailable
@@ -5127,6 +5165,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             route: route,
             ticket: ticket,
+            clientID: clientID,
+            clientBundleIdentifier: clientBundleIdentifier,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
             legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
             irohDirectOnlyDialCandidates: directOnlyCandidates,
@@ -9744,6 +9784,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
+                clientID: clientID,
+                clientBundleIdentifier: clientBundleIdentifier,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,

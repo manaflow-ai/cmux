@@ -52,8 +52,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case authFailed
     /// The QR's account binding (`ub`) cannot match because the two auth
     /// channels are DECLARED to differ: the scanned URL's scheme names the
-    /// Mac's channel (release Macs emit `cmux-ios`, dev Macs `cmux-ios-dev`,
-    /// #6038) and it is the opposite of this build's resolved auth
+    /// Mac's channel (official Macs emit the canonical App Store namespace;
+    /// tagged DEV Macs emit their exact `dev.cmux.ios.<tag>` namespace) and it
+    /// is the opposite of this build's resolved auth
     /// environment. Stack user ids are per-project, so a development-project
     /// id never equals a production-project id — even for the same email.
     /// Telling the user to "sign in with the same email" would be wrong; the
@@ -79,6 +80,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// this build understands (the Mac is on a newer cmux). The fix is updating
     /// the phone app, not re-scanning.
     case unrecognizedVersion
+    /// A Tailscale URL was opened by the system camera or another app. It must
+    /// be entered through cmux's scanner to authorize the route.
+    case externalCodeRequiresInAppScan
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
@@ -133,6 +137,8 @@ extension MobilePairingFailureCategory: DiagnosticFailureProviding {
             .identityMismatch
         case .invalidCode, .unrecognizedVersion:
             .protocolViolation
+        case .externalCodeRequiresInAppScan:
+            .unsupportedRoute
         case .loopbackRejected, .unsupportedRoute, .noSupportedRoute,
              .macUpdateRequired:
             .unsupportedRoute
@@ -169,6 +175,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
         case .unrecognizedVersion: return "unrecognized_version"
+        case .externalCodeRequiresInAppScan: return "external_code_requires_in_app_scan"
         case .loopbackRejected: return "loopback_rejected"
         case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
@@ -335,12 +342,17 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
+                defaultValue: "This isn't a cmux pairing QR. Open Tailscale Pairing on the Mac and scan the code shown there."
             )
         case .unrecognizedVersion:
             return L10n.string(
                 "mobile.pairing.unrecognizedVersion",
-                defaultValue: "This QR needs a newer version of cmux. Update the app and try again."
+                defaultValue: "This QR uses a newer cmux pairing format."
+            )
+        case .externalCodeRequiresInAppScan:
+            return L10n.string(
+                "mobile.pairing.externalCodeRequiresInAppScan",
+                defaultValue: "This pairing link was opened outside cmux."
             )
         case .loopbackRejected:
             return L10n.string(
@@ -456,7 +468,7 @@ extension MobilePairingFailureCategory {
             }
             return L10n.string(
                 "mobile.pairing.guidance.buildIncompatible",
-                defaultValue: "DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
+                defaultValue: "Update cmux to the latest version on your iPhone, then scan again. DEV iPhone builds connect to any DEV Mac build. BETA, INTERNAL, and App Store builds connect only to Stable or Nightly."
             )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
@@ -472,7 +484,12 @@ extension MobilePairingFailureCategory {
             }
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
-                defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
+                defaultValue: "Update cmux to the latest version on your iPhone from the App Store (or TestFlight), then scan again."
+            )
+        case .externalCodeRequiresInAppScan:
+            return L10n.string(
+                "mobile.pairing.guidance.externalCodeRequiresInAppScan",
+                defaultValue: "Open cmux on your iPhone, choose Tailscale, and scan the code with the in-app scanner."
             )
         case .macUpdateRequired:
             return L10n.string(
@@ -489,7 +506,9 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.connectAttemptGated",
                 defaultValue: "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
             )
-        case .invalidCode, .loopbackRejected, .cancelled, .unknown:
+        case .invalidCode:
+            return nil
+        case .loopbackRejected, .cancelled, .unknown:
             return nil
         }
     }

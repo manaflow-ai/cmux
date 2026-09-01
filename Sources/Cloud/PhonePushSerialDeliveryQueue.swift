@@ -40,9 +40,8 @@ final class PhonePushSerialDeliveryQueue {
     @discardableResult
     func enqueue(_ envelope: PhonePushRequestEnvelope) -> Bool {
         if let key = envelope.coalescingID,
-           let index = pending.lastIndex(where: {
-               $0.coalescingID == key
-                   && $0.correlationID != inFlightCorrelationID
+           let index = pending.indices.reversed().first(where: {
+               pending[$0].coalescingID == key && !isInFlight(index: $0)
            }) {
             pending.remove(at: index)
             pending.append(envelope)
@@ -65,9 +64,8 @@ final class PhonePushSerialDeliveryQueue {
     func enqueuePrioritizingDismiss(_ envelope: PhonePushRequestEnvelope) -> Bool {
         if enqueue(envelope) { return true }
         guard envelope.coalescingID == nil,
-              let index = pending.firstIndex(where: {
-                  $0.coalescingID != nil
-                      && $0.correlationID != inFlightCorrelationID
+              let index = pending.indices.first(where: {
+                  pending[$0].coalescingID != nil && !isInFlight(index: $0)
               }) else { return false }
         pending.remove(at: index)
         pending.append(envelope)
@@ -77,15 +75,63 @@ final class PhonePushSerialDeliveryQueue {
     }
 
     func restore(_ envelopes: [PhonePushRequestEnvelope]) {
-        let restored = Self.normalized(envelopes + pending)
-        pending = Array(restored.suffix(capacity))
+        if let inFlight = pending.first, inFlightCorrelationID != nil {
+            // The first slot is already committed to the sender. Restored
+            // work joins behind it; otherwise a rebind during an in-flight
+            // stop would mistake the restored head for the request on the wire.
+            let tail = Self.normalized(
+                envelopes + Array(pending.dropFirst())
+            )
+            let retainedTailCount = max(0, capacity - 1)
+            pending = [inFlight] + Array(tail.suffix(retainedTailCount))
+        } else {
+            let restored = Self.normalized(envelopes + pending)
+            pending = Array(restored.suffix(capacity))
+        }
         publishPending()
         beginDrainIfNeeded()
+    }
+
+    /// Rewrites queued envelopes without touching the request currently being
+    /// delivered. Used when the paired iOS variant changes so every future
+    /// push follows the latest authenticated pairing target; an in-flight
+    /// request is already committed to its original HTTP destination.
+    func rebindPending(
+        _ transform: (PhonePushRequestEnvelope) -> PhonePushRequestEnvelope
+    ) {
+        var changed = false
+        for index in pending.indices {
+            guard !isInFlight(index: index) else {
+                continue
+            }
+            let rebound = transform(pending[index])
+            guard rebound != pending[index] else { continue }
+            pending[index] = rebound
+            changed = true
+        }
+        guard changed else { return }
+        publishPending()
     }
 
     func start() {
         isStarted = true
         beginDrainIfNeeded()
+    }
+
+    /// Pauses delivery without discarding pending envelopes. Used while the
+    /// authenticated phone target is unknown; ``start()`` resumes the same
+    /// queue after the handshake rebinds every envelope.
+    func stop() {
+        isStarted = false
+        guard inFlightCorrelationID == nil else {
+            // Let a request already committed to the wire finish. The drain
+            // checks `isStarted` before taking the next slot, so newly queued
+            // nil-target work remains parked without a cancellation race.
+            return
+        }
+        drainGeneration = UUID()
+        drainTask?.cancel()
+        finishIfIdle()
     }
 
     func cancelAll() {
@@ -114,7 +160,9 @@ final class PhonePushSerialDeliveryQueue {
     }
 
     func waitUntilIdle() async {
-        guard drainTask != nil || !pending.isEmpty else { return }
+        // A stopped queue with parked envelopes is intentionally quiescent;
+        // callers should not wait forever for a target that may never arrive.
+        guard drainTask != nil || (isStarted && !pending.isEmpty) else { return }
         await withCheckedContinuation { continuation in
             idleWaiters.append(continuation)
         }
@@ -145,7 +193,8 @@ final class PhonePushSerialDeliveryQueue {
     }
 
     private func drain(generation: UUID) async {
-        while generation == drainGeneration,
+        while isStarted,
+              generation == drainGeneration,
               !Task.isCancelled,
               let envelope = pending.first {
             inFlightCorrelationID = envelope.correlationID
@@ -153,7 +202,7 @@ final class PhonePushSerialDeliveryQueue {
             guard generation == drainGeneration, !Task.isCancelled else {
                 break
             }
-            if pending.first?.correlationID == envelope.correlationID {
+            if pending.first == envelope {
                 pending.removeFirst()
                 publishPending()
             }
@@ -163,6 +212,7 @@ final class PhonePushSerialDeliveryQueue {
             inFlightCorrelationID = nil
             drainTask = nil
         } else if drainTask?.isCancelled == true {
+            inFlightCorrelationID = nil
             drainTask = nil
         }
         beginDrainIfNeeded()
@@ -173,8 +223,15 @@ final class PhonePushSerialDeliveryQueue {
         pendingChanged(pending)
     }
 
+    /// The in-flight request always owns the first queue slot. Correlation IDs
+    /// are retry identifiers, not queue-entry identity, so a later envelope may
+    /// legitimately reuse one while the original request is awaiting a reply.
+    private func isInFlight(index: Int) -> Bool {
+        inFlightCorrelationID != nil && index == pending.startIndex
+    }
+
     private func finishIfIdle() {
-        guard drainTask == nil, pending.isEmpty else { return }
+        guard drainTask == nil, (!isStarted || pending.isEmpty) else { return }
         let waiters = idleWaiters
         idleWaiters.removeAll()
         for waiter in waiters { waiter.resume() }

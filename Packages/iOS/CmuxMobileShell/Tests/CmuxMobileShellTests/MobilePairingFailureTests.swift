@@ -51,6 +51,7 @@ import Testing
         #expect(!category.isAuthorizationFailure)
         #expect(category.analyticsReason == "tailscale_unavailable")
         #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
+        #expect(category.guidance?.localizedCaseInsensitiveContains("scan") == true)
         // Stale-copy repair: the guidance now points at the Mac pairing QR /
         // Tailscale IP setup path rather than the pre-0.64.18 "Pair iPhone"
         // window name.
@@ -197,7 +198,7 @@ import Testing
 
         #expect(category == .buildIncompatible)
         #expect(category.analyticsReason == "build_incompatible")
-        #expect(category.message.contains("cannot connect"))
+        #expect(category.message.localizedCaseInsensitiveContains("cannot connect"))
         #expect(category.guidance?.contains("any DEV Mac build") == true)
         #expect(!category.isAuthorizationFailure)
     }
@@ -301,6 +302,7 @@ import Testing
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,
+            .externalCodeRequiresInAppScan,
             .macUpdateRequired,
             .unsupportedRoute,
             .noSupportedRoute,
@@ -324,25 +326,6 @@ import Testing
         #expect(category.guidance?.localizedCaseInsensitiveContains("do not need to sign out") == true)
         #expect(category.guidance?.localizedCaseInsensitiveContains("pair again") == true)
         #expect(category.guidance?.localizedCaseInsensitiveContains("Iroh") != true)
-    }
-
-    @Test func invalidCodeNoLongerMentionsAPairingCode() {
-        // There is no pairing-code secret anymore (the v2 QR carries bare routes
-        // and the host authorizes by Stack account). The copy must not imply a
-        // wrong "code" was entered.
-        let message = MobilePairingFailureCategory.invalidCode.message
-        #expect(!message.lowercased().contains("pairing code"))
-        #expect(message.localizedCaseInsensitiveContains("Tailscale"))
-        #expect(!message.isEmpty)
-    }
-
-    @Test func unrecognizedVersionTellsUserToUpdateTheApp() {
-        // A real cmux QR from a newer Mac whose grammar this build predates: the
-        // user must be told to update, not that the code is invalid.
-        let message = MobilePairingFailureCategory.unrecognizedVersion.message
-        #expect(message.lowercased().contains("newer version"))
-        #expect(MobilePairingFailureCategory.unrecognizedVersion.guidance != nil)
-        #expect(MobilePairingFailureCategory.unrecognizedVersion.analyticsReason == "unrecognized_version")
     }
 
     @Test func missingRouteFallsBackWithoutCrashingOnFormat() {

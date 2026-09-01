@@ -22,24 +22,66 @@ public struct CmxAttachTicketInput {
         guard let url = URL(string: rawValue) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
-        // Accept any channel's pairing scheme (cmux-ios for release builds,
-        // cmux-ios-dev for development); cross-channel pairing still works when
-        // the user scans from inside the app. The emitter picks the matching
-        // scheme so the *system camera* routes each channel's QR to its build.
-        if CmxPairingURLScheme(rawValue: url.scheme) != nil, url.host == "pair" {
+        let scheme = url.scheme?.lowercased()
+        let knownScheme = CmxPairingURLScheme(rawValue: scheme)
+        guard url.host == "attach" || url.host == "pair" else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        if knownScheme == nil, url.host == "pair" {
+            guard CmxPairingURLScheme.isPairingURLCandidate(rawValue) else {
+                // A `pair` host alone is not enough to identify a cmux URL;
+                // unrelated deep links must retain generic invalid-code copy.
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            guard let version = components.flatMap({ CmxPairingQRCode.attachURLVersion($0) }) else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
+            throw MobileSyncPairingPayloadError.unrecognizedURLVersion(
+                max(version, CmxPairingQRCode.version + 1)
+            )
+        }
+        // Accept any classified channel's pairing scheme; cross-variant pairing
+        // works when the user scans from inside the app. Official Macs emit the
+        // canonical App Store scheme, while tagged DEV Macs retain exact-tag
+        // routing for their development lane.
+        if knownScheme != nil, url.host == "pair" {
             return try ticket(from: MobileSyncPairingPayload.decodeURL(url))
         }
-        guard CmxPairingURLScheme(rawValue: url.scheme) != nil,
-              url.host == "attach",
+        guard url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        let version = CmxPairingQRCode.attachURLVersion(components)
+        // A future cmux release may register a new bundle-specific scheme that
+        // this build has not classified yet. A well-formed version marker makes
+        // that an actionable compatibility failure; a bare/malformed URL stays
+        // a generic invalid-code failure.
+        let isUnknownBundleScheme = scheme?.hasPrefix("cmux-ios-") == true
+            && knownScheme == nil
+        if isUnknownBundleScheme {
+            guard let version else {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
+            throw MobileSyncPairingPayloadError.unrecognizedURLVersion(
+                max(version, CmxPairingQRCode.version + 1)
+            )
+        }
+        guard knownScheme != nil else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        if version == nil,
+           let scheme,
+           !CmxPairingURLScheme.all.contains(scheme) {
+            // Versionless payloads belong to the two historical shared
+            // schemes only; namespaced schemes were introduced with v=2+.
             throw MobileSyncPairingPayloadError.invalidURL
         }
         // A QR minted by a newer cmux whose grammar version this build does not
         // understand. Distinguished from a malformed code so the user is told
         // to update the app instead of seeing the generic "not valid" copy (the
         // real field report: beta 1.0.2 predated the v2 QR a newer Mac emitted).
-        if let version = CmxPairingQRCode.attachURLVersion(components),
-           version > CmxPairingQRCode.version {
+        if let version, version > CmxPairingQRCode.version {
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(version)
         }
         // The plain pairing grammars: v2 carries bare Tailscale routes and v3

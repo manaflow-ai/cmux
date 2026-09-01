@@ -39,6 +39,17 @@ import Testing
         return "cmux-ios://attach?v=\(version)&payload=\(encoded)"
     }
 
+    private func versionlessAttachURL(
+        payload: Data,
+        scheme: String = "cmux-ios"
+    ) -> String {
+        let encoded = payload.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return scheme + "://attach?payload=" + encoded
+    }
+
     @Test func decodesCompactPayloadAttachURL() throws {
         // New-phone-scans-new-QR.
         let ticket = try makeTicket(authToken: "minted-but-not-in-qr")
@@ -87,6 +98,31 @@ import Testing
         #expect(decoded.macDeviceID == "mac-1")
         #expect(decoded.routes == ticket.routes)
         #expect(decoded.authToken == "legacy-token")
+    }
+
+    @Test func versionlessLegacyPayloadRemainsCompatible() throws {
+        let ticket = try makeTicket(authToken: "legacy-token")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoded = try CmxAttachTicketInput.decode(
+            versionlessAttachURL(payload: try encoder.encode(ticket))
+        )
+        #expect(decoded.macDeviceID == "mac-1")
+        #expect(decoded.authToken == "legacy-token")
+    }
+
+    @Test func versionlessNamespacedPayloadRemainsRejected() throws {
+        let ticket = try makeTicket(authToken: "legacy-token")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                versionlessAttachURL(
+                    payload: try encoder.encode(ticket),
+                    scheme: "cmux-ios-com.cmux.app"
+                )
+            )
+        }
     }
 
     @Test func missingLegacyCompatibilityDecodesAsUnknown() throws {
@@ -244,6 +280,31 @@ import Testing
         }
     }
 
+    @Test(arguments: [
+        "com.cmux.app",
+        "dev.cmux.app.beta",
+        "dev.cmux.app.internal",
+        "dev.cmux.app.demo",
+    ])
+    func oneCanonicalQRPayloadParsesInEveryReleaseVariant(
+        bundleIdentifier: String
+    ) throws {
+        let canonicalQR = "cmux-ios-com.cmux.app://attach?v=2&"
+            + "r=100.64.0.5:58465"
+        #expect(
+            CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)?.isRelease
+                == true
+        )
+        let decoded = try CmxAttachTicketInput.decode(canonicalQR)
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.endpoint == .hostPort(
+            host: "100.64.0.5",
+            port: 58465
+        ))
+        // The scanner policy is scheme-agnostic; each release app receives the
+        // same raw URL and therefore the same decoded route payload.
+    }
+
     @Test func newerGrammarVersionThrowsUnrecognizedVersion() {
         // A QR minted by a newer cmux whose grammar version this build predates
         // (the field report: beta 1.0.2 scanned a v2 QR a newer Mac emitted).
@@ -254,6 +315,51 @@ import Testing
         #expect(throws: MobileSyncPairingPayloadError.unrecognizedURLVersion(newerVersion)) {
             try CmxAttachTicketInput.decode(
                 "cmux-ios://attach?v=\(newerVersion)&r=100.64.0.5:58465"
+            )
+        }
+    }
+
+    @Test func unknownFutureBundleSchemeUsesUpdateGuidancePath() {
+        #expect(throws: MobileSyncPairingPayloadError.unrecognizedURLVersion(
+            CmxPairingQRCode.version + 1
+        )) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios-dev.cmux.app.future://attach?v=2&r=100.64.0.5:58465"
+            )
+        }
+    }
+
+    @Test func unrelatedPairURLStaysGenericInvalidURL() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                "https://pair?v=99&payload=not-cmux"
+            )
+        }
+    }
+
+    @Test func futureTicketRevisionStaysOnTheUpdateGuidancePath() {
+        let payload = """
+        {"v":2,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.0.5","p":8443}}]}
+        """
+        #expect(throws: CmxAttachTicketError.unsupportedVersion(2)) {
+            try CmxAttachTicketInput.decode(
+                attachURL(payload: Data(payload.utf8))
+            )
+        }
+    }
+
+    @Test func malformedBundleSchemeStaysGenericInvalidURL() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios-dev.cmux.app.future://attach?r=100.64.0.5:58465"
+            )
+        }
+    }
+
+    @Test func attachURLWithoutVersionStaysGenericInvalidURL() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios://attach?r=100.64.0.5:58465"
             )
         }
     }

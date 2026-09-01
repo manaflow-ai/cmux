@@ -25,6 +25,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
+    /// Stable identity metadata sent with host-status so the Mac can bind
+    /// routing to the iOS app that actually completed pairing.
+    private let clientID: String?
+    private let clientBundleIdentifier: String?
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
@@ -52,6 +56,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - runtime: The DI runtime supplying transport factory, token provider, timeouts, clock.
     ///   - route: The attach route this client connects over.
     ///   - ticket: The attach ticket authorizing requests.
+    ///   - clientID: Stable per-install iOS client identity, sent only with
+    ///     host-status metadata so the Mac can persist the pairing owner.
+    ///   - clientBundleIdentifier: Exact iOS bundle identifier for this install.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
     ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
@@ -66,6 +73,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
+        clientID: String? = nil,
+        clientBundleIdentifier: String? = nil,
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
@@ -82,6 +91,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        let normalizeClientMetadata: (String?) -> String? = { value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }
+        self.clientID = normalizeClientMetadata(clientID)
+        self.clientBundleIdentifier = normalizeClientMetadata(clientBundleIdentifier)
         let authorizationMode: CmxTransportAuthorizationMode
         if route.kind == .iroh {
             authorizationMode = .transportAdmission
@@ -540,7 +555,20 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return AuthenticatedRequestPayload(data: requestData, stackAccessToken: nil)
         }
+        let isHostStatusRequest = isHostStatusRequest(request)
+        if isHostStatusRequest {
+            // Callers cannot smuggle an identity through a manually entered
+            // status probe. We add our immutable install identity again only
+            // after this request has an authenticated transport below.
+            removeClientIdentityMetadata(from: &request)
+        }
         if transportRequest.authorizationMode == .transportAdmission {
+            // Iroh admission already authenticated the peer before the RPC
+            // stream was opened, so the status response is an authenticated
+            // identity boundary even though it carries no bearer token.
+            if isHostStatusRequest {
+                addClientIdentityMetadata(to: &request)
+            }
             request.removeValue(forKey: "auth")
             return AuthenticatedRequestPayload(
                 data: try JSONSerialization.data(withJSONObject: request),
@@ -548,7 +576,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
-        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let requestIsCoveredByAttachTicket = !requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
         var requestStackAccessToken: String?
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -606,7 +634,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
         }
         if !requestNeedsAuth,
-           isHostStatusRequest(request),
+           isHostStatusRequest,
            canSendStackBearer {
             let stackAccessToken: String?
             if let hostStatusStackToken {
@@ -614,9 +642,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             } else {
                 stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline)
             }
-            if let stackAccessToken {
+            if let stackAccessToken = stackAccessToken?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), !stackAccessToken.isEmpty {
                 auth["stack_access_token"] = stackAccessToken
             }
+        }
+        // `canSendStackBearer` is only a route capability. The actual token
+        // lookup above is the authentication proof; do not disclose the
+        // install identity on a tokenless manual route.
+        if isHostStatusRequest,
+           let stackAccessToken = auth["stack_access_token"] as? String,
+           !stackAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            addClientIdentityMetadata(to: &request)
         }
         if !auth.isEmpty {
             request["auth"] = auth
@@ -686,8 +724,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
-        guard requestRequiresAuth(request) else {
+    private func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
+        guard Self.requestRequiresAuth(request) else {
             return false
         }
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -776,28 +814,46 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return method != "mobile.host.status"
     }
 
-    private static func stringParamSelection(
+    private func stringParamSelection(
         _ params: [String: Any],
         keys: [String]
-    ) -> StringParamSelection {
+    ) -> MobileRPCStringParamSelection {
         var selected: String?
         for key in keys {
             if let value = params[key] as? String {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     if let selected, selected != trimmed {
-                        return StringParamSelection(value: selected, hasConflict: true)
+                        return MobileRPCStringParamSelection(
+                            value: selected,
+                            hasConflict: true
+                        )
                     }
                     selected = selected ?? trimmed
                 }
             }
         }
-        return StringParamSelection(value: selected, hasConflict: false)
+        return MobileRPCStringParamSelection(value: selected, hasConflict: false)
     }
 
-    private struct StringParamSelection {
-        let value: String?
-        let hasConflict: Bool
+    private func addClientIdentityMetadata(to request: inout [String: Any]) {
+        guard let clientID,
+              let clientBundleIdentifier else {
+            return
+        }
+        var params = request["params"] as? [String: Any] ?? [:]
+        params["client_id"] = clientID
+        params["ios_bundle_identifier"] = clientBundleIdentifier
+        request["params"] = params
+    }
+
+    private func removeClientIdentityMetadata(from request: inout [String: Any]) {
+        var params = request["params"] as? [String: Any] ?? [:]
+        params.removeValue(forKey: "client_id")
+        params.removeValue(forKey: "ios_bundle_identifier")
+        params.removeValue(forKey: "ios_bundle_id")
+        params.removeValue(forKey: "iosBundleIdentifier")
+        request["params"] = params
     }
 
     private struct AuthenticatedRequestPayload {

@@ -16,7 +16,7 @@ private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", categ
 /// app yet, so neither delivers the Mac's route to the phone. The per-user
 /// `pairedMacs` backup IS reachable from the dev iOS build (it restores from it),
 /// so this bridges the gap until those pipelines work on dev. Every Mac build
-/// publishes into the exact iOS bundle target selected for pairing and pushes.
+/// publishes into the exact iOS bundle that completed the pairing handshake.
 ///
 /// Strictly DEV-gated and best-effort, mirroring ``PresenceHeartbeatClient``:
 /// a failure never disturbs the Mac, and Release builds never publish.
@@ -30,9 +30,18 @@ final class MacPairedMacBackupPublisher {
     private let session: URLSession = .shared
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
+    private var authObserveTask: Task<Void, Never>?
+    /// Every observer feeds one ordered publish chain. The network request is
+    /// still asynchronous, but a newer route/target cannot finish before an
+    /// older request and leave the backup namespace stale.
+    private var publishTask: Task<Void, Never>?
+    private var publishSequence = 0
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
+    /// A target change must republish unchanged routes into the new backup
+    /// namespace (for example, after pairing a beta build after App Store).
+    private var lastPublishedBundleIdentifier: String?
 
     private init() {}
 
@@ -67,10 +76,22 @@ final class MacPairedMacBackupPublisher {
     func configure(auth: AuthCoordinator) {
         guard Self.isEnabled() else { return }
         self.auth = auth
+        observeTask?.cancel()
+        authObserveTask?.cancel()
+        publishSequence &+= 1
+        // Keep the cancelled handle until it settles. URLSession cancellation
+        // is cooperative, and dropping this reference would let the next
+        // configuration start a request concurrently with the old one.
+        publishTask?.cancel()
+        observeTask = nil
+        authObserveTask = nil
+        lastPublishedRoutes = []
+        lastPublishedBundleIdentifier = nil
         // The iOS-pairing listener defaults ON in DEBUG builds (see
         // MobileCatalogSection.iOSPairingHost), so an attach route comes up
         // without a manual Settings toggle; we just observe and publish it.
         startObserving()
+        startObservingAuth(auth)
     }
 
     private func startObserving() {
@@ -78,21 +99,95 @@ final class MacPairedMacBackupPublisher {
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 guard let self, !Task.isCancelled else { break }
-                guard !status.routes.isEmpty, status.routes != self.lastPublishedRoutes else { continue }
+                let accountID = self.auth?.authenticatedSessionIdentity?.accountID
+                let targetBundleIdentifier = MobileHostService.shared
+                    .pairedPhoneBackupBundleIdentifier(accountID: accountID)
+                guard !status.routes.isEmpty,
+                      targetBundleIdentifier != nil,
+                      status.routes != self.lastPublishedRoutes
+                        || targetBundleIdentifier != self.lastPublishedBundleIdentifier else {
+                    continue
+                }
                 await self.publish(routes: status.routes)
             }
         }
     }
 
+    /// Replays the current routes after auth restoration. The host-status
+    /// stream can yield before Stack has published its identity, so relying on
+    /// that first yield alone would permanently skip an otherwise valid backup.
+    private func startObservingAuth(_ auth: AuthCoordinator) {
+        authObserveTask = Task { @MainActor [weak self, weak auth] in
+            guard let self, let auth else { return }
+            await auth.awaitBootstrapped()
+            guard !Task.isCancelled, self.auth === auth else { return }
+            for await identity in auth.authenticatedSessionIdentities() {
+                guard !Task.isCancelled, self.auth === auth else { return }
+                guard let identity else {
+                    self.lastPublishedRoutes = []
+                    self.lastPublishedBundleIdentifier = nil
+                    continue
+                }
+                let routes = MobileHostService.shared.statusSnapshot().routes
+                let targetBundleIdentifier = MobileHostService.shared
+                    .pairedPhoneBackupBundleIdentifier(accountID: identity.accountID)
+                guard !routes.isEmpty,
+                      targetBundleIdentifier != self.lastPublishedBundleIdentifier
+                        || routes != self.lastPublishedRoutes else {
+                    continue
+                }
+                await self.publish(routes: routes)
+            }
+        }
+    }
+
     private func publish(routes: [CmxAttachRoute]) async {
+        publishSequence &+= 1
+        let sequence = publishSequence
+        let previous = publishTask
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard !Task.isCancelled,
+                  let self,
+                  self.publishSequence == sequence else { return }
+            await self.performPublish(routes: routes)
+            guard self.publishSequence == sequence else { return }
+            self.publishTask = nil
+        }
+        publishTask = task
+        await task.value
+    }
+
+    private func performPublish(routes: [CmxAttachRoute]) async {
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else { return }
-        let tokens: (accessToken: String, refreshToken: String)
+        let sessionSnapshot: AuthenticatedSessionSnapshot
         do {
-            tokens = try await auth.currentTokens()
+            // Capture account identity and credentials as one session snapshot.
+            // Reading `currentTokens()` and `authenticatedSessionIdentity`
+            // separately can pair one account's bearer with another account's
+            // backup namespace across a sign-out or account switch.
+            sessionSnapshot = try await auth.authenticatedSessionSnapshot()
         } catch {
             return // not signed in -> nothing to publish
         }
+        guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot) else {
+            return
+        }
         let teamID = auth.resolvedTeamID
+        let accountID = sessionSnapshot.accountID
+        guard let targetBundleIdentifier = MobileHostService.shared
+            .pairedPhoneBackupBundleIdentifier(accountID: accountID),
+              let targetNamespace = MobileIOSAppNamespace(
+                  bundleIdentifier: targetBundleIdentifier
+              ) else {
+            return
+        }
+        // The target is account-scoped state. Re-check the same snapshot after
+        // reading it and immediately before constructing the request so a
+        // transition cannot tear the auth/namespace pair.
+        guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot) else {
+            return
+        }
 
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
@@ -123,35 +218,43 @@ final class MacPairedMacBackupPublisher {
         ])
         guard let payload = try? JSONEncoder().encode(body) else { return }
 
-        guard let targetNamespace =
-            MobileIOSPairingTargetStore().selectedNamespace else {
-            return
-        }
         let req = Self.makeRequest(
             url: url,
-            accessToken: tokens.accessToken,
+            accessToken: sessionSnapshot.accessToken,
+            refreshToken: sessionSnapshot.refreshToken,
             teamID: teamID,
             targetNamespace: targetNamespace,
             payload: payload
         )
 
         do {
+            guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot) else {
+                return
+            }
             let (_, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 macPairedMacPublishLog.warning("self-publish failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                 return
             }
+            guard await auth.isAuthenticatedSessionCurrent(sessionSnapshot),
+                  MobileHostService.shared.pairedPhoneBundleIdentifier(
+                      accountID: sessionSnapshot.accountID
+                  ) == targetNamespace.bundleIdentifier else {
+                return
+            }
             lastPublishedRoutes = routes
+            lastPublishedBundleIdentifier = targetNamespace.bundleIdentifier
             macPairedMacPublishLog.info("published \(routes.count, privacy: .public) route(s) to paired-mac backup")
         } catch {
             macPairedMacPublishLog.warning("self-publish error: \(String(describing: error), privacy: .public)")
         }
     }
 
-    /// Builds a request for the exact iOS bundle selected by the user.
+    /// Builds a request for the exact iOS bundle that completed pairing.
     nonisolated static func makeRequest(
         url: URL,
         accessToken: String,
+        refreshToken: String? = nil,
         teamID: String?,
         targetNamespace: MobileIOSAppNamespace,
         payload: Data
@@ -160,6 +263,9 @@ final class MacPairedMacBackupPublisher {
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let refreshToken, !refreshToken.isEmpty {
+            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        }
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
@@ -172,10 +278,4 @@ final class MacPairedMacBackupPublisher {
         return request
     }
 
-    /// Republishes unchanged routes after the selected iOS target changes.
-    func pairingTargetDidChange(routes: [CmxAttachRoute]) {
-        lastPublishedRoutes = []
-        guard !routes.isEmpty else { return }
-        Task { await publish(routes: routes) }
-    }
 }
