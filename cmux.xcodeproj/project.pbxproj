@@ -1183,6 +1183,8 @@
 		FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002010 /* FileExplorerDoubleClickActionTests.swift */; };
 		FE5996080000000000000002 /* FileExplorerExternalOpenMenuItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996080000000000000001 /* FileExplorerExternalOpenMenuItems.swift */; };
 		FE5996090000000000000002 /* FileExplorerExternalOpenRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996090000000000000001 /* FileExplorerExternalOpenRequest.swift */; };
+		C40410010000000000000031 /* FileExplorerFileTypeColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40410010000000000000030 /* FileExplorerFileTypeColor.swift */; };
+		FE002111 /* FileExplorerFileTypeColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002011 /* FileExplorerFileTypeColorTests.swift */; };
 		FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002012 /* FileExplorerGitStatusProviderTests.swift */; };
 		FE5996020000000000000002 /* FileExplorerHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996020000000000000001 /* FileExplorerHeaderView.swift */; };
 		FE001105 /* FileExplorerKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001005 /* FileExplorerKeyboardShortcuts.swift */; };
@@ -4141,6 +4143,8 @@
 		FE002010 /* FileExplorerDoubleClickActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerDoubleClickActionTests.swift; sourceTree = "<group>"; };
 		FE5996080000000000000001 /* FileExplorerExternalOpenMenuItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerExternalOpenMenuItems.swift; sourceTree = "<group>"; };
 		FE5996090000000000000001 /* FileExplorerExternalOpenRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerExternalOpenRequest.swift; sourceTree = "<group>"; };
+		C40410010000000000000030 /* FileExplorerFileTypeColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerFileTypeColor.swift; sourceTree = "<group>"; };
+		FE002011 /* FileExplorerFileTypeColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerFileTypeColorTests.swift; sourceTree = "<group>"; };
 		FE002012 /* FileExplorerGitStatusProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerGitStatusProviderTests.swift; sourceTree = "<group>"; };
 		FE5996020000000000000001 /* FileExplorerHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerHeaderView.swift; sourceTree = "<group>"; };
 		FE001005 /* FileExplorerKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerKeyboardShortcuts.swift; sourceTree = "<group>"; };
@@ -7062,6 +7066,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D86862000000000000000002 /* TerminalWorkingDirectoryResolver.swift */,
 				85911000000000000000000C /* Workspace+TerminalLinkOpening.swift */,
 				C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */,
+				C40410010000000000000030 /* FileExplorerFileTypeColor.swift */,
 				C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */,
 				E89950010000000000000002 /* GhosttyFlashOverlayView.swift */,
 				F0A110020000000000000001 /* GhosttyMouseSessionLedger.swift */,
@@ -8988,6 +8993,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				828800010000000000000001 /* FileExplorerStyleContrastTests.swift */,
 				FE002002 /* FileExplorerStoreTests.swift */,
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
+				FE002011 /* FileExplorerFileTypeColorTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */,
@@ -10175,6 +10181,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C40410010000000000000021 /* FileExplorerDoubleClickActionSettings.swift in Sources */,
 				FE5996080000000000000002 /* FileExplorerExternalOpenMenuItems.swift in Sources */,
 				FE5996090000000000000002 /* FileExplorerExternalOpenRequest.swift in Sources */,
+				C40410010000000000000031 /* FileExplorerFileTypeColor.swift in Sources */,
 				FE5996020000000000000002 /* FileExplorerHeaderView.swift in Sources */,
 				FE001105 /* FileExplorerKeyboardShortcuts.swift in Sources */,
 				FE5996030000000000000002 /* FileExplorerNSOutlineView.swift in Sources */,
@@ -11948,6 +11955,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
 				FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */,
+				FE002111 /* FileExplorerFileTypeColorTests.swift in Sources */,
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */,
