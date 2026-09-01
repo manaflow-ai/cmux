@@ -9,6 +9,12 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { execVm, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 
+// Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
+// The function budget must outlive that ceiling or the platform kills the
+// invocation mid-command; 960s = the 900s command ceiling plus attach and
+// auth overhead.
+export const maxDuration = 960;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
