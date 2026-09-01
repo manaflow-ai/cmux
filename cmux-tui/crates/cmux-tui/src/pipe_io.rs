@@ -380,6 +380,15 @@ fn pump_events_to_stdout(
             recv(lifecycle_receiver) -> event => {
                 match event {
                     Ok(PipeIoEvent::SurfaceExited) => {
+                        // Surface exit is ordered after the daemon's final
+                        // bytes. Drain those queued bytes before ending so a
+                        // closing terminal still leaves its final frame.
+                        while let Ok(event) = receiver.try_recv() {
+                            queued_bytes.fetch_sub(event.byte_len(), Ordering::AcqRel);
+                            if write_data_event(&event, stdout, &mut emitted_output).is_err() {
+                                return Ok(PipeIoExitReason::ParentClosed);
+                            }
+                        }
                         return Ok(PipeIoExitReason::TerminalEnded);
                     }
                     Ok(PipeIoEvent::TransportLost) => {
@@ -407,12 +416,18 @@ fn pump_events_to_stdout(
             }
         };
         let write_result = match &event {
-            PipeIoEvent::Replay { bytes } => {
-                let reset = if emitted_output { stdout.write_all(REPLAY_RESET) } else { Ok(()) };
-                reset.and_then(|()| stdout.write_all(bytes)).and_then(|()| stdout.flush())
+            PipeIoEvent::Replay { .. } | PipeIoEvent::Output(_) => {
+                write_data_event(&event, stdout, &mut emitted_output)
             }
-            PipeIoEvent::Output(bytes) => stdout.write_all(bytes).and_then(|()| stdout.flush()),
-            PipeIoEvent::SurfaceExited => return Ok(PipeIoExitReason::TerminalEnded),
+            PipeIoEvent::SurfaceExited => {
+                while let Ok(event) = receiver.try_recv() {
+                    queued_bytes.fetch_sub(event.byte_len(), Ordering::AcqRel);
+                    if write_data_event(&event, stdout, &mut emitted_output).is_err() {
+                        return Ok(PipeIoExitReason::ParentClosed);
+                    }
+                }
+                return Ok(PipeIoExitReason::TerminalEnded);
+            }
             PipeIoEvent::TransportLost => return Ok(PipeIoExitReason::DaemonLost),
             PipeIoEvent::StdinClosed => return Ok(PipeIoExitReason::ParentClosed),
         };
@@ -422,6 +437,23 @@ fn pump_events_to_stdout(
         }
         emitted_output = true;
     }
+}
+
+fn write_data_event(
+    event: &PipeIoEvent,
+    stdout: &mut impl Write,
+    emitted_output: &mut bool,
+) -> io::Result<()> {
+    match event {
+        PipeIoEvent::Replay { bytes } => {
+            let reset = if *emitted_output { stdout.write_all(REPLAY_RESET) } else { Ok(()) };
+            reset.and_then(|()| stdout.write_all(bytes)).and_then(|()| stdout.flush())?
+        }
+        PipeIoEvent::Output(bytes) => stdout.write_all(bytes).and_then(|()| stdout.flush())?,
+        PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost | PipeIoEvent::StdinClosed => {}
+    }
+    *emitted_output = true;
+    Ok(())
 }
 
 impl PipeIoEvent {
