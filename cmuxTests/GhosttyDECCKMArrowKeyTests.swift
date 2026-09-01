@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import XCTest
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -65,7 +66,10 @@ struct GhosttyDECCKMArrowKeyTests {
         // surface. In that environment the predicate tests below still cover
         // the routing decision; this byte-level integration path needs a live
         // surface to poll terminal text.
-        guard hostedTerminal.surface.hasLiveSurface else { return }
+        try XCTSkipUnless(
+            hostedTerminal.surface.hasLiveSurface,
+            "Ghostty surface failed to initialize on this host; byte-level arrow routing is unavailable."
+        )
 
         #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
 
@@ -162,8 +166,12 @@ struct GhosttyDECCKMArrowKeyTests {
         defer { window.orderOut(nil) }
 
         // The byte assertion needs a live Metal surface. Predicate tests still
-        // cover routing policy on headless runners.
-        guard hostedTerminal.surface.hasLiveSurface else { return }
+        // cover routing policy on headless runners, and this explicit skip keeps
+        // the integration result honest when Metal is unavailable.
+        try XCTSkipUnless(
+            hostedTerminal.surface.hasLiveSurface,
+            "Ghostty surface failed to initialize on this host; byte-level editing routing is unavailable."
+        )
         #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
 
         let readyText = try waitForTerminalText(from: hostedTerminal) {

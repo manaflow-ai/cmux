@@ -5,11 +5,13 @@ import type { CmuxClient, DecodedAttachEvent } from "cmux/raw";
 import { useAttachedTerminal } from "../src/hooks/useAttachedTerminal";
 
 const fitDimensions = { cols: 80, rows: 24 };
+type TerminalMock = {
+  options: Record<string, unknown>;
+  writes: Array<string | Uint8Array>;
+  customKeyEventHandler?: (event: KeyboardEvent) => boolean;
+};
 const terminalMocks = vi.hoisted(() => ({
-  instances: [] as Array<{
-    options: Record<string, unknown>;
-    writes: Array<string | Uint8Array>;
-  }>,
+  instances: [] as TerminalMock[],
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
@@ -24,6 +26,7 @@ vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     options: Record<string, unknown>;
     writes: Array<string | Uint8Array> = [];
+    customKeyEventHandler?: (event: KeyboardEvent) => boolean;
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
@@ -32,6 +35,9 @@ vi.mock("@xterm/xterm", () => ({
 
     loadAddon() {}
     open() {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      this.customKeyEventHandler = handler;
+    }
     reset() {}
     resize() {}
     write(data: string | Uint8Array, callback?: () => void) {
@@ -137,6 +143,71 @@ describe("attached terminal sizing", () => {
     expect(client.resizeSurface).toHaveBeenNthCalledWith(2, 7n, 80, 24);
     view.unmount();
     expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n);
+  });
+
+  it("forwards Command editing chords through xterm and preserves browser shortcuts", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7n,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array(),
+          colors: {},
+        },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+    await waitFor(() => expect(terminalMocks.instances[0]?.customKeyEventHandler).toEqual(expect.any(Function)));
+    const handler = terminalMocks.instances[0]?.customKeyEventHandler;
+    if (handler === undefined) throw new Error("xterm key handler was not registered");
+
+    const editingEvents = [
+      ["Backspace", "\u0015"],
+      ["Delete", "\u000b"],
+      ["ArrowLeft", "\u0001"],
+      ["ArrowRight", "\u0005"],
+    ] as const;
+    for (const [key, text] of editingEvents) {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key,
+        metaKey: true,
+      });
+      expect(handler(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+      await waitFor(() => expect(client.send).toHaveBeenCalledWith(7n, { text }));
+    }
+
+    const copy = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "c",
+      metaKey: true,
+    });
+    expect(handler(copy)).toBe(true);
+    expect(client.send).toHaveBeenCalledTimes(editingEvents.length);
+
+    const optionDelete = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Backspace",
+      altKey: true,
+    });
+    expect(handler(optionDelete)).toBe(true);
+    expect(client.send).toHaveBeenCalledTimes(editingEvents.length);
+    view.unmount();
   });
 
   it("releases sizing when the attach consumer terminates", async () => {
