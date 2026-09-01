@@ -476,6 +476,23 @@ struct MemoryPressureMonitorTests {
         #expect(monitor.aggregateMemoryPressure == nil)
     }
 
+    @Test func clearingAggregateEvidenceNotifiesThePressureOwner() async {
+        let sample = MemoryPressureAggregateSample.unavailable(
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            sampleInterval: 60
+        )
+        var clearCount = 0
+        monitor.onAggregatePressureCleared = { clearCount += 1 }
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 32))
+
+        #expect(clearCount == 1)
+    }
+
     @Test func unavailableAggregateMetricsNeverCreateActionableAggregatePressure() async {
         let sample = MemoryPressureAggregateSample.unavailable(
             sampledAt: Date(timeIntervalSince1970: 0)

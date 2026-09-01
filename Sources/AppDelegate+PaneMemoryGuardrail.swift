@@ -63,6 +63,9 @@ extension AppDelegate {
         monitor.onPersistentCriticalPressure = { [weak self] snapshot in
             self?.postPersistentCriticalMemoryPressureWarning(snapshot: snapshot)
         }
+        monitor.onAggregatePressureCleared = {
+            AgentHibernationController.shared.clearAggregateMemoryPressureConfirmations()
+        }
         monitor.start()
     }
 

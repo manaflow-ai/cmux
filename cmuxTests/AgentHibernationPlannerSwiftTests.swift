@@ -374,7 +374,7 @@ struct AgentHibernationPlannerSwiftTests {
             ],
             settings: settings,
             now: 300,
-            trigger: .systemMemoryPressure
+            trigger: .aggregateMemoryPressure
         )
 
         #expect(ordered == [older, newer])
@@ -475,7 +475,7 @@ struct AgentHibernationPlannerSwiftTests {
             ],
             settings: settings,
             now: now,
-            trigger: .systemMemoryPressure
+            trigger: .aggregateMemoryPressure
         )
 
         #expect(selected == Set([idle, secondIdle, liveProcess]))

@@ -93,7 +93,7 @@ nonisolated struct MemoryPressureAggregateSample: Equatable, Sendable {
     }
 
     /// A descendant sample with missing process records is incomplete and cannot
-    /// safely drive an eviction decision. Coalition samples are already scoped
+    /// safely drive an idle-agent hibernation decision. Coalition samples are already scoped
     /// and may still be used when the process listing races exits.
     var isUsable: Bool {
         source != .unavailable &&
@@ -163,7 +163,7 @@ nonisolated struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
         sampledAt = sample.sampledAt
     }
 
-    /// Only complete, real metrics may authorize a pressure-driven eviction.
+    /// Only complete, real metrics may authorize idle-agent hibernation.
     var isActionable: Bool {
         severity >= .warning &&
             source != .unavailable &&
@@ -177,7 +177,7 @@ nonisolated struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
 /// The defaults are fractions of installed physical memory, never a fixed GB
 /// value. A coalition/tree sample must cross the warning fraction before the
 /// optional available-memory signal can raise its severity. This prevents an
-/// unrelated low-memory application from causing cmux to terminate agent work.
+/// unrelated low-memory application from causing cmux to hibernate agent work.
 nonisolated struct MemoryPressureAggregatePolicy: Equatable, Sendable {
     let warningCoalitionFraction: Double
     let criticalCoalitionFraction: Double
@@ -232,7 +232,7 @@ nonisolated struct MemoryPressureAggregatePolicy: Equatable, Sendable {
         }
 
         // Available memory is a corroborating signal, not a standalone reason
-        // to evict cmux work. It is intentionally considered only after the
+        // to hibernate agent work. It is intentionally considered only after the
         // cmux coalition/tree has crossed its relative warning boundary.
         if severity >= .warning,
            let availableMemoryBytes = sample.availableMemoryBytes {

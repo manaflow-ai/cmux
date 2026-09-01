@@ -25,6 +25,9 @@ final class MemoryPressureMonitor {
     var onPersistentCriticalPressure: (@MainActor (MemoryPressureSnapshot) -> Void)?
 
     @ObservationIgnored
+    var onAggregatePressureCleared: (@MainActor () -> Void)?
+
+    @ObservationIgnored
     private let footprintSampler: any MemoryPressureFootprintSampling
     @ObservationIgnored
     private let aggregateSampler: any MemoryPressureAggregateSampling
@@ -218,7 +221,7 @@ final class MemoryPressureMonitor {
         lastAppliedSampledAt = sampledAt
         // Keep aggregate severity intrinsic to cmux's coalition/tree. The
         // independent Dispatch/system signal still drives the overall tracker,
-        // but must not turn a low aggregate sample into an eviction command.
+        // but must not turn a low aggregate sample into a hibernation command.
         let aggregateMemoryPressure = aggregateSample.map {
             aggregatePolicy.evaluate(
                 sample: $0
@@ -233,6 +236,9 @@ final class MemoryPressureMonitor {
         currentSeverity = evaluation.snapshot.severity
         self.physicalFootprintBytes = evaluation.snapshot.physicalFootprintBytes
         self.aggregateMemoryPressure = aggregateMemoryPressure
+        if aggregateMemoryPressure?.isActionable != true {
+            onAggregatePressureCleared?()
+        }
 
         if evaluation.didTransition {
             logTransition(evaluation)

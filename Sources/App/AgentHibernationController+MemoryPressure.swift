@@ -85,7 +85,7 @@ extension AgentHibernationController {
         onHibernationCompleted: @escaping @MainActor (Int) -> Void
     ) -> Bool {
         guard isPressureStillActive() else {
-            clearMemoryPressureConfirmations()
+            clearAggregateMemoryPressureConfirmations()
             return false
         }
         guard memoryPressureEvaluation == nil else {
@@ -114,10 +114,14 @@ extension AgentHibernationController {
                 index: index,
                 settings: AgentHibernationSettings.values(),
                 now: now,
-                trigger: .systemMemoryPressure,
+                trigger: .aggregateMemoryPressure,
                 teardownShouldProceed: isPressureStillActive,
                 onHibernationCompleted: { [weak self] hibernatedCount in
-                    self?.finishMemoryPressureEvaluation(requestID: requestID)
+                    self?.finishMemoryPressureEvaluation(
+                        requestID: requestID,
+                        clearConfirmations: false
+                    )
+                    self?.clearAggregateMemoryPressureConfirmations()
                     onHibernationCompleted(hibernatedCount)
                 }
             )

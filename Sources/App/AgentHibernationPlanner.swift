@@ -3,6 +3,16 @@ import Foundation
 enum AgentHibernationReclaimTrigger: Equatable, Sendable {
     case scheduled
     case systemMemoryPressure
+    case aggregateMemoryPressure
+
+    var isMemoryPressure: Bool {
+        switch self {
+        case .scheduled:
+            false
+        case .systemMemoryPressure, .aggregateMemoryPressure:
+            true
+        }
+    }
 }
 
 enum AgentHibernationPlanner {
@@ -22,7 +32,7 @@ enum AgentHibernationPlanner {
         )
     }
 
-    /// Returns pressure candidates in deterministic eviction order.
+    /// Returns pressure candidates in deterministic hibernation order.
     /// Oldest activity wins; UUID is a stable tie-breaker across dictionary and
     /// workspace traversal order.
     static func orderedPanelKeys(
@@ -37,8 +47,8 @@ enum AgentHibernationPlanner {
         case .scheduled:
             guard settings.enabled else { return [] }
             scheduledExcess = liveRestorable.count - settings.maxLiveTerminals
-        case .systemMemoryPressure:
-            // Aggregate pressure is a trigger, not a memory or agent quota.
+        case .systemMemoryPressure, .aggregateMemoryPressure:
+            // Memory pressure is a trigger, not a memory or agent quota.
             // Every candidate that is already idle and independently proven
             // safe may enter the ordinary lossless hibernation lifecycle.
             scheduledExcess = nil
@@ -56,7 +66,7 @@ enum AgentHibernationPlanner {
                     !input.isTemporarilyUnableToProtect &&
                     !input.hasUnconfirmedTerminalInput &&
                     (
-                        trigger == .systemMemoryPressure ||
+                        trigger.isMemoryPressure ||
                             now - input.lastActivityAt >= settings.idleSeconds
                     )
             }
@@ -70,7 +80,7 @@ enum AgentHibernationPlanner {
                 return lhs.lastActivityAt < rhs.lastActivityAt
             }
 
-        if trigger == .systemMemoryPressure {
+        if trigger.isMemoryPressure {
             return eligible.map(\.key)
         }
         return eligible.prefix(scheduledExcess ?? 0).map(\.key)
