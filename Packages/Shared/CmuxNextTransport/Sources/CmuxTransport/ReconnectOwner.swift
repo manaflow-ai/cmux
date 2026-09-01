@@ -474,7 +474,7 @@ public actor ReconnectOwner {
         guard connection === conn else {
             if TransportDebugLog.enabled {
                 TransportDebugLog.core.notice(
-                    "owner (TransportDebugLog.id(self), privacy: .public) connection end became stale while awaiting termination conn=\(TransportDebugLog.id(conn), privacy: .public)")
+                    "owner \(TransportDebugLog.id(self), privacy: .public) connection end became stale while awaiting termination conn=\(TransportDebugLog.id(conn), privacy: .public)")
             }
             return
         }

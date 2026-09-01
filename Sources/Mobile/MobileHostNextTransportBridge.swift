@@ -66,15 +66,15 @@ enum MobileHostNextTransportBridge {
         MobileHostNextTransportRuntime.logger.notice(
             """
             bridge assembly begin conn=\(connID, privacy: .public) \
-            device=\(devicePrefix, privacy: .public) \
+            device=\(devicePrefix, privacy: .private) \
             app=\(grant.appIdentity, privacy: .public) \
-            grantID=\(String(grant.grantID.prefix(8)), privacy: .public)
+            grantID=\(String(grant.grantID.prefix(8)), privacy: .private)
             """)
         guard let peer = synthesizedPeer(grant: grant, deviceKey: deviceKey) else {
             MobileHostNextTransportRuntime.logger.error(
                 """
                 bridge: unusable device key; closing conn=\(connID, privacy: .public) \
-                device=\(devicePrefix, privacy: .public) \
+                device=\(devicePrefix, privacy: .private) \
                 key=\(Self.hex(Data(deviceKey.prefix(4))), privacy: .public)
                 """)
             await connection.closeAll(reason: nil)
@@ -107,7 +107,7 @@ enum MobileHostNextTransportBridge {
         MobileHostNextTransportRuntime.logger.notice(
             """
             bridge: event writer + lane router assembled conn=\(connID, privacy: .public) \
-            device=\(devicePrefix, privacy: .public)
+            device=\(devicePrefix, privacy: .private)
             """)
         let supervisor = CmxIrohAdmittedConnectionSupervisor(
             runControl: {
@@ -116,7 +116,7 @@ enum MobileHostNextTransportBridge {
                         """
                         bridge: control stream never arrived (connection closed) \
                         conn=\(connID, privacy: .public) \
-                        device=\(devicePrefix, privacy: .public)
+                        device=\(devicePrefix, privacy: .private)
                         """)
                     return CmxIrohAdmittedConnectionExit(
                         lifecycle: .remoteClosed, failure: .none)
@@ -125,7 +125,7 @@ enum MobileHostNextTransportBridge {
                     """
                     bridge: control stream accepted; starting RPC service \
                     conn=\(connID, privacy: .public) \
-                    device=\(devicePrefix, privacy: .public)
+                    device=\(devicePrefix, privacy: .private)
                     """)
                 return await MobileHostService.acceptTransport(
                     BridgeByteTransport(stream: control),
@@ -142,7 +142,7 @@ enum MobileHostNextTransportBridge {
                 MobileHostNextTransportRuntime.logger.notice(
                     """
                     bridge: supervisor closing connection conn=\(connID, privacy: .public) \
-                    device=\(devicePrefix, privacy: .public)
+                    device=\(devicePrefix, privacy: .private)
                     """)
                 await connection.closeAll(reason: nil)
             },
@@ -150,7 +150,7 @@ enum MobileHostNextTransportBridge {
                 MobileHostNextTransportRuntime.logger.notice(
                     """
                     bridge: stopping application lanes conn=\(connID, privacy: .public) \
-                    device=\(devicePrefix, privacy: .public)
+                    device=\(devicePrefix, privacy: .private)
                 """)
                 eventPreparationTask.cancel()
                 await eventWriter.close()
@@ -159,14 +159,14 @@ enum MobileHostNextTransportBridge {
             })
         MobileHostNextTransportRuntime.logger.notice(
             """
-            bridge: serving device \(devicePrefix, privacy: .public) over next transport \
+            bridge: serving device \(devicePrefix, privacy: .private) over next transport \
             conn=\(connID, privacy: .public); supervisor starting
             """)
         let exit = await supervisor.run()
         MobileHostNextTransportRuntime.logger.notice(
             """
             bridge: session ended conn=\(connID, privacy: .public) \
-            device=\(devicePrefix, privacy: .public) \
+            device=\(devicePrefix, privacy: .private) \
             lifecycle=\(exit.lifecycle.rawValue, privacy: .public) \
             failure=\(String(describing: exit.failure), privacy: .public) \
             elapsedMs=\(MobileHostNextTransportRuntime.elapsedMs(since: bridgeStart), privacy: .public)

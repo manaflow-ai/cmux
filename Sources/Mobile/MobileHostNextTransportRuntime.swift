@@ -1031,11 +1031,15 @@ final class MobileHostNextTransportRuntime {
         entries: [NextTransportCachedRelayCredential],
         generation gen: UInt64
     ) {
+        guard !entries.isEmpty else { return }
         cachedCredentialExpiryTask?.cancel()
         let sleep = self.sleep
         let now = Int64(Date().timeIntervalSince1970)
-        let target = entries.compactMap(\.expiresAt).min() ??
-            now + RelayCredentialSchedule.fallbackIntervalSeconds
+        let knownTarget = entries.compactMap(\.expiresAt).min()
+        let fallbackTarget = entries.contains { $0.expiresAt == nil }
+            ? now + RelayCredentialSchedule.fallbackIntervalSeconds
+            : Int64.max
+        let target = min(knownTarget ?? Int64.max, fallbackTarget)
         let delay = max(target - now, RelayCredentialSchedule.minimumDelaySeconds)
         cachedCredentialExpiryTask = Task { [weak self] in
             do {

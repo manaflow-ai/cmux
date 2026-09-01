@@ -64,10 +64,17 @@ public enum RelayCredentialSchedule {
         let jitter = max(0, jitterSeconds)
         let fallbackTarget = now + fallbackIntervalSeconds - jitter
         let expiryTarget = earliest.map { $0 - leadSeconds - jitter }
-        // A mixed set is only as safe as its least observable credential. If
-        // any token has no expiry claim, retain the fallback deadline even
-        // when another token advertises a much later expiry.
-        let target = min(expiryTarget ?? fallbackTarget, fallbackTarget)
+        // A mixed set is only as safe as its least observable credential. Use
+        // the fallback deadline when (and only when) at least one credential
+        // has no expiry claim; an all-known set should honor its actual
+        // earliest expiry even when that is later than the legacy cadence.
+        let hasUnknownExpiry = expiries.contains { $0 == nil }
+        let target: Int64
+        if hasUnknownExpiry {
+            target = min(expiryTarget ?? fallbackTarget, fallbackTarget)
+        } else {
+            target = expiryTarget ?? fallbackTarget
+        }
         return max(target, now + minimumDelaySeconds)
     }
 

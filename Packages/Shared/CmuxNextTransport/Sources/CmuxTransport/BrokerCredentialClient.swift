@@ -593,6 +593,10 @@ public struct BrokerCredentialClient: Sendable {
         var validated: [Credential] = []
         validated.reserveCapacity(credentials.count)
         for credential in credentials {
+            let knownExpiries = [
+                credential.expiresAt,
+                IrohSubstrate.tokenExpiry(credential.token),
+            ].compactMap { $0 }
             guard let url = URL(string: credential.relayUrl),
                 let scheme = url.scheme?.lowercased(),
                 let host = url.host,
@@ -604,8 +608,7 @@ public struct BrokerCredentialClient: Sendable {
                 !credential.token.isEmpty,
                 credential.token.utf8.count <= 16 * 1024,
                 IrohSubstrate.tokenEndpointId(credential.token) == identity.publicKeyData,
-                let expiry = credential.expiresAt,
-                expiry > now,
+                knownExpiries.allSatisfy({ $0 > now }),
                 seenURLs.insert(credential.relayUrl).inserted
             else {
                 throw BrokerError.shape("invalid relay credential")
