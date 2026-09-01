@@ -5,6 +5,22 @@ import Testing
 struct CodexTabTitleComposerTests {
     private let composer = CodexTabTitleComposer(runningMarker: "◐ ", idleMarker: "✳ ")
 
+    @Test("the default composer uses universal status glyphs")
+    func defaultMarkers() {
+        let running = CodexTabTitleComposer().presentation(
+            baseTitle: "some-name",
+            lifecycle: .running,
+            hasUserOwnedTitle: false
+        )
+        let idle = CodexTabTitleComposer().presentation(
+            baseTitle: "some-name",
+            lifecycle: .idle,
+            hasUserOwnedTitle: false
+        )
+        #expect(running.title == "◐ some-name")
+        #expect(idle.title == "✳ some-name")
+    }
+
     @Test("running and idle states use transient markers")
     func lifecycleMarkers() {
         let running = composer.presentation(
