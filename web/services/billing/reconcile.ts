@@ -1,25 +1,45 @@
 import * as Sentry from "@sentry/nextjs";
-import { asc, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
+import { getStackServerApp } from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
+import { captureBillingTeamSeatSync } from "../analytics/stripeBilling";
 import { captureCoderouterError } from "../errors";
 import {
   revokeRouteTokensForTeam,
   revokeRouteTokensForUser,
 } from "../coderouter/repository";
-import { applySubscriptionUpdate } from "./purchase";
+import {
+  applySubscriptionUpdate,
+  isActiveStripeSubscriptionStatus,
+} from "./purchase";
 import { stripe } from "./stripe";
 
 const DEFAULT_LIMIT = 1_000;
 const DEFAULT_CONCURRENCY = 8;
+const TEAM_SEAT_SYNC_LIMIT = 50;
 
 type SubscriptionSnapshot = {
   readonly id: string;
   readonly status: string;
   readonly cancelAtPeriodEnd: boolean;
   readonly currentPeriodEnd: Date | null;
+  readonly scope?: string;
+  readonly stackTeamId?: string | null;
+  readonly seats?: number | null;
+};
+
+type ReconcileStackTeam = {
+  readonly listUsers?: () => Promise<readonly unknown[]>;
+};
+
+type TeamSeatSyncInput = {
+  readonly subscriptionId: string;
+  readonly teamId: string;
+  readonly oldQuantity: number;
+  readonly newQuantity: number;
 };
 
 export type BillingReconcileResult = {
@@ -35,6 +55,13 @@ type BillingReconcileDependencies = {
   readonly retrieve?: (id: string) => Promise<Stripe.Subscription>;
   readonly apply?: (subscription: Stripe.Subscription) => Promise<unknown>;
   readonly markChecked?: (ids: readonly string[]) => Promise<void>;
+  readonly getTeam?: (teamId: string) => Promise<ReconcileStackTeam | null>;
+  readonly updateSubscriptionQuantity?: (
+    id: string,
+    params: Stripe.SubscriptionUpdateParams,
+  ) => Promise<unknown>;
+  readonly updateSeats?: (subscriptionId: string, seats: number) => Promise<void>;
+  readonly captureTeamSeatSync?: (input: TeamSeatSyncInput) => Promise<void>;
   readonly captureError?: (
     error: unknown,
     context: Record<string, string | number | boolean>,
@@ -44,12 +71,15 @@ type BillingReconcileDependencies = {
 };
 
 /**
- * Repairs Stripe/RDS entitlement drift outside request traffic.
+ * Repairs Stripe/RDS entitlement drift outside request traffic and keeps
+ * active Team quantities aligned with Stack membership.
  *
  * Stripe remains authoritative. Re-applying a subscription is idempotent and
  * goes through the same per-principal advisory lock, Stack metadata update,
  * and route-token revocation path as a signed webhook. Retrievals fan out with
- * bounded concurrency; mutations retain their existing principal locks.
+ * bounded concurrency; mutations retain their existing principal locks. Team
+ * membership reads are capped per run so a large roster cannot exhaust the
+ * cron duration budget.
  */
 export async function reconcileStripeSubscriptions(
   options: {
@@ -76,26 +106,61 @@ async function reconcileStripeSubscriptionsLocked(
   const apply = dependencies.apply ?? applySubscriptionUpdateAndRevokeRoutes;
   const markChecked = dependencies.markChecked ?? markSubscriptionsChecked;
   const captureError = dependencies.captureError ?? captureCoderouterError;
+  const getTeam = dependencies.getTeam ?? getStackTeamForReconcile;
+  const updateSubscriptionQuantity = dependencies.updateSubscriptionQuantity ??
+    updateStripeSubscriptionQuantity;
+  const updateSeats = dependencies.updateSeats ?? updateLocalSubscriptionSeats;
+  const captureTeamSeatSync = dependencies.captureTeamSeatSync ?? captureBillingTeamSeatSync;
   const rows = await list(limit + 1);
   const snapshots = rows.slice(0, limit);
 
   let drifted = 0;
   let repaired = 0;
   let failed = 0;
+  let reservedTeamSeatSyncs = 0;
   await mapConcurrent(
     snapshots,
     dependencies.concurrency ?? DEFAULT_CONCURRENCY,
     async (snapshot) => {
+      // Reserve team slots before the first await. The list is ordered by the
+      // shared reconciliation cursor, so this keeps the bounded Stack work
+      // focused on the oldest eligible team rows even when retrievals finish
+      // out of order.
+      const teamSeatSyncReserved = isActiveTeamSnapshot(snapshot) &&
+        reservedTeamSeatSyncs < TEAM_SEAT_SYNC_LIMIT;
+      if (teamSeatSyncReserved) reservedTeamSeatSyncs += 1;
+
+      let rowDrifted = false;
+      let rowRepaired = false;
       try {
         const remote = await retrieve(snapshot.id);
-        if (!hasDrift(snapshot, remote)) return;
-        drifted += 1;
-        if (options.dryRun) return;
-        const result = await apply(remote);
-        if (isSkipped(result)) {
-          throw new Error("Stripe subscription could not be mapped to a billing principal");
+        if (hasDrift(snapshot, remote)) {
+          rowDrifted = true;
+          if (!options.dryRun) {
+            const result = await apply(remote);
+            if (isSkipped(result)) {
+              throw new Error("Stripe subscription could not be mapped to a billing principal");
+            }
+            rowRepaired = true;
+          }
         }
-        repaired += 1;
+
+        if (
+          teamSeatSyncReserved &&
+          isActiveStripeSubscriptionStatus(remote.status)
+        ) {
+          const seatSync = await reconcileTeamSeatQuantity(
+            snapshot,
+            remote,
+            options.dryRun ?? false,
+            getTeam,
+            updateSubscriptionQuantity,
+            updateSeats,
+            captureTeamSeatSync,
+          );
+          rowDrifted ||= seatSync.drifted;
+          rowRepaired ||= seatSync.repaired;
+        }
       } catch (error) {
         failed += 1;
         captureError(error, {
@@ -104,6 +169,8 @@ async function reconcileStripeSubscriptionsLocked(
           recoverable: true,
         });
       }
+      if (rowDrifted) drifted += 1;
+      if (rowRepaired) repaired += 1;
     },
   );
   if (!options.dryRun && snapshots.length > 0) {
@@ -160,6 +227,9 @@ async function listSubscriptionSnapshots(
       status: stripeSubscriptions.status,
       cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
       currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+      scope: stripeSubscriptions.scope,
+      stackTeamId: stripeSubscriptions.stackTeamId,
+      seats: stripeSubscriptions.seats,
     })
     .from(stripeSubscriptions)
     .orderBy(
@@ -167,6 +237,98 @@ async function listSubscriptionSnapshots(
       asc(stripeSubscriptions.id),
     )
     .limit(limit);
+}
+
+function isActiveTeamSnapshot(snapshot: SubscriptionSnapshot): boolean {
+  return snapshot.scope === "team" &&
+    typeof snapshot.stackTeamId === "string" &&
+    snapshot.stackTeamId.length > 0 &&
+    isActiveStripeSubscriptionStatus(snapshot.status);
+}
+
+async function reconcileTeamSeatQuantity(
+  snapshot: SubscriptionSnapshot,
+  remote: Stripe.Subscription,
+  dryRun: boolean,
+  getTeam: (teamId: string) => Promise<ReconcileStackTeam | null>,
+  updateSubscriptionQuantity: (
+    id: string,
+    params: Stripe.SubscriptionUpdateParams,
+  ) => Promise<unknown>,
+  updateSeats: (subscriptionId: string, seats: number) => Promise<void>,
+  captureTeamSeatSync: (input: TeamSeatSyncInput) => Promise<void>,
+): Promise<{ readonly drifted: boolean; readonly repaired: boolean }> {
+  const teamId = snapshot.stackTeamId;
+  if (!teamId) return { drifted: false, repaired: false };
+
+  const team = await getTeam(teamId);
+  if (!team) throw new Error(`Stack team not found for seat reconciliation: ${teamId}`);
+  if (typeof team.listUsers !== "function") {
+    throw new Error("Stack Auth server SDK cannot list team members");
+  }
+  const members = await team.listUsers();
+  if (!Array.isArray(members)) {
+    throw new Error("Stack team member listing returned an invalid result");
+  }
+
+  const desiredQuantity = Math.max(1, members.length);
+  const stripeQuantity = finiteQuantity(remote.items?.data?.[0]?.quantity);
+  const storedQuantity = finiteQuantity(snapshot.seats);
+  const stripeNeedsUpdate = stripeQuantity !== desiredQuantity;
+  const localNeedsUpdate = storedQuantity !== desiredQuantity;
+  if (!stripeNeedsUpdate && !localNeedsUpdate) {
+    return { drifted: false, repaired: false };
+  }
+  if (dryRun) return { drifted: true, repaired: false };
+
+  const oldQuantity = stripeQuantity ?? storedQuantity ?? 1;
+  if (stripeNeedsUpdate) {
+    const item = remote.items?.data?.[0];
+    if (!item?.id) {
+      throw new Error("Stripe team subscription is missing a subscription item");
+    }
+    await updateSubscriptionQuantity(remote.id, {
+      items: [{ id: item.id, quantity: desiredQuantity }],
+      proration_behavior: "create_prorations",
+    });
+  }
+  if (localNeedsUpdate) {
+    await updateSeats(snapshot.id, desiredQuantity);
+  }
+  await captureTeamSeatSync({
+    subscriptionId: snapshot.id,
+    teamId,
+    oldQuantity,
+    newQuantity: desiredQuantity,
+  });
+  return { drifted: true, repaired: true };
+}
+
+async function getStackTeamForReconcile(
+  teamId: string,
+): Promise<ReconcileStackTeam | null> {
+  return getStackServerApp().getTeam(teamId);
+}
+
+async function updateStripeSubscriptionQuantity(
+  id: string,
+  params: Stripe.SubscriptionUpdateParams,
+): Promise<unknown> {
+  return stripe().subscriptions.update(id, params);
+}
+
+async function updateLocalSubscriptionSeats(
+  subscriptionId: string,
+  seats: number,
+): Promise<void> {
+  await cloudDb()
+    .update(stripeSubscriptions)
+    .set({ seats, updatedAt: sql`now()` })
+    .where(eq(stripeSubscriptions.id, subscriptionId));
+}
+
+function finiteQuantity(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 async function markSubscriptionsChecked(ids: readonly string[]): Promise<void> {

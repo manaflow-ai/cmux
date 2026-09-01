@@ -3,10 +3,36 @@ import type Stripe from "stripe";
 
 import {
   captureBillingCheckoutStarted,
+  captureBillingTeamSeatSync,
   captureStripeBillingEvent,
 } from "../services/analytics/stripeBilling";
 
 describe("Stripe billing analytics", () => {
+  test("captures team seat sync quantities with the Stack team identity", async () => {
+    let payload: Record<string, unknown> = {};
+    await captureBillingTeamSeatSync({
+      subscriptionId: "sub_team_sync",
+      teamId: "team_sync",
+      oldQuantity: 1,
+      newQuantity: 4,
+    }, (async (_input, init) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch);
+
+    expect(payload).toMatchObject({
+      event: "cmux_billing_team_seats_synced",
+      properties: {
+        distinct_id: "stack-team:team_sync",
+        $insert_id: "team-seat-sync:sub_team_sync:1:4",
+        stack_team_id: "team_sync",
+        old_quantity: 1,
+        new_quantity: 4,
+        stripe_subscription_id: "sub_team_sync",
+      },
+    });
+  });
+
   test("does not use the real transport in a test process", async () => {
     const originalFetch = globalThis.fetch;
     let calls = 0;

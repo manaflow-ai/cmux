@@ -31,9 +31,27 @@ function subscription(
   } as Stripe.Subscription;
 }
 
+function teamItems(
+  id: string,
+  quantity: number,
+): Stripe.Subscription["items"] {
+  return {
+    object: "list",
+    data: [{
+      id,
+      object: "subscription_item",
+      current_period_end: 1_800_000_000,
+      quantity,
+      price: { id: "price_team" },
+    }],
+    has_more: false,
+    url: "/v1/subscription_items",
+  } as Stripe.Subscription["items"];
+}
+
 describe("Stripe subscription reconciliation", () => {
   test("syncs a team seat quantity when membership grows", async () => {
-    const stripeUpdates: Array<{ id: string; params: Record<string, unknown> }> = [];
+    const stripeUpdates: Array<{ id: string; params: Stripe.SubscriptionUpdateParams }> = [];
     const seatWrites: Array<{ id: string; seats: number }> = [];
     const analytics: Array<Record<string, unknown>> = [];
     const result = await reconcileStripeSubscriptions({}, {
@@ -49,29 +67,23 @@ describe("Stripe subscription reconciliation", () => {
       }],
       retrieve: async () => subscription("sub_team_growth", "active", {
         metadata: { app: "cmux", plan: "team", stackTeamId: "team_growth" },
-        items: {
-          object: "list",
-          data: [{
-            id: "si_team_growth",
-            object: "subscription_item",
-            current_period_end: 1_800_000_000,
-            quantity: 1,
-            price: { id: "price_team" },
-          }],
-          has_more: false,
-          url: "/v1/subscription_items",
-        },
+        items: teamItems("si_team_growth", 1),
       }),
       getTeam: async () => ({
         listUsers: async () => [{ id: "member-1" }, { id: "member-2" }, { id: "member-3" }],
       }),
-      updateSubscriptionQuantity: async (id: string, params: Record<string, unknown>) => {
+      updateSubscriptionQuantity: async (id: string, params: Stripe.SubscriptionUpdateParams) => {
         stripeUpdates.push({ id, params });
       },
       updateSeats: async (id: string, seats: number) => {
         seatWrites.push({ id, seats });
       },
-      captureTeamSeatSync: async (input: Record<string, unknown>) => {
+      captureTeamSeatSync: async (input: {
+        subscriptionId: string;
+        teamId: string;
+        oldQuantity: number;
+        newQuantity: number;
+      }) => {
         analytics.push(input);
       },
       markChecked: async () => {},
@@ -109,22 +121,11 @@ describe("Stripe subscription reconciliation", () => {
       }],
       retrieve: async () => subscription("sub_team_shrink", "active", {
         metadata: { app: "cmux", plan: "team", stackTeamId: "team_shrink" },
-        items: {
-          object: "list",
-          data: [{
-            id: "si_team_shrink",
-            object: "subscription_item",
-            current_period_end: 1_800_000_000,
-            quantity: 5,
-            price: { id: "price_team" },
-          }],
-          has_more: false,
-          url: "/v1/subscription_items",
-        },
+        items: teamItems("si_team_shrink", 5),
       }),
       getTeam: async () => ({ listUsers: async () => [] }),
-      updateSubscriptionQuantity: async (_id: string, params: Record<string, unknown>) => {
-        const items = params.items as Array<{ quantity?: number }>;
+      updateSubscriptionQuantity: async (_id: string, params: Stripe.SubscriptionUpdateParams) => {
+        const items = params.items ?? [];
         quantities.push(items[0]?.quantity ?? 0);
       },
       updateSeats: async () => {},
@@ -153,18 +154,7 @@ describe("Stripe subscription reconciliation", () => {
       }],
       retrieve: async () => subscription("sub_team_equal", "active", {
         metadata: { app: "cmux", plan: "team", stackTeamId: "team_equal" },
-        items: {
-          object: "list",
-          data: [{
-            id: "si_team_equal",
-            object: "subscription_item",
-            current_period_end: 1_800_000_000,
-            quantity: 2,
-            price: { id: "price_team" },
-          }],
-          has_more: false,
-          url: "/v1/subscription_items",
-        },
+        items: teamItems("si_team_equal", 2),
       }),
       getTeam: async () => ({ listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] }),
       updateSubscriptionQuantity: async () => {
@@ -182,6 +172,41 @@ describe("Stripe subscription reconciliation", () => {
     expect(stripeCalls).toBe(0);
     expect(seatWrites).toBe(0);
     expect(analyticsCalls).toBe(0);
+  });
+
+  test("bounds Stack team seat work to the oldest fifty rows", async () => {
+    const rows = Array.from({ length: 51 }, (_, index) => ({
+      id: `sub_team_${index}`,
+      status: "active",
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: new Date(1_800_000_000_000),
+      scope: "team",
+      stackTeamId: `team_${index}`,
+      seats: 1,
+    }));
+    const visitedTeams: string[] = [];
+    await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
+      list: async () => rows,
+      retrieve: async (id) => subscription(id, "active", {
+        metadata: { app: "cmux", plan: "team", stackTeamId: id.replace("sub_", "") },
+        items: teamItems(`si_${id}`, 1),
+      }),
+      getTeam: async (teamId: string) => {
+        visitedTeams.push(teamId);
+        return { listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] };
+      },
+      updateSubscriptionQuantity: async () => {},
+      updateSeats: async () => {},
+      captureTeamSeatSync: async () => {},
+      markChecked: async () => {},
+    });
+
+    expect(visitedTeams).toHaveLength(50);
+    expect(new Set(visitedTeams)).toEqual(
+      new Set(rows.slice(0, 50).map((row) => row.stackTeamId)),
+    );
+    expect(visitedTeams).not.toContain("team_50");
   });
 
   test("isolates a team seat sync failure and continues with other teams", async () => {
@@ -216,25 +241,14 @@ describe("Stripe subscription reconciliation", () => {
           plan: "team",
           stackTeamId: id === "sub_team_failed" ? "team_failed" : "team_ok",
         },
-        items: {
-          object: "list",
-          data: [{
-            id: `si_${id}`,
-            object: "subscription_item",
-            current_period_end: 1_800_000_000,
-            quantity: 1,
-            price: { id: "price_team" },
-          }],
-          has_more: false,
-          url: "/v1/subscription_items",
-        },
+        items: teamItems(`si_${id}`, 1),
       }),
       getTeam: async (teamId: string) => {
         if (teamId === "team_failed") throw new Error("Stack unavailable");
         return { listUsers: async () => [{ id: "member-1" }, { id: "member-2" }] };
       },
-      updateSubscriptionQuantity: async (_id: string, params: Record<string, unknown>) => {
-        const items = params.items as Array<{ quantity?: number }>;
+      updateSubscriptionQuantity: async (_id: string, params: Stripe.SubscriptionUpdateParams) => {
+        const items = params.items ?? [];
         updatedTeams.push(String(items[0]?.quantity));
       },
       updateSeats: async () => {},
