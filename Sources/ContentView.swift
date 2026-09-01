@@ -13130,7 +13130,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .fill(
                             isSelected
-                                ? sidebarChromePalette.surfaceSelected.swiftUIColor.opacity(0.9)
+                                ? sidebarChromePalette.surfaceSelected.swiftUIColor
                                 : sidebarChromePalette.surfaceHover.swiftUIColor.opacity(0.45)
                         )
                         .overlay(
@@ -13221,7 +13221,7 @@ struct VerticalTabsSidebar: View, Equatable {
             .padding(.vertical, compact ? 6 : 7)
             .background(
                 RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
-                    .fill(isSelected ? sidebarChromePalette.surfaceSelected.swiftUIColor.opacity(0.9) : Color.clear)
+                    .fill(isSelected ? sidebarChromePalette.surfaceSelected.swiftUIColor : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
