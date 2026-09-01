@@ -29,7 +29,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "e96bc93bd4cfe3172f1e24507d8866d197f22335f9593dcdf8cce0ac43e939dd"
+EXPECTED_GUARD_SCRIPT_DIGEST = "0b11a4abcf4b91b0ed3d862475dae345dcfa46569c2d75caedaa49f3ac8f7ccb"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -44,6 +44,7 @@ LEGACY_CLA_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07
 # PR head. This is the human path for intentional policy maintenance.
 TRUSTED_REVIEWER_IDS = %w[54008264 38676809 67667005].freeze
 TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
+TRUSTED_REVIEW_DECISION_STATES = %w[APPROVED CHANGES_REQUESTED DISMISSED].freeze
 MAX_REVIEW_PAGES = 3
 MAX_REVIEWS_PER_PAGE = 100
 MAX_REVIEW_ID = (1 << 63) - 1
@@ -381,7 +382,7 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   fail!("pull-request review state is malformed") unless TRUSTED_REVIEW_STATES.include?(state)
   # COMMENTED and PENDING reviews do not change GitHub's approval decision.
   # In particular, a later comment must not erase a valid approval.
-  return if %w[COMMENTED PENDING].include?(state)
+  return unless TRUSTED_REVIEW_DECISION_STATES.include?(state)
   fail!("pull-request review commit is malformed") unless review["commit_id"].is_a?(String) && review["commit_id"].match?(SHA)
   fail!("pull-request review user is not a human") unless user["type"] == "User"
 
