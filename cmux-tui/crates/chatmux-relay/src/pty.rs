@@ -1977,6 +1977,7 @@ impl Inner {
             // Killing a PTY can acquire a platform mutex. Keep it outside the
             // lifecycle barrier and the per-attachment operation gate.
             drop(_operation);
+            drop(_publication);
             attachment.control.kill();
         }
     }
