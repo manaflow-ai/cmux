@@ -1225,7 +1225,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       // An empty key list must never become an unbounded usage-event scan.
       if (keys.length === 0) return [];
       const db = cloudDb();
-      const reportKey = input.eventType === "vm.reaper.orphan_volume"
+      // Every orphan-volume event type (base, unknown-attachment,
+      // unknown-reference) is a system event keyed by volume name; only
+      // VM-row events (stuck provisioning) key by vmId.
+      const reportKey = input.eventType.startsWith("vm.reaper.orphan_volume")
         ? sql<string | null>`${cloudVmUsageEvents.metadata}->>'volumeName'`
         : sql<string | null>`${cloudVmUsageEvents.vmId}::text`;
       const rows = await db
