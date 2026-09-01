@@ -27,6 +27,14 @@ CLA_ACTION = "manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724e
 # privileged work to an untrusted self-hosted machine, so the label is an
 # immutable contract.
 CLA_RUNNER = "ubuntu-24.04".freeze
+CLA_HOSTED_RUNNER_GUARD_NAME = "Require GitHub-hosted runner".freeze
+CLA_HOSTED_RUNNER_GUARD_IF = "runner.environment != 'github-hosted'".freeze
+CLA_HOSTED_RUNNER_STEP_IF = "runner.environment == 'github-hosted'".freeze
+CLA_HOSTED_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  echo "::error::CLA policy requires a GitHub-hosted runner"
+  exit 1
+SH
 CLA_DOCUMENT_PATH = "CLA.md".freeze
 CLA_DOCUMENT_VERSION = "v2.2".freeze
 CLA_SIGNATURES_PATH = "signatures/version2/cla.json".freeze
@@ -37,11 +45,11 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f50762b532ea14e4440"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b7807167856da4381ea124b5"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "08383f3f38bc56abdefd63e8b922afe60960a7beb2029e0abf76a23243dea330"
+EXPECTED_GUARD_SCRIPT_DIGEST = "e8f83622604eed6fe8227447adc1281c1c18e835cc88090127e738eef2a868ab"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -62,13 +70,13 @@ MAX_REVIEWS_PER_PAGE = 100
 MAX_REVIEW_ID = (1 << 63) - 1
 GITHUB_TOKEN_EXPRESSION = "${{ secrets.GITHUB_TOKEN }}"
 ALLOWED_SECRET_PATHS = [
-  %w[jobs CLACommentGate steps] + [1] + %w[env GITHUB_TOKEN],
-  %w[jobs CLALedgerWriter steps] + [0] + %w[env GITHUB_TOKEN],
-  %w[jobs RerunFailedCLA steps] + [1] + %w[env GH_TOKEN],
-  %w[jobs LockMergedPullRequest steps] + [0] + %w[env GITHUB_TOKEN]
+  %w[jobs CLACommentGate steps] + [2] + %w[env GITHUB_TOKEN],
+  %w[jobs CLALedgerWriter steps] + [1] + %w[env GITHUB_TOKEN],
+  %w[jobs RerunFailedCLA steps] + [2] + %w[env GH_TOKEN],
+  %w[jobs LockMergedPullRequest steps] + [1] + %w[env GITHUB_TOKEN]
 ].freeze
 GUARD_ALLOWED_SECRET_PATHS = [
-  %w[jobs validate steps] + [2] + %w[env GH_TOKEN]
+  %w[jobs validate steps] + [3] + %w[env GH_TOKEN]
 ].freeze
 
 ADMISSION_ENV = {
@@ -155,7 +163,7 @@ GUARD_CHECKOUT_WITH = {
 GUARD_TRIGGER_KEYS = %w[pull_request_target].freeze
 GUARD_TRIGGER = {
   "branches" => ["main"],
-  "types" => %w[opened edited reopened synchronize]
+  "types" => %w[opened edited reopened synchronize ready_for_review]
 }.freeze
 GUARD_WORKFLOW_NAME = "CLA policy guard"
 GUARD_TIMEOUT_MINUTES = 10
@@ -696,7 +704,27 @@ def workflow_document_contract(raw, name)
   contract
 end
 
-def assert_cla_document_change_contract(base_cla:, head_cla:, base_workflow:, head_workflow:)
+def document_major(version)
+  match = version.to_s.match(/\Av([0-9]+)/)
+  fail!("CLA document version is malformed") unless match
+
+  match[1]
+end
+
+def expected_signature_path(version)
+  "signatures/version#{document_major(version)}/cla.json"
+end
+
+def assert_script_document_binding(raw, phrase, signature_path, name)
+  source = raw.to_s
+  quoted_phrase = ["\"#{phrase}\"", "'#{phrase}'"]
+  fail!("#{name} does not contain the reviewed signing phrase") unless
+    quoted_phrase.any? { |value| source.include?(value) }
+  fail!("#{name} does not bind the reviewed signature ledger path") unless
+    source.match?(/SIGNATURES_PATH\s*=\s*['\"]#{Regexp.escape(signature_path)}['\"]/)
+end
+
+def assert_cla_document_change_contract(base_cla:, head_cla:, base_workflow:, head_workflow:, base_script:, head_script:)
   # A workflow SHA URL is the action's immutable document binding. Keep the
   # ledger namespace and human-readable version in lockstep so old signatures
   # cannot authorize a changed legal document.
@@ -707,23 +735,37 @@ def assert_cla_document_change_contract(base_cla:, head_cla:, base_workflow:, he
   fail!("CLA.md changes require a CLA policy workflow change") if base_workflow == head_workflow
   base_version = cla_document_version(base_cla, "base CLA.md")
   head_version = cla_document_version(head_cla, "proposed CLA.md")
+  base_major = document_major(base_version)
+  head_major = document_major(head_version)
   base_contract = workflow_document_contract(base_workflow, "base CLA workflow")
   head_contract = workflow_document_contract(head_workflow, "proposed CLA workflow")
+  fail!("CLA.md changes must rotate the rerun helper") unless
+    base_script.is_a?(String) && head_script.is_a?(String) && base_script != head_script
 
   fail!("CLA.md changes must rotate the document version") if base_version == head_version
+  fail!("CLA document major version must increase") unless head_major.to_i > base_major.to_i
   fail!("CLA.md changes must rotate CLA_GENERATION") if base_contract[:generation] == head_contract[:generation]
-  fail!("CLA.md changes must rotate the signature ledger path") if
-    base_contract[:signature_paths] == head_contract[:signature_paths]
+  fail!("base CLA workflow uses an unexpected signature ledger path") unless
+    base_contract[:signature_paths] == [expected_signature_path(base_version)]
+  fail!("CLA.md changes must rotate the signature ledger path") unless
+    head_contract[:signature_paths] == [expected_signature_path(head_version)]
 
   expected_phrase = "I have read the CLA Document #{head_version} and I hereby sign the CLA"
   fail!("proposed CLA workflow uses the wrong document version phrase") unless
     head_contract[:sign_phrases] == [expected_phrase]
-  fail!("proposed CLA workflow uses an unsupported signature ledger path") unless
-    head_contract[:signature_paths].all? { |path| path.match?(CLA_SIGNATURES_PATH_PATTERN) }
   fail!("proposed CLA workflow must bind the document URL to github.workflow_sha") unless
     head_contract[:document_inputs] == [CLA_DOCUMENT_INPUT]
   fail!("proposed CLA generation is not bound to the document version") unless
     head_contract[:generation].to_s.start_with?("#{head_version}-action-")
+
+  base_phrase = "I have read the CLA Document #{base_version} and I hereby sign the CLA"
+  assert_script_document_binding(base_script, base_phrase, expected_signature_path(base_version), "base CLA rerun helper")
+  assert_script_document_binding(head_script, expected_phrase, expected_signature_path(head_version), "proposed CLA rerun helper")
+  fail!("proposed CLA rerun helper still accepts the old document phrase") if
+    head_script.include?(base_phrase)
+  fail!("proposed CLA rerun helper still reads the old signature ledger") if
+    head_script.include?(expected_signature_path(base_version)) &&
+    expected_signature_path(base_version) != expected_signature_path(head_version)
 
   true
 end
@@ -804,6 +846,33 @@ end
 
 def assert_cla_runner(value, name)
   fail!("#{name} must use the reviewed CLA runner") unless value == CLA_RUNNER
+end
+
+def assert_hosted_runner_guard_step(step, name)
+  assert_step_keys(step, "#{name} runner guard", %w[name if run])
+  fail!("#{name} runner guard has an unexpected name") unless step["name"] == CLA_HOSTED_RUNNER_GUARD_NAME
+  fail!("#{name} runner guard has an unsafe condition") unless step["if"] == CLA_HOSTED_RUNNER_GUARD_IF
+  fail!("#{name} runner guard has an unsafe shell") unless
+    normalize_run_text(step["run"]) == normalize_run_text(CLA_HOSTED_RUNNER_GUARD_RUN)
+end
+
+def assert_hosted_runner_step(step, name)
+  condition = step.is_a?(Hash) ? step["if"].to_s.gsub(/\s+/, " ").strip : ""
+  # The hosted identity must be an AND term. A substring check would accept
+  # `runner.environment == 'github-hosted' || true`, which would execute a
+  # privileged action on a self-hosted runner.
+  terms = condition.split(/\s*&&\s*/)
+  fail!("#{name} is not restricted to a GitHub-hosted runner") unless
+    !condition.include?("||") && terms.any? { |term| term == CLA_HOSTED_RUNNER_STEP_IF }
+end
+
+def assert_hosted_runner_job_steps(job_value, name)
+  job_steps = steps(job_value, name)
+  fail!("#{name} must have a runner identity guard") if job_steps.empty?
+  assert_hosted_runner_guard_step(job_steps.first, name)
+  job_steps.drop(1).each_with_index do |step, index|
+    assert_hosted_runner_step(step, "#{name} step #{index + 2}")
+  end
 end
 
 def assert_comment_binding_contract(gate_outputs, writer_inputs)
@@ -949,6 +1018,20 @@ def run_guard_contract_regression_matrix!
     changed = Marshal.load(Marshal.dump(checkout))
     changed["with"]["fetch-depth"] = "1"
     assert_exact_typed_inputs(changed, GUARD_CHECKOUT_WITH, "regression guard checkout")
+  end
+
+  runner_guard = {
+    "name" => CLA_HOSTED_RUNNER_GUARD_NAME,
+    "if" => CLA_HOSTED_RUNNER_GUARD_IF,
+    "run" => CLA_HOSTED_RUNNER_GUARD_RUN
+  }
+  assert_hosted_runner_guard_step(runner_guard, "regression guard")
+  checks += 1
+  expect_failure.call("guard runner can be self-hosted") do
+    assert_hosted_runner_guard_step(
+      runner_guard.merge("if" => "runner.environment == 'github-hosted'"),
+      "regression guard"
+    )
   end
 
   verification = { "env" => GUARD_VERIFY_ENV.dup, "run" => GUARD_VERIFY_RUN }
@@ -1207,10 +1290,10 @@ def run_environment_regression_matrix!
 
   secret_document = {
     "jobs" => {
-      "CLACommentGate" => { "steps" => [{}, { "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
-      "CLALedgerWriter" => { "steps" => [{ "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
-      "RerunFailedCLA" => { "steps" => [{}, { "env" => { "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
-      "LockMergedPullRequest" => { "steps" => [{ "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] }
+      "CLACommentGate" => { "steps" => [{}, {}, { "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
+      "CLALedgerWriter" => { "steps" => [{}, { "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
+      "RerunFailedCLA" => { "steps" => [{}, {}, { "env" => { "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] },
+      "LockMergedPullRequest" => { "steps" => [{}, { "env" => { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION } }] }
     }
   }
   assert_exact_secret_paths(secret_document)
@@ -1232,7 +1315,7 @@ def run_environment_regression_matrix!
   end
   expect_failure.call("changed allowed token") do
     changed = Marshal.load(Marshal.dump(secret_document))
-    changed.dig("jobs", "CLACommentGate", "steps", 1, "env")["GITHUB_TOKEN"] =
+    changed.dig("jobs", "CLACommentGate", "steps", 2, "env")["GITHUB_TOKEN"] =
       "${{ secrets.OTHER_TOKEN }}"
     assert_exact_secret_paths(changed)
   end
@@ -1309,7 +1392,28 @@ def run_runner_regression_matrix!
   rejected_runners.each do |name, runner|
     expect_policy_error(name) { assert_cla_runner(runner, "CLACommentGate.runs-on") }
   end
-  puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + rejected_runners.length} cases)"
+  guard_step = {
+    "name" => CLA_HOSTED_RUNNER_GUARD_NAME,
+    "if" => CLA_HOSTED_RUNNER_GUARD_IF,
+    "run" => CLA_HOSTED_RUNNER_GUARD_RUN
+  }
+  assert_hosted_runner_guard_step(guard_step, "regression CLA job")
+  expect_policy_error("runner guard condition") do
+    assert_hosted_runner_guard_step(guard_step.merge("if" => "runner.environment == 'github-hosted'"), "regression CLA job")
+  end
+  expect_policy_error("runner guard shell") do
+    assert_hosted_runner_guard_step(guard_step.merge("run" => "exit 0"), "regression CLA job")
+  end
+  expect_policy_error("missing hosted action condition") do
+    assert_hosted_runner_step({ "run" => "echo ok" }, "regression CLA action")
+  end
+  expect_policy_error("runner condition bypass") do
+    assert_hosted_runner_step(
+      { "if" => "runner.environment == 'github-hosted' || always()" },
+      "regression CLA action"
+    )
+  end
+  puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + rejected_runners.length + 4} cases)"
 end
 
 def run_comment_binding_regression_matrix!
@@ -1407,8 +1511,19 @@ def run_document_contract_regression_matrix!
   document = lambda do |version, body = "terms"|
     "# Individual Contributor License Agreement (\"Agreement\") #{version}\n#{body}\n"
   end
+  helper = lambda do |version, ledger_path|
+    phrase = "I have read the CLA Document #{version} and I hereby sign the CLA"
+    <<~SH
+      #!/usr/bin/env bash
+      [[ "${COMMENT_BODY}" == "#{phrase}" ]] || exit 1
+      readonly SIGNATURES_PATH='#{ledger_path}'
+      [[ -n "${SIGNATURES_PATH}" ]]
+    SH
+  end
   base_cla = document.call("v2.2")
   changed_cla = document.call("v3.0", "revised terms")
+  base_script = helper.call("v2.2", "signatures/version2/cla.json")
+  rotated_script = helper.call("v3.0", "signatures/version3/cla.json")
   base_workflow = workflow.call(
     "v2.2", "v2.2-action-#{'a' * 40}", "signatures/version2/cla.json"
   )
@@ -1416,7 +1531,9 @@ def run_document_contract_regression_matrix!
     base_cla: base_cla,
     head_cla: base_cla,
     base_workflow: base_workflow,
-    head_workflow: base_workflow
+    head_workflow: base_workflow,
+    base_script: base_script,
+    head_script: base_script
   )
   fail!("unchanged CLA document contract was reported as changed") unless unchanged == false
   checks = 1
@@ -1426,7 +1543,9 @@ def run_document_contract_regression_matrix!
       base_cla: base_cla,
       head_cla: changed_cla,
       base_workflow: base_workflow,
-      head_workflow: base_workflow
+      head_workflow: base_workflow,
+      base_script: base_script,
+      head_script: base_script
     )
   end
   checks += 1
@@ -1438,7 +1557,9 @@ def run_document_contract_regression_matrix!
     base_cla: base_cla,
     head_cla: changed_cla,
     base_workflow: base_workflow,
-    head_workflow: rotated_workflow
+    head_workflow: rotated_workflow,
+    base_script: base_script,
+    head_script: rotated_script
   )
   checks += 1
 
@@ -1451,6 +1572,12 @@ def run_document_contract_regression_matrix!
     ),
     "same ledger path" => workflow.call(
       "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version2/cla.json"
+    ),
+    "old ledger namespace" => workflow.call(
+      "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version1/cla.json"
+    ),
+    "minor ledger namespace" => workflow.call(
+      "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version3.0/cla.json"
     ),
     "mutable document URL" => workflow.call(
       "v3.0", "v3.0-action-#{'b' * 40}", "signatures/version3/cla.json", nil,
@@ -1466,11 +1593,38 @@ def run_document_contract_regression_matrix!
         base_cla: base_cla,
         head_cla: changed_cla,
         base_workflow: base_workflow,
-        head_workflow: candidate
+        head_workflow: candidate,
+        base_script: base_script,
+        head_script: rotated_script
       )
     end
     checks += 1
   end
+  expect_policy_error("stale rerun helper") do
+    assert_cla_document_change_contract(
+      base_cla: base_cla,
+      head_cla: changed_cla,
+      base_workflow: base_workflow,
+      head_workflow: rotated_workflow,
+      base_script: base_script,
+      head_script: base_script
+    )
+  end
+  checks += 1
+  expect_policy_error("decreasing document major") do
+    older_cla = document.call("v1.0", "reverted terms")
+    older_workflow = workflow.call("v1.0", "v1.0-action-#{'c' * 40}", "signatures/version1/cla.json")
+    older_script = helper.call("v1.0", "signatures/version1/cla.json")
+    assert_cla_document_change_contract(
+      base_cla: base_cla,
+      head_cla: older_cla,
+      base_workflow: base_workflow,
+      head_workflow: older_workflow,
+      base_script: base_script,
+      head_script: older_script
+    )
+  end
+  checks += 1
   puts "PASS: CLA document contract regression matrix (#{checks} cases)"
 end
 
@@ -1596,6 +1750,7 @@ def validate_workflow(raw)
     assert_exact_keys(value, job_keys.fetch(names[index]), names[index])
     assert_safe_job_common(value, names[index])
     assert_cla_runner(value["runs-on"], names[index])
+    assert_hosted_runner_job_steps(value, names[index])
   end
 
   fail!("CLACommentGate must use read-only permissions") unless
@@ -1628,9 +1783,10 @@ def validate_workflow(raw)
   # jobs may run shell diagnostics, but they cannot introduce actions or
   # service/container settings.
   writer_steps = steps(writer, "CLALedgerWriter")
-  fail!("CLALedgerWriter must contain exactly one step") unless writer_steps.length == 1
-  writer_step = writer_steps.first
-  assert_step_keys(writer_step, "CLALedgerWriter step", %w[name id uses env with])
+  fail!("CLALedgerWriter must contain a runner guard and one action step") unless writer_steps.length == 2
+  writer_step = writer_steps[1]
+  assert_step_keys(writer_step, "CLALedgerWriter step", %w[name id if uses env with])
+  assert_hosted_runner_step(writer_step, "CLALedgerWriter action")
   fail!("CLALedgerWriter step must have id cla_action") unless writer_step["id"] == "cla_action"
   assert_action_reference(writer_step["uses"], "CLALedgerWriter step uses")
   fail!("CLALedgerWriter must invoke only the maintained CLA action") unless writer_step["uses"] == CLA_ACTION
@@ -1641,15 +1797,17 @@ def validate_workflow(raw)
   )
 
   gate_steps = steps(gate, "CLACommentGate")
-  fail!("CLACommentGate must contain exactly two steps") unless gate_steps.length == 2
-  admission_step_shape = gate_steps[0]
-  assert_step_keys(admission_step_shape, "CLACommentGate admission step", %w[name id env run])
+  fail!("CLACommentGate must contain a runner guard, admission, and preflight") unless gate_steps.length == 3
+  admission_step_shape = gate_steps[1]
+  assert_step_keys(admission_step_shape, "CLACommentGate admission step", %w[name id if env run])
+  assert_hosted_runner_step(admission_step_shape, "CLACommentGate admission")
   fail!("CLACommentGate admission step must have id admission") unless admission_step_shape["id"] == "admission"
   assert_exact_environment(admission_step_shape, ADMISSION_ENV, "CLACommentGate admission step")
   fail!("CLACommentGate admission step must not access a token or network") if
     admission_step_shape["run"].to_s.match?(/\b(gh|curl|wget|git|ssh|sudo|eval|source)\b|\bsecrets\b|\bgithub\.token\b|GITHUB_TOKEN/i)
-  preflight_step_shape = gate_steps[1]
+  preflight_step_shape = gate_steps[2]
   assert_step_keys(preflight_step_shape, "CLACommentGate preflight step", %w[name id if uses env with])
+  assert_hosted_runner_step(preflight_step_shape, "CLACommentGate preflight")
   assert_action_reference(preflight_step_shape["uses"], "CLACommentGate preflight uses")
   fail!("CLACommentGate preflight must invoke only the maintained CLA action") unless preflight_step_shape["uses"] == CLA_ACTION
   fail!("CLACommentGate preflight step must have id signer_preflight") unless preflight_step_shape["id"] == "signer_preflight"
@@ -1660,36 +1818,41 @@ def validate_workflow(raw)
   )
 
   result_steps = steps(assistant, "CLAAssistant")
-  fail!("CLAAssistant must contain exactly one result step") unless result_steps.length == 1
-  assert_step_keys(result_steps.first, "CLAAssistant result step", %w[name env run])
-  assert_exact_environment(result_steps.first, RESULT_ENV, "CLAAssistant result step")
+  fail!("CLAAssistant must contain a runner guard and one result step") unless result_steps.length == 2
+  assert_step_keys(result_steps[1], "CLAAssistant result step", %w[name if env run])
+  assert_hosted_runner_step(result_steps[1], "CLAAssistant result")
+  assert_exact_environment(result_steps[1], RESULT_ENV, "CLAAssistant result step")
   compatibility_steps = steps(compatibility, "CLACompatibility")
-  fail!("CLACompatibility must contain exactly one result step") unless compatibility_steps.length == 1
-  assert_step_keys(compatibility_steps.first, "CLACompatibility result step", %w[name env run])
-  assert_exact_environment(compatibility_steps.first, COMPATIBILITY_ENV, "CLACompatibility result step")
+  fail!("CLACompatibility must contain a runner guard and one result step") unless compatibility_steps.length == 2
+  assert_step_keys(compatibility_steps[1], "CLACompatibility result step", %w[name if env run])
+  assert_hosted_runner_step(compatibility_steps[1], "CLACompatibility result")
+  assert_exact_environment(compatibility_steps[1], COMPATIBILITY_ENV, "CLACompatibility result step")
 
   rerun_steps = steps(rerun, "RerunFailedCLA")
-  fail!("RerunFailedCLA must contain exactly two steps") unless rerun_steps.length == 2
-  assert_step_keys(rerun_steps[0], "RerunFailedCLA checkout step", %w[name uses with])
-  assert_step_keys(rerun_steps[1], "RerunFailedCLA guard step", %w[name env run])
-  assert_action_reference(rerun_steps[0]["uses"], "RerunFailedCLA checkout uses")
+  fail!("RerunFailedCLA must contain a runner guard, checkout, and guard step") unless rerun_steps.length == 3
+  assert_step_keys(rerun_steps[1], "RerunFailedCLA checkout step", %w[name if uses with])
+  assert_hosted_runner_step(rerun_steps[1], "RerunFailedCLA checkout")
+  assert_step_keys(rerun_steps[2], "RerunFailedCLA guard step", %w[name if env run])
+  assert_hosted_runner_step(rerun_steps[2], "RerunFailedCLA helper")
+  assert_action_reference(rerun_steps[1]["uses"], "RerunFailedCLA checkout uses")
   fail!("RerunFailedCLA may not invoke the CLA action") if rerun_steps.any? { |step| step["uses"] == CLA_ACTION }
   fail!("RerunFailedCLA guard step must invoke the immutable helper exactly") unless
-    rerun_steps[1]["run"] == "bash .github/scripts/rerun-failed-cla.sh"
-  assert_exact_environment(rerun_steps[1], RERUN_ENV, "RerunFailedCLA guard step")
+    rerun_steps[2]["run"] == "bash .github/scripts/rerun-failed-cla.sh"
+  assert_exact_environment(rerun_steps[2], RERUN_ENV, "RerunFailedCLA guard step")
 
   lock_steps = steps(lock, "LockMergedPullRequest")
-  fail!("LockMergedPullRequest must contain exactly one step") unless lock_steps.length == 1
-  assert_step_keys(lock_steps.first, "LockMergedPullRequest step", %w[name uses env with])
-  assert_action_reference(lock_steps.first["uses"], "LockMergedPullRequest uses")
-  fail!("LockMergedPullRequest must invoke only the maintained CLA action") unless lock_steps.first["uses"] == CLA_ACTION
+  fail!("LockMergedPullRequest must contain a runner guard and one action step") unless lock_steps.length == 2
+  assert_step_keys(lock_steps[1], "LockMergedPullRequest step", %w[name if uses env with])
+  assert_hosted_runner_step(lock_steps[1], "LockMergedPullRequest action")
+  assert_action_reference(lock_steps[1]["uses"], "LockMergedPullRequest uses")
+  fail!("LockMergedPullRequest must invoke only the maintained CLA action") unless lock_steps[1]["uses"] == CLA_ACTION
   assert_exact_environment(
-    lock_steps.first,
+    lock_steps[1],
     { "GITHUB_TOKEN" => GITHUB_TOKEN_EXPRESSION },
     "LockMergedPullRequest step"
   )
   assert_action_inputs(
-    lock_steps.first,
+    lock_steps[1],
     {
       "mode" => "sign",
       "path-to-signatures" => CLA_SIGNATURES_PATH,
@@ -1790,10 +1953,11 @@ def validate_workflow(raw)
     "admitted: ${{ steps.admission.outputs.admitted }}",
     "issues: write"
   ].each { |fragment| assert_text(raw, fragment) }
-  # YAML block scalars normalize the expression at runtime, but the raw
-  # source can contain `if: >-` or `if: |`; accept only those scalar markers
-  # while still requiring the literal success() guard.
-  fail!("CLA workflow is missing a successful-step guard") unless raw.match?(/if:\s*(?:[>|]-?\s*)?(?:\$\{\{\s*)?success\(\)/)
+  # YAML block scalars normalize the expression at runtime. Check the parsed
+  # signer step instead of matching raw source, so an explicit runner guard
+  # may precede the success() term without creating a source-shape bypass.
+  fail!("CLA workflow is missing a successful-step guard") unless
+    preflight_step_shape["if"].to_s.gsub(/\s+/, " ").include?("success()")
   [gate["if"], assistant["if"]].each do |expression|
     fail!("CLA signing trigger is missing from a signer job") unless expression.is_a?(String) && expression.include?(CLA_SIGN_PHRASE)
   end
@@ -1857,29 +2021,30 @@ def validate_guard_workflow(raw, authorize: true)
   fail!("guard workflow must use read-only permissions") unless
     guard_job["permissions"] == { "contents" => "read", "pull-requests" => "read" }
   guard_steps = guard_job["steps"]
-  fail!("guard workflow steps are malformed") unless guard_steps.is_a?(Array) && guard_steps.length == 3
+  fail!("guard workflow steps are malformed") unless guard_steps.is_a?(Array) && guard_steps.length == 4
   assert_step_keys(guard_steps[0], "guard checkout step", %w[name uses with])
-  assert_step_keys(guard_steps[1], "guard checkout verification step", %w[name env run])
-  assert_step_keys(guard_steps[2], "guard validation step", %w[name env run])
+  assert_hosted_runner_guard_step(guard_steps[1], "guard workflow")
+  assert_step_keys(guard_steps[2], "guard checkout verification step", %w[name env run])
+  assert_step_keys(guard_steps[3], "guard validation step", %w[name env run])
   fail!("guard workflow checkout step is not the immutable checkout") unless
     guard_steps[0]["uses"] == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
   assert_exact_typed_inputs(guard_steps[0], GUARD_CHECKOUT_WITH, "guard checkout step")
   fail!("guard checkout step has an unexpected name") unless guard_steps[0]["name"] == "Checkout immutable guard revision"
   fail!("guard checkout step must pin the trusted repository") unless
     guard_steps[0].dig("with", "repository") == "${{ github.repository }}"
-  fail!("guard verification step has an unexpected name") unless guard_steps[1]["name"] == "Verify trusted checkout"
-  assert_exact_environment(guard_steps[1], GUARD_VERIFY_ENV, "guard checkout verification step")
+  fail!("guard verification step has an unexpected name") unless guard_steps[2]["name"] == "Verify trusted checkout"
+  assert_exact_environment(guard_steps[2], GUARD_VERIFY_ENV, "guard checkout verification step")
   assert_exact_normalized_run(
-    guard_steps[1]["run"],
+    guard_steps[2]["run"],
     GUARD_VERIFY_RUN,
     GUARD_VERIFY_RUN_HASH,
     "guard checkout verification step run"
   )
   fail!("guard validation step has an unexpected name") unless
-    guard_steps[2]["name"] == "Run trusted CLA regression matrix and validate policy as data"
-  assert_exact_environment(guard_steps[2], GUARD_VALIDATE_ENV, "guard validation step")
+    guard_steps[3]["name"] == "Run trusted CLA regression matrix and validate policy as data"
+  assert_exact_environment(guard_steps[3], GUARD_VALIDATE_ENV, "guard validation step")
   assert_exact_normalized_run(
-    guard_steps[2]["run"],
+    guard_steps[3]["run"],
     GUARD_VALIDATE_RUN,
     GUARD_VALIDATE_RUN_HASH,
     "guard validation step run"
@@ -1935,6 +2100,13 @@ def validate_guard_script(raw)
     "assert_safe_expression_fields",
     "assert_cla_runner",
     "CLA_RUNNER",
+    "assert_hosted_runner_guard_step",
+    "assert_hosted_runner_step",
+    "assert_hosted_runner_job_steps",
+    "CLA_HOSTED_RUNNER_GUARD_NAME",
+    "CLA_HOSTED_RUNNER_GUARD_RUN",
+    "CLA_HOSTED_RUNNER_GUARD_IF",
+    "CLA_HOSTED_RUNNER_STEP_IF",
     "assert_comment_binding_contract",
     "CLA_COMMENT_BINDING_OUTPUTS",
     "CLA_COMMENT_BINDING_INPUTS",
@@ -1945,6 +2117,9 @@ def validate_guard_script(raw)
     "CLA_DOCUMENT_VERSION",
     "CLA_SIGNATURES_PATH",
     "CLA_SIGNATURES_PATH_PATTERN",
+    "document_major",
+    "expected_signature_path",
+    "assert_script_document_binding",
     "assert_cla_document_change_contract",
     "workflow_document_contract",
     "cla_document_version",
@@ -1953,6 +2128,10 @@ def validate_guard_script(raw)
     "CLA.md changes must rotate the document version",
     "CLA.md changes must rotate CLA_GENERATION",
     "CLA.md changes must rotate the signature ledger path",
+    "CLA.md changes must rotate the rerun helper",
+    "base CLA workflow uses an unexpected signature ledger path",
+    "proposed CLA rerun helper still accepts the old document phrase",
+    "proposed CLA rerun helper still reads the old signature ledger",
     "assert_safe_run_text",
     "assert_exact_normalized_run",
     "run_guard_contract_regression_matrix!",
@@ -2061,7 +2240,9 @@ begin
       base_cla: base_cla,
       head_cla: head_cla,
       base_workflow: base_workflow,
-      head_workflow: head_workflow
+      head_workflow: head_workflow,
+      base_script: base_script,
+      head_script: head_script
     )
   end
   # A policy PR cannot also weaken the validator that reviews it. A guard-only
