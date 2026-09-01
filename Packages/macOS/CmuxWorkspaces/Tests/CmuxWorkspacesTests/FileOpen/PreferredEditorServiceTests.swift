@@ -26,7 +26,9 @@ struct PreferredEditorServiceTests {
         "nvim", "/opt/homebrew/bin/nvim", "env nvim", "/usr/bin/env nvim",
         "env FOO=1 nvim", "env -u TERM nvim", "FOO=1 /usr/bin/nvim",
         "env -S nvim --clean", "env -S \"nvim --clean\"", "vim --clean",
-        "exec nvim", "command -- nvim", "nice -n 10 nvim", "sudo -u root nvim",
+        "env --split-string='nvim --clean'", "env --split-string=\"nvim --clean\"",
+        "exec nvim", "exec -a myeditor nvim", "command -- nvim",
+        "nice -n 10 nvim", "sudo -u root nvim", "sudo -p prompt nvim",
         "sudo --user=root /usr/bin/env FOO=1 'nvim'"
     ])
     func terminalEditorCommandsAreDetected(command: String) {
@@ -42,13 +44,17 @@ struct PreferredEditorServiceTests {
     @Test(arguments: [
         "code", "/Applications/Zed.app/Contents/MacOS/zed", "my-nvim-wrapper",
         "env FOO=1 code", "env -u TERM /Applications/Zed.app/Contents/MacOS/zed",
+        "env --split-string='code --wait'", "exec -a nvim code", "sudo -p prompt code",
         "emacs", "'/Applications/Visual Studio Code.app/Contents/MacOS/code'"
     ])
     func graphicalEditorCommandsAreNotDetected(command: String) {
         #expect(!PreferredEditorService.isTerminalEditorCommand(command))
     }
 
-    @Test(arguments: ["emacs -nw", "exec emacs -nw", "sudo emacs -nw"])
+    @Test(arguments: [
+        "emacs -nw", "emacs --no-window-system", "exec emacs -nw",
+        "sudo emacs --no-window-system"
+    ])
     func terminalEmacsModeIsDetected(command: String) {
         #expect(PreferredEditorService.isTerminalEditorCommand(command))
     }
@@ -131,6 +137,49 @@ struct PreferredEditorServiceTests {
 
         #expect(opener.openedURLs == [url])
         #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func wrappedTerminalEditorsFallBackWithoutLaunchingTheCommand() async throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let marker = scratch.appendingPathComponent("launched.txt")
+        let editor = scratch.appendingPathComponent("nvim")
+        let env = scratch.appendingPathComponent("env")
+        try #"""
+        #!/bin/sh
+        touch '\#(marker.path)'
+        exit 1
+        """#.write(to: editor, atomically: true, encoding: .utf8)
+        try FileManager.default.copyItem(at: editor, to: env)
+        for executable in [editor, env] {
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: executable.path
+            )
+        }
+
+        let commands = [
+            "exec -a myeditor \(editor.path)",
+            "\(env.path) --split-string='\(editor.path) --clean'"
+        ]
+        let opener = RecordingSystemOpener()
+        let url = URL(fileURLWithPath: "/tmp/plain.txt")
+
+        for command in commands {
+            let service = PreferredEditorService(
+                editor: FixedEditor(resolvedCommand: command),
+                capture: UITestCaptureSink(environment: [:]),
+                systemOpener: opener
+            )
+            await withCheckedContinuation { continuation in
+                opener.onOpen = { continuation.resume() }
+                service.open(url)
+            }
+            opener.onOpen = nil
+            #expect(!FileManager.default.fileExists(atPath: marker.path))
+            try? FileManager.default.removeItem(at: marker)
+        }
+
+        #expect(opener.openedURLs == Array(repeating: url, count: commands.count))
     }
 
     @Test func configuredCommandReceivesTheQuotedPathAsItsArgument() async throws {
