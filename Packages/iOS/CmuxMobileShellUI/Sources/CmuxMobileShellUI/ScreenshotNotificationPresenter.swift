@@ -44,16 +44,24 @@ final class ScreenshotNotificationPresenter: NSObject, UNUserNotificationCenterD
                         defaultValue: "Send",
                         bundle: .main
                     ),
-                    textInputPlaceholder: ""
+                    textInputPlaceholder: String(
+                        localized: "mobile.screenshot.notification.reply.placeholder",
+                        defaultValue: "Message the agent…",
+                        bundle: .main
+                    )
                 )
-                center.setNotificationCategories([
-                    UNNotificationCategory(
-                        identifier: "cmux.screenshot.reply",
-                        actions: [replyAction],
-                        intentIdentifiers: [],
-                        options: []
-                    ),
-                ])
+                let fixtureCategory = UNNotificationCategory(
+                    identifier: "cmux.screenshot.reply",
+                    actions: [replyAction],
+                    intentIdentifiers: [],
+                    options: []
+                )
+                // Merge with whatever the app already registered; replacing the
+                // set would strip the live notification categories' actions for
+                // the rest of the session.
+                center.getNotificationCategories { existing in
+                    center.setNotificationCategories(existing.union([fixtureCategory]))
+                }
                 content.title = String(
                     localized: "mobile.screenshot.notification.reply.title",
                     defaultValue: "Claude finished in workspace ~",

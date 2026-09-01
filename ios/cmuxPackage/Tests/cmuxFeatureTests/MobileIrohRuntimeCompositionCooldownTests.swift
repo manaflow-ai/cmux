@@ -549,7 +549,7 @@ private struct MobileIrohCooldownFixture {
                 customRelayCredentials: customRelayCredentials,
                 relayPolicyTrustRoot: relayPolicyTrustRoot,
                 endpointFactory: endpointFactory,
-                brokerFactory: { _, _ in broker },
+                brokerFactory: { _, _, _ in broker },
                 brokerBackpressureGate: CmxIrohBrokerBackpressureGate(
                     store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults),
                     now: { clock.now() }

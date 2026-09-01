@@ -20,9 +20,11 @@ platform :ios do
                 .split(",").map(&:strip).reject(&:empty?)
     capture_screenshots(
       scheme: "cmux-ios",
-      # The UI-only test plan builds just the app + cmuxUITests, so stale
-      # unit-test targets elsewhere in the scheme cannot break screenshots.
-      testplan: "cmux-ui",
+      # NOTE: do not pass `testplan:` here. With -testPlan, the UI test runs
+      # and passes but fastlane collects zero screenshots (verified on CI runs
+      # 33479247651 vs the green 32219546960); the known-good path is the plain
+      # scheme invocation, which requires every test target in the scheme's
+      # default plan to at least compile.
       devices: devices,
       languages: languages,
       # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.

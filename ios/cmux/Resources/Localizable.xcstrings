@@ -17971,6 +17971,7 @@
       }
     },
     "mobile.screenshot.notification.reply.action": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -17987,6 +17988,7 @@
       }
     },
     "mobile.screenshot.notification.reply.body": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -18002,7 +18004,25 @@
         }
       }
     },
+    "mobile.screenshot.notification.reply.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message the agent…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントにメッセージ…"
+          }
+        }
+      }
+    },
     "mobile.screenshot.notification.reply.send": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -18019,6 +18039,7 @@
       }
     },
     "mobile.screenshot.notification.reply.subtitle": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -18035,6 +18056,7 @@
       }
     },
     "mobile.screenshot.notification.reply.title": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {

@@ -39,14 +39,31 @@ usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1" >&2; exit 1; }; }
 
+# Resolves the version localization whose locale matches the plan's locale
+# (never data[0]: a multi-locale listing can order another locale first).
+resolve_localization() {
+  local version_id
+  version_id="$(asc versions list --app "$APP_ID" --output json \
+    | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data'][0]['id'])")"
+  asc localizations list --version "$version_id" --output json \
+    | python3 -c "
+import json, sys
+plan = json.load(open('$PLAN'))
+locale = plan.get('locale', 'en-US')
+data = json.load(sys.stdin)['data']
+hits = [l['id'] for l in data if l['attributes'].get('locale') == locale]
+if not hits:
+    sys.exit(f'no {locale} localization on the editable version '
+             f'(found: {[l[\"attributes\"].get(\"locale\") for l in data]})')
+print(hits[0])
+"
+}
+
 cmd_asc_snapshot() {
   need asc
   mkdir -p "$WORK/asc-live"
   local loc_id
-  loc_id="$(asc versions list --app "$APP_ID" --output json \
-    | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data'][0]['id'])")"
-  loc_id="$(asc localizations list --version "$loc_id" --output json \
-    | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data'][0]['id'])")"
+  loc_id="$(resolve_localization)"
   asc screenshots list --version-localization "$loc_id" --output json \
     > "$WORK/asc-live/manifest.json"
   asc screenshots download --version-localization "$loc_id" \
@@ -66,6 +83,10 @@ cmd_capture() {
   done
   if [ "$ref" = "HEAD" ]; then
     ref="$(git -C "$IOS_DIR" rev-parse --abbrev-ref HEAD)"
+  fi
+  if [[ "$ref" =~ ^[0-9a-f]{7,40}$ ]]; then
+    echo "--ref must be a branch (run resolution matches by branch name, not SHA)" >&2
+    exit 1
   fi
   echo "dispatching $WORKFLOW on $REPO ref=$ref languages=$languages"
   gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$ref" -f languages="$languages"
@@ -206,20 +227,23 @@ cmd_upload() {
   local confirm=0
   [ "${1:-}" = "--confirm" ] && confirm=1
   local loc_id
-  loc_id="$(asc versions list --app "$APP_ID" --output json \
-    | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data'][0]['id'])")"
-  loc_id="$(asc localizations list --version "$loc_id" --output json \
-    | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['data'][0]['id'])")"
+  loc_id="$(resolve_localization)"
   echo "target localization: $loc_id"
   for dir in "$WORK"/final/*/; do
-    local display_type
+    local display_type device_type
     display_type="$(basename "$dir")"
-    echo "== $display_type <- $dir"
+    # final/ dirs are keyed by ASC API display type (APP_IPHONE_67); the asc
+    # CLI's --device-type uses the same enum without the APP_ prefix.
+    device_type="${display_type#APP_}"
+    echo "== $display_type -> --device-type $device_type <- $dir"
     ls "$dir"
     if [ "$confirm" -eq 1 ]; then
       asc screenshots upload --version-localization "$loc_id" \
-        --device-type "$display_type" --path "$dir" --output json
+        --device-type "$device_type" --path "$dir" --max-screenshots 10 --output json
     else
+      asc screenshots upload --version-localization "$loc_id" \
+        --device-type "$device_type" --path "$dir" --max-screenshots 10 \
+        --dry-run --output json
       echo "(dry run; pass --confirm to upload)"
     fi
   done

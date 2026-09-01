@@ -37,23 +37,29 @@ def magick() -> str:
 
 
 def identify(path: Path) -> tuple[int, int]:
-    out = subprocess.check_output(
-        [magick(), "identify", "-format", "%w %h", str(path)], text=True
-    )
+    # `identify` is its own binary on convert-only installs; `magick identify`
+    # only exists on IMv7.
+    cmd = ["identify"] if shutil.which("identify") else [magick(), "identify"]
+    out = subprocess.check_output([*cmd, "-format", "%w %h", str(path)], text=True)
     w, h = out.split()
     return int(w), int(h)
 
 
-def find_capture(captures_dir: Path, capture_class: str, source: str) -> Path:
-    """Locate `<Device Name>-<source>.png` for the device class (iphone/ipad)."""
+def find_capture(captures_dir: Path, capture_class: str, source: str, locale: str) -> Path:
+    """Locate `<Device Name>-<source>.png` for the device class (iphone/ipad),
+    searching only the plan locale's directory when one exists so a
+    multi-language capture cannot leak another locale into the staged set."""
+    locale_dirs = [d for d in captures_dir.rglob(locale) if d.is_dir()]
+    roots = locale_dirs or [captures_dir]
     hits = [
         p
-        for p in sorted(captures_dir.rglob(f"*-{source}.png"))
+        for root in roots
+        for p in sorted(root.rglob(f"*-{source}.png"))
         if p.name.lower().startswith(capture_class)
     ]
     if not hits:
         sys.exit(
-            f"missing capture for {capture_class}/{source} under {captures_dir} "
+            f"missing capture for {capture_class}/{source} ({locale}) under {captures_dir} "
             "(run `appstore-shots.sh capture` first)"
         )
     return hits[0]
@@ -137,6 +143,11 @@ def transform_framed(src: Path, dst: Path, size: tuple[int, int], headline: str)
 def stage(plan: dict, work: Path, skip_lockshot: bool) -> int:
     captures = work / "captures"
     final = work / "final"
+    # Start from a clean tree so a rerun (or --skip-lockshot) can never leave a
+    # stale file behind for verify/upload to accept.
+    if final.exists():
+        shutil.rmtree(final)
+    locale = plan.get("locale", "en-US")
     failures = 0
     for display_type, spec in plan["display_types"].items():
         out_dir = final / display_type
@@ -159,12 +170,16 @@ def stage(plan: dict, work: Path, skip_lockshot: bool) -> int:
                     continue
                 transform_fit(src, dst, size)
             elif spec["transform"] == "fit":
-                transform_fit(find_capture(captures, spec["capture_class"], source), dst, size)
+                transform_fit(
+                    find_capture(captures, spec["capture_class"], source, locale), dst, size
+                )
             elif spec["transform"] == "ipad_statusbar_crop":
-                transform_ipad_crop(find_capture(captures, spec["capture_class"], source), dst, size)
+                transform_ipad_crop(
+                    find_capture(captures, spec["capture_class"], source, locale), dst, size
+                )
             elif spec["transform"] == "framed":
                 transform_framed(
-                    find_capture(captures, spec["capture_class"], source),
+                    find_capture(captures, spec["capture_class"], source, locale),
                     dst, size, shot["headline"],
                 )
             else:
