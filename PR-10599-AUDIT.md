@@ -99,8 +99,10 @@ absence was recorded and no warning-budget file was modified.
 The authorized command was run from the clone root:
 
 ```text
-CMUX_SKIP_ZIG_BUILD=1 /Users/austinwang/manaflow/cmuxterm-hq/scripts/reload-cloud.sh --tag pr-10599-review --launch
+CMUX_SKIP_ZIG_BUILD=1 scripts/reload-cloud.sh --tag pr-10599-review --launch
 ```
+
+(`reload-cloud.sh` is invoked from the maintainer HQ checkout.)
 
 Final runtime build run `33469654129` completed successfully for head
 `1dcb7a2ef4` (the subsequent `9ec5890b06` change is test-only). The earlier
@@ -108,9 +110,8 @@ post-merge failure `33468023359` was the single `GhosttySurfaceScrollView`
 compatibility error documented above; the repaired rebuild passed. The app
 identity is `cmux DEV pr-10599-review` with bundle identifier
 `com.cmuxterm.app.debug.pr.10599.review`. The tagged socket was verified live,
-and the tagged app was relaunched after verification.
-
-Tagged app opener: http://127.0.0.1:17320/pr-10599-review
+and the tagged app was relaunched after verification. The local tag opener is
+emitted by the reload command and is not included in this tracked report.
 
 ## Remaining external action
 
