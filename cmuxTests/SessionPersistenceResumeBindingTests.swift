@@ -909,7 +909,10 @@ import Testing
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        let restoredInput = try #require(
+            restoredPanel.surface.debugInitialInputForTesting()
+                ?? restoredPanel.surface.nextRuntimeInitialInput
+        )
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
         #expect(
             restoredInput
