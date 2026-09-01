@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSurfaceSelection
 import WebKit
 
 /// Installs a document-scoped `selectionchange` bridge and forwards only
@@ -54,6 +55,7 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
     func install() {
         guard let webView else { return }
         let controller = webView.configuration.userContentController
+        Self.removeBridgeUserScripts(from: controller)
         controller.removeScriptMessageHandler(forName: Self.messageName)
         controller.add(self, name: Self.messageName)
         controller.addUserScript(
@@ -67,8 +69,23 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
     }
 
     func stop() {
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: Self.messageName)
+        guard let webView else { return }
+        let controller = webView.configuration.userContentController
+        webView.evaluateJavaScript(Self.teardownScript, completionHandler: nil)
+        controller.removeScriptMessageHandler(forName: Self.messageName)
+        Self.removeBridgeUserScripts(from: controller)
         webView = nil
+    }
+
+    /// Removes only scripts installed by this bridge. Browser and markdown
+    /// controllers share a content controller with unrelated app scripts, so
+    /// `removeAllUserScripts()` would silently disable those features.
+    private static func removeBridgeUserScripts(from controller: WKUserContentController) {
+        let remainingScripts = controller.userScripts.filter { $0.source != Self.bootstrapScript }
+        controller.removeAllUserScripts()
+        for script in remainingScripts {
+            controller.addUserScript(script)
+        }
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -86,7 +103,7 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
             return
         }
 
-        let url = webView?.url?.absoluteString
+        let url = message.frameInfo.request.url?.absoluteString ?? webView?.url?.absoluteString
         guard let snapshot = Self.snapshot(
             from: body,
             kind: kind,
@@ -153,6 +170,9 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
     /// Native origin validation rejects cross-origin frame messages.
     static let bootstrapScript = #"""
     (() => {
+      if (window.__cmuxSurfaceSelectionBridgeTeardown) {
+        try { window.__cmuxSurfaceSelectionBridgeTeardown(); } catch (_) {}
+      }
       if (window.__cmuxSurfaceSelectionBridgeInstalled) return;
       window.__cmuxSurfaceSelectionBridgeInstalled = true;
       const emit = (payload) => {
@@ -208,11 +228,27 @@ final class SurfaceSelectionWebBridge: NSObject, WKScriptMessageHandler {
           text: hasSelection ? selection.toString() : ''
         });
       };
-      document.addEventListener('selectionchange', handler, { passive: true, capture: true });
-      document.addEventListener('select', handler, { passive: true, capture: true });
-      document.addEventListener('focusin', handler, { passive: true, capture: true });
-      document.addEventListener('input', handler, { passive: true, capture: true });
+      const eventNames = ['selectionchange', 'select', 'focusin', 'input'];
+      for (const eventName of eventNames) {
+        document.addEventListener(eventName, handler, { passive: true, capture: true });
+      }
+      window.__cmuxSurfaceSelectionBridgeTeardown = () => {
+        for (const eventName of eventNames) {
+          document.removeEventListener(eventName, handler, true);
+        }
+        delete window.__cmuxSurfaceSelectionBridgeInstalled;
+        delete window.__cmuxSurfaceSelectionBridgeTeardown;
+      };
       emit({ lifecycle: 'document' });
+    })();
+    """#
+
+    /// Tears down listeners in the currently loaded document before a bridge
+    /// is detached. Removing the injected script alone cannot remove listeners
+    /// that were already registered by that document.
+    static let teardownScript = #"""
+    (() => {
+      try { window.__cmuxSurfaceSelectionBridgeTeardown?.(); } catch (_) {}
     })();
     """#
 }
@@ -289,15 +325,17 @@ final class SurfaceSelectionWebBridgeRegistry {
         let identity = ObjectIdentifier(webView)
         guard let bridge = bridges.removeValue(forKey: identity) else { return }
         bridge.stop()
-        publisher.unregister(surfaceId: bridge.surfaceId)
+        publisher.unregister(surfaceId: bridge.surfaceId, ifSourceIdentity: identity)
     }
 
     func detach(surfaceId: UUID) {
-        let matching = bridges.filter { $0.value.surfaceId == surfaceId }.map(\.key)
+        let matching = bridges
+            .filter { $0.value.surfaceId == surfaceId }
+            .map(\.key)
         for identity in matching {
             guard let bridge = bridges.removeValue(forKey: identity) else { continue }
             bridge.stop()
+            publisher.unregister(surfaceId: surfaceId, ifSourceIdentity: identity)
         }
-        publisher.unregister(surfaceId: surfaceId)
     }
 }

@@ -86,6 +86,7 @@ struct MarkdownPanelView: View {
                 maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
                 selectionEventCoordinator: panel.surfaceSelectionEventCoordinator,
+                selectionEventsEnabled: panel.displayMode == .preview,
                 onRequestPanelFocus: onRequestPanelFocus,
                 onViewAttachedToWindow: { [weak panel] in
                     panel?.replayPendingPreviewFocusAfterWindowAttach()

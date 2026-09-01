@@ -23,6 +23,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let maxContentWidth: Double
     let session: MarkdownRendererSession
     let selectionEventCoordinator: SurfaceSelectionEventCoordinator
+    /// Whether this mounted renderer is the active selection source. The
+    /// renderer stays mounted in text mode for fast mode switches, but its
+    /// hidden DOM must not replace the native editor's source.
+    let selectionEventsEnabled: Bool
     let onRequestPanelFocus: () -> Void
     /// Called after the renderer view is attached to a window. A panel can
     /// request focus before SwiftUI mounts its WebKit view, so the panel uses
@@ -47,6 +51,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         maxContentWidth: Double,
         session: MarkdownRendererSession,
         selectionEventCoordinator: SurfaceSelectionEventCoordinator? = nil,
+        selectionEventsEnabled: Bool = true,
         onRequestPanelFocus: @escaping () -> Void,
         onViewAttachedToWindow: @escaping () -> Void = {}
     ) {
@@ -62,6 +67,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         self.maxContentWidth = maxContentWidth
         self.session = session
         self.selectionEventCoordinator = selectionEventCoordinator ?? SurfaceSelectionEventCoordinator()
+        self.selectionEventsEnabled = selectionEventsEnabled
         self.onRequestPanelFocus = onRequestPanelFocus
         self.onViewAttachedToWindow = onViewAttachedToWindow
     }
@@ -94,13 +100,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
-            selectionEventCoordinator.webBridgeRegistry.attach(
-                webView: webView,
-                surfaceId: panelId,
-                workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
-                kind: PanelType.markdown.rawValue,
-                filePath: filePath
-            )
+            updateSelectionEventRegistration(for: webView, coordinator: context.coordinator)
             return webView
         }
 
@@ -144,13 +144,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         applyAppearance(to: webView, isDark: theme.isDark)
 
         context.coordinator.webView = webView
-        selectionEventCoordinator.webBridgeRegistry.attach(
-            webView: webView,
-            surfaceId: panelId,
-            workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
-            kind: PanelType.markdown.rawValue,
-            filePath: filePath
-        )
+        updateSelectionEventRegistration(for: webView, coordinator: context.coordinator)
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
@@ -163,13 +157,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         context.coordinator.selectionEventCoordinator = selectionEventCoordinator
-        selectionEventCoordinator.webBridgeRegistry.attach(
-            webView: nsView,
-            surfaceId: panelId,
-            workspaceIdProvider: { [weak coordinator = context.coordinator] in coordinator?.workspaceId },
-            kind: PanelType.markdown.rawValue,
-            filePath: filePath
-        )
+        updateSelectionEventRegistration(for: nsView, coordinator: context.coordinator)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         (nsView as? MarkdownWebView)?.setVisibleInUI(isVisibleInUI)
         applyBackground(to: nsView)
@@ -193,6 +181,27 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
+    }
+
+    /// Attaches the bridge only for the active preview mode. This method is
+    /// called from all representable lifecycle paths because SwiftUI may reuse
+    /// a mounted `WKWebView` without calling `makeNSView` again.
+    @MainActor
+    private func updateSelectionEventRegistration(
+        for webView: WKWebView,
+        coordinator: Coordinator
+    ) {
+        if selectionEventsEnabled {
+            selectionEventCoordinator.webBridgeRegistry.attach(
+                webView: webView,
+                surfaceId: panelId,
+                workspaceIdProvider: { [weak coordinator] in coordinator?.workspaceId },
+                kind: PanelType.markdown.rawValue,
+                filePath: filePath
+            )
+        } else {
+            selectionEventCoordinator.webBridgeRegistry.detach(webView: webView)
+        }
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's

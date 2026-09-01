@@ -4,6 +4,7 @@ import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
+import CmuxSurfaceSelection
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxTestSupport

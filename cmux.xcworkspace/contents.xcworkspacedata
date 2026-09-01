@@ -205,6 +205,9 @@
          location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
+         location = "group:CmuxSurfaceSelection">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSwiftRender">
       </FileRef>
       <FileRef

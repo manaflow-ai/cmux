@@ -1,37 +1,12 @@
 import Foundation
 import CmuxControlSocket
+import CmuxSurfaceSelection
 
-/// IDs and stable v2 refs attached to a selection event.
-nonisolated struct SurfaceSelectionEventIdentity: Equatable, Sendable {
-    let workspaceId: UUID
-    let workspaceRef: String
-    let surfaceId: UUID
-    let surfaceRef: String
-    let paneId: UUID?
-    let paneRef: String?
-    let windowId: UUID?
-    let windowRef: String?
+typealias SurfaceSelectionEventIdentity = CmuxSurfaceSelection.SurfaceSelectionEventIdentity
 
-    init(
-        workspaceId: UUID,
-        workspaceRef: String,
-        surfaceId: UUID,
-        surfaceRef: String,
-        paneId: UUID? = nil,
-        paneRef: String? = nil,
-        windowId: UUID? = nil,
-        windowRef: String? = nil
-    ) {
-        self.workspaceId = workspaceId
-        self.workspaceRef = workspaceRef
-        self.surfaceId = surfaceId
-        self.surfaceRef = surfaceRef
-        self.paneId = paneId
-        self.paneRef = paneRef
-        self.windowId = windowId
-        self.windowRef = windowRef
-    }
-
+extension CmuxSurfaceSelection.SurfaceSelectionEventIdentity {
+    /// Resolves current app-owned refs without making the reusable value type
+    /// depend on app or workspace objects.
     @MainActor
     static func live(workspaceId: UUID, surfaceId: UUID) -> Self {
         let workspace = AppDelegate.shared?

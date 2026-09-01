@@ -1,13 +1,10 @@
-import Foundation
-
-/// Broadcasts Ghostty selection changes independently from the accessibility
-/// notification stream, so a reactive event consumer cannot steal values from
-/// the accessibility notifier's iterator.
-final class TerminalSelectionChangeSignal: Sendable {
-    let events: AsyncStream<Void>
+/// Broadcasts terminal selection changes without sharing an accessibility
+/// notification iterator with other consumers.
+public final class TerminalSelectionChangeSignal: Sendable {
+    public let events: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
 
-    nonisolated init() {
+    public nonisolated init() {
         let (events, continuation) = AsyncStream.makeStream(
             of: Void.self,
             bufferingPolicy: .bufferingNewest(1)
@@ -17,7 +14,7 @@ final class TerminalSelectionChangeSignal: Sendable {
     }
 
     @discardableResult
-    nonisolated func request() -> Bool {
+    public nonisolated func request() -> Bool {
         switch continuation.yield(()) {
         case .enqueued:
             return true
@@ -28,7 +25,7 @@ final class TerminalSelectionChangeSignal: Sendable {
         }
     }
 
-    nonisolated func finish() {
+    public nonisolated func finish() {
         continuation.finish()
     }
 

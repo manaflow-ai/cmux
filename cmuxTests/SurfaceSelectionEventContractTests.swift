@@ -256,6 +256,8 @@ final class SurfaceSelectionEventContractTests: XCTestCase {
         XCTAssertTrue(SurfaceSelectionWebBridge.bootstrapScript.contains("selectionchange"))
         XCTAssertTrue(SurfaceSelectionWebBridge.bootstrapScript.contains("password"))
         XCTAssertTrue(SurfaceSelectionWebBridge.bootstrapScript.contains("lifecycle: 'document'"))
+        XCTAssertTrue(SurfaceSelectionWebBridge.bootstrapScript.contains("__cmuxSurfaceSelectionBridgeTeardown"))
+        XCTAssertTrue(SurfaceSelectionWebBridge.teardownScript.contains("__cmuxSurfaceSelectionBridgeTeardown"))
     }
 
     func testSupportedOwnerSnapshotsUseCommonFields() throws {

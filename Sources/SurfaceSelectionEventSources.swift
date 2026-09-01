@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceSelection
 import Foundation
 
 extension SurfaceSelectionChangeEventPublisher {
@@ -36,9 +37,13 @@ extension SurfaceSelectionChangeEventPublisher {
         filePath: String?,
         textView: NSTextView
     ) {
-        registerNativeTextSource(
+        let observer = SurfaceSelectionNativeObserver(textView: textView) { [weak self] in
+            self?.signal(surfaceId: surfaceId)
+        }
+        register(
             surfaceId: surfaceId,
-            textView: textView,
+            sourceIdentity: ObjectIdentifier(textView),
+            owner: observer,
             identity: { [weak textView] in
                 guard let workspaceId = workspaceId(), textView != nil else { return nil }
                 return SurfaceSelectionEventIdentity.live(
@@ -55,7 +60,8 @@ extension SurfaceSelectionChangeEventPublisher {
                     kind: kind,
                     filePath: filePath
                 )
-            }
+            },
+            onCancel: { observer.stop() }
         )
     }
 

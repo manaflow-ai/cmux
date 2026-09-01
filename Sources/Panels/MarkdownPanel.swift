@@ -434,6 +434,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
     /// Retargets container-scoped identity after a live panel transfer.
     func updateWorkspaceId(_ workspaceId: UUID) {
         self.workspaceId = workspaceId
+        syncSurfaceSelectionEventSource()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -445,6 +446,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
         displayMode = mode
+        syncSurfaceSelectionEventSource()
         if mode == .text {
             // The find bar and its highlights belong to the preview surface;
             // text mode has the NSTextView's native find panel instead.
@@ -460,20 +462,33 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel,
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
-        surfaceSelectionEventCoordinator.publisher.registerNativeTextSurface(
-            surfaceId: id,
-            workspaceId: { [weak self] in self?.workspaceId },
-            kind: panelType.rawValue,
-            filePath: filePath,
-            textView: textView
-        )
+        syncSurfaceSelectionEventSource()
     }
 
     func reattachSurfaceSelectionEvents() {
-        if let textView {
-            attachTextView(textView)
-        }
-        if let webView = rendererSession.webView {
+        syncSurfaceSelectionEventSource()
+    }
+
+    /// Keeps exactly one source registered for this surface. The preview
+    /// renderer remains mounted while text mode is active, so mode changes
+    /// must explicitly detach the hidden WebKit source before attaching the
+    /// native editor source.
+    private func syncSurfaceSelectionEventSource() {
+        switch displayMode {
+        case .text:
+            surfaceSelectionEventCoordinator.webBridgeRegistry.detach(surfaceId: id)
+            surfaceSelectionEventCoordinator.publisher.unregister(surfaceId: id)
+            guard let textView else { return }
+            surfaceSelectionEventCoordinator.publisher.registerNativeTextSurface(
+                surfaceId: id,
+                workspaceId: { [weak self] in self?.workspaceId },
+                kind: panelType.rawValue,
+                filePath: filePath,
+                textView: textView
+            )
+        case .preview:
+            surfaceSelectionEventCoordinator.publisher.unregister(surfaceId: id)
+            guard let webView = rendererSession.webView else { return }
             surfaceSelectionEventCoordinator.webBridgeRegistry.attach(
                 webView: webView,
                 surfaceId: id,

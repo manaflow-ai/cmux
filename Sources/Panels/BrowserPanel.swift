@@ -3040,6 +3040,9 @@ final class BrowserPanel: Panel, ObservableObject, SurfaceSelectionEventOwner {
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
+        if self.webView === webView {
+            reattachSurfaceSelectionEvents()
+        }
     }
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
         let handler = BrowserSSLTrustBypassMessageHandler(
