@@ -60,6 +60,13 @@ pub mod transport {
         pub fn wake(&self) -> io::Result<()> {
             self.inner.wake()
         }
+
+        /// Wait for a shutdown wakeup, returning `false` when the timeout
+        /// expires. The wait is path-independent and does not consume the
+        /// listener's readiness state.
+        pub fn wait(&self, timeout: Duration) -> io::Result<bool> {
+            self.inner.wait(timeout)
+        }
     }
 
     #[cfg(unix)]
@@ -158,6 +165,28 @@ pub mod transport {
                         Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                         Err(error) => return Err(error),
                     }
+                }
+            }
+
+            pub(super) fn wait(&self, timeout: Duration) -> io::Result<bool> {
+                let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+                loop {
+                    let mut descriptor = libc::pollfd {
+                        fd: self.inner.reader.as_raw_fd(),
+                        events: libc::POLLIN,
+                        revents: 0,
+                    };
+                    // SAFETY: the reader remains owned by this wake handle for
+                    // the duration of the poll call.
+                    let result = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+                    if result < 0 {
+                        let error = io::Error::last_os_error();
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    return Ok(result > 0 && descriptor.revents != 0);
                 }
             }
         }
@@ -276,6 +305,28 @@ pub mod transport {
                         Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                         Err(error) => return Err(error),
                     }
+                }
+            }
+
+            pub(super) fn wait(&self, timeout: Duration) -> io::Result<bool> {
+                let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+                loop {
+                    let mut descriptor = WSAPOLLFD {
+                        fd: self.inner.reader.as_raw_socket(),
+                        events: POLLIN,
+                        revents: 0,
+                    };
+                    // SAFETY: the reader remains owned by this wake handle for
+                    // the duration of the poll call.
+                    let result = unsafe { WSAPoll(&mut descriptor, 1, timeout_ms) };
+                    if result < 0 {
+                        let error = io::Error::from_raw_os_error(unsafe { WSAGetLastError() });
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    return Ok(result > 0 && descriptor.revents != 0);
                 }
             }
         }

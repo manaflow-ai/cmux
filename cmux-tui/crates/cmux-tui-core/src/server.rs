@@ -38,9 +38,32 @@ fn retry_accept_error(kind: std::io::ErrorKind) -> bool {
         std::io::ErrorKind::ConnectionAborted
             | std::io::ErrorKind::ConnectionReset
             | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::NetworkDown
             | std::io::ErrorKind::WouldBlock
             | std::io::ErrorKind::ResourceBusy
     )
+}
+
+fn retry_accept_os_error(error: &std::io::Error) -> bool {
+    if retry_accept_error(error.kind()) {
+        return true;
+    }
+
+    match error.raw_os_error() {
+        #[cfg(unix)]
+        Some(code) => matches!(code, libc::EMFILE | libc::ENFILE | libc::ENOBUFS | libc::ENOMEM),
+        #[cfg(windows)]
+        Some(code) => {
+            use windows_sys::Win32::Networking::WinSock::{
+                WSA_NOT_ENOUGH_MEMORY, WSAEMFILE, WSAENOBUFS,
+            };
+
+            matches!(code, WSAEMFILE | WSAENOBUFS | WSA_NOT_ENOUGH_MEMORY)
+        }
+        #[cfg(all(not(unix), not(windows)))]
+        Some(_) => false,
+        None => false,
+    }
 }
 
 use anyhow::Context;
@@ -5188,6 +5211,8 @@ impl SocketStartLock {
 const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
 /// Bound cleanup waits so a shutdown path cannot hang on a wedged starter.
 const SOCKET_CLEANUP_DEADLINE: Duration = Duration::from_secs(2);
+/// Bound retries after a transient listener error without spinning the thread.
+const ACCEPT_RETRY_BACKOFF: Duration = Duration::from_millis(100);
 
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
@@ -5243,7 +5268,16 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
                 Ok(Some(stream)) => stream,
                 Ok(None) => break,
                 Err(_) if server_shutdown.load(Ordering::Acquire) => break,
-                Err(error) if retry_accept_error(error.kind()) => continue,
+                Err(error) if retry_accept_os_error(&error) => {
+                    match server_wake.wait(ACCEPT_RETRY_BACKOFF) {
+                        Ok(true) => break,
+                        Ok(false) => continue,
+                        Err(wait_error) => {
+                            eprintln!("cmux-tui: listener wake wait failed: {wait_error}");
+                            break;
+                        }
+                    }
+                }
                 Err(error) => {
                     eprintln!("cmux-tui: listener accept failed: {error}");
                     break;
@@ -13509,7 +13543,7 @@ mod tests {
     #[test]
     fn listener_accept_retries_descriptor_exhaustion() {
         let error = std::io::Error::from_raw_os_error(libc::EMFILE);
-        assert!(retry_accept_error(error.kind()));
+        assert!(retry_accept_os_error(&error));
     }
 
     #[cfg(windows)]
@@ -13518,7 +13552,7 @@ mod tests {
         use windows_sys::Win32::Networking::WinSock::WSAEMFILE;
 
         let error = std::io::Error::from_raw_os_error(WSAEMFILE);
-        assert!(retry_accept_error(error.kind()));
+        assert!(retry_accept_os_error(&error));
     }
 
     struct TestSocketDir(PathBuf);
