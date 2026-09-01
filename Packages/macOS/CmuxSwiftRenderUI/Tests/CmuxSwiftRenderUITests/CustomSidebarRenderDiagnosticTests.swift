@@ -94,6 +94,26 @@ struct CustomSidebarRenderDiagnosticTests {
         }
     }
 
+    @Test("invalid-size errors use the shared render bound")
+    func invalidSizeUsesSharedMaximumDimension() {
+        let message = CustomSidebarRenderDiagnosticError.invalidSize.errorDescription ?? ""
+
+        #expect(message.contains(String(CustomSidebarRenderDiagnostic.maximumDimension)))
+        #expect(!message.contains("%d"))
+    }
+
+    @Test("read and write failures keep raw details out of user-facing copy")
+    func failureDescriptionsAreProductCopy() {
+        let rawDetail = "/private/tmp/sidebar-with-sensitive-details.swift: permission denied"
+        let readMessage = CustomSidebarRenderDiagnosticError.readFailed(rawDetail).errorDescription ?? ""
+        let writeMessage = CustomSidebarRenderDiagnosticError.writeFailed(rawDetail).errorDescription ?? ""
+
+        #expect(!readMessage.contains(rawDetail))
+        #expect(!writeMessage.contains(rawDetail))
+        #expect(readMessage.contains("Check"))
+        #expect(writeMessage.contains("Check"))
+    }
+
     private func temporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sidebar-render-\(UUID().uuidString)", isDirectory: true)

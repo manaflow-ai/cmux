@@ -2,7 +2,7 @@ import CmuxSwiftRender
 import Foundation
 
 /// Immutable input prepared off the main actor for a mounted sidebar render.
-public struct CustomSidebarRenderPlan: Sendable {
+public nonisolated struct CustomSidebarRenderPlan: Sendable {
     /// The source file that produced this plan.
     public let fileURL: URL
     /// The source format used to create the plan.

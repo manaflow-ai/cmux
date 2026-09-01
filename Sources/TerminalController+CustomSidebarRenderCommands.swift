@@ -2,12 +2,19 @@ import AppKit
 import CmuxSettings
 import CmuxSwiftRenderUI
 import Foundation
+import OSLog
+
+nonisolated private let customSidebarRenderLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "CustomSidebarRender"
+)
 
 extension TerminalController {
     /// Evaluates a custom sidebar, mounts its production content view, and
     /// writes a PNG artifact. Source preparation stays on the socket worker;
     /// only the AppKit/SwiftUI mount crosses to the main actor.
     nonisolated func v2CustomSidebarRender(params: [String: Any]) -> V2CallResult {
+        let maximumDimension = CustomSidebarRenderDiagnostic.maximumDimension
         guard let name = v2String(params, "name") else {
             return v2CustomSidebarRenderFailure(
                 name: nil,
@@ -26,8 +33,11 @@ extension TerminalController {
                 path: nil,
                 kind: nil,
                 message: String(
-                    localized: "socket.sidebar.custom.render.invalidSize",
-                    defaultValue: "Render width and height must be between 1 and 4096."
+                    format: String(
+                        localized: "socket.sidebar.custom.render.invalidSize",
+                        defaultValue: "Render width and height must be between 1 and %d."
+                    ),
+                    maximumDimension
                 )
             )
         }
@@ -43,15 +53,18 @@ extension TerminalController {
             )
         }
         guard width > 0, height > 0,
-              width <= CustomSidebarRenderDiagnostic.maximumDimension,
-              height <= CustomSidebarRenderDiagnostic.maximumDimension else {
+              width <= maximumDimension,
+              height <= maximumDimension else {
             return v2CustomSidebarRenderFailure(
                 name: name,
                 path: nil,
                 kind: nil,
                 message: String(
-                    localized: "socket.sidebar.custom.render.invalidSize",
-                    defaultValue: "Render width and height must be between 1 and 4096."
+                    format: String(
+                        localized: "socket.sidebar.custom.render.invalidSize",
+                        defaultValue: "Render width and height must be between 1 and %d."
+                    ),
+                    maximumDimension
                 )
             )
         }
@@ -76,11 +89,16 @@ extension TerminalController {
         do {
             plan = try diagnostic.prepare(fileURL: fileURL)
         } catch {
+            let message = customSidebarRenderFailureMessage(
+                error,
+                stage: "prepare",
+                path: fileURL.path
+            )
             return v2CustomSidebarRenderFailure(
                 name: name,
                 path: fileURL.path,
                 kind: fileURL.pathExtension.lowercased(),
-                message: error.localizedDescription
+                message: message
             )
         }
 
@@ -116,13 +134,36 @@ extension TerminalController {
                 "error": NSNull()
             ])
         case let .failure(error):
+            let message = customSidebarRenderFailureMessage(
+                error,
+                stage: "render",
+                path: fileURL.path
+            )
             return v2CustomSidebarRenderFailure(
                 name: name,
                 path: fileURL.path,
                 kind: plan.kind.rawValue,
-                message: error.localizedDescription
+                message: message
             )
         }
+    }
+
+    private nonisolated func customSidebarRenderFailureMessage(
+        _ error: Error,
+        stage: String,
+        path: String
+    ) -> String {
+        customSidebarRenderLogger.error(
+            "custom sidebar render failed stage=\(stage, privacy: .public) path=\(path, privacy: .private(mask: .hash)) detail=\(String(describing: error), privacy: .private)"
+        )
+        if let diagnosticError = error as? CustomSidebarRenderDiagnosticError,
+           let message = diagnosticError.errorDescription {
+            return message
+        }
+        return String(
+            localized: "socket.sidebar.custom.render.failed",
+            defaultValue: "Sidebar render failed. Check the sidebar file and output path, then try again."
+        )
     }
 
     private nonisolated func v2CustomSidebarRenderFailure(

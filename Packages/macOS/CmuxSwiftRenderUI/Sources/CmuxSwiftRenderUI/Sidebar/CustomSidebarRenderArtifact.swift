@@ -1,7 +1,7 @@
 import Foundation
 
 /// Metadata returned after a mounted sidebar has been encoded as PNG.
-public struct CustomSidebarRenderArtifact: Sendable {
+public nonisolated struct CustomSidebarRenderArtifact: Sendable {
     /// The path where the PNG was written.
     public let outputURL: URL
     /// The encoded artifact width in pixels.

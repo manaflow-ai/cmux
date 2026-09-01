@@ -58,13 +58,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Render width and height must be between 1 and 4096."
+            "value": "Render width and height must be between 1 and %d."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レンダーの幅と高さは 1 から 4096 の範囲である必要があります。"
+            "value": "レンダーの幅と高さは 1 から %d の範囲である必要があります。"
           }
         }
       }
@@ -126,13 +126,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed to read sidebar file: %@"
+            "value": "Could not read the sidebar file. Check its permissions and format, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーファイルの読み取りに失敗しました: %@"
+            "value": "サイドバーファイルを読み込めませんでした。権限と形式を確認して、もう一度お試しください。"
           }
         }
       }
@@ -194,13 +194,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed to write the render artifact: %@"
+            "value": "Could not write the render artifact. Check the output path and permissions, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レンダーアーティファクトの書き込みに失敗しました: %@"
+            "value": "レンダーアーティファクトを書き込めませんでした。出力パスと権限を確認して、もう一度お試しください。"
           }
         }
       }

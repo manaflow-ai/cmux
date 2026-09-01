@@ -12,7 +12,7 @@ import SwiftUI
 /// layout and display have produced visible pixels.
 public struct CustomSidebarRenderDiagnostic: Sendable {
     /// Bounds bitmap allocation for a socket-triggered smoke render.
-    public static let maximumDimension = 4096
+    public nonisolated static let maximumDimension = 4096
 
     private let fileManagerProvider: @Sendable () -> FileManager
 

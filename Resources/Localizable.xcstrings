@@ -52862,13 +52862,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar render requires --width and --height values between 1 and 4096"
+            "value": "sidebar render requires --width and --height values between 1 and %d"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "sidebar render には 1 から 4096 の範囲の --width と --height が必要です"
+            "value": "sidebar render には 1 から %d の範囲の --width と --height が必要です"
           }
         }
       }
@@ -53168,13 +53168,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux sidebar <validate|render|reload|select|open> [name|--all] [flags]\n\nInspect, render, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.\nSwift files win over JSON files with the same base name.\n\nCommands:\n  validate [name]   Validate all custom sidebars, or one named sidebar\n  render <name>     Mount one sidebar and write a PNG smoke-test artifact\n  reload [name]     Validate all sidebars, then reload every valid one\n  select <name>     Validate and activate one custom sidebar\n  open <name>       Open one custom sidebar as a Bonsplit pane\n\nRender flags:\n  --width <n>       Artifact width in pixels\n  --height <n>      Artifact height in pixels\n  --output <path>   PNG output path\n\n`validate` evaluates without mounting SwiftUI/AppKit; `render` mounts the production content view and fails if it produces no visible pixels. `extension.sidebar.snapshot` remains data inspection only.\n\nExamples:\n  cmux sidebar validate\n  cmux sidebar render finder.tree --width 320 --height 900 --output /tmp/finder-tree.png\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "Usage: cmux sidebar <validate|render|reload|select|open> [name] [flags]\n\nInspect, render, reload, select, or open custom sidebars from ~/.config/cmux/sidebars; validate/reload accept --all, while render/select/open require a name.\nSwift files win over JSON files with the same base name.\n\nCommands:\n  validate [name|--all]\n                    Validate all custom sidebars, or one named sidebar\n  render <name>     Mount one sidebar and write a PNG smoke-test artifact\n  reload [name|--all]\n                    Validate all sidebars, then reload every valid one\n  select <name>     Validate and activate one custom sidebar\n  open <name>       Open one custom sidebar as a Bonsplit pane\n\nRender flags:\n  --width <n>       Artifact width in pixels\n  --height <n>      Artifact height in pixels\n  --output <path>   PNG output path\n\n`validate` evaluates without mounting SwiftUI/AppKit; `render` mounts the production content view and fails if it produces no visible pixels. `extension.sidebar.snapshot` remains data inspection only.\n\nExamples:\n  cmux sidebar validate\n  cmux sidebar render finder.tree --width 320 --height 900 --output /tmp/finder-tree.png\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux sidebar <validate|render|reload|select|open> [name|--all] [flags]\n\n~/.config/cmux/sidebars のカスタムサイドバーを検証、レンダー、再読み込み、選択、または開きます。\n同じベース名の JSON ファイルより Swift ファイルが優先されます。\n\nコマンド:\n  validate [name]   すべてのカスタムサイドバー、または指定したサイドバーを検証します\n  render <name>     サイドバーをマウントし、PNG スモークテストアーティファクトを書き出します\n  reload [name]     すべてのサイドバーを検証して、有効なものを再読み込みします\n  select <name>     指定したカスタムサイドバーを検証して有効化します\n  open <name>       指定したカスタムサイドバーを Bonsplit ペインとして開きます\n\nレンダーのオプション:\n  --width <n>       アーティファクトの幅（ピクセル）\n  --height <n>      アーティファクトの高さ（ピクセル）\n  --output <path>   PNG の出力パス\n\n`validate` は SwiftUI/AppKit をマウントせずに評価します。`render` は本番と同じコンテンツビューをマウントし、表示ピクセルがなければ失敗します。`extension.sidebar.snapshot` はデータ検査専用です。\n\n例:\n  cmux sidebar validate\n  cmux sidebar render finder.tree --width 320 --height 900 --output /tmp/finder-tree.png\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
+            "value": "使用法: cmux sidebar <validate|render|reload|select|open> [name] [flags]\n\n~/.config/cmux/sidebars のカスタムサイドバーを検証、レンダー、再読み込み、選択、または開きます。validate/reload は --all を受け付けますが、render/select/open には名前が必要です。\n同じベース名の JSON ファイルより Swift ファイルが優先されます。\n\nコマンド:\n  validate [name|--all]\n                    すべてのカスタムサイドバー、または指定したサイドバーを検証します\n  render <name>     サイドバーをマウントし、PNG スモークテストアーティファクトを書き出します\n  reload [name|--all]\n                    すべてのサイドバーを検証して、有効なものを再読み込みします\n  select <name>     指定したカスタムサイドバーを検証して有効化します\n  open <name>       指定したカスタムサイドバーを Bonsplit ペインとして開きます\n\nレンダーのオプション:\n  --width <n>       アーティファクトの幅（ピクセル）\n  --height <n>      アーティファクトの高さ（ピクセル）\n  --output <path>   PNG の出力パス\n\n`validate` は SwiftUI/AppKit をマウントせずに評価します。`render` は本番と同じコンテンツビューをマウントし、表示ピクセルがなければ失敗します。`extension.sidebar.snapshot` はデータ検査専用です。\n\n例:\n  cmux sidebar validate\n  cmux sidebar render finder.tree --width 320 --height 900 --output /tmp/finder-tree.png\n  cmux sidebar reload --all\n  cmux sidebar select finder.tree\n  cmux sidebar open finder.tree"
           }
         }
       }
@@ -243473,13 +243473,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Render width and height must be between 1 and 4096."
+            "value": "Render width and height must be between 1 and %d."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レンダーの幅と高さは 1 から 4096 の範囲である必要があります。"
+            "value": "レンダーの幅と高さは 1 から %d の範囲である必要があります。"
+          }
+        }
+      }
+    },
+    "socket.sidebar.custom.render.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar render failed. Check the sidebar file and output path, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのレンダーに失敗しました。サイドバーファイルと出力パスを確認して、もう一度お試しください。"
           }
         }
       }

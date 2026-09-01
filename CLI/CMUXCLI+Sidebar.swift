@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSwiftRenderUI
 
 extension CMUXCLI {
     func runSidebarCommand(
@@ -63,6 +64,7 @@ extension CMUXCLI {
             method = action == "validate" ? "sidebar.custom.validate" : "sidebar.custom.reload"
 
         case "render":
+            let maximumDimension = CustomSidebarRenderDiagnostic.maximumDimension
             guard !explicitAll else {
                 throw CLIError(
                     message: String(
@@ -84,11 +86,14 @@ extension CMUXCLI {
             }
             guard let widthRaw, let width = Int(widthRaw), width > 0,
                   let heightRaw, let height = Int(heightRaw), height > 0,
-                  width <= 4096, height <= 4096 else {
+                  width <= maximumDimension, height <= maximumDimension else {
                 throw CLIError(
                     message: String(
-                        localized: "cli.sidebar.error.renderSize",
-                        defaultValue: "sidebar render requires --width and --height values between 1 and 4096"
+                        format: String(
+                            localized: "cli.sidebar.error.renderSize",
+                            defaultValue: "sidebar render requires --width and --height values between 1 and %d"
+                        ),
+                        maximumDimension
                     )
                 )
             }

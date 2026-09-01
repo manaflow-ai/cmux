@@ -20034,12 +20034,14 @@ struct CMUXCLI {
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
-            Usage: cmux sidebar <validate|render|reload|select|open> [name|--all] [flags]
-            Inspect, render, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
+            Usage: cmux sidebar <validate|render|reload|select|open> [name] [flags]
+            Inspect, render, reload, select, or open custom sidebars from ~/.config/cmux/sidebars; validate/reload accept --all, while render/select/open require a name.
             Commands:
-              validate [name]   Validate all custom sidebars, or one named sidebar
+              validate [name|--all]
+                                Validate all custom sidebars, or one named sidebar
               render <name>     Mount one sidebar and write a PNG smoke-test artifact
-              reload [name]     Validate all sidebars, then reload every valid one
+              reload [name|--all]
+                                Validate all sidebars, then reload every valid one
               select <name>     Activate one custom sidebar
               open <name>       Open one custom sidebar as a Bonsplit pane
 
