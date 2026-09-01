@@ -128,12 +128,8 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         // `kind` is `Copy`; avoid cloning the whole ordered placement list on
         // every frame. The draw functions may mutate `app`, so copy only the
         // small discriminant before dispatching.
-        let ordered_kinds: Vec<_> = app
-            .sidebar_layout
-            .ordered
-            .iter()
-            .map(|placement| placement.kind)
-            .collect();
+        let ordered_kinds: Vec<_> =
+            app.sidebar_layout.ordered.iter().map(|placement| placement.kind).collect();
         for kind in ordered_kinds {
             match kind {
                 RailKind::Machine => sidebar::draw_machines(app, frame),
