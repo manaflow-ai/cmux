@@ -8,6 +8,7 @@ import CmuxMobileSupport
 import CmuxMobileTransport
 import CmuxSentryReporting
 import Foundation
+import Observation
 import SwiftUI
 import cmuxFeature
 
@@ -135,9 +136,23 @@ final class AppCompositionRoot {
             buildStamp: MobileDebugLog.buildStamp
         )
         self.appLog = appLog
+        // Built before the event tap so the tap can fan out to the verbose
+        // diagnostics reporter from the first retained event. The reporter is
+        // inert (one boolean check per event) until the signed-in account's
+        // server-written `cmuxVerboseDiagnostics` flag is mirrored into it
+        // below.
+        let analytics = MobileAnalyticsComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenProvider: auth.coordinator,
+            consent: telemetryConsent,
+            diagnosticLog: diagnosticLog
+        )
+        self.analytics = analytics
+        let verboseDiagnosticsReporter = analytics.verboseDiagnostics
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
+            verboseDiagnosticsReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -154,13 +169,6 @@ final class AppCompositionRoot {
                 appLog.mirrorAppLine(line)
             }
         }
-        let analytics = MobileAnalyticsComposition(
-            apiBaseURL: auth.config.apiBaseURL,
-            tokenProvider: auth.coordinator,
-            consent: telemetryConsent,
-            diagnosticLog: diagnosticLog
-        )
-        self.analytics = analytics
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
             request: analytics.anonymousClientConfigRequest
@@ -323,11 +331,36 @@ final class AppCompositionRoot {
                 await pushCoordinator.networkDidBecomeReachable()
             }
         }
+        // Mirror the account's server-written verbose-diagnostics flag into
+        // the reporter before auth starts, so a restored flagged session
+        // authorizes uploads from its first published user.
+        trackVerboseDiagnosticsAuthorization()
         // Start auth only after the diagnostic tap is durable. Session restore
         // can complete during launch, and starting earlier would leave its
         // accepted events in the in-memory ring but absent from cmux-app.log.
         auth.start()
         featureFlags.start()
+    }
+
+    /// Keeps the verbose diagnostics reporter's authorization equal to the
+    /// signed-in account's server-written `cmuxVerboseDiagnostics` flag.
+    ///
+    /// The flag rides `AuthCoordinator.currentUser` (published at sign-in,
+    /// session restore, and revalidation, and cleared at sign-out), so
+    /// observation-tracking that one property covers every arrival path,
+    /// including a flag that lands on a later revalidation. Each change
+    /// re-reads the value on the main actor and re-arms the tracking.
+    private func trackVerboseDiagnosticsAuthorization() {
+        analytics.verboseDiagnostics.setAuthorization(
+            enabled: auth.coordinator.currentUser?.verboseDiagnosticsEnabled == true
+        )
+        withObservationTracking {
+            _ = auth.coordinator.currentUser
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.trackVerboseDiagnosticsAuthorization()
+            }
+        }
     }
 
     isolated deinit {
@@ -432,6 +465,10 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             Task { await emitter.flush() }
+            // Same for pending verbose diagnostics (a no-op for unflagged
+            // accounts: the reporter buffers nothing for them).
+            let verboseDiagnostics = analytics.verboseDiagnostics
+            Task { await verboseDiagnostics.flush() }
         @unknown default:
             break
         }

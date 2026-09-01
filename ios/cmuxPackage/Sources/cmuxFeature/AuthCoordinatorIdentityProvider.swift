@@ -36,4 +36,8 @@ struct AuthCoordinatorIdentityProvider: MobileIdentityProviding {
     @MainActor var demonstrationContentEnabled: Bool {
         coordinator.currentUser?.demonstrationContentEnabled ?? false
     }
+
+    @MainActor var verboseDiagnosticsEnabled: Bool {
+        coordinator.currentUser?.verboseDiagnosticsEnabled ?? false
+    }
 }

@@ -10,6 +10,7 @@ import {
 } from "@opentelemetry/api";
 
 import { isVmPriorityPath } from "./observability/sampler";
+import { completeVerboseDiagnosticsRequest } from "./observability/verboseDiagnostics";
 
 type AttributeValue = string | number | boolean;
 export type MaybeAttributes = Record<string, AttributeValue | null | undefined>;
@@ -71,12 +72,25 @@ export async function withApiRouteSpan<T extends Response>(
       ...attributes,
     },
     async (span) => {
-      const response = await fn(span);
+      let response: T;
+      try {
+        response = await fn(span);
+      } catch (err) {
+        // Verbose-diagnostics completion for server-flagged accounts (App
+        // Review). One WeakMap miss for every other request.
+        completeVerboseDiagnosticsRequest(request, {
+          route,
+          errorName: err instanceof Error ? err.name : "NonError",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
       span.setAttribute("http.response.status_code", response.status);
       span.setAttribute("cmux.http.response_error", response.status >= 400);
       if (response.status >= 500) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: `HTTP ${response.status}` });
       }
+      completeVerboseDiagnosticsRequest(request, { route, status: response.status });
       return response;
     },
     // deleteSpan, not ROOT_CONTEXT: only the dropped parent span leaves the

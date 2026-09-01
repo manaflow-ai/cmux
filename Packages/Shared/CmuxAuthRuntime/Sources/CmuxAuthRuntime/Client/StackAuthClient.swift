@@ -135,12 +135,14 @@ public struct StackAuthClient: AuthClient {
         let name = await user.displayName
         let profileImageURL = await user.profileImageUrl
         let demonstrationContentEnabled = await user.cmuxDemonstrationContentEnabled
+        let verboseDiagnosticsEnabled = await user.cmuxVerboseDiagnosticsEnabled
         return CMUXAuthUser(
             id: id,
             primaryEmail: email,
             displayName: name,
             profileImageURL: profileImageURL,
-            demonstrationContentEnabled: demonstrationContentEnabled
+            demonstrationContentEnabled: demonstrationContentEnabled,
+            verboseDiagnosticsEnabled: verboseDiagnosticsEnabled
         )
     }
 }
@@ -152,6 +154,15 @@ extension CurrentUser {
     /// ``CMUXAuthUser/demonstrationContentEnabled(fromClientReadOnlyMetadata:)``.
     var cmuxDemonstrationContentEnabled: Bool {
         CMUXAuthUser.demonstrationContentEnabled(
+            fromClientReadOnlyMetadata: clientReadOnlyMetadata
+        )
+    }
+
+    /// Resolves the server-written verbose-diagnostics flag inside the user
+    /// actor, mirroring ``cmuxDemonstrationContentEnabled``. See
+    /// ``CMUXAuthUser/verboseDiagnosticsEnabled(fromClientReadOnlyMetadata:)``.
+    var cmuxVerboseDiagnosticsEnabled: Bool {
+        CMUXAuthUser.verboseDiagnosticsEnabled(
             fromClientReadOnlyMetadata: clientReadOnlyMetadata
         )
     }

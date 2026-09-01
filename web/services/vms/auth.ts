@@ -14,6 +14,8 @@ import {
   resolveBillingTeam,
   type BillingTeamLike,
 } from "../billing/teamResolution";
+import { verboseDiagnosticsEnabled } from "../account/verboseDiagnostics";
+import { recordVerboseDiagnosticsRequest } from "../observability/verboseDiagnostics";
 
 export type AuthedUser = {
   id: string;
@@ -26,6 +28,13 @@ export type AuthedUser = {
   teamIds: readonly string[];
   userBillingPlanId: string | null;
   billingPlanId: string | null;
+  /**
+   * Whether the account's server-written `cmuxVerboseDiagnostics` metadata
+   * flag is set (App Review verbose logging). Captured into this projection
+   * because the native auth cache stores the projection, not the Stack user.
+   * Optional so existing fixtures keep compiling; absent reads as off.
+   */
+  verboseDiagnostics?: boolean;
   resolveSubrouterPermissions: (
     teamId: string,
   ) => Promise<SubrouterPermissions>;
@@ -462,7 +471,10 @@ export async function verifyRequest(
     const cacheKey = cacheable ? nativeAuthCacheKey(tokens, options) : null;
     if (cacheKey) {
       const cached = readNativeAuthCache(cacheKey);
-      if (cached) return cached;
+      if (cached) {
+        recordVerboseDiagnosticsRequest(request, cached);
+        return cached;
+      }
     }
     const user = await stackAuthorizationCall(
       () => stackServerApp.getUser({ tokenStore: tokens }),
@@ -473,6 +485,7 @@ export async function verifyRequest(
       if (authed && cacheKey) {
         writeNativeAuthCache(cacheKey, authed, tokens, authCacheTtlMs());
       }
+      if (authed) recordVerboseDiagnosticsRequest(request, authed);
       return authed;
     }
     // A caller that presents native credentials must succeed or fail as that
@@ -495,7 +508,9 @@ export async function verifyRequest(
     options.subrouterAuthorizationSignal,
   );
   if (user) {
-    return await authedUserFromStackUser(user, options);
+    const authed = await authedUserFromStackUser(user, options);
+    if (authed) recordVerboseDiagnosticsRequest(request, authed);
+    return authed;
   }
   return null;
 }
@@ -543,6 +558,7 @@ async function authedUserFromStackUser(
   });
   const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
   const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const verboseDiagnostics = verboseDiagnosticsEnabled(user.clientReadOnlyMetadata);
   const rawTeams = new Map<string, unknown>();
   if (selectedTeam) rawTeams.set(selectedTeam.id, selectedTeamRaw);
   for (const raw of listedTeamRaw) {
@@ -574,6 +590,7 @@ async function authedUserFromStackUser(
     teamIds,
     userBillingPlanId,
     billingPlanId,
+    verboseDiagnostics,
     resolveSubrouterPermissions: async (teamId) => {
       const cached = subrouterPermissionCache.get(teamId);
       if (cached) return cached;
