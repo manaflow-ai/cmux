@@ -83,6 +83,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.begin_sign_in",
         "auth.sign_out",
         "feedback.submit",
+        // `feed.jump` awaits its actor-owned hook-session lookup while the
+        // socket worker waits for the response.
+        "feed.jump",
         "feed.push",
         "feed.permission.reply",
         "feed.question.reply",
