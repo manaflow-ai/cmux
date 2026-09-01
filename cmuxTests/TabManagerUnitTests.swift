@@ -910,6 +910,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
 @MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    /// Verifies that leaving a workspace clears its transient split-zoom state.
     func testSwitchingWorkspacesClearsSplitZoomFromOutgoingWorkspace() {
         let manager = TabManager()
         guard let outgoingWorkspace = manager.selectedWorkspace,
@@ -3955,6 +3956,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 /// destination manager — is the move and is exercised directly here.
 @MainActor
 final class CrossWindowWorkspaceMoveTests: XCTestCase {
+    /// Verifies that detaching the selected workspace clears zoom before transfer.
     func testDetachingSelectedZoomedWorkspaceClearsSplitZoomBeforeTransfer() {
         let source = TabManager()
         let destination = TabManager()
@@ -3986,6 +3988,7 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertFalse(destination.selectedWorkspace?.bonsplitController.isSplitZoomed == true)
     }
 
+    /// Verifies that detaching an unselected workspace also clears zoom before transfer.
     func testDetachingUnselectedZoomedWorkspaceClearsSplitZoomBeforeTransfer() {
         let source = TabManager()
         let destination = TabManager()
