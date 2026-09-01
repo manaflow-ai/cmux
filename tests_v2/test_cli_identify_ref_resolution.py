@@ -114,18 +114,18 @@ def main() -> int:
             got_ws in {x for x in [base_workspace_id, base_workspace_ref] if x},
             f"identify --workspace <ref> did not resolve target workspace; got={got_ws} expected one of {[x for x in [base_workspace_id, base_workspace_ref] if x]}",
         )
-        caller_surface_values = [
-            caller_ws.get("surface_id"),
-            caller_ws.get("surface_ref"),
-            caller_ws.get("tab_id"),
-            caller_ws.get("tab_ref"),
-            caller_ws.get("pane_id"),
-            caller_ws.get("pane_ref"),
+        caller_null_fields = [
+            "surface_id",
+            "surface_ref",
+            "tab_id",
+            "tab_ref",
+            "pane_id",
+            "pane_ref",
         ]
         _must(
-            all(value in (None, "") for value in caller_surface_values),
+            all(field in caller_ws and caller_ws[field] is None for field in caller_null_fields),
             "identify --workspace without --surface must not infer a focused surface; "
-            f"got caller surface fields={caller_surface_values!r} payload={identify_ws_ref}",
+            f"got caller fields={caller_ws!r} payload={identify_ws_ref}",
         )
 
         workspace_for_list = base_workspace_id or base_workspace_ref

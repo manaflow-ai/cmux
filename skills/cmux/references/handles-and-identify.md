@@ -12,8 +12,9 @@ cmux --json --id-format uuids identify
 ```
 
 `identify` keeps the server's `focused` context separate from its `caller`
-context. With no explicit selector, `caller` is resolved from the calling
-terminal. `--workspace <handle>` is an explicit workspace-only caller selector;
+context. With neither an explicit selector nor an ambient window route active,
+`caller` is resolved from the calling terminal. `--workspace <handle>` is an
+explicit workspace-only caller selector;
 it intentionally returns a workspace identity with `surface_*`, `tab_*`, and
 `pane_*` fields set to `null`, because a workspace does not identify one unique
 surface. Use `--surface <handle>` (optionally with `--workspace`) when a surface
