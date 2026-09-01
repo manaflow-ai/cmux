@@ -78,3 +78,8 @@ tmux-*.log
 # Remote-only Blacksmith cmux-tui benchmark output
 /testbox-benchmark/
 /.cmux-scratch/
+
+# Local Linux (iSH) artifacts: built by scripts/build-ish-ios.sh
+IshKernel.xcframework
+build/ish-kernel/
+Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz
