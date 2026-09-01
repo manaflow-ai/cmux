@@ -2904,8 +2904,9 @@ final class SocketClient {
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private var authenticationPassword: String?
     /// Deferred password source invoked only after an auth-required reply.
-    private var authenticationPasswordProvider: (() -> String?)?
-    private var authenticationPasswordResolutionAttempted = false
+    var authenticationPasswordProvider: (() -> String?)?
+    var authenticationPasswordResolutionAttempted = false
+    var authenticationModeEstablished = false
     private var authenticationInProgress = false
     private var socketAuthenticated = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -3079,6 +3080,7 @@ final class SocketClient {
         authenticationPassword = password
         authenticationPasswordProvider = passwordProvider
         authenticationPasswordResolutionAttempted = false
+        authenticationModeEstablished = false
         socketAuthenticated = password == nil
     }
 
@@ -3229,41 +3231,30 @@ final class SocketClient {
             response.removeLast()
         }
         if allowAuthenticationRetry,
-           !authenticationInProgress,
-           !authenticationPasswordResolutionAttempted,
-           SocketAuthenticationChallenge.isRequired(response),
-           let authenticationPasswordProvider {
-            authenticationPasswordResolutionAttempted = true
-            if let password = authenticationPasswordProvider() {
-                authenticationPassword = password
-                socketAuthenticated = false
-                operationCompleted = true
-                return try send(
-                    command: command,
-                    responseTimeout: responseTimeout,
-                    deadline: deadline,
-                    allowAuthenticationRetry: false
-                )
-            }
+           let retriedResponse = try retryAfterAuthenticationChallenge(
+               response: response,
+               command: command,
+               operationDeadline: operationDeadline
+           ) {
+            operationCompleted = true
+            return retriedResponse
         }
+        recordCredentialFreeResponseIfNeeded(response)
         operationCompleted = true
         return response
     }
 
     func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
-        // Read the first response when a deferred credential is installed so
-        // password mode can authenticate while allow-all remains keychain-free.
-        if authenticationPassword == nil,
-           authenticationPasswordProvider != nil,
-           !authenticationPasswordResolutionAttempted,
-           !authenticationInProgress {
-            _ = try send(command: command, responseTimeout: writeTimeout)
-            return
-        }
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        if authenticationPassword != nil {
+            try authenticateIfNeeded(
+                responseTimeout: writeTimeout,
+                deadline: Date.now.addingTimeInterval(writeTimeout)
+            )
+        }
         let shouldCloseAfterSend = relayEndpoint != nil
 
         try configureSocketWriteSafety(writeTimeout)
@@ -8651,32 +8642,28 @@ struct CMUXCLI {
         deadline: Date? = nil,
         credentialResolver: SocketCredentialResolver? = nil
     ) throws {
-        try Self.authenticateSocketClientIfNeeded(
-            client,
-            explicitPassword: explicitPassword,
-            socketPath: socketPath,
-            responseTimeout: responseTimeout,
-            deadline: deadline,
-            credentialResolver: credentialResolver
-        )
-    }
-
-    static func authenticateSocketClientIfNeeded(
-        _ client: SocketClient,
-        explicitPassword: String?,
-        socketPath: String,
-        responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil,
-        credentialResolver: SocketCredentialResolver? = nil
-    ) throws {
         let resolver = credentialResolver
             ?? credentialResolutionSession.resolver(
                 explicitPassword: explicitPassword,
                 socketPath: socketPath
             )
-        let initialPassword = resolver.password(for: .initialConnection)
+        try Self.authenticateSocketClientIfNeeded(
+            client,
+            responseTimeout: responseTimeout,
+            deadline: deadline,
+            credentialResolver: resolver
+        )
+    }
+
+    static func authenticateSocketClientIfNeeded(
+        _ client: SocketClient,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil,
+        credentialResolver: SocketCredentialResolver
+    ) throws {
+        let initialPassword = credentialResolver.password(for: .initialConnection)
         let deferredProvider: (() -> String?)? = initialPassword == nil
-            ? { resolver.password(for: .authenticationRequired) }
+            ? { credentialResolver.password(for: .authenticationRequired) }
             : nil
         client.configureAuthentication(
             password: initialPassword,
@@ -15646,6 +15633,10 @@ struct CMUXCLI {
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
             explicitPassword: explicitPassword,
+            credentialResolver: credentialResolutionSession.resolver(
+                explicitPassword: explicitPassword,
+                socketPath: client.socketPath
+            ),
             workspaceId: workspaceId,
             surfaceID: surfaceID,
             sessionID: sessionID,
@@ -24486,8 +24477,6 @@ struct CMUXCLI {
             defer { feedClient.close() }
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 feedClient,
-                explicitPassword: socketPassword,
-                socketPath: socketClient.socketPath,
                 credentialResolver: credentialResolver
             )
             return try feedClient.sendV2(method: "feed.push", params: [
@@ -37007,6 +36996,7 @@ export default CMUXSessionRestore;
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
+            try oneWayClient.establishAuthenticationForOneWayIfNeeded(responseTimeout: 0.05)
             try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
         } catch {
             return
@@ -37984,7 +37974,7 @@ export default CMUXSessionRestore;
             throw CLIError(message: "Bun is required for the OpenTUI Feed")
         }
 
-        let childSocketPassword = try warmOpenTUIFeedAuthentication(
+        let childSocketPassword = warmOpenTUIFeedAuthentication(
             socketPath: socketPath,
             socketPassword: socketPassword,
             credentialResolver: credentialResolver
@@ -39689,6 +39679,7 @@ export default CMUXSessionRestore;
                     )
                 }
             } else if let client {
+                try? client.establishAuthenticationForOneWayIfNeeded(responseTimeout: 0.05)
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(

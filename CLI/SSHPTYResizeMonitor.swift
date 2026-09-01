@@ -8,6 +8,7 @@ actor SSHPTYResizeMonitor {
 
     private let socketPath: String
     private let explicitPassword: String?
+    private let credentialResolver: SocketCredentialResolver
     private let workspaceId: String
     private let surfaceID: String?
     private let sessionID: String
@@ -26,6 +27,7 @@ actor SSHPTYResizeMonitor {
     init(
         socketPath: String,
         explicitPassword: String?,
+        credentialResolver: SocketCredentialResolver? = nil,
         workspaceId: String,
         surfaceID: String?,
         sessionID: String,
@@ -35,6 +37,10 @@ actor SSHPTYResizeMonitor {
     ) {
         self.socketPath = socketPath
         self.explicitPassword = explicitPassword
+        self.credentialResolver = credentialResolver ?? SocketCredentialResolver(
+            explicitPassword: explicitPassword,
+            socketPath: socketPath
+        )
         self.workspaceId = workspaceId
         self.surfaceID = surfaceID
         self.sessionID = sessionID
@@ -184,6 +190,7 @@ actor SSHPTYResizeMonitor {
         let sessionID = self.sessionID
         let attachmentID = self.attachmentID
         let attachmentToken = self.attachmentToken
+        let credentialResolver = self.credentialResolver
         // SocketClient is synchronous; run the bounded RPC off the actor executor.
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
@@ -195,6 +202,7 @@ actor SSHPTYResizeMonitor {
                     sessionID: sessionID,
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
+                    credentialResolver: credentialResolver,
                     size: size
                 ))
             }
@@ -209,6 +217,7 @@ actor SSHPTYResizeMonitor {
         sessionID: String,
         attachmentID: String,
         attachmentToken: String,
+        credentialResolver: SocketCredentialResolver,
         size: (cols: Int, rows: Int)
     ) -> Bool {
         var params: [String: Any] = [
@@ -229,9 +238,8 @@ actor SSHPTYResizeMonitor {
             try resizeClient.connectWithoutRetry(responseTimeout: Self.resizeResponseTimeout)
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 resizeClient,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath,
-                responseTimeout: Self.resizeResponseTimeout
+                responseTimeout: Self.resizeResponseTimeout,
+                credentialResolver: credentialResolver
             )
             _ = try resizeClient.sendV2(
                 method: "workspace.remote.pty_resize",

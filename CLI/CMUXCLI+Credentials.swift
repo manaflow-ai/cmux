@@ -10,23 +10,27 @@ extension CMUXCLI {
         socketPath: String,
         socketPassword: String?,
         credentialResolver: SocketCredentialResolver?
-    ) throws -> String? {
+    ) -> String? {
         guard let credentialResolver else { return socketPassword }
         let client = SocketClient(path: socketPath)
         defer { client.close() }
-        try client.connect()
-        try authenticateClientIfNeeded(
-            client,
-            explicitPassword: socketPassword,
-            socketPath: socketPath,
-            responseTimeout: 2,
-            credentialResolver: credentialResolver
-        )
-        _ = try client.sendV2(
-            method: "feed.list",
-            params: ["pending_only": true],
-            responseTimeout: 2
-        )
-        return credentialResolver.resolvedPassword ?? socketPassword
+        do {
+            try client.connect()
+            try authenticateClientIfNeeded(
+                client,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: 2,
+                credentialResolver: credentialResolver
+            )
+            _ = try client.sendV2(
+                method: "feed.list",
+                params: ["pending_only": true],
+                responseTimeout: 2
+            )
+            return credentialResolver.resolvedPassword ?? socketPassword
+        } catch {
+            return socketPassword
+        }
     }
 }

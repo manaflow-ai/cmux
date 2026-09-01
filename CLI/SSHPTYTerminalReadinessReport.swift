@@ -66,8 +66,6 @@ struct SSHPTYTerminalReadinessReport: Sendable {
             guard authenticationTimeout > 0 else { return .transientFailure }
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 reportingClient,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath,
                 responseTimeout: authenticationTimeout,
                 deadline: deadline,
                 credentialResolver: credentialResolver

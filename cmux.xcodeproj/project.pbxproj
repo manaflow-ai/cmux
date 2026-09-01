@@ -2388,6 +2388,7 @@
 		C11218000000000000000023 /* SocketAuthenticationChallenge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000021 /* SocketAuthenticationChallenge.swift */; };
 		5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */; };
 		5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
+		C11218000000000000000042 /* SocketClient+LazyAuthentication.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000041 /* SocketClient+LazyAuthentication.swift */; };
 		A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10052000000000000000001 /* SocketClient+StartupWait.swift */; };
 		A7984AD10000000000000001 /* SocketConfigurationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
@@ -5474,6 +5475,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C11218000000000000000021 /* SocketAuthenticationChallenge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketAuthenticationChallenge.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiter.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
+		C11218000000000000000041 /* SocketClient+LazyAuthentication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketClient+LazyAuthentication.swift"; sourceTree = "<group>"; };
 		A10052000000000000000001 /* SocketClient+StartupWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketClient+StartupWait.swift"; sourceTree = "<group>"; };
 		A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConfigurationLifecycleTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
@@ -8643,6 +8645,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C11218000000000000000011 /* SocketCredentialResolver.swift */,
 				C11218000000000000000021 /* SocketAuthenticationChallenge.swift */,
 				C11218000000000000000031 /* CMUXCLI+Credentials.swift */,
+				C11218000000000000000041 /* SocketClient+LazyAuthentication.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -12082,6 +12085,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				C11218000000000000000022 /* SocketAuthenticationChallenge.swift in Sources */,
+				C11218000000000000000042 /* SocketClient+LazyAuthentication.swift in Sources */,
 				A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */,
 				C11218000000000000000012 /* SocketCredentialResolver.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,

@@ -28,9 +28,9 @@ enum SocketCredentialSource: Equatable {
 /// Resolves socket credentials in precedence order, only consulting deferred
 /// sources after the server requires authentication.
 ///
-/// `@unchecked Sendable` is safe for the CLI handoff: each resolver is used by
-/// one synchronous socket-auth flow, and the readiness task receives that same
-/// flow's resolver only after the owning CLI setup has finished using it.
+/// `@unchecked Sendable` is safe for the CLI handoff because every mutable
+/// resolution field is guarded by ``resolutionLock``; source closures are
+/// immutable and invoked while that lock is held.
 final class SocketCredentialResolver: @unchecked Sendable {
     typealias KeychainPasswordProvider = (_ services: [String]) -> String?
 
@@ -47,6 +47,11 @@ final class SocketCredentialResolver: @unchecked Sendable {
     private let socketPath: String
     private let filePasswordProvider: () -> String?
     private let keychainPasswordProvider: KeychainPasswordProvider
+    // The resolver is shared by synchronous CLI and detached readiness paths.
+    // Security's lookup and SocketClient's send are synchronous, so an actor
+    // hop cannot preserve one-shot ordering here; this lock guards only the
+    // once-per-session state publication and source invocation.
+    private let resolutionLock = NSLock()
     private var resolutionState = ResolutionState.unresolved
 
     /// Creates a resolver with injectable file and keychain sources.
@@ -83,6 +88,8 @@ final class SocketCredentialResolver: @unchecked Sendable {
 
     /// The source selected so far, or the immediate source without forcing a deferred read.
     var source: SocketCredentialSource? {
+        resolutionLock.lock()
+        defer { resolutionLock.unlock() }
         switch resolutionState {
         case .unresolved:
             if explicitPassword != nil { return .explicit }
@@ -96,6 +103,8 @@ final class SocketCredentialResolver: @unchecked Sendable {
     /// The resolved password when a deferred demand has completed, without
     /// starting a new lookup.
     var resolvedPassword: String? {
+        resolutionLock.lock()
+        defer { resolutionLock.unlock() }
         switch resolutionState {
         case .unresolved:
             return immediatePassword
@@ -121,6 +130,8 @@ final class SocketCredentialResolver: @unchecked Sendable {
 
     /// Resolves and memoizes the complete credential chain.
     func resolve() -> String? {
+        resolutionLock.lock()
+        defer { resolutionLock.unlock() }
         switch resolutionState {
         case let .resolved(password, _):
             return password
@@ -179,13 +190,6 @@ final class SocketCredentialResolver: @unchecked Sendable {
         socketPath: String,
         environment: [String: String]
     ) -> String? {
-        if let tag = normalized(environment["CMUX_TAG"]) {
-            let scoped = sanitizeScope(tag)
-            if !scoped.isEmpty {
-                return scoped
-            }
-        }
-
         let candidate = URL(fileURLWithPath: socketPath).lastPathComponent
         let prefixes = ["cmux-debug-", "cmux-"]
         for prefix in prefixes {
@@ -193,26 +197,11 @@ final class SocketCredentialResolver: @unchecked Sendable {
             let start = candidate.index(candidate.startIndex, offsetBy: prefix.count)
             let end = candidate.index(candidate.endIndex, offsetBy: -".sock".count)
             guard start < end else { continue }
-            let scoped = sanitizeScope(String(candidate[start..<end]))
-            if !scoped.isEmpty {
+            if let scoped = SocketPathMarkerFiles.sanitizeSocketSlug(String(candidate[start..<end])) {
                 return scoped
             }
         }
-        return nil
-    }
-
-    private static func sanitizeScope(_ raw: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
-        let mappedScalars = raw.lowercased().unicodeScalars.map { scalar -> Character in
-            allowed.contains(scalar) ? Character(scalar) : "."
-        }
-        var normalizedScope = String(mappedScalars)
-        normalizedScope = normalizedScope.replacingOccurrences(
-            of: "\\.+",
-            with: ".",
-            options: .regularExpression
-        )
-        return normalizedScope.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return normalized(environment["CMUX_TAG"]).flatMap(SocketPathMarkerFiles.sanitizeSocketSlug)
     }
 
     private static func loadFromKeychain(services: [String]) -> String? {
@@ -259,10 +248,18 @@ final class SocketCredentialResolutionSession {
     }
 
     func resolver(explicitPassword: String?, socketPath: String) -> SocketCredentialResolver {
+        if explicitPassword != nil {
+            // Explicit passwords are per-call inputs. Never reuse a resolver
+            // carrying a different secret from an earlier route.
+            return SocketCredentialResolver(
+                explicitPassword: explicitPassword,
+                socketPath: socketPath,
+                environment: environment
+            )
+        }
         // A CLI invocation has one credential policy per socket route. Keep
-        // secrets out of the cache key; the resolver itself owns the value.
-        let policyKey = explicitPassword == nil ? "implicit" : "explicit"
-        let key = "\(socketPath)\u{1f}\(policyKey)"
+        // the resolver itself owns any deferred secret.
+        let key = socketPath
         if let existing = resolvers[key] {
             return existing
         }

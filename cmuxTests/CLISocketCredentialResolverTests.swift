@@ -129,13 +129,65 @@ struct CLISocketCredentialResolverTests {
     }
 
     @Test
+    func concurrentAuthenticationDemandsShareOneResolution() {
+        let keychainCounter = CallCounter()
+        let resolver = resolver(
+            keychainPassword: "keychain-password",
+            keychainCounter: keychainCounter
+        )
+
+        DispatchQueue.concurrentPerform(iterations: 8) { _ in
+            _ = resolver.password(for: .authenticationRequired)
+        }
+
+        #expect(keychainCounter.value == 1)
+    }
+
+    @Test
+    func socketPathScopeWinsOverMismatchedEnvironmentTag() {
+        let services = SocketCredentialResolver.keychainServices(
+            socketPath: "/tmp/cmux-debug-target.tag.sock",
+            environment: ["CMUX_TAG": "different-tag"]
+        )
+
+        #expect(
+            services == [
+                "com.cmuxterm.app.socket-control.target-tag",
+                "com.cmuxterm.app.socket-control",
+            ]
+        )
+    }
+
+    @Test
+    func explicitResolverInputsAreNotReusedAcrossSecrets() {
+        let session = SocketCredentialResolutionSession(environment: [:])
+        let first = session.resolver(
+            explicitPassword: "first-password",
+            socketPath: "/tmp/cmux.sock"
+        )
+        let second = session.resolver(
+            explicitPassword: "second-password",
+            socketPath: "/tmp/cmux.sock"
+        )
+
+        #expect(first !== second)
+        #expect(second.immediatePassword == "second-password")
+    }
+
+    @Test
     func allowAllResponsesNeverDemandCredentials() {
         #expect(!SocketAuthenticationChallenge.isRequired("PONG"))
         #expect(!SocketAuthenticationChallenge.isRequired(#"{"id":"1","ok":true,"result":{}}"#))
         #expect(SocketAuthenticationChallenge.isRequired("ERROR: Authentication required — send auth <password> first"))
+        #expect(!SocketAuthenticationChallenge.isRequired("ERROR: Cloud VM access requires sign-in"))
         #expect(
             SocketAuthenticationChallenge.isRequired(
-                #"{"id":"1","ok":false,"error":{"code":"auth_required","message":"Authentication required"}}"#
+                #"{"id":"1","ok":false,"error":{"code":"auth_required","message":"Authentication required. Send auth <password> first."}}"#
+            )
+        )
+        #expect(
+            !SocketAuthenticationChallenge.isRequired(
+                #"{"id":"1","ok":false,"error":{"code":"auth_required","message":"Cloud VM access requires sign-in. Run `cmux auth login`, then retry."}}"#
             )
         )
     }
