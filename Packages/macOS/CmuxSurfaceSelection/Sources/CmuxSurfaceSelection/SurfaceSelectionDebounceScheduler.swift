@@ -19,6 +19,7 @@ public final class SurfaceSelectionDispatchTimerScheduler: SurfaceSelectionDebou
         owner.fire()
     }
 
+    /// Creates an idle scheduler with no pending deadline.
     public init() {}
 
     public func schedule(after delay: Duration, _ action: @escaping @MainActor () -> Void) {

@@ -1,9 +1,14 @@
 /// Broadcasts terminal selection changes without sharing an accessibility
 /// notification iterator with other consumers.
 public final class TerminalSelectionChangeSignal: Sendable {
+    /// An async stream that yields once for each accepted selection-change request.
+    ///
+    /// The stream buffers at most the newest pending signal so a slow consumer
+    /// cannot accumulate an unbounded notification backlog.
     public let events: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
 
+    /// Creates a signal with a newest-value, single-element buffering policy.
     public nonisolated init() {
         let (events, continuation) = AsyncStream.makeStream(
             of: Void.self,
@@ -13,6 +18,10 @@ public final class TerminalSelectionChangeSignal: Sendable {
         self.continuation = continuation
     }
 
+    /// Requests delivery of one selection-change signal.
+    ///
+    /// Returns `true` when the signal was enqueued (or replaced the buffered
+    /// newest signal), and `false` after the stream has been finished.
     @discardableResult
     public nonisolated func request() -> Bool {
         switch continuation.yield(()) {
@@ -25,6 +34,7 @@ public final class TerminalSelectionChangeSignal: Sendable {
         }
     }
 
+    /// Finishes the stream and prevents subsequent requests from being delivered.
     public nonisolated func finish() {
         continuation.finish()
     }
