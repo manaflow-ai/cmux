@@ -48,6 +48,13 @@
     "description": "Ghostty 기반 무료 오픈 소스 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환. 세로 탭, 알림 링, 분할 패널, socket API 지원.",
     "ogDescription": "AI 코딩 에이전트를 위한 무료 오픈 소스 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환."
   },
+  "authError": {
+    "emailUnverifiedTitle": "계속하려면 이메일을 인증하세요",
+    "emailUnverifiedBody": "처음 가입할 때 사용한 방법으로 로그인한 다음, 이 로그인 방법을 사용하기 전에 이메일을 인증하세요.",
+    "genericTitle": "로그인을 완료할 수 없습니다",
+    "genericBody": "다시 시도해 주세요. 문제가 계속되면 지원팀에 문의하세요.",
+    "backToSignIn": "로그인으로 돌아가기"
+  },
   "common": {
     "downloadForMac": "Mac용 다운로드",
     "viewOnGitHub": "GitHub에서 보기",

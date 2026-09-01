@@ -110,6 +110,13 @@
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
     "ogDescription": "無料・オープンソースのAIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
+  "authError": {
+    "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
+    "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "genericTitle": "サインインを完了できませんでした",
+    "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
+    "backToSignIn": "サインインに戻る"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
