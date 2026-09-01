@@ -56,10 +56,13 @@ public struct AgentLaunchCommand: Codable, Equatable, Sendable {
     /// is a positive rejection that must fail closed for resume and fork.
     public var isRejectedCapture: Bool {
         guard arguments.isEmpty else { return false }
+        if let rejectionReason {
+            return rejectionReason != .argvUnavailable
+        }
         if source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "rejected" {
             return true
         }
-        return rejectionReason.map { $0 != .argvUnavailable } ?? false
+        return false
     }
 
     /// Creates a structured captured launch.

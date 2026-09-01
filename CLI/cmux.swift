@@ -2009,6 +2009,10 @@ final class ClaudeHookSessionStore {
                 && (!existingHasArguments
                     || launchCommand.rejectionReason == nil
                     || launchCommand.rejectionReason == .sanitizerRejectedArgv)
+            let incomingDefaultCanFillMissingArgv = incomingSource == "default"
+                && !existingHasArguments
+                && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil
+            let incomingEnvironmentCanFillMissingArgv = incomingHasEnvironment && !existingHasArguments
             // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
             // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
             // captured) only when we don't already hold an argv-bearing one — so the durable store
@@ -2016,7 +2020,10 @@ final class ClaudeHookSessionStore {
             // earlier capture to an env-only stub. A legacy source-only rejection and the sanitizer's
             // explicit rejection retain their historical replacement behavior; newly classified
             // rejection grounds do not erase a richer argv capture.
-            if incomingHasArguments || incomingRejectedCaptureCanReplaceExisting || (incomingSource == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
+            if incomingHasArguments
+                || incomingRejectedCaptureCanReplaceExisting
+                || incomingDefaultCanFillMissingArgv
+                || incomingEnvironmentCanFillMissingArgv {
                 record.launchCommand = launchCommand
             } else if let verificationHome = normalizeOptional(launchCommand.verificationHome),
                       var existingLaunchCommand = record.launchCommand,
