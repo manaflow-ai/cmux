@@ -778,8 +778,7 @@ struct AgentLaunchSanitizerTests {
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: customKimiProfile,
                 workingDirectory: nil,
-                agentKind: "kimi",
-                builtInAgentKind: nil,
+                agentKind: nil,
                 removeAllWorkingDirectoryOptions: true
             ) == customKimiProfile
         )

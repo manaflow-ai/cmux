@@ -576,8 +576,7 @@ struct AgentResumeCommandBuilder {
             sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: commandParts,
                 workingDirectory: nil,
-                agentKind: kind.rawValue,
-                builtInAgentKind: workingDirectoryOptionPolicyBuiltInKind,
+                agentKind: workingDirectoryOptionPolicyBuiltInKind,
                 removeAllWorkingDirectoryOptions: true
             )
         } else {
@@ -585,8 +584,7 @@ struct AgentResumeCommandBuilder {
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
                     workingDirectory: directory,
-                    agentKind: kind.rawValue,
-                    builtInAgentKind: workingDirectoryOptionPolicyBuiltInKind
+                    agentKind: workingDirectoryOptionPolicyBuiltInKind
                 )
             }
         }

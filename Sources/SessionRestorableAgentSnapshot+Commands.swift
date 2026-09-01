@@ -137,8 +137,7 @@ extension SessionRestorableAgentSnapshot {
         candidate.arguments = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
             from: candidate.arguments,
             workingDirectory: nil,
-            agentKind: kind.rawValue,
-            builtInAgentKind: workingDirectoryOptionPolicyBuiltInKind,
+            agentKind: workingDirectoryOptionPolicyBuiltInKind,
             removeAllWorkingDirectoryOptions: true
         )
         candidate.workingDirectory = nil

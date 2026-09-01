@@ -508,8 +508,7 @@ extension TerminalController {
             command.arguments = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: command.arguments,
                 workingDirectory: nil,
-                agentKind: normalizedKind,
-                builtInAgentKind: builtInAgentKind,
+                agentKind: builtInAgentKind,
                 removeAllWorkingDirectoryOptions: true
             )
             command.workingDirectory = nil
