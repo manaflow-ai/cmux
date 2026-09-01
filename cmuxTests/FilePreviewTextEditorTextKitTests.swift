@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import CmuxFoundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -205,38 +206,64 @@ struct FilePreviewTextEditorTextKitTests {
     }
 
     @Test("typography synchronization does not publish stale editor text")
-    func editorTypographySynchronizationSuppressesTextChanges() {
-        let panel = ObservableTextEditingPanelSpy(textContent: "fresh")
-        let editor = FilePreviewTextEditor<ObservableTextEditingPanelSpy>(
-            panel: panel,
-            isVisibleInUI: true,
-            themeBackgroundColor: .white,
-            themeForegroundColor: .black,
-            drawsBackground: true
-        )
-        let coordinator = editor.makeCoordinator()
-        let textView = SavingTextView.makeFilePreviewTextView()
-        textView.string = "stale"
-        textView.panel = panel
-        textView.delegate = coordinator
+    func editorTypographySynchronizationSuppressesTextChanges() throws {
+        let defaults = UserDefaults.standard
+        try withPreservedUserDefaults(keys: [
+            FilePreviewFontSizeSettings.key,
+            FilePreviewFontFamilySettings.key,
+            FilePreviewLineHeightSettings.key,
+        ]) {
+            defaults.set(17, forKey: FilePreviewFontSizeSettings.key)
+            defaults.set("Helvetica", forKey: FilePreviewFontFamilySettings.key)
+            defaults.set(1.5, forKey: FilePreviewLineHeightSettings.key)
 
-        coordinator.withPanelUpdate {
-            textView.string = panel.textContent
-            textView.configurePreviewTypography(
-                fontFamily: "Helvetica",
-                defaultFontSize: 17,
-                lineHeight: 1.5
+            let panel = ObservableTextEditingPanelSpy(textContent: "fresh")
+            let editor = FilePreviewTextEditor<ObservableTextEditingPanelSpy>(
+                panel: panel,
+                isVisibleInUI: true,
+                themeBackgroundColor: .white,
+                themeForegroundColor: .black,
+                drawsBackground: true
             )
-            textView.applyCurrentPreviewFont()
-            textView.applyCurrentPreviewLineHeight()
-            coordinator.textDidChange(
-                Notification(name: NSText.didChangeNotification, object: textView)
+            let hostingView = NSHostingView(rootView: editor)
+            hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+            let window = NSWindow(
+                contentRect: NSRect(x: -4000, y: -4000, width: 320, height: 240),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.contentView = hostingView
+            defer {
+                window.contentView = nil
+                window.close()
+            }
+
+            hostingView.layoutSubtreeIfNeeded()
+            let scrollView = try #require(Self.firstDescendant(ofType: NSScrollView.self, in: hostingView))
+            let textView = try #require(scrollView.documentView as? SavingTextView)
+            let delegate = textView.delegate
+            textView.delegate = nil
+            textView.string = "stale"
+            textView.delegate = delegate
+
+            // Re-render the actual representable. Its updateNSView path must
+            // replace stale editor text while the delegate guard suppresses the
+            // notification emitted by that replacement.
+            hostingView.rootView = editor
+            hostingView.layoutSubtreeIfNeeded()
+
+            #expect(textView.string == "fresh")
+            #expect(panel.textContent == "fresh")
+            #expect(panel.updateCount == 0)
+            #expect(textView.font?.familyName?.localizedCaseInsensitiveCompare("Helvetica") == .orderedSame)
+            #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+            #expect(
+                (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)
+                    .map { abs($0.lineHeightMultiple - 1.5) < 0.01 } == true
             )
         }
-
-        #expect(textView.string == "fresh")
-        #expect(panel.textContent == "fresh")
-        #expect(panel.updateCount == 0)
     }
 
     @Test("zoomed editor keeps its override across matching and later default changes")
@@ -591,6 +618,18 @@ struct FilePreviewTextEditorTextKitTests {
             }
         }
         try body()
+    }
+
+    private static func firstDescendant<ViewType: NSView>(ofType type: ViewType.Type, in root: NSView) -> ViewType? {
+        for subview in root.subviews {
+            if let match = subview as? ViewType {
+                return match
+            }
+            if let match = firstDescendant(ofType: type, in: subview) {
+                return match
+            }
+        }
+        return nil
     }
 
     private static func controlKChord(secondKey: String, secondKeyCode: UInt16) -> StoredShortcut {
