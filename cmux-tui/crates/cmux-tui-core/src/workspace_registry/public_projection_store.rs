@@ -211,7 +211,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         let mut agents = self.durable_agents(terminal, state)?;
         agents.retain(|agent| {
-            !(agent.source == "hook" && agent.state == "done")
+            (agent.source != "hook" || agent.state != "done")
                 && !agent
                     .source_session
                     .as_deref()
