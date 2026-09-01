@@ -75,8 +75,19 @@ final class PhonePushSerialDeliveryQueue {
     }
 
     func restore(_ envelopes: [PhonePushRequestEnvelope]) {
-        let restored = Self.normalized(envelopes + pending)
-        pending = Array(restored.suffix(capacity))
+        if let inFlight = pending.first, inFlightCorrelationID != nil {
+            // The first slot is already committed to the sender. Restored
+            // work joins behind it; otherwise a rebind during an in-flight
+            // stop would mistake the restored head for the request on the wire.
+            let tail = Self.normalized(
+                envelopes + Array(pending.dropFirst())
+            )
+            let retainedTailCount = max(0, capacity - 1)
+            pending = [inFlight] + Array(tail.suffix(retainedTailCount))
+        } else {
+            let restored = Self.normalized(envelopes + pending)
+            pending = Array(restored.suffix(capacity))
+        }
         publishPending()
         beginDrainIfNeeded()
     }
@@ -112,10 +123,14 @@ final class PhonePushSerialDeliveryQueue {
     /// queue after the handshake rebinds every envelope.
     func stop() {
         isStarted = false
+        guard inFlightCorrelationID == nil else {
+            // Let a request already committed to the wire finish. The drain
+            // checks `isStarted` before taking the next slot, so newly queued
+            // nil-target work remains parked without a cancellation race.
+            return
+        }
         drainGeneration = UUID()
         drainTask?.cancel()
-        // Leave the in-flight marker until the cancelled drain exits so a
-        // rebind cannot rewrite the request whose sender is still awaiting.
     }
 
     func cancelAll() {
@@ -175,7 +190,8 @@ final class PhonePushSerialDeliveryQueue {
     }
 
     private func drain(generation: UUID) async {
-        while generation == drainGeneration,
+        while isStarted,
+              generation == drainGeneration,
               !Task.isCancelled,
               let envelope = pending.first {
             inFlightCorrelationID = envelope.correlationID
