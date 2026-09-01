@@ -2991,17 +2991,14 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn scoped_cwd_rejects_symlink_components_before_spawn() {
+    fn scoped_cwd_resolves_symlink_components_before_spawn() {
         let root = TestDirectory::new("cwd-symlink");
         let target = root.path.join("target");
         let link = root.path.join("link");
         std::fs::create_dir(&target).unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
-        let error = match scoped_cwd(Some(link.to_str().unwrap()), &root.path, None, None) {
-            Ok(_) => panic!("symlink cwd must be rejected"),
-            Err(error) => error,
-        };
-        assert_eq!(error, "cwd is not accessible");
+        let resolved = scoped_cwd(Some(link.to_str().unwrap()), &root.path, None, None).unwrap();
+        assert_eq!(resolved.path, std::fs::canonicalize(target).unwrap());
     }
 
     #[test]
