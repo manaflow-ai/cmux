@@ -79,8 +79,10 @@ final class MacPairedMacBackupPublisher {
         observeTask?.cancel()
         authObserveTask?.cancel()
         publishSequence &+= 1
+        // Keep the cancelled handle until it settles. URLSession cancellation
+        // is cooperative, and dropping this reference would let the next
+        // configuration start a request concurrently with the old one.
         publishTask?.cancel()
-        publishTask = nil
         observeTask = nil
         authObserveTask = nil
         lastPublishedRoutes = []

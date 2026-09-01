@@ -208,8 +208,10 @@ import Testing
         )
 
         #expect(result == .failed)
-        #expect(store.connectionErrorGuidance?.localizedCaseInsensitiveContains("latest") == true)
-        #expect(store.connectionErrorGuidance?.localizedCaseInsensitiveContains("iPhone") == true)
+        // The production text is localized and varies by distribution lane;
+        // compare the semantic category projection instead of English words.
+        #expect(store.connectionError == MobilePairingFailureCategory.unrecognizedVersion.message)
+        #expect(store.connectionErrorGuidance == MobilePairingFailureCategory.unrecognizedVersion.guidance)
     }
 
     private func makeStore(

@@ -15,11 +15,17 @@ import Testing
     ])
     func canonicalMacQRIsAcceptedByEveryOfficialVariant(
         bundleIdentifier: String
-    ) {
-        #expect(
-            CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)?.isRelease
-                == true
+    ) throws {
+        let variantScheme = try #require(
+            CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)?.rawValue
         )
+        #expect(variantScheme.hasPrefix("cmux-ios-"))
+        #expect(MobilePairingScannerPolicy.acceptsCode(
+            variantScheme + "://attach?v=2&r=100.64.0.5:58465"
+        ))
+        // The one canonical Mac QR is intentionally independent of the
+        // installed variant; the variant-specific assertion above proves each
+        // registered namespace still remains accepted too.
         #expect(MobilePairingScannerPolicy.acceptsCode(
             "cmux-ios-com.cmux.app://attach?v=2&r=100.64.0.5:58465"
         ))
