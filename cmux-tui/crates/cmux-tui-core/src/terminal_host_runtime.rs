@@ -9253,22 +9253,13 @@ mod unix {
         #[test]
         fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            assert_eq!(
-                snapshot_cwd(&term, Some("/spawn")),
-                Some("file://localhost/spawn".into())
-            );
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file://localhost/spawn".into()));
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(
-                snapshot_cwd(&term, Some("/spawn")),
-                Some("file://localhost/spawn".into())
-            );
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file://localhost/spawn".into()));
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(
-                snapshot_cwd(&term, Some("/spawn")),
-                Some("file://localhost/spawn".into())
-            );
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file://localhost/spawn".into()));
             assert_eq!(snapshot_cwd(&term, Some("file:///spawn")), None);
         }
 
