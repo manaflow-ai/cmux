@@ -39,6 +39,42 @@ struct CmuxConfigReviewRegressionTests {
         }
     }
 
+    @Test func nonObjectActionValuesAreReportedWithoutCrashing() throws {
+        let json = #"{"actions":{"scalar":"not an action"}}"#
+        let result = try CmuxConfigFile.decodeToleratingInvalidActions(from: Data(json.utf8))
+
+        #expect(result.config.actions.isEmpty)
+        #expect(result.actionIssues.contains { issue in
+            issue.path == "actions.scalar"
+        })
+    }
+
+    @Test func tolerantDecoderFormatsNestedArrayIndices() throws {
+        let json = """
+        {
+          "actions": {
+            "bad": {
+              "type": "workspace",
+              "workspace": {
+                "layout": {
+                  "direction": "horizontal",
+                  "children": [
+                    { "pane": { "surfaces": [] } },
+                    { "pane": { "surfaces": [{ "type": "terminal" }] } }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+        let result = try CmuxConfigFile.decodeToleratingInvalidActions(from: Data(json.utf8))
+
+        #expect(result.actionIssues.contains { issue in
+            issue.path.contains("children[0]")
+        })
+    }
+
     @Test func runtimeDecoderAndDoctorValidatorRejectInvalidActionValues() throws {
         let cases: [(name: String, action: String, path: String)] = [
             (
@@ -78,6 +114,21 @@ struct CmuxConfigReviewRegressionTests {
         #expect(throws: (any Error).self) {
             try CmuxConfigFile.decodeToleratingInvalidActions(from: Data(json.utf8))
         }
+    }
+
+    @Test func validatorCollectsIndependentActionAndSectionIssues() throws {
+        let actionObject = try jsonObject(
+            #"{"actions":{"bad":{"type":"command","command":"echo","target":"invalid","shortcut":"bare","icon":{"type":"unknown"}}}}"#
+        )
+        let actionPaths = Set(CmuxConfigValidator().validate(jsonObject: actionObject).map(\.path))
+        #expect(actionPaths.contains("actions.bad.target"))
+        #expect(actionPaths.contains("actions.bad.shortcut"))
+        #expect(actionPaths.contains("actions.bad.icon.type"))
+
+        let sectionObject = try jsonObject(#"{"actions":"not an object","commands":{}}"#)
+        let sectionPaths = Set(CmuxConfigValidator().validate(jsonObject: sectionObject).map(\.path))
+        #expect(sectionPaths.contains("actions"))
+        #expect(sectionPaths.contains("commands"))
     }
 
     @Test func unmodifiedChordSecondStrokeMatchesRuntimeParser() throws {
