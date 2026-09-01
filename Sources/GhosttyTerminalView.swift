@@ -727,6 +727,11 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private var deferredDefaultBackgroundNotificationSource: String?
+    /// A committed reload defers the legacy global notification until its
+    /// surface fan-out settles. Keep that obligation across a queued
+    /// replacement so a replacement that fails to commit cannot strand the
+    /// previously committed configuration without its final notification.
+    private var configurationReloadNotificationPending = false
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
     @MainActor private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
@@ -1970,8 +1975,9 @@ class GhosttyApp {
         var didCommitConfiguration = false
         performConfigurationReload(
             request,
-            didCommit: {
+            didCommit: { [weak self] in
                 didCommitConfiguration = true
+                self?.configurationReloadNotificationPending = true
                 request.commitCompletions.forEach { $0(true) }
             },
             didFailToCommit: {
@@ -1993,12 +1999,15 @@ class GhosttyApp {
             // revision for a surface that still has the previous native theme.
             // A superseded transaction must not publish this event: its
             // replacement owns the final notification after its own fanout.
-            if didCommitConfiguration, !shouldScheduleNext {
+            if !shouldScheduleNext,
+               (didCommitConfiguration
+                || self.configurationReloadNotificationPending) {
                 NotificationCenter.default.post(
                     name: .ghosttyConfigDidReload,
                     object: nil
                 )
                 flushDeferredDefaultBackgroundNotification()
+                self.configurationReloadNotificationPending = false
             }
             request.completions.forEach { $0() }
             self.drainPendingAppearanceSynchronization()
