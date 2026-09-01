@@ -5685,7 +5685,7 @@ impl Mux {
     /// Sends a diagnostic to the frontend-owned sink without writing to a
     /// frontend terminal. One message is retained when startup races sink
     /// installation.
-    fn report_internal_diagnostic(&self, message: impl Into<String>) {
+    pub(crate) fn report_internal_diagnostic(&self, message: impl Into<String>) {
         let message = message.into();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             reporter(&message);

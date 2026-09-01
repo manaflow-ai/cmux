@@ -112,13 +112,14 @@ fn report_agent(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value,
             expected_revision(&request.fields)?,
             &mutation,
         )
-        .map_err(agent_report_operation_error)?;
+        .map_err(|error| agent_report_operation_error(mux.as_ref(), error))?;
     mutation_result(mux, commit.result, commit.revision, commit.replayed)
 }
 
 /// Keep registry and projection implementation details out of the public
 /// agent-report response while retaining typed client errors.
-fn agent_report_operation_error(error: anyhow::Error) -> ResourceError {
+fn agent_report_operation_error(mux: &Mux, error: anyhow::Error) -> ResourceError {
+    let detail = format!("{error:#}");
     let public = error
         .downcast_ref::<ResourceError>()
         .cloned()
@@ -127,6 +128,7 @@ fn agent_report_operation_error(error: anyhow::Error) -> ResourceError {
         return public;
     }
 
+    mux.report_internal_diagnostic(format!("agent.report internal failure: {detail}"));
     ResourceError::operation_failed("agent.report", "could not read agent state", json!({}))
 }
 
@@ -822,12 +824,13 @@ mod tests {
 
     #[test]
     fn typed_agent_report_operation_failures_are_redacted() {
+        let mux = Mux::new_for_test("aux-agent-error-privacy-typed", SurfaceOptions::default());
         let error = anyhow::Error::new(ResourceError::operation_failed(
             "registry.lookup",
             "projection revision 42 is inconsistent with database row",
             json!({"revision":"42","database":"internal"}),
         ));
-        let public = agent_report_operation_error(error);
+        let public = agent_report_operation_error(mux.as_ref(), error);
 
         assert_eq!(public.code, "operation.failed");
         assert_eq!(public.message, "could not read agent state");
