@@ -681,6 +681,9 @@ mod detach {
     }
 }
 
+// Unix uses the `setsid`-based implementation above. Keep this fallback
+// explicitly limited to targets that are neither Unix nor Windows, where no
+// common process-group detachment API is available.
 #[cfg(not(unix))]
 mod detach {
     use std::io::{Read, Write};
@@ -750,7 +753,7 @@ mod detach {
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
 
-    #[cfg(not(windows))]
+    #[cfg(all(not(unix), not(windows)))]
     fn configure_detached_command(_command: &mut Command) {}
 }
 
