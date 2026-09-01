@@ -3018,9 +3018,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// replaced session ID here instead of dropping it; the queue is drained
     /// idempotently whenever a session controller is available again.
     var pendingRemotePTYSessionCleanupIDs: Set<String> = []
+    #if DEBUG
     /// Test seam for ``drainPendingRemotePTYSessionCleanups()``: intercepts
     /// the daemon-side close so tests can observe exactly-once semantics.
     var remotePTYSessionCloseForTesting: ((String) throws -> Void)?
+    #endif
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false

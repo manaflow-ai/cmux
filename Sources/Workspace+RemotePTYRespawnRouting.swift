@@ -122,6 +122,7 @@ extension Workspace {
     /// session, so retrying would spin forever.
     func drainPendingRemotePTYSessionCleanups() {
         guard !pendingRemotePTYSessionCleanupIDs.isEmpty else { return }
+        #if DEBUG
         if let closeForTesting = remotePTYSessionCloseForTesting {
             let sessionIDs = pendingRemotePTYSessionCleanupIDs
             pendingRemotePTYSessionCleanupIDs.removeAll()
@@ -134,6 +135,7 @@ extension Workspace {
             }
             return
         }
+        #endif
         guard let controller = remotePTYSessionCleanupController() else { return }
         let sessionIDs = pendingRemotePTYSessionCleanupIDs
         pendingRemotePTYSessionCleanupIDs.removeAll()
