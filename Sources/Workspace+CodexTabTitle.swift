@@ -62,12 +62,13 @@ extension Workspace {
         }
 
         let titleUpdate: String? = existing.title == presentation.title ? nil : presentation.title
-        let animationUpdate: Bool? = if isTerminal {
-            // A mirror can inherit a stale loading bit from the local tab it
-            // replaced. Explicitly clear it while keeping browser loading
-            // state outside this terminal-only projection.
-            let desiredLoading = !isRemoteTmuxMirror && presentation.isAnimating
-            existing.isLoading == desiredLoading ? nil : desiredLoading
+        // A mirror can inherit a stale loading bit from the local tab it
+        // replaced. Explicitly clear it while keeping browser loading state
+        // outside this terminal-only projection.
+        let animationUpdate: Bool? = if isTerminal, !isRemoteTmuxMirror {
+            existing.isLoading == presentation.isAnimating ? nil : presentation.isAnimating
+        } else if isTerminal {
+            existing.isLoading ? false : nil
         } else {
             nil
         }
