@@ -1046,7 +1046,8 @@ pub const JournalProducerManifest = struct {
                     u8,
                     permission[required_permission_prefix.len..],
                     self.namespace_,
-                )) {
+                ))
+            {
                 has_required_permission = true;
             }
         }
@@ -9476,7 +9477,7 @@ fn decodeJournalProducerListResult(
     value: raw.wire.Value,
 ) !JournalProducerListResult {
     const object = try detailObject(value);
-    try ensureOnlyFields(object, &.{ "producers" });
+    try ensureOnlyFields(object, &.{"producers"});
     const raw_producers = switch (object.get("producers") orelse
         return error.MissingField) {
         .array => |items| items.items,
@@ -18492,9 +18493,7 @@ test "generic journal producer values preserve the userland wire contract" {
         try objectString(manifest_object, "namespace"),
     );
     try std.testing.expect(manifest_object.get("namespace_") == null);
-    const encoded_event = switch (
-        manifest_object.get("events") orelse return error.MissingField
-    ) {
+    const encoded_event = switch (manifest_object.get("events") orelse return error.MissingField) {
         .array => |items| items.items[0],
         else => return error.ExpectedArray,
     };
