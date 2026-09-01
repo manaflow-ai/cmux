@@ -18150,11 +18150,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func browserCaptureShortcutMatcherSnapshot(
         for context: MainWindowContext?
     ) -> KeyboardShortcutSettingsObserver.BrowserCaptureMatcherSnapshot {
-        let configStore = context?.cmuxConfigStore
+        let configOwner = context?.cmuxConfigStore
         return KeyboardShortcutSettingsObserver.shared.browserCaptureMatcherSnapshot(
             settingsStoreID: ObjectIdentifier(KeyboardShortcutSettings.settingsFileStore),
-            configStoreID: configStore.map(ObjectIdentifier.init),
-            configRevision: configStore?.configRevision,
+            configStoreID: configOwner.map(ObjectIdentifier.init),
+            configRevision: configOwner?.configRevision,
             configuredShortcuts: {
                 configuredCmuxShortcutActions(for: context).compactMap { action in
                     guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
