@@ -465,6 +465,29 @@ import Testing
         #expect(fixture.clears.count == 1)
     }
 
+    @Test func authoritativeDuplicateSignalsResolveByExactID() {
+        let fixture = Fixture()
+
+        for body in ["first delivery", "retry delivery"] {
+            fixture.coordinator.stage(
+                workspaceID: Self.workspaceID,
+                surfaceID: Self.surfaceID,
+                title: "Codex",
+                subtitle: "Permission",
+                body: body,
+                approvalID: Self.firstApprovalID,
+                isDerived: false
+            )
+        }
+        fixture.scheduler.runAll()
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+
+        #expect(fixture.clears.count == 1)
+    }
+
     @Test func staleSurfaceFanoutIsBounded() {
         let fixture = Fixture()
         let count = AgentApprovalNotificationCoordinator.maxTrackedPanes + 32
