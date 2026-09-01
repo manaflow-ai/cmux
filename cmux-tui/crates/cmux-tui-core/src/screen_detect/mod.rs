@@ -31,6 +31,11 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
+/// Foreground identity is coalesced per terminal, with process-id changes
+/// forcing an immediate refresh. The cached identity is never used while a
+/// refresh is due, so stale metadata fails closed.
+pub(crate) const PROCESS_LOOKUP_INTERVAL_MS: u64 = 500;
+
 const PENDING_RETRY_INTERVAL_MS: u64 = 1_000;
 /// Re-emit an unchanged screen state so it can claim a terminal after the
 /// hook owner's freshness window expires.
@@ -62,9 +67,17 @@ struct TrackedTerminal {
     evaluated_revision: Option<u64>,
     /// When the screen was last evaluated (the max-interval pacer anchor).
     last_evaluated_at: Option<Instant>,
+    /// Start of the current continuously-changing revision burst. The
+    /// max-interval pacer is allowed only inside such a burst, never on the
+    /// first revision after an idle gap.
+    changing_since: Option<Instant>,
+    last_revision_at: Option<Instant>,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
+    /// Last process metadata refresh and PID observed for this terminal.
+    last_process_lookup_at: Option<Instant>,
+    last_process_id: Option<u32>,
     /// Whether the cached foreground identity came from a successful lookup.
     foreground_identity_known: bool,
     /// Earliest time to retry a failed viewport read.
@@ -86,10 +99,9 @@ pub(crate) struct ScreenDetectTracker {
 impl ScreenDetectTracker {
     /// Record the terminal's current output revision. Returns `true` when
     /// the screen changed since the last evaluation and either output has
-    /// been quiet for the debounce window or the max-interval pacer is due
-    /// (a never-quiet spinner screen still evaluates at 1Hz; quiescence
-    /// alone starves detection during the exact phase it must report). A
-    /// `true` return arms the pacer: the caller always evaluates then.
+    /// been quiet for the debounce window or a continuously changing screen
+    /// has reached the max-interval pacer. A revision after an idle gap always
+    /// starts with the quiet debounce.
     pub(crate) fn observe_revision(
         &mut self,
         terminal_id: &str,
@@ -98,8 +110,19 @@ impl ScreenDetectTracker {
     ) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
         if entry.quiet_since.is_none() || entry.revision != revision {
+            let continuously_changing = entry.last_revision_at.is_some_and(|last| {
+                now.duration_since(last).as_millis() as u64 <= QUIESCENCE_DEBOUNCE_MS
+            });
+            entry.changing_since = continuously_changing
+                .then(|| entry.changing_since.or(entry.last_revision_at).unwrap_or(now));
             entry.revision = revision;
             entry.quiet_since = Some(now);
+            entry.last_revision_at = Some(now);
+        } else {
+            entry.changing_since = None;
+            // A stable revision breaks the continuous-change burst. The
+            // next revision must earn the debounce window again.
+            entry.last_revision_at = None;
         }
         if entry.evaluated_revision == Some(entry.revision) {
             return false;
@@ -112,8 +135,11 @@ impl ScreenDetectTracker {
         }
         let quiet_since = entry.quiet_since.expect("anchored above");
         let quiesced = now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
-        let overdue = entry.last_evaluated_at.is_none_or(|evaluated_at| {
-            now.duration_since(evaluated_at).as_millis() as u64 >= MAX_EVAL_INTERVAL_MS
+        let overdue = entry.changing_since.is_some_and(|changing_since| {
+            now.duration_since(changing_since).as_millis() as u64 >= MAX_EVAL_INTERVAL_MS
+                && entry.last_evaluated_at.is_none_or(|evaluated_at| {
+                    now.duration_since(evaluated_at).as_millis() as u64 >= MAX_EVAL_INTERVAL_MS
+                })
         });
         if quiesced || overdue {
             entry.last_evaluated_at = Some(now);
@@ -149,16 +175,30 @@ impl ScreenDetectTracker {
     }
 
     /// Return true when process metadata should be refreshed for this
-    /// terminal. Identity is correctness-critical: a process can `exec` in
-    /// place while retaining its PID, so caches cannot establish freshness.
+    /// terminal. PID changes invalidate the cached identity immediately;
+    /// unchanged PIDs refresh on a bounded cadence to catch in-place `exec`.
     pub(crate) fn should_lookup_foreground_agent(
         &mut self,
         terminal_id: &str,
-        _process_id: Option<u32>,
-        _now: Instant,
+        process_id: Option<u32>,
+        now: Instant,
     ) -> bool {
-        self.terminals.entry(terminal_id.to_string()).or_default();
-        true
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        if entry.last_process_id != process_id {
+            entry.last_process_id = process_id;
+            entry.last_process_lookup_at = Some(now);
+            entry.foreground_identity_known = false;
+            entry.foreground_agent = None;
+            entry.emitted = None;
+            return true;
+        }
+        let due = entry.last_process_lookup_at.is_none_or(|last| {
+            now.duration_since(last).as_millis() as u64 >= PROCESS_LOOKUP_INTERVAL_MS
+        });
+        if due {
+            entry.last_process_lookup_at = Some(now);
+        }
+        due
     }
 
     pub(crate) fn foreground_agent(&self, terminal_id: &str) -> Option<String> {
@@ -359,6 +399,21 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_tracker_does_not_bypass_debounce_after_idle_gap() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        assert!(tracker.observe_revision("term_a", 1, at(0)));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+        // The old screen is idle for longer than the max-interval pacer.
+        assert!(!tracker.observe_revision("term_a", 2, at(2_000)));
+        // The new revision must still complete the 300 ms quiet debounce.
+        assert!(!tracker.observe_revision("term_a", 2, at(2_200)));
+        assert!(tracker.observe_revision("term_a", 2, at(2_300)));
+    }
+
+    #[test]
     fn screen_detect_tracker_paces_evaluation_of_never_quiet_spinner_screens() {
         let mut tracker = ScreenDetectTracker::default();
         let t0 = Instant::now();
@@ -480,10 +535,15 @@ mod tests {
         let mut tracker = ScreenDetectTracker::default();
         let t0 = Instant::now();
         assert!(tracker.should_lookup_foreground_agent("term_a", Some(10), t0));
-        assert!(tracker.should_lookup_foreground_agent(
+        assert!(!tracker.should_lookup_foreground_agent(
             "term_a",
             Some(10),
             t0 + Duration::from_millis(1),
+        ));
+        assert!(tracker.should_lookup_foreground_agent(
+            "term_a",
+            Some(10),
+            t0 + Duration::from_millis(PROCESS_LOOKUP_INTERVAL_MS),
         ));
         assert!(tracker.should_lookup_foreground_agent(
             "term_a",

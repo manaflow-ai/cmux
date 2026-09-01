@@ -115,9 +115,9 @@ pub(crate) fn scan(
         let mut unknown = false;
         let mut identity_edge = false;
         let mut detected_manifest = None;
-        // Identity refreshes happen at the event boundary. A process can
-        // `exec` in place while retaining its PID, so interval or PID caches
-        // would allow stale attribution.
+        // Identity refreshes are coalesced per terminal. A PID change clears
+        // the cached identity immediately, and the bounded refresh catches
+        // same-PID `exec` replacements without a lookup on every tick.
         match resolver(&surface) {
             ProcessLookup::Name(name) => {
                 let manifest = manifests.identify(&name);
