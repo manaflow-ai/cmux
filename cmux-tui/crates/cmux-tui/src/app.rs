@@ -5350,6 +5350,10 @@ struct SelectionClickSequence {
     anchor: (u16, u64),
     dragged: bool,
     tracked_anchor: Option<TrackedScreenPoint>,
+    /// Generation of the semantic selection currently installed on `App`.
+    /// `None` means the range cannot be safely copied because no stable
+    /// terminal snapshot was available.
+    semantic_content_generation: Option<u64>,
     semantic_range: Option<GenerationTaggedSelectionRange>,
     /// A failed semantic press keeps `tracked_anchor` alive for a same-press
     /// cell drag, but it must not keep the repeat count alive for the next
@@ -16802,6 +16806,8 @@ impl App {
             && sequence.surface == surface
         {
             sequence.mode = SelectionMode::Cell;
+            sequence.semantic_content_generation = None;
+            sequence.semantic_range = None;
         }
     }
 
@@ -16956,6 +16962,7 @@ impl App {
             anchor: cell,
             dragged: false,
             tracked_anchor,
+            semantic_content_generation: None,
             semantic_range: None,
             repeatable: true,
         });
@@ -17003,7 +17010,20 @@ impl App {
             && sequence.surface == surface
         {
             sequence.mode = mode;
+            sequence.semantic_content_generation = None;
         }
+    }
+
+    fn current_semantic_selection_generation(&self, surface: SurfaceId) -> Option<u64> {
+        let Some(sequence) =
+            self.selection_click_sequence.as_ref().filter(|sequence| sequence.surface == surface)
+        else {
+            return None;
+        };
+        let Some(expected) = sequence.semantic_content_generation else {
+            return None;
+        };
+        (self.terminal_content_generation(surface) == Some(expected)).then_some(expected)
     }
 
     fn update_semantic_selection(
@@ -17131,6 +17151,19 @@ impl App {
             });
         } else {
             self.semantic_selection_cache = None;
+        }
+        if let Some(sequence) =
+            self.selection_click_sequence.as_mut().filter(|sequence| sequence.surface == surface)
+        {
+            if let (Some(content_generation), Some(range)) = (content_generation, range) {
+                sequence.semantic_content_generation = Some(content_generation);
+                if mode == SelectionMode::Word {
+                    sequence.semantic_range =
+                        Some(GenerationTaggedSelectionRange { content_generation, range });
+                }
+            } else {
+                sequence.semantic_content_generation = None;
+            }
         }
         match range {
             Some(range) => self.replace_selection(Some(Self::selection_from_range(surface, range))),
@@ -22389,6 +22422,10 @@ impl App {
                                                 },
                                             },
                                         });
+                                    sequence.semantic_content_generation = Some(content_generation);
+                                } else {
+                                    sequence.semantic_content_generation = None;
+                                    sequence.semantic_range = None;
                                 }
                             }
                             self.replace_selection(Some(selection));
@@ -22703,6 +22740,13 @@ impl App {
         let semantic_select = was_select
             && self.selection_mode_surface.is_some()
             && self.selection_mode != SelectionMode::Cell;
+        let semantic_content_generation = if semantic_select {
+            self.selection_mode_surface
+                .and_then(|surface| self.current_semantic_selection_generation(surface))
+        } else {
+            None
+        };
+        let stale_semantic_selection = semantic_select && semantic_content_generation.is_none();
         let selection_dragged = was_select
             && self.selection_click_sequence.as_ref().is_some_and(|sequence| sequence.dragged);
         let was_drag = self.drag.is_some();
@@ -22711,6 +22755,13 @@ impl App {
             // Keep the sequence through the gesture so word and line drags use
             // their semantic mode, then make the next press a plain click.
             self.reset_selection_click_sequence();
+        }
+        if stale_semantic_selection {
+            // The selected endpoints are screen coordinates. If terminal
+            // content changed while the button was held, copying them could
+            // return unrelated text from the new generation.
+            self.replace_selection(None);
+            return Ok(RenderAction::Draw);
         }
         if !was_select {
             return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
@@ -22723,7 +22774,7 @@ impl App {
         }
         match self.selection {
             Some(sel) if sel.anchor != sel.head || semantic_select => {
-                self.copy_selection(sel);
+                self.copy_selection(sel, semantic_content_generation);
                 Ok(RenderAction::Draw)
             }
             _ => {
@@ -22736,13 +22787,25 @@ impl App {
 
     /// Copy the selected text to the host clipboard via OSC 52 (the host
     /// terminal owns the clipboard; this works over SSH too).
-    fn copy_selection(&mut self, sel: Selection) {
+    fn copy_selection(&mut self, sel: Selection, expected_content_generation: Option<u64>) {
+        if let Some(expected) = expected_content_generation
+            && self.terminal_content_generation(sel.surface) != Some(expected)
+        {
+            self.replace_selection(None);
+            return;
+        }
         let Some(surface) = self.session.surface(sel.surface) else { return };
         let (start, end) = sel.range();
         let Some(text) = surface.with_terminal(|t| t.selection_text_absolute(start, end)).flatten()
         else {
             return;
         };
+        if let Some(expected) = expected_content_generation
+            && self.terminal_content_generation(sel.surface) != Some(expected)
+        {
+            self.replace_selection(None);
+            return;
+        }
         if text.is_empty() {
             return;
         }
