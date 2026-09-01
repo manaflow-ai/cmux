@@ -1578,7 +1578,7 @@ impl PipeIoByteBudget {
         Self { retained: AtomicUsize::new(0), limit: limit.max(1) }
     }
 
-    fn try_reserve(&self, bytes: usize) -> bool {
+    pub(crate) fn try_reserve(&self, bytes: usize) -> bool {
         if bytes == 0 {
             return true;
         }

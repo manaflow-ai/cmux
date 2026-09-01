@@ -133,7 +133,12 @@ pub fn run(
     let byte_budget = Arc::new(PipeIoByteBudget::new(EVENT_QUEUE_MAX_BYTES));
     // Install before attach so the initial replay cannot be missed.
     let tap_token =
-        remote.install_pipe_io_tap(surface, sender.clone(), lifecycle_sender, byte_budget.clone());
+        remote.install_pipe_io_tap(
+            surface,
+            sender.clone(),
+            lifecycle_sender.clone(),
+            byte_budget.clone(),
+        );
     let tap_guard = PipeIoTapGuard { remote: remote.as_ref(), token: tap_token };
     let handle = match remote.try_attach_pipe_io(surface, Some((cols.max(1), rows.max(1)))) {
         Ok(PipeIoSurfaceAttach::Attached) => {
