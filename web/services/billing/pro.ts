@@ -140,11 +140,10 @@ export function normalizePersonalPlan(
   hasActiveStripeSubscription: boolean,
   hasActiveFounderSubscription = false,
 ): NormalizedPersonalPlan {
-  const metadataRecord = proMetadataRecord(metadata);
-  const hasExplicitVmOverride = hasManualVmOverride(metadataRecord);
-  const isFounder =
-    hasFounderEditionEntitlement(metadata) ||
-    (!hasExplicitVmOverride && hasActiveFounderSubscription);
+  const isFounder = hasEffectiveFounderEntitlement(
+    metadata,
+    hasActiveFounderSubscription,
+  );
   const isPro = hasActiveStripeSubscription || isFounder;
   return {
     planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
@@ -162,6 +161,22 @@ export function hasFounderEditionEntitlement(raw: unknown): boolean {
   const override = normalizedPlanValue(metadata.cmuxVmPlan);
   const source = override ?? normalizedPlanValue(metadata.cmuxPlan);
   return source === FOUNDERS_PLAN_ID;
+}
+
+/**
+ * Resolve the permanent Founder source while honoring an explicit, non-Founder
+ * `cmuxVmPlan` override. This shared predicate keeps UI and side effects in
+ * agreement about the effective entitlement.
+ */
+export function hasEffectiveFounderEntitlement(
+  raw: unknown,
+  hasActiveFounderSubscription = false,
+): boolean {
+  const metadata = proMetadataRecord(raw);
+  return (
+    hasFounderEditionEntitlement(metadata) ||
+    (!hasManualVmOverride(metadata) && hasActiveFounderSubscription)
+  );
 }
 
 /**
@@ -470,16 +485,15 @@ export async function isTestflightEligible(
 ): Promise<boolean> {
   if (!user.id) return false;
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
-  const hasExplicitVmOverride = hasManualVmOverride(metadata);
   if (hasFounderEditionEntitlement(metadata)) return true;
   if (options.hasActiveStripeSubscription) {
     if (await options.hasActiveStripeSubscription(user.id)) return true;
-    return !hasExplicitVmOverride && options.hasActiveFounderSubscription
+    return !hasManualVmOverride(metadata) && options.hasActiveFounderSubscription
       ? options.hasActiveFounderSubscription(user.id)
       : false;
   }
   const state = await activeStripeSubscriptionState(user.id);
-  return state.regular || (!hasExplicitVmOverride && state.founder);
+  return state.regular || hasEffectiveFounderEntitlement(metadata, state.founder);
 }
 
 export function metadataPlanId(raw: unknown): string | null {

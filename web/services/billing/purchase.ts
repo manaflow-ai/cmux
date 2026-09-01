@@ -28,7 +28,7 @@ import {
   PRO_PLAN_ID,
   type ProMetadataJson,
   TEAM_PLAN_ID,
-  hasFounderEditionEntitlement,
+  hasEffectiveFounderEntitlement,
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
@@ -1268,6 +1268,7 @@ export async function claimPendingProBilling(
   const claims = await repository.findClaims(email, user.id);
   let claimed = 0;
   let founderClaimed = false;
+  let regularClaimed = false;
 
   for (const claim of claims) {
     if (claim.claimedByUserId) continue;
@@ -1278,7 +1279,11 @@ export async function claimPendingProBilling(
     const transfer = await repository.transferClaim(claim, user.id);
     if (!transfer) continue;
     claimed += 1;
-    founderClaimed ||= (transfer.founderSubscriptionIds?.length ?? 0) > 0;
+    const founderSubscriptionIds = new Set(transfer.founderSubscriptionIds ?? []);
+    founderClaimed ||= founderSubscriptionIds.size > 0;
+    regularClaimed ||= transfer.subscriptionIds.some(
+      (subscriptionId) => !founderSubscriptionIds.has(subscriptionId),
+    );
     await clearTransferredSourceProMetadata(transfer, db, stackApp);
     await syncTransferredStripeOwnership(transfer, dependencies.stripeClient ?? stripe);
   }
@@ -1307,8 +1312,14 @@ export async function claimPendingProBilling(
         ) {
           return;
         }
-        await syncProPlanMetadata(freshUser, true, lease);
-        entitlementReady = true;
+        const founderAccess = hasEffectiveFounderEntitlement(
+          freshUser.clientReadOnlyMetadata,
+          founderPurchasePending,
+        );
+        if (regularClaimed || founderAccess) {
+          await syncProPlanMetadata(freshUser, true, lease);
+        }
+        entitlementReady = founderAccess;
       },
     });
     if (founderPurchasePending && entitlementReady) {
@@ -2025,8 +2036,10 @@ export async function applySubscriptionUpdate(
       // A recurring Pro cancellation must not clear the shared metadata marker
       // while a separate paid Founder row still grants permanent access.
       const founderEntitlementActive = !isActive &&
-        (hasFounderEditionEntitlement(freshUser.clientReadOnlyMetadata) ||
-          await hasActiveFounderSubscription(db, lockedResult.stackUserId));
+        hasEffectiveFounderEntitlement(
+          freshUser.clientReadOnlyMetadata,
+          await hasActiveFounderSubscription(db, lockedResult.stackUserId),
+        );
       effectiveIsActive = isActive || founderEntitlementActive;
       const currentMetadata = await syncProPlanMetadata(
         freshUser,

@@ -31,7 +31,10 @@ let stripeConfigured = true;
 let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
 let customerRows: { id: string }[] = [{ id: "cus_123" }];
-let stripeSubscriptionRows: { id: string }[] = [];
+let stripeSubscriptionRows: Array<{
+  id: string;
+  raw?: Record<string, unknown> | null;
+}> = [];
 
 const getUser = mock(async (options?: unknown) => {
   const or =
@@ -100,7 +103,10 @@ describe("billing portal route", () => {
     returnNullUser = signedInUser;
     anonymousIfExistsUser = null;
     customerRows = [{ id: "cus_123" }];
-    stripeSubscriptionRows = [];
+    stripeSubscriptionRows = [{
+      id: "sub_123",
+      raw: { metadata: { app: "cmux", plan: "pro" } },
+    }];
     signedInUser.selectedTeam = null;
     signedInUser.clientReadOnlyMetadata = {};
     signedInUser.listTeams.mockClear();
@@ -132,6 +138,7 @@ describe("billing portal route", () => {
 
   test("does not open the Stripe portal for a Founder-only entitlement", async () => {
     signedInUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+    stripeSubscriptionRows = [];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),
@@ -190,7 +197,7 @@ describe("billing portal route", () => {
     expect(response.headers.get("location")).toBe(
       "https://billing.stripe.com/session/test",
     );
-    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(getUser).toHaveBeenCalledTimes(3);
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
     expect(getUser).toHaveBeenCalledWith({ or: "anonymous-if-exists[deprecated]" });
     expect(createPortalSession).toHaveBeenCalledWith({
@@ -263,6 +270,7 @@ describe("billing portal route", () => {
 
   test("redirects users without a Stripe customer row to billing unavailable", async () => {
     customerRows = [];
+    stripeSubscriptionRows = [];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),

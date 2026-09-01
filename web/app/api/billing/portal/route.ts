@@ -50,15 +50,31 @@ export async function GET(request: NextRequest) {
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
     // Resolve once before looking up the customer so a verified account can
     // consume a parked anonymous Pro checkout before requesting management.
-    const personalStatus = await resolveProPlanStatus(user);
+    const canClaimPendingBilling =
+      !team &&
+      user.isAnonymous !== true &&
+      user.isRestricted !== true &&
+      user.primaryEmailVerified === true &&
+      Boolean(user.primaryEmail?.trim());
+    const personalStatus = await resolveProPlanStatus(
+      user,
+      canClaimPendingBilling
+        ? {
+            claimPendingBilling: (candidate) =>
+              import("../../../../services/billing/purchase").then(
+                ({ claimPendingProBilling }) =>
+                  claimPendingProBilling(
+                    candidate as never,
+                    { stackApp: getStackServerApp() },
+                  ),
+              ),
+          }
+        : {},
+    );
     // The personal portal is available only for a real Stripe-managed
     // subscription. Permanent Founder/VM entitlements (and stale customer
     // rows on Free accounts) must not expose subscription controls.
-    if (
-      !team &&
-      personalStatus.isPro &&
-      personalStatus.billingManagement !== "stripe"
-    ) {
+    if (!team && personalStatus.billingManagement !== "stripe") {
       return pricingRedirect(request, "unavailable");
     }
     const customerId = team?.id
