@@ -18,8 +18,9 @@ usage() {
 usage: scripts/verify-ish-ios-artifacts.sh [--build] [--device-only]
 
 Verify the generated IshKernel.xcframework and checked-in Alpine fakefs.
---build provisions Meson/Ninja and runs scripts/build-ish-ios.sh when the
-xcframework is missing, malformed, or lacks a requested slice.
+--build provisions Meson/Ninja plus LLVM clang/lld and runs
+scripts/build-ish-ios.sh when the xcframework is missing, malformed, or lacks
+a requested slice.
 --device-only accepts an xcframework without the simulator arm64 slice.
 EOF
 }
@@ -81,7 +82,7 @@ if [[ "$BUILD" -eq 1 && "$NEEDS_BUILD" -eq 1 ]]; then
     exit 1
   }
   [[ -f "$ROOT/scripts/ensure-ish-build-tools.sh" && -x "$ROOT/scripts/ensure-ish-build-tools.sh" ]] || {
-    echo "error: scripts/ensure-ish-build-tools.sh is missing; install Meson and Ninja with 'brew install meson ninja'" >&2
+    echo "error: scripts/ensure-ish-build-tools.sh is missing; install Meson, Ninja, LLVM, and lld with 'brew install meson ninja llvm lld'" >&2
     exit 1
   }
   echo "==> IshKernel.xcframework is missing or lacks the requested slice; building it"
