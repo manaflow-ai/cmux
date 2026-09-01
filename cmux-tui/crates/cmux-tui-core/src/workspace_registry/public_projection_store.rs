@@ -473,7 +473,7 @@ impl WorkspaceRegistry {
                 ) = row?;
                 validate_identifier("frontend", &frontend)?;
                 validate_identifier("projection scope", &scope)?;
-                FrontendProjectionPublicId::parse(subject_key)?;
+                FrontendProjectionPublicId::parse(subject_key.as_str())?;
                 anyhow::ensure!(
                     schema_version
                         == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
