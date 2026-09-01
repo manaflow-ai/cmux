@@ -5,14 +5,21 @@ import Foundation
 public struct SentryNoiseFilter: Sendable {
     public init() {}
 
-    /// Returns `true` when a structured CLI protocol code denotes an expected
-    /// app-lifecycle response rather than an actionable failure.
+    /// Returns `true` when a structured CLI protocol code is the lifecycle
+    /// `unavailable` code; callers must also inspect its message/context before
+    /// suppressing telemetry because the code is reused by actionable failures.
     ///
     /// The check is intentionally narrow: only the protocol's `unavailable`
     /// code is lifecycle noise. Other codes, including `not_found` and
     /// `internal_error`, remain eligible for Sentry reporting.
     public func isExpectedCLIErrorCode(_ code: String?) -> Bool {
         normalizedCLIErrorCode(code) == "unavailable"
+    }
+
+    /// Returns `true` when an `unavailable` code carries known app-lifecycle
+    /// text rather than an actionable service failure.
+    public func isExpectedCLIAppLifecycleError(code: String?, message: String) -> Bool {
+        isExpectedCLIErrorCode(code) && isExpectedCLIProtocolLifecycleMessage(message)
     }
 
     /// Returns `true` for protocol outcomes that reflect routine caller or
@@ -36,7 +43,6 @@ public struct SentryNoiseFilter: Sendable {
              "not_found",
              "not_supported",
              "protected",
-             "unavailable",
              "unrecognized_method",
              "unsupported",
              "validation_failed":
@@ -53,12 +59,7 @@ public struct SentryNoiseFilter: Sendable {
     /// unavailable. The caller must still restrict this check to an agent-hook
     /// stage; this method does not classify arbitrary Sentry messages.
     public func isExpectedLegacyCLIAppLifecycleMessage(_ text: String) -> Bool {
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.hasPrefix("tabmanager not available") ||
-            normalized.hasPrefix("error: tabmanager not available") ||
-            normalized.hasPrefix("unavailable: tabmanager not available") ||
-            normalized.hasPrefix("clierror: tabmanager not available") ||
-            normalized.hasPrefix("clierror: unavailable:")
+        isExpectedCLIProtocolLifecycleMessage(text)
     }
 
     /// Returns `true` for an expected CLI socket lifecycle failure.
@@ -90,10 +91,11 @@ public struct SentryNoiseFilter: Sendable {
         }
         // A protocol code is authoritative. Do not let a localized/legacy
         // message override an explicitly actionable code.
-        if let normalizedCode = normalizedCLIErrorCode(cliErrorCode) {
-            return normalizedCode == "unavailable" || socketPathMissing
-        }
         if socketPathMissing { return true }
+        if let normalizedCode = normalizedCLIErrorCode(cliErrorCode) {
+            return normalizedCode == "unavailable"
+                && isExpectedCLIProtocolLifecycleMessage(message)
+        }
         return isExpectedCLIProtocolLifecycleMessage(message) ||
             isExpectedCLISocketTransportMessage(message) ||
             isExpectedCLISocketLifecycleRaceMessage(message) ||
@@ -169,13 +171,23 @@ public struct SentryNoiseFilter: Sendable {
 
     private func isExpectedCLIProtocolLifecycleMessage(_ text: String) -> Bool {
         let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // V2 formats protocol failures as `unavailable: <message>`. Keep this
-        // legacy fallback behind ``isExpectedCLISocketTransportFailure`` so a
-        // free-form Sentry message cannot be mistaken for a socket response.
-        return normalized.hasPrefix("unavailable:") ||
+        // Only lifecycle-specific text is expected noise. The protocol also
+        // uses `unavailable` for actionable service failures, so the code alone
+        // is never sufficient to suppress an event.
+        return normalized.hasPrefix("tabmanager not available") ||
             normalized.hasPrefix("error: tabmanager not available") ||
-            normalized.hasPrefix("clierror: unavailable:") ||
-            normalized.hasPrefix("clierror: tabmanager not available")
+            normalized.hasPrefix("unavailable: tabmanager not available") ||
+            normalized.hasPrefix("clierror: tabmanager not available") ||
+            normalized.hasPrefix("clierror: unavailable: tabmanager not available") ||
+            normalized.hasPrefix("appdelegate not available") ||
+            normalized.hasPrefix("error: appdelegate not available") ||
+            normalized.hasPrefix("unavailable: appdelegate not available") ||
+            normalized.hasPrefix("control context unavailable") ||
+            normalized.hasPrefix("unavailable: control context unavailable") ||
+            normalized.hasPrefix("workspace context is unavailable") ||
+            normalized.hasPrefix("unavailable: workspace context is unavailable") ||
+            normalized == "the app is still starting" ||
+            normalized == "cmux is still opening"
     }
 
     private func containsErrno(_ code: Int, in text: String) -> Bool {

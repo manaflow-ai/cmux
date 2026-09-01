@@ -162,7 +162,8 @@ final class CLISocketSentryTelemetry {
         data: [String: Any] = [:],
         classificationError: Error? = nil
     ) {
-        guard let classification = classify(
+        guard shouldEmit,
+              let classification = classify(
             stage: stage,
             error: error,
             data: data,
@@ -173,7 +174,11 @@ final class CLISocketSentryTelemetry {
         let errorDescription = classification.errorDescription
         let cliErrorMetadata = classification.metadata
         guard !classification.isExpected else { return }
-        let fingerprintKind = Self.fingerprintKind(for: error, message: errorDescription)
+        let fingerprintKind = Self.fingerprintKind(
+            for: classificationError ?? error,
+            message: errorDescription,
+            structuredCode: cliErrorMetadata.code
+        )
         if let fingerprintKind,
            CLISentryErrorFingerprint.throttledKinds.contains(fingerprintKind),
            !claimThrottledCaptureSlot(stage: stage, kind: fingerprintKind) {
@@ -249,13 +254,14 @@ final class CLISocketSentryTelemetry {
         data: [String: Any] = [:],
         classificationError: Error? = nil
     ) -> Bool {
-        guard let classification = classify(
+        guard shouldEmit,
+              let classification = classify(
             stage: stage,
             error: error,
             data: data,
             classificationError: classificationError
         ) else {
-            return true
+            return false
         }
         return classification.isExpected
     }
@@ -274,7 +280,10 @@ final class CLISocketSentryTelemetry {
         let isAgentHookStage = stage.hasPrefix("agent-hook-")
         let isExpectedAgentHookCLIError =
             isAgentHookStage &&
-            (noiseFilter.isExpectedCLIErrorCode(cliErrorMetadata.code) ||
+            (noiseFilter.isExpectedCLIAppLifecycleError(
+                code: cliErrorMetadata.code,
+                message: cliErrorMetadata.legacyMessage ?? errorDescription
+            ) ||
                 cliErrorMetadata.socketPathMissing)
         let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let isExpectedLegacyCLIError: Bool
@@ -316,8 +325,12 @@ final class CLISocketSentryTelemetry {
     /// v2 protocol error code when the app replied with one, else the known
     /// transport failure class of the rendered message, else `nil` so the
     /// event keeps Sentry's default grouping within its stage.
-    private static func fingerprintKind(for error: Error, message: String) -> String? {
-        if let v2Code = (error as? CLIError)?.v2Code?
+    private static func fingerprintKind(
+        for error: Error,
+        message: String,
+        structuredCode: String? = nil
+    ) -> String? {
+        if let v2Code = (structuredCode ?? (error as? CLIError)?.v2Code)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased(),
            !v2Code.isEmpty {
@@ -498,7 +511,10 @@ final class CLISocketSentryTelemetry {
             socketPathMissing: socketPathMissing
         ) ||
             (isAgentHookStage &&
-                (noiseFilter.isExpectedCLIErrorCode(cliErrorCode) || socketPathMissing)) {
+                (noiseFilter.isExpectedCLIAppLifecycleError(
+                    code: cliErrorCode,
+                    message: contextMessage
+                ) || socketPathMissing)) {
             return true
         }
 

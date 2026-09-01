@@ -27,6 +27,14 @@ import Testing
         #expect(filter.isExpectedCLIErrorCode(" unavailable "))
         #expect(!filter.isExpectedCLIErrorCode("internal_error"))
         #expect(!filter.isExpectedCLIErrorCode(nil))
+        #expect(filter.isExpectedCLIAppLifecycleError(
+            code: "unavailable",
+            message: "unavailable: TabManager not available"
+        ))
+        #expect(!filter.isExpectedCLIAppLifecycleError(
+            code: "unavailable",
+            message: "Cloud VM action could not be started"
+        ))
         #expect(filter.isExpectedCLIProtocolOutcomeCode("invalid_params"))
         #expect(filter.isExpectedCLIProtocolOutcomeCode(" not_found "))
         #expect(filter.isExpectedCLIProtocolOutcomeCode("protected"))
@@ -43,6 +51,11 @@ import Testing
         #expect(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_command",
             message: "The app is still starting",
+            cliErrorCode: "unavailable"
+        ))
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "unavailable: Cloud VM action could not be started",
             cliErrorCode: "unavailable"
         ))
         #expect(filter.isExpectedCLISocketTransportFailure(
