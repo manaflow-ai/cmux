@@ -932,6 +932,7 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
         return command.to_owned();
     }
     let mut setup: Vec<String> = vec!["set -e".to_owned()];
+    let mut initializers: Vec<String> = Vec::new();
     let mut cleanup: Vec<String> = Vec::new();
     for (index, file) in files.iter().enumerate() {
         let sanitized: String = file
@@ -944,6 +945,7 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
             .collect();
         let hint = if sanitized.is_empty() { "secret".to_owned() } else { sanitized };
         let shell_path = format!("__chatmux_file_{index}");
+        initializers.push(format!("{shell_path}="));
         cleanup
             .push(format!("if [ -n \"${{{shell_path}-}}\" ]; then rm -f -- \"${shell_path}\"; fi"));
         setup.push(format!("{shell_path}=$(mktemp \"${{TMPDIR:-/tmp}}/chatmux-{hint}.XXXXXX\")"));
@@ -956,13 +958,18 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
         setup.push(format!("export {}=\"${shell_path}\"", file.path_environment_variable,));
     }
     let cleanup_body = cleanup.join("; ");
-    setup.insert(
-        1,
+    let mut supervisor = vec![
+        "set -e".to_owned(),
         format!("__chatmux_cleanup() {{ trap '' HUP INT TERM; set +e; {cleanup_body}; }}"),
-    );
-    setup.insert(2, "trap __chatmux_cleanup 0".to_owned());
-    setup.insert(3, "trap 'exit 143' HUP INT TERM".to_owned());
-    setup.insert(4, "umask 077".to_owned());
+    ];
+    supervisor.extend(initializers);
+    supervisor.extend([
+        "trap __chatmux_cleanup 0".to_owned(),
+        "trap 'exit 143' HUP INT TERM".to_owned(),
+        "umask 077".to_owned(),
+    ]);
+    supervisor.extend(setup.into_iter().skip(1));
+    let mut setup = supervisor;
     setup.push(format!("if ( /bin/sh -c {} ); then", shell_quote(command)));
     setup.push("  __chatmux_status=$?".to_owned());
     setup.push("else".to_owned());
