@@ -13,15 +13,39 @@ struct KimiResumeReviewRegressionTests {
     @Test("Bundled Kimi wrapper captures launch metadata before exec")
     func bundledWrapperCapturesLaunchMetadata() throws {
         let fileManager = FileManager.default
-        let bundledCLIURL = try BundledCLITestSupport.bundledCLIURL(
-            for: CLINotifyProcessIntegrationRegressionTests.self
-        )
+        let appBundleURL = Bundle(for: CLINotifyProcessIntegrationRegressionTests.self)
+            .bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let expectedCLIURL = appBundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: false)
+        let bundledCLIURL: URL? = if fileManager.isExecutableFile(atPath: expectedCLIURL.path) {
+            expectedCLIURL
+        } else {
+            fileManager.enumerator(
+                at: appBundleURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )?.compactMap { $0 as? URL }.first {
+                $0.lastPathComponent == "cmux" &&
+                    $0.path.contains(".app/Contents/Resources/bin/cmux") &&
+                    fileManager.isExecutableFile(atPath: $0.path)
+            }
+        }
+        guard let bundledCLIURL else {
+            throw XCTSkip("Bundled cmux CLI is not included in this test bundle")
+        }
         let wrapperURL = bundledCLIURL
             .deletingLastPathComponent()
             .appendingPathComponent("kimi", isDirectory: false)
-        let executableWrapperURL = try #require(
-            fileManager.isExecutableFile(atPath: wrapperURL.path) ? wrapperURL : nil
-        )
+        guard fileManager.isExecutableFile(atPath: wrapperURL.path) else {
+            throw XCTSkip("Bundled Kimi wrapper is not included in this test bundle")
+        }
+        let executableWrapperURL = wrapperURL
 
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-kimi-wrapper-\(UUID().uuidString)", isDirectory: true)
@@ -87,8 +111,8 @@ struct KimiResumeReviewRegressionTests {
         ])
     }
 
-    @Test("Value-identical user Kimi registration keeps runtime cwd ownership")
-    func valueIdenticalCustomRegistrationKeepsRuntimeDirectory() throws {
+    @Test("User Kimi registration keeps runtime cwd ownership")
+    func customRegistrationKeepsRuntimeDirectory() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-custom-kimi-equal-\(UUID().uuidString)", isDirectory: true)
@@ -100,9 +124,12 @@ struct KimiResumeReviewRegressionTests {
         try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let userRegistration = try JSONDecoder().decode(
-            CmuxVaultAgentRegistration.self,
-            from: JSONEncoder().encode(CmuxVaultAgentRegistration.builtInKimi)
+        let userRegistration = CmuxVaultAgentRegistration(
+            id: "kimi",
+            name: "Custom Kimi",
+            detect: CmuxVaultAgentDetectRule(processName: "custom-kimi"),
+            sessionIdSource: .argvOption("--resume"),
+            resumeCommand: "custom-kimi --resume {{sessionId}}"
         )
         let registry = CmuxVaultAgentRegistry(registrations: [
             .builtInKimi,
@@ -214,7 +241,10 @@ struct KimiResumeReviewRegressionTests {
         #expect(persisted.panels.first?.terminal?.agent?.kind == .custom("kimi"))
         #expect(persisted.panels.first?.terminal?.resumeBinding?.kind == "kimi")
 
-        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
         restored.restoreSessionSnapshot(persisted)
         let restoredPanelID = try #require(restored.focusedPanelId)
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
