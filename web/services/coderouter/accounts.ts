@@ -172,6 +172,7 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
   }
   if (provider === "codex") {
     const idToken = boundedString(value.idToken, 32_768);
+    const chatgptAccountId = optionalBoundedString(value.chatgptAccountId, 512);
     return idToken
       ? {
         provider,
@@ -179,6 +180,7 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
         refreshToken,
         idToken,
         accountId,
+        ...(chatgptAccountId ? { chatgptAccountId } : {}),
         email,
         expiresAt,
       }

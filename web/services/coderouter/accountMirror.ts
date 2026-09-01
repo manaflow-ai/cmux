@@ -3,14 +3,15 @@
 // The app and dashboard connect AI accounts through the hosted Subrouter
 // store (`POST /api/subrouter/accounts`, fed by `cmux ai-accounts upload`),
 // while cloud machines route model traffic through the coderouter vault. This
-// module keeps the two in step for the providers the VM plane serves: a Claude
-// Max login connected through the existing path is mirrored into the vault so
-// every machine's `claude` works immediately, and removing it un-mirrors it.
-// Mirroring is best-effort — a vault outage never fails the connect.
+// module keeps the two in step: every account connected through the existing
+// path (Claude and ChatGPT logins, Anthropic and OpenAI API keys) is mirrored
+// into the vault so every machine's agents work immediately, and removing it
+// un-mirrors it. Mirroring is best-effort — a vault outage never fails the
+// connect.
 import { addAccount } from "./accounts";
 import { accountAdditionAllowed } from "./entitlement";
 import { deleteAccount, findAccountByProviderIdentity } from "./repository";
-import type { ClaudeCredential } from "./types";
+import type { CodeRouterCredential, CodeRouterProvider } from "./types";
 import type { SubrouterAccount, SubrouterAccountInput } from "../subrouter/types";
 import { captureCoderouterError } from "../errors";
 
@@ -19,30 +20,89 @@ export function mirroredProviderAccountId(subrouterAccountId: string): string {
   return `subrouter:${subrouterAccountId}`;
 }
 
+/** The vault kinds the mirror can create; un-mirroring searches all of them. */
+export const MIRRORED_PROVIDERS: readonly CodeRouterProvider[] = [
+  "claude",
+  "codex",
+  "anthropic-apikey",
+  "openai-apikey",
+];
+
 /**
- * The vault credential for a connected account, or null when the VM plane has
- * no provider for it (API-key accounts and Codex stay Subrouter-only here:
- * Codex reaches the vault through `cr add`, keyed by its ChatGPT account id).
+ * The vault credential for a connected account. Every kind the app can
+ * connect has a machine-plane mapping: Claude and ChatGPT logins become the
+ * OAuth kinds the planes refresh server-side, and provider API keys become
+ * the key kinds. The vault identity is always the app-side account id, so a
+ * disconnect can find its mirror without knowing anything provider-specific.
  */
 export function credentialForMirror(
   input: SubrouterAccountInput,
   created: SubrouterAccount,
-): ClaudeCredential | null {
-  if (input.provider !== "claude") return null;
-  const oauth = input.claudeAiOauth;
-  return {
-    provider: "claude",
-    accessToken: oauth.accessToken,
-    refreshToken: oauth.refreshToken,
-    accountId: mirroredProviderAccountId(created.id),
-    // The vault's decrypt-path parser requires a non-empty email (it doubles
-    // as the account label), so an unlabeled connect falls back to the
-    // mirrored identity rather than storing a credential it can't read back.
-    email: created.label?.trim() || input.label?.trim() ||
-      mirroredProviderAccountId(created.id),
-    expiresAt: oauth.expiresAt,
-    ...(oauth.subscriptionType ? { subscriptionType: oauth.subscriptionType } : {}),
-  };
+): CodeRouterCredential {
+  const accountId = mirroredProviderAccountId(created.id);
+  // The vault's decrypt-path parser requires a non-empty email (it doubles
+  // as the account label), so an unlabeled connect falls back to the
+  // mirrored identity rather than storing a credential it can't read back.
+  const label = created.label?.trim() || input.label?.trim() || accountId;
+  switch (input.provider) {
+    case "claude": {
+      const oauth = input.claudeAiOauth;
+      return {
+        provider: "claude",
+        accessToken: oauth.accessToken,
+        refreshToken: oauth.refreshToken,
+        accountId,
+        email: label,
+        expiresAt: oauth.expiresAt,
+        ...(oauth.subscriptionType ? { subscriptionType: oauth.subscriptionType } : {}),
+      };
+    }
+    case "codex": {
+      const tokens = input.tokens;
+      return {
+        provider: "codex",
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        idToken: tokens.idToken,
+        accountId,
+        chatgptAccountId: tokens.accountID,
+        email: jwtStringClaim(tokens.idToken, "email") ?? label,
+        // The upload carries no expiry; the access token's own `exp` claim
+        // is the truth, and a token without one is refreshed on first use.
+        expiresAt: jwtExpiryMs(tokens.accessToken) ?? Date.now(),
+      };
+    }
+    case "anthropic-apikey":
+      return { provider: "anthropic-apikey", apiKey: input.apiKey, accountId, email: label };
+    case "openai-apikey":
+      return { provider: "openai-apikey", apiKey: input.apiKey, accountId, email: label };
+  }
+}
+
+/** A JWT payload claim, read without verification (the provider verifies). */
+function jwtStringClaim(token: string, claim: string): string | null {
+  const value = jwtPayload(token)?.[claim];
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 320
+    ? value.trim()
+    : null;
+}
+
+function jwtExpiryMs(token: string): number | null {
+  const exp = jwtPayload(token)?.exp;
+  return typeof exp === "number" && Number.isFinite(exp) && exp > 0 ? exp * 1_000 : null;
+}
+
+function jwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[1]) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as unknown;
+    return decoded && typeof decoded === "object" && !Array.isArray(decoded)
+      ? (decoded as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export type MirrorDependencies = {
@@ -67,7 +127,6 @@ const defaultDependencies: MirrorDependencies = {
 export type MirrorOutcome =
   | "mirrored"
   | "refreshed"
-  | "not_applicable"
   | "limit_reached"
   | "failed";
 
@@ -81,7 +140,6 @@ export async function mirrorConnectedAccount(
   dependencies: MirrorDependencies = defaultDependencies,
 ): Promise<MirrorOutcome> {
   const credential = credentialForMirror(input.input, input.created);
-  if (!credential) return "not_applicable";
   try {
     // Mirroring must not be a way around the hosted account limit: the vault
     // applies the same gate here as on its own add endpoint.
@@ -114,11 +172,12 @@ export async function unmirrorConnectedAccount(
   dependencies: MirrorDependencies = defaultDependencies,
 ): Promise<UnmirrorOutcome> {
   try {
-    const existing = await dependencies.find(
-      input.teamId,
-      "claude",
-      mirroredProviderAccountId(input.subrouterAccountId),
-    );
+    const providerAccountId = mirroredProviderAccountId(input.subrouterAccountId);
+    let existing: Awaited<ReturnType<MirrorDependencies["find"]>> = null;
+    for (const provider of MIRRORED_PROVIDERS) {
+      existing = await dependencies.find(input.teamId, provider, providerAccountId);
+      if (existing) break;
+    }
     if (!existing) return "not_mirrored";
     const result = await dependencies.remove({
       teamId: input.teamId,

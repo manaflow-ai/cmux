@@ -14,6 +14,7 @@ import {
 import { observeModelUsage, type ModelUsage } from "./responseUsage";
 import {
   CODEX_PLANE_PROVIDERS,
+  chatgptAccountId,
   type CodeRouterCredential,
   type CodexCredential,
   type OpenAiApiKeyCredential,
@@ -390,7 +391,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
           fetch(upstreamUrl, {
             headers: {
               authorization: `Bearer ${credential.accessToken}`,
-              "chatgpt-account-id": credential.accountId,
+              "chatgpt-account-id": chatgptAccountId(credential),
               originator: "codex_cli_rs",
               "user-agent": request.headers.get("user-agent") ?? "coderouter",
             },
@@ -475,7 +476,7 @@ async function sendCodex(
     headers.set("authorization", `Bearer ${credential.apiKey}`);
   } else {
     headers.set("authorization", `Bearer ${credential.accessToken}`);
-    headers.set("chatgpt-account-id", credential.accountId);
+    headers.set("chatgpt-account-id", chatgptAccountId(credential));
     headers.set("originator", "coderouter");
   }
   return await fetch(upstream, {

@@ -247,12 +247,14 @@ function parseCredential(value: unknown): CodeRouterCredential | null {
     return null;
   }
   if (value.provider === "codex" && string(value.idToken)) {
+    if (value.chatgptAccountId !== undefined && !string(value.chatgptAccountId)) return null;
     return {
       provider: "codex",
       accessToken,
       refreshToken,
       idToken: value.idToken,
       accountId,
+      ...(value.chatgptAccountId ? { chatgptAccountId: value.chatgptAccountId } : {}),
       email,
       expiresAt,
     };

@@ -7,9 +7,9 @@ import {
   type MirrorDependencies,
 } from "../services/coderouter/accountMirror";
 
-// A Claude account connected through the existing app/dashboard path
-// (Subrouter) is mirrored into the coderouter vault the cloud machines route
-// through, and un-mirrored on removal. Never fatal to the connect itself.
+// Every account connected through the existing app/dashboard path (Subrouter)
+// is mirrored into the coderouter vault the cloud machines route through, and
+// un-mirrored on removal. Never fatal to the connect itself.
 
 const claudeInput = {
   provider: "claude" as const,
@@ -65,24 +65,66 @@ describe("credentialForMirror", () => {
       .toBe("person@example.com");
   });
 
-  test("has no vault mapping for API-key or Codex uploads", () => {
-    expect(
-      credentialForMirror(
-        { provider: "anthropic-apikey", apiKey: "sk-ant-api" },
-        { id: "k", kind: "anthropic-apikey" },
-      ),
-    ).toBeNull();
+  test("maps a connected ChatGPT login onto the vault's codex credential", () => {
+    const idToken = fakeJwt({ email: "chatgpt@example.com" });
+    const accessToken = fakeJwt({ exp: 1_800_000_000 });
     expect(
       credentialForMirror(
         {
           provider: "codex",
-          tokens: { accessToken: "a", refreshToken: "r", idToken: "i", accountID: "acct" },
+          tokens: { accessToken, refreshToken: "r", idToken, accountID: "chatgpt-acct-9" },
         },
         { id: "c", kind: "codex" },
       ),
-    ).toBeNull();
+    ).toEqual({
+      provider: "codex",
+      accessToken,
+      refreshToken: "r",
+      idToken,
+      // The vault identity is the app-side account, so a disconnect can find
+      // it; the ChatGPT account id still rides upstream.
+      accountId: "subrouter:c",
+      chatgptAccountId: "chatgpt-acct-9",
+      email: "chatgpt@example.com",
+      expiresAt: 1_800_000_000_000,
+    });
+  });
+
+  test("a ChatGPT login without readable claims falls back to the label and refreshes on first use", () => {
+    const before = Date.now();
+    const mapped = credentialForMirror(
+      {
+        provider: "codex",
+        label: "work chatgpt",
+        tokens: { accessToken: "opaque", refreshToken: "r", idToken: "opaque", accountID: "acct" },
+      },
+      { id: "c2", kind: "codex", label: null },
+    );
+    expect(mapped.provider).toBe("codex");
+    expect(mapped.email).toBe("work chatgpt");
+    if (mapped.provider === "codex") expect(mapped.expiresAt).toBeGreaterThanOrEqual(before);
+  });
+
+  test("maps provider API keys onto the key kinds", () => {
+    expect(
+      credentialForMirror(
+        { provider: "anthropic-apikey", apiKey: "sk-ant-api", label: "work" },
+        { id: "k", kind: "anthropic-apikey", label: "work" },
+      ),
+    ).toEqual({ provider: "anthropic-apikey", apiKey: "sk-ant-api", accountId: "subrouter:k", email: "work" });
+    expect(
+      credentialForMirror(
+        { provider: "openai-apikey", apiKey: "sk-openai" },
+        { id: "o", kind: "openai-apikey" },
+      ),
+    ).toEqual({ provider: "openai-apikey", apiKey: "sk-openai", accountId: "subrouter:o", email: "subrouter:o" });
   });
 });
+
+function fakeJwt(payload: Record<string, unknown>): string {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none" })}.${encode(payload)}.sig`;
+}
 
 describe("mirrorConnectedAccount", () => {
   test("adds the claude credential to the team vault", async () => {
@@ -140,7 +182,7 @@ describe("mirrorConnectedAccount", () => {
       .toBe("mirrored");
   });
 
-  test("non-claude uploads are not applicable and touch nothing", async () => {
+  test("an API key upload is mirrored as a key kind", async () => {
     const d = deps();
     const outcome = await mirrorConnectedAccount(
       {
@@ -151,8 +193,12 @@ describe("mirrorConnectedAccount", () => {
       },
       d,
     );
-    expect(outcome).toBe("not_applicable");
-    expect(d.add).not.toHaveBeenCalled();
+    expect(outcome).toBe("mirrored");
+    expect(d.add).toHaveBeenCalledWith(
+      "team-1",
+      { provider: "openai-apikey", apiKey: "sk-openai", accountId: "subrouter:o", email: "subrouter:o" },
+      { refreshExisting: true },
+    );
   });
 });
 
@@ -165,6 +211,17 @@ describe("unmirrorConnectedAccount", () => {
       .toBe("removed");
     expect(d.find).toHaveBeenCalledWith("team-1", "claude", "subrouter:sr-acct-1");
     expect(d.remove).toHaveBeenCalledWith({ teamId: "team-1", accountId: "vault-1" });
+  });
+
+  test("finds a mirror of any kind, not just Claude", async () => {
+    const find = mock(async (...args: unknown[]) =>
+      args[1] === "openai-apikey" ? { id: "vault-key", state: "active", vaultRevision: 1 } : null,
+    ) as unknown as MirrorDependencies["find"];
+    const d = deps({ find });
+    expect(await unmirrorConnectedAccount({ teamId: "team-1", subrouterAccountId: "o" }, d)).toBe("removed");
+    expect(d.remove).toHaveBeenCalledWith({ teamId: "team-1", accountId: "vault-key" });
+    expect((find as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((call) => call[1]))
+      .toEqual(["claude", "codex", "anthropic-apikey", "openai-apikey"]);
   });
 
   test("an account that was never mirrored is a no-op", async () => {

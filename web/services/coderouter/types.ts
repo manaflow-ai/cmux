@@ -27,10 +27,21 @@ export type CodexCredential = {
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly idToken: string;
+  /** The vault's dedupe identity: the ChatGPT account id, or a mirror id. */
   readonly accountId: string;
+  /**
+   * The ChatGPT account id sent upstream when `accountId` is not it (an
+   * account mirrored from the app-side store keeps the app's id as identity).
+   */
+  readonly chatgptAccountId?: string;
   readonly email: string;
   readonly expiresAt: number;
 };
+
+/** The `chatgpt-account-id` the Codex backend expects for this credential. */
+export function chatgptAccountId(credential: CodexCredential): string {
+  return credential.chatgptAccountId ?? credential.accountId;
+}
 
 export type OpenCodeGoCredential = {
   readonly provider: "opencode-go";
