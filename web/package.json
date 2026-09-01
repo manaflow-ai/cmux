@@ -124,6 +124,7 @@
     "unrs-resolver"
   ],
   "patchedDependencies": {
-    "@stackframe/stack@2.8.89": "patches/@stackframe%2Fstack@2.8.89.patch"
+    "@stackframe/stack@2.8.108": "patches/@stackframe%2Fstack@2.8.108.patch",
+    "@stackframe/stack-shared@2.8.108": "patches/@stackframe%2Fstack-shared@2.8.108.patch"
   }
 }
