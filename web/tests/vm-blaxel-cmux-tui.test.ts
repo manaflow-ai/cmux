@@ -98,7 +98,7 @@ describe("cmux-tui install and daemon commands", () => {
   });
 
   test("with the cloud layout the daemon drops to the cmux user, never for pre-layout volumes", () => {
-    const command = cmuxTuiDaemonCommand(CMUX_CLOUD_LAYOUT);
+    const command = cmuxTuiDaemonCommand(undefined, CMUX_CLOUD_LAYOUT);
     // Terminals must be non-root shells: agents refuse root
     // (`claude --dangerously-skip-permissions`), sudo is the escalation path.
     expect(command).toContain(

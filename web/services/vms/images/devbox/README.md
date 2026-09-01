@@ -36,11 +36,15 @@ the daemon:
   with its token as the `DAYTONA_SANDBOX_AUTH_KEY` query parameter, minted
   fresh per attach.
 - freestyle (beta platform, `freestyle-beta` npm alias): the baked
-  `cmux-tui-daemon` systemd unit runs the supervisor. FORWARD-COMPATIBLE
-  ONLY: the shipped freestyle driver still speaks the legacy 0.1.51 platform
-  and its cmuxd-remote transport, so this bake becomes usable when a
-  beta-SDK freestyle driver lands; until then `FREESTYLE_SANDBOX_SNAPSHOT`
-  must not point at it.
+  `cmux-tui-daemon` systemd unit runs the supervisor with
+  `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` — the beta API has no HTTP ingress to
+  arbitrary ports, so the route is the VM's stable public IPv6 straight to
+  the daemon (`ws://[ipv6]:1337/v1/link`, Noise enrollment as the session
+  gate) and the listener must be dual-stack. The freestyle driver's beta arm
+  (`drivers/freestyleBeta.ts`) serves these machines; its legacy arm keeps
+  serving the old-platform fleet, dispatched per machine on the id shape and
+  the `providerMetadata.freestylePlatform` marker. The manifest entry marks
+  beta images with `features.freestylePlatform: "beta"`.
 
 Shells spawned by the daemon run as root with HOME=/root and get the bash
 devshell (ble.sh ghost text, half-life prompt, seeded history) through the

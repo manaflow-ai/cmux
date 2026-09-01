@@ -58,6 +58,9 @@ struct MacComputerDetailView: View {
     @State private var showsForgetComputer = false
     /// Presents the revoke-failure alert so a failed Forget is never silent.
     @State private var forgetComputerFailed = false
+    /// Keep-awake status read failed for THIS Mac; drives the inline Retry.
+    @State private var caffeineStatusLoadFailed = false
+    @State private var caffeineStatusRetryID = 0
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -113,6 +116,7 @@ struct MacComputerDetailView: View {
             connectionMethodSection
             appearanceSection
             connectionSection
+            macPowerSection
             presenceSection
             routesSection
             identitySection
@@ -770,6 +774,73 @@ struct MacComputerDetailView: View {
         }
     }
 
+    // MARK: - Mac Power (keep-awake)
+
+    private var isConnectedToThisComputer: Bool {
+        connectionStatus == .connected
+    }
+
+    private var supportsCaffeineControl: Bool {
+        store.supportsCaffeineControl(macDeviceID: macDeviceID, instanceTag: instanceTag)
+    }
+
+    /// Restarts the status load whenever the identity, connection, or
+    /// capability underneath it changes, so a reconnect never shows the
+    /// previous connection's stale failure state.
+    private var caffeineLoadID: String {
+        [
+            macDeviceID,
+            instanceTag ?? "",
+            String(supportsCaffeineControl),
+            String(describing: connectionStatus),
+        ].joined(separator: ":")
+    }
+
+    /// This Mac's own keep-awake control. Keep-awake is per device: the
+    /// section reads and mutates exactly the pairing this detail shows,
+    /// whether it is the active Mac or a live secondary connection.
+    @ViewBuilder
+    private var macPowerSection: some View {
+        MobileCaffeineSettingsContent(
+            isEnabled: store.caffeineStatus(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )?.enabled,
+            isSupported: supportsCaffeineControl,
+            isConnected: isConnectedToThisComputer,
+            isBusy: store.isCaffeineMutationInFlight(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ),
+            statusLoadFailed: caffeineStatusLoadFailed,
+            onRetryStatus: {
+                caffeineStatusLoadFailed = false
+                caffeineStatusRetryID &+= 1
+            },
+            onSet: { enabled in
+                await store.setCaffeineEnabled(
+                    enabled,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            }
+        )
+        .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
+            let loadID = caffeineLoadID
+            guard isConnectedToThisComputer, supportsCaffeineControl else {
+                caffeineStatusLoadFailed = false
+                return
+            }
+            caffeineStatusLoadFailed = false
+            let didLoad = await store.refreshCaffeineStatus(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            guard !Task.isCancelled, caffeineLoadID == loadID else { return }
+            caffeineStatusLoadFailed = !didLoad
+        }
+    }
+
     @ViewBuilder
     private var presenceSection: some View {
         Section {
@@ -807,9 +878,25 @@ struct MacComputerDetailView: View {
         } header: {
             Text(L10n.string("mobile.computers.section.presence", defaultValue: "Presence (from server)"))
         } footer: {
-            Text(L10n.string("mobile.computers.presenceFooter",
-                defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature. Stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."))
+            Text(Self.presenceFooter())
         }
+    }
+
+    /// The presence-section footer, gated per distribution channel: team
+    /// builds name the DEV-only rollout precisely, while the public App Store
+    /// app explains the same missing-heartbeat case without internal
+    /// build-lane vocabulary (Guideline 2.2).
+    static func presenceFooter(buildType: MobileBuildType = .current()) -> String {
+        guard buildType.usesInternalBuildVocabulary else {
+            return L10n.string(
+                "mobile.computers.presenceFooter.official",
+                defaultValue: "Presence is the Mac's own heartbeat to the presence service. Not every Mac reports it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."
+            )
+        }
+        return L10n.string(
+            "mobile.computers.presenceFooter",
+            defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature. Stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."
+        )
     }
 
     @ViewBuilder

@@ -154,14 +154,22 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
   return `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`;
 }
 
+/** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
+export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
+
 /**
  * The daemon command every provider's supervisor runs. Launch cwd = the persistent
- * home so new terminals open there. Without a layout the daemon (and so every
- * terminal pane it spawns) runs as root with HOME=/root — the historical model,
- * still used by E2B and Daytona.
+ * home so new terminals open there. `remoteWsBind` defaults to the IPv4 wildcard
+ * the container providers' proxies dial; Freestyle beta machines are reached at
+ * their public IPv6 and pass a dual-stack `[::]` bind instead (a container with
+ * IPv6 disabled cannot bind `[::]` at all, so dual-stack is per-provider, not the
+ * default).
  *
- * With a layout the daemon drops to the layout user via runuser, so panes are
- * non-root shells with passwordless sudo. Two guards keep old machines working:
+ * Without a layout the daemon (and so every terminal pane it spawns) runs as root
+ * with HOME=/root — the historical model, still used by E2B, Daytona, and
+ * Freestyle. With a layout (Blaxel) the daemon drops to the layout user via
+ * runuser, so panes are non-root shells with passwordless sudo. Two guards keep
+ * old machines working:
  *  - A sandbox from before the layout change mounts its persistent volume at
  *    /root (mountpoint -q /root); its data and daemon state live there, so it
  *    keeps the root daemon until it is resurrected onto the new mount path.
@@ -170,8 +178,11 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
  *    root-squashing volume failed to mount (the `test -w` probe) — falls back
  *    to a root daemon rather than crash-looping or serving broken shells.
  */
-export function cmuxTuiDaemonCommand(layout?: CmuxTuiHomeLayout): string {
-  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws 0.0.0.0:${CMUX_TUI_PORT} --remote-ws-insecure-bind`;
+export function cmuxTuiDaemonCommand(
+  remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND,
+  layout?: CmuxTuiHomeLayout,
+): string {
+  const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind`;
   if (!layout) {
     return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} ${args}`;
   }

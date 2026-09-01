@@ -27,7 +27,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-28-r10
+ENV CMUX_IMAGE_EPOCH=2026-08-31-r12
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -219,6 +219,39 @@ RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.b
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cua/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf
 
+# Pre-generate ble.sh's per-TERM tput caches for the terminals cmux panes use.
+# Without them the FIRST shell on a machine prints
+# "ble/term.sh: updating tput cache for TERM=... done" into the pane (and pays
+# the tput walk) before its first prompt. ble.sh resolves its cache dir in two
+# steps (verified live on a machine): ${XDG_CACHE_HOME:-~/.cache}/blesh/<ver>
+# only when that base dir ALREADY exists, else <blesh>/cache.d/<uid>. A fresh
+# home volume has no ~/.cache, so panes start on cache.d/<uid> and switch to
+# the XDG path once anything creates ~/.cache — both places are seeded:
+# cache.d here, the XDG copy by cmux-bashrc from /etc/cmux/blesh-cache-seed.
+# Generation runs ble.sh itself through the rc chain above under a pty
+# (`script`; ble.sh refuses `bash -c` and ttyless shells), so the cache layout
+# stays ble.sh's own business. The freshness test ble.sh applies is
+# "cache newer than lib/init-term.sh" — everything here is written after the
+# tarball unpack, and the hard `test` guards prove the bake produced files.
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       printf 'exit\n' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 /usr/local/share/blesh/cache.d/1001 \
+  && chmod a+rwxt /usr/local/share/blesh/cache.d \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1001/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 /usr/local/share/blesh/cache.d/1001 \
+  && chown -R cua:cua /usr/local/share/blesh/cache.d/1000 \
+  && chown -R cmux:cmux /usr/local/share/blesh/cache.d/1001
+
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted at
 # VM create), and persists that env on the durable home volume because Blaxel
@@ -241,6 +274,10 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
+  && grep -q '"baseUrl": "https://example.invalid/v1"' /tmp/agent-config-check/.pi/agent/models.json \
+  && grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json \
+  && ! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json \
+  && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && printf '%s\n' "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" "export OPENAI_API_KEY='crt_persisted'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
@@ -248,8 +285,12 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
   && test ! -e /root/.codex/config.toml \
+  && test ! -e /root/.pi/agent/models.json \
+  && test ! -e /root/.config/opencode/opencode.json \
   && test ! -e /root/.config/cmux/model-plane.env \
   && test ! -e /home/cmux/.codex/config.toml \
+  && test ! -e /home/cmux/.pi/agent/models.json \
+  && test ! -e /home/cmux/.config/opencode/opencode.json \
   && test ! -e /home/cmux/.config/cmux/model-plane.env
 
 # /entrypoint.sh is the path every official Blaxel template uses; the microVM

@@ -14,9 +14,13 @@
 # on disk). The Freestyle beta bake runs it from the cmux-tui-daemon systemd
 # unit. E2B does not use it (pause/resume preserves processes; the driver
 # starts the daemon directly), but ships it for uniformity.
+# CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
+# wildcard the container providers' proxies dial. Freestyle beta sets
+# [::]:1337 (its systemd unit / a driver drop-in) because those machines are
+# reached directly at their public IPv6; a dual-stack bind still accepts IPv4.
 while true; do
   if [ -x /root/.cmux/bin/cmux-tui ]; then
-    (cd /root && env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind)
+    (cd /root && env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind)
   fi
   sleep 2
 done

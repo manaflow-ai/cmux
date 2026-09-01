@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { E2BProvider } from "../services/vms/drivers/e2b";
+import { E2BProvider, ENVD_CONTROL_PORT, INBOUND_FIREWALL_COMMAND } from "../services/vms/drivers/e2b";
 import { ProviderError } from "../services/vms/drivers/types";
 
 // E2B machines attach exclusively through the cmux-tui remote daemon
@@ -53,5 +53,33 @@ describe("E2BProvider cmux-remote route", () => {
     expect(driver).not.toContain("network: { allowPublicTraffic: false }");
     expect(driver).toContain("/v1/link");
     expect(driver).toContain("getHost(CMUX_TUI_PORT)");
+  });
+});
+
+describe("E2BProvider inbound firewall", () => {
+  test("closes every port except cmux-tui and envd, and keeps envd reachable", () => {
+    // allowPublicTraffic exposes every listener at <port>-<id>.e2b.app, so the
+    // driver applies a default-deny INPUT that allows only lo, established,
+    // icmp, envd (49983), and the cmux-tui daemon (1337). envd MUST stay open
+    // or the SDK's commands.run/attach break (they reach envd through the same
+    // proxy). Verified live 2026-08-28 by verify-devbox-image.ts.
+    expect(ENVD_CONTROL_PORT).toBe(49983);
+    const cmd = INBOUND_FIREWALL_COMMAND;
+    expect(cmd).toContain("--dport 49983 -j ACCEPT");
+    expect(cmd).toContain("--dport 1337 -j ACCEPT");
+    expect(cmd).toContain("-i lo -j ACCEPT");
+    expect(cmd).toContain("ESTABLISHED,RELATED -j ACCEPT");
+    expect(cmd).toContain("-A CMUX_FW -j DROP");
+    // Reversible + idempotent: a dedicated chain hooked into INPUT only once.
+    expect(cmd).toContain("iptables -w -C INPUT -j CMUX_FW 2>/dev/null || iptables -w -I INPUT 1 -j CMUX_FW");
+    // Applied on create and re-asserted on the attach/restore heal path.
+    const driver = readFileSync(
+      path.join(import.meta.dirname, "../services/vms/drivers/e2b.ts"),
+      "utf8",
+    );
+    expect(driver.match(/applyInboundFirewall\(sandbox\)/g)?.length).toBeGreaterThanOrEqual(2);
+    // Best-effort: a firewall failure is logged, never thrown (must not brick a
+    // machine whose daemon is already up).
+    expect(driver).toContain("did not apply cleanly");
   });
 });

@@ -165,6 +165,7 @@ export const env = createEnv({
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     // Rate-limit rule ids are all optional: an unset id means that route runs
     // without rate limiting (the operator removed the limits deliberately).
+    CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -188,6 +189,10 @@ export const env = createEnv({
     // sender (defaults to austin@manaflow.ai) so the verified Resend domain can
     // change without a code edit.
     STRIPE_FOUNDERS_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // The dedicated personal Pro welcome endpoint is opt-in. Keep the legacy
+    // billing-webhook sender active until the Stripe endpoint is registered
+    // and verified in production.
+    CMUX_PERSONAL_PRO_WELCOME_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_FOUNDERS_FROM_EMAIL: z.string().email().optional(),
     CMUX_PRO_FROM_EMAIL: z.string().email().optional(),
     // Direct Stripe billing for cmux Pro. Optional: when unset, checkout is
@@ -341,6 +346,9 @@ export const env = createEnv({
   },
   runtimeEnv: {
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
+    CMUX_BILLING_RECOVERY_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_BILLING_RECOVERY_RATE_LIMIT_ID,
+    ),
     CMUX_FEEDBACK_FROM_EMAIL: trimEnv(process.env.CMUX_FEEDBACK_FROM_EMAIL),
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
@@ -356,6 +364,9 @@ export const env = createEnv({
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
     CMUX_APNS_TEAM_ID: trimEnv(process.env.CMUX_APNS_TEAM_ID),
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
+    CMUX_PERSONAL_PRO_WELCOME_ENABLED: trimEnv(
+      process.env.CMUX_PERSONAL_PRO_WELCOME_ENABLED,
+    ),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),

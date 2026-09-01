@@ -301,8 +301,12 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
             encoding: .utf8
         )
 
+        let service = GitMetadataService(
+            fileStatusReader: SystemGitFileStatusReader(),
+            referenceReader: FixedGitReferenceReader(branchName: "main")
+        )
         let descriptor = try #require(
-            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+            await service.watchDescriptor(for: fixture.root.path)
         )
 
         #expect(descriptor.metadataSentinelPaths.contains(deferredInclude.path))
@@ -310,6 +314,110 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
             fixture.gitDirectory.appendingPathComponent("config.worktree").path
         ))
         #expect(descriptor.containsGitMetadataChange(paths: [deferredInclude.path]))
+    }
+
+    @Test func incompleteIncludeWithKnownNonFilesBackendUsesPlumbing() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let missingIncludes = (0..<300)
+            .map { "    path = missing-\($0).inc" }
+            .joined(separator: "\n")
+        try """
+        [include]
+            path = backend.inc
+        \(missingIncludes)
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [extensions]
+            refStorage = reftable:/external-store
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("backend.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let commit = String(repeating: "a", count: 40)
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [
+                ["symbolic-ref", "--quiet", "HEAD"]: FakeWorkspaceChangesGitRunner.result(
+                    "refs/heads/from-plumbing\n"
+                ),
+                [
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/from-plumbing^{commit}",
+                ]: FakeWorkspaceChangesGitRunner.result("\(commit)\n"),
+            ])
+        )
+
+        let snapshot = reader.snapshot(
+            repository: repository,
+            deadline: DispatchTime.now() + 5,
+            includeStorageWatchPaths: true
+        )
+
+        #expect(snapshot.usesGitPlumbing)
+        #expect(snapshot.checkedOutBranch == .branch("from-plumbing"))
+        #expect(snapshot.currentCommit == commit)
+    }
+
+    @Test func incompleteIncludeWithUnknownBackendUsesPlumbing() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let missingIncludes = (0..<300)
+            .map { "    path = missing-\($0).inc" }
+            .joined(separator: "\n")
+        try """
+        [include]
+        \(missingIncludes)
+            path = backend.inc
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [extensions]
+            refStorage = reftable:/external-store
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("backend.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let commit = String(repeating: "b", count: 40)
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [
+                ["symbolic-ref", "--quiet", "HEAD"]: FakeWorkspaceChangesGitRunner.result(
+                    "refs/heads/from-plumbing\n"
+                ),
+                [
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/from-plumbing^{commit}",
+                ]: FakeWorkspaceChangesGitRunner.result("\(commit)\n"),
+            ])
+        )
+
+        let snapshot = reader.snapshot(
+            repository: repository,
+            deadline: DispatchTime.now() + 5,
+            includeStorageWatchPaths: true
+        )
+
+        #expect(snapshot.usesGitPlumbing)
+        #expect(snapshot.checkedOutBranch == .branch("from-plumbing"))
+        #expect(snapshot.currentCommit == commit)
     }
 
     @Test func repeatedReferenceStorageUsesOnlyEffectiveDirective() throws {

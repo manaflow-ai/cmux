@@ -127,6 +127,27 @@ describe("Blaxel baked image template", () => {
     expect(read("seed-history")).toBe("claude --dangerously-skip-permissions\ncodex --yolo\n");
     expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
     expect(bashrc).toContain("ble-attach");
+    // ble.sh tput caches are baked and seeded, so no pane ever opens on
+    // "ble/term.sh: updating tput cache ... done". Both cache homes are
+    // covered: <blesh>/cache.d/<uid> (what a shell uses while ~/.cache does
+    // not exist yet) bakes in the image; the XDG copy seeds per HOME from
+    // /etc/cmux/blesh-cache-seed. The runtime copy must NOT preserve seed
+    // mtimes (ble.sh loads the cache only when it is newer than
+    // lib/init-term.sh), so it is a plain cp -R.
+    expect(dockerfile).toContain("/etc/cmux/blesh-cache-seed");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
+    // The bake must prove every seeded TERM generated, not just the first two.
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    // Per-file seeding with the same freshness rule ble.sh applies, so durable
+    // homes from older images (stale or missing entries) reseed too.
+    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/term.*");
+    expect(bashrc).toContain('[ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]');
+    expect(bashrc.indexOf("blesh-cache-seed")).toBeLessThan(
+      bashrc.indexOf("source /usr/local/share/blesh/ble.sh"),
+    );
     // half-life prompt with the machine name kept (\h): machines are addressed by name.
     expect(bashrc).toContain("PS1='\\[\\e[38;5;135m\\]\\u@\\h");
     expect(dockerfile).toContain("echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf");
@@ -169,9 +190,23 @@ describe("Blaxel baked image template", () => {
     expect(agentConfig).toContain('env_key = \\"OPENAI_API_KEY\\"');
     // Write-if-missing keeps the user in control of their harness config.
     expect(agentConfig).toContain('[ ! -e "$HOME/.codex/config.toml" ]');
+    // pi overrides the built-in openai-codex provider (its codex Responses
+    // dialect is what the plane proxies); the route token rides the
+    // x-coderouter-route-token header as a request-time env reference, so
+    // the file carries no secret and survives token rotation.
+    expect(agentConfig).toContain('"openai-codex"');
+    expect(agentConfig).toContain('"x-coderouter-route-token": "$OPENAI_API_KEY"');
+    expect(agentConfig).toContain('[ ! -e "$HOME/.pi/agent/models.json" ]');
+    // opencode fetches the live rewritten catalog from the coderouter config
+    // endpoint and de-tokenizes it to a runtime env reference.
+    expect(agentConfig).toContain("/api/coderouter/opencode/config");
+    expect(agentConfig).toContain("{env:OPENAI_API_KEY}");
+    expect(agentConfig).toContain('[ ! -e "$HOME/.config/opencode/opencode.json" ]');
     // The Dockerfile proves generation under a throwaway HOME and proves the
     // image ships no generated config for /root or the work user's home.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
+    expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
     expect(dockerfile).toContain("test ! -e /home/cmux/.codex/config.toml");
     expect(dockerfile).toContain("test ! -e /home/cmux/.config/cmux/model-plane.env");

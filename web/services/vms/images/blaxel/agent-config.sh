@@ -55,6 +55,61 @@ cmux_write_agent_configs() {
       echo "persistence = \"save-all\""
     } > "$HOME/.codex/config.toml" 2>/dev/null
   fi
+
+  # pi: override the built-in openai-codex provider, whose
+  # openai-codex-responses implementation speaks the exact dialect the /v1
+  # plane proxies (it appends /codex/responses to baseUrl, which the plane
+  # serves). pi derives a chatgpt-account-id header from its apiKey
+  # client-side and refuses a non-JWT, so the apiKey carries the same public
+  # placeholder JWT the `cr pi` extension ships; the real route token rides
+  # the x-coderouter-route-token header, which the plane's auth checks first.
+  # pi resolves the $OPENAI_API_KEY header reference at request time, so a
+  # rotated token needs no config rewrite, and no secret lands in the file.
+  # baseUrl must be a literal (pi does not env-resolve it), hence this
+  # generator.
+  if [ -n "${OPENAI_BASE_URL-}" ] && [ ! -e "$HOME/.pi/agent/models.json" ]; then
+    mkdir -p "$HOME/.pi/agent" 2>/dev/null && {
+      echo '{'
+      echo '  "providers": {'
+      echo '    "openai-codex": {'
+      echo '      "name": "cmux",'
+      echo "      \"baseUrl\": \"$OPENAI_BASE_URL\","
+      echo '      "apiKey": "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature",'
+      echo '      "headers": { "x-coderouter-route-token": "$OPENAI_API_KEY" }'
+      echo '    }'
+      echo '  }'
+      echo '}'
+    } > "$HOME/.pi/agent/models.json" 2>/dev/null
+  fi
+
+  # opencode: the provider catalog (ids, npm packages, model lists) lives in
+  # the team's opencode console account behind the coderouter proxy and
+  # changes without image rebuilds, so the ready-made rewritten config is
+  # fetched from the coderouter opencode config endpoint instead of being
+  # guessed statically. The endpoint inlines the route token as each
+  # provider's apiKey; it is swapped for an {env:OPENAI_API_KEY} reference
+  # that opencode resolves at request time, so a rotated token needs no
+  # rewrite. A coderouter outage, a team without an opencode account (503),
+  # or an empty catalog writes nothing and the next shell retries.
+  if [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] \
+    && [ ! -e "$HOME/.config/opencode/opencode.json" ] \
+    && command -v curl >/dev/null 2>&1; then
+    cmux_opencode_config=$(curl -fsS --connect-timeout 2 -m 10 \
+      -H "authorization: Bearer $OPENAI_API_KEY" \
+      "$CMUX_CODEROUTER_URL/api/coderouter/opencode/config" 2>/dev/null) || cmux_opencode_config=""
+    case $cmux_opencode_config in
+      '{"provider":{}}') ;;
+      '{"provider":'*)
+        mkdir -p "$HOME/.config/opencode" 2>/dev/null && (
+          umask 077
+          printf '%s\n' "$cmux_opencode_config" \
+            | sed "s/\"$OPENAI_API_KEY\"/\"{env:OPENAI_API_KEY}\"/g" \
+            > "$HOME/.config/opencode/opencode.json"
+        ) 2>/dev/null
+        ;;
+    esac
+    unset cmux_opencode_config
+  fi
 }
 
 cmux_write_agent_configs
