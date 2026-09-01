@@ -87,7 +87,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   );
 }
 
-export type VmProvisionOperation = "create" | "base_open" | "base_reset";
+export type VmProvisionOperation = "create" | "fork" | "restore" | "base_open" | "base_reset";
 
 /**
  * Provisioning outcome choke point, run as a response finalizer. Two legs:

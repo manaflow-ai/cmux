@@ -70,6 +70,13 @@ import {
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
 
+// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
+// run minutes; without an explicit budget the platform default killed them
+// mid-provision. 600s caps a hung provider call well below the 20-minute
+// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
+// uses 1800).
+export const maxDuration = 600;
+
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,

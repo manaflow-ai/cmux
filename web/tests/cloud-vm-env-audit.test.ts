@@ -8,6 +8,10 @@ import {
   auditProviderReadiness,
   CODE_DEFAULT_PROVIDER,
 } from "../scripts/cloud-vm/defaultProviderAudit.mjs";
+import {
+  recommendedRuntimeEnvKeys,
+  requiredRuntimeEnvKeys,
+} from "../scripts/cloud-vm/projects.mjs";
 import { defaultProviderId } from "../services/vms/drivers";
 
 type Manifest = {
@@ -175,5 +179,29 @@ describe("audit constants stay tied to the runtime", () => {
       manifest,
     ) as { problems: string[] };
     expect(result.problems.join("\n")).toContain("no credential mapping");
+  });
+});
+
+describe("required runtime env keys cover the production provider path", () => {
+  test("blaxel credentials, cron auth, and the alert sink are required", () => {
+    for (const key of [
+      "BL_API_KEY",
+      "BL_WORKSPACE",
+      "BLAXEL_SANDBOX_IMAGE",
+      "CRON_SECRET",
+      "CMUX_ALERTS_SLACK_WEBHOOK_URL",
+    ]) {
+      expect(requiredRuntimeEnvKeys).toContain(key);
+    }
+  });
+
+  test("off-only kill switches and the desktop selector stay recommended, not required", () => {
+    // Unset means enabled for kill switches, and desktop creates fall back to
+    // the generic BLAXEL_SANDBOX_IMAGE selector, so requiring these would
+    // fail a healthy deployment.
+    for (const key of ["CMUX_VM_BLAXEL_ENABLED", "BLAXEL_SANDBOX_DESKTOP_IMAGE"]) {
+      expect(recommendedRuntimeEnvKeys).toContain(key);
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+    }
   });
 });
