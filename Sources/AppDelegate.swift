@@ -19145,7 +19145,6 @@ private extension NSWindow {
             }
             return false
         }
-        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -19458,6 +19457,37 @@ private extension NSWindow {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             cmuxDebugLog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
+            return true
+        }
+
+        // Keep the standard Undo/Redo equivalents behind configured cmux
+        // shortcut dispatch. A user remap to Cmd+Z/Cmd+Shift+Z must win before
+        // the terminal/browser safety route below takes ownership.
+        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+            event,
+            terminalView: firstResponderGhosttyView,
+            webView: firstResponderWebView,
+            browserWebKitKeyDownReentry: browserWebKitKeyDownReentry
+        ) {
+            return true
+        }
+
+        // Standard Edit-menu equivalents must be offered to a focused terminal
+        // before AppKit dispatches Copy/Paste/Cut/Select All (and the matching
+        // Undo/Redo family) from the shared menu. Ghostty owns the conditional
+        // copy/paste semantics: a selection is copied, while an unselected TUI
+        // receives the command key through its normal input path. Keep this
+        // after configured cmux shortcut handling so user remaps retain priority.
+        if let firstResponderGhosttyView,
+           TerminalCommandEquivalentRouter().route(
+               event: event,
+               terminalView: firstResponderGhosttyView,
+               firstResponder: self.firstResponder,
+               hasActiveShortcutChord: AppDelegate.shared?.activeConfiguredShortcutChordPrefixForCurrentEvent != nil
+           ) {
+#if DEBUG
+            cmuxDebugLog("  → terminal claimed standard Edit command equivalent before mainMenu")
 #endif
             return true
         }

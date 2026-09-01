@@ -124,6 +124,32 @@ struct TerminalCommandEquivalentRoutingTests {
     }
 
     @Test
+    func terminalDecliningEditEquivalentFallsThroughToMenu() throws {
+        let menuProbe = MenuActionProbe()
+        let (window, terminal, previousMenu) = try makeWindowWithTerminal(
+            menuProbe: menuProbe,
+            menuItems: [
+                ("Copy", "c", [.command], #selector(MenuActionProbe.copyAction(_:))),
+                ("Paste", "v", [.command], #selector(MenuActionProbe.pasteAction(_:))),
+            ]
+        )
+        terminal.performAfterMenuMissResult = false
+        defer { tearDown(window: window, previousMenu: previousMenu) }
+
+        let events = try [
+            makeKeyDownEvent(key: "c", keyCode: UInt16(kVK_ANSI_C), windowNumber: window.windowNumber),
+            makeKeyDownEvent(key: "v", keyCode: UInt16(kVK_ANSI_V), windowNumber: window.windowNumber),
+        ].map { try #require($0) }
+
+        for event in events {
+            #expect(window.performKeyEquivalent(with: event))
+        }
+
+        #expect(terminal.menuMissEvents.map { KeyboardLayout.normalizedCharacters(for: $0) } == ["c", "v"])
+        #expect(menuProbe.actions == ["copy", "paste"])
+    }
+
+    @Test
     func focusedTerminalGetsOtherEditEquivalentsBeforeMenu() throws {
         let menuProbe = MenuActionProbe()
         let (window, terminal, previousMenu) = try makeWindowWithTerminal(
