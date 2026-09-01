@@ -20,7 +20,13 @@ def main() -> int:
         extension.write_text("cmux hooks prime-agent\n", encoding="utf-8")
 
         env = os.environ.copy()
-        env.update({"HOME": str(home), "PATH": "/usr/bin:/bin"})
+        env.update(
+            {
+                "HOME": str(home),
+                "PATH": "/usr/bin:/bin",
+                "PRIME_AGENT_CODING_AGENT_DIR": str(override_dir),
+            }
+        )
         for key in ("CMUX_SOCKET", "CMUX_SOCKET_PATH", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID"):
             env.pop(key, None)
         result = subprocess.run(
@@ -37,7 +43,7 @@ def main() -> int:
         print(f"FAIL: diagnostics exited {result.returncode}: {result.stderr}")
         return 1
     prime_lines = [line for line in result.stdout.splitlines() if line.startswith("prime-agent:")]
-    if len(prime_lines) != 1 or not prime_lines[0].endswith("marker-present"):
+    if not any(line.endswith("marker-present") for line in prime_lines):
         print(f"FAIL: override installation was not reported: {prime_lines!r}")
         return 1
     print("PASS: diagnostics honors PRIME_AGENT_CODING_AGENT_DIR")

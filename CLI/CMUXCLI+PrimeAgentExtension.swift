@@ -44,8 +44,15 @@ function isHeadlessInvocation(): boolean {
       || arg === "--daemon" || arg.startsWith("--daemon=")) {
       return true;
     }
-    if (arg === "--mode") return true;
-    if (arg.startsWith("--mode=")) return true;
+    if (arg === "--mode") {
+      const mode = args[index + 1]?.trim().toLowerCase();
+      if (mode === "json" || mode === "rpc") return true;
+      continue;
+    }
+    if (arg.startsWith("--mode=")) {
+      const mode = arg.slice("--mode=".length).trim().toLowerCase();
+      if (mode === "json" || mode === "rpc") return true;
+    }
   }
   return false;
 }
@@ -138,11 +145,6 @@ function looksLikePrimeAgentScript(value: string): boolean {
   return hasPrimePackageMarker && hasCodingAgentMarker;
 }
 
-function looksLikeJavaScriptRuntime(value: string): boolean {
-  const base = path.basename(value).toLowerCase();
-  return base === "node" || base === "bun" || base === "deno" || base === "tsx" || base === "ts-node";
-}
-
 function primeAgentEntrypointIndex(raw: string[]): number {
   for (let index = 1; index < raw.length; index += 1) {
     if (raw[index] === "--") break;
@@ -160,9 +162,6 @@ function normalizedLaunchArgv(): string[] {
   const entrypointIndex = primeAgentEntrypointIndex(raw);
   if (entrypointIndex >= 0) {
     return [resolveExecutable("prime-agent"), ...raw.slice(entrypointIndex + 1)];
-  }
-  if (raw.length > 1 && looksLikeJavaScriptRuntime(raw[0])) {
-    return [resolveExecutable("prime-agent"), ...raw.slice(1)];
   }
   return [resolveExecutable("prime-agent"), ...raw.slice(1)];
 }

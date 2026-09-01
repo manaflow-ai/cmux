@@ -3,8 +3,7 @@ import Foundation
 extension CMUXCLI {
     func primeAgentExtensionURL(for def: AgentHookDef) -> URL {
         URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
-            .appendingPathComponent("extensions", isDirectory: true)
-            .appendingPathComponent(Self.primeAgentExtensionFilename, isDirectory: false)
+            .appendingPathComponent(def.configFile, isDirectory: false)
     }
 
     func existingPrimeAgentExtensionContents(at url: URL) throws -> String {

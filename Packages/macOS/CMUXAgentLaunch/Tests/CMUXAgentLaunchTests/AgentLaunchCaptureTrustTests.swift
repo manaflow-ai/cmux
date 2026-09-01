@@ -188,4 +188,29 @@ struct AgentLaunchCaptureTrustTests {
             )
         )
     }
+
+    @Test func primeAgentScriptMatchRequiresManagedBundleLayout() {
+        #expect(
+            PrimeAgentScriptMatch.matches(
+                "/Users/alice/.prime/agent/versions/current/packages/coding-agent/dist/bundle/cli.js"
+            )
+        )
+        #expect(
+            PrimeAgentScriptMatch.matches(
+                "/Users/alice/prime-agent/packages/coding-agent/src/cli.ts"
+            )
+        )
+        #expect(
+            PrimeAgentScriptMatch.matches(
+                "/Users/alice/node_modules/prime-agent/dist/bundle/cli.js"
+            )
+        )
+        #expect(
+            PrimeAgentScriptMatch.matches(
+                "/Users/alice/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+            )
+        )
+        #expect(!PrimeAgentScriptMatch.matches("/tmp/prime-agent/cli.js"))
+        #expect(!PrimeAgentScriptMatch.matches("/tmp/prime-agent/packages/coding-agent/cli.js"))
+    }
 }

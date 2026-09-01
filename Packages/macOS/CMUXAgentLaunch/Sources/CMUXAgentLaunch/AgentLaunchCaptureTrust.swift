@@ -146,7 +146,7 @@ public enum AgentLaunchCaptureTrust {
             }) {
                 descriptors.insert("campfire")
             }
-            if arguments.dropFirst().contains(where: argumentLooksLikePrimeAgentScript) {
+            if arguments.dropFirst().contains(where: PrimeAgentScriptMatch.matches) {
                 descriptors.insert("prime-agent")
             }
             return descriptors
@@ -176,18 +176,5 @@ public enum AgentLaunchCaptureTrust {
             return nil
         }
         return URL(fileURLWithPath: value).lastPathComponent.lowercased()
-    }
-
-    private static func argumentLooksLikePrimeAgentScript(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/").lowercased()
-        let basename = (normalized as NSString).lastPathComponent
-        let knownEntrypoint = ["cli.js", "cli.ts", "index.js", "index.ts"].contains(basename)
-        let hasPrimePackageMarker = normalized.contains("/.prime/agent/")
-            || normalized.contains("/prime-agent/")
-            || normalized.contains("/@earendil-works/pi-coding-agent/")
-        let hasCodingAgentMarker = normalized.contains("/coding-agent/")
-            || normalized.contains("/pi-coding-agent/")
-            || knownEntrypoint
-        return hasPrimePackageMarker && hasCodingAgentMarker
     }
 }

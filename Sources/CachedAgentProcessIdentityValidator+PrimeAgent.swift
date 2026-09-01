@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CachedAgentProcessIdentityValidator {
@@ -42,17 +43,6 @@ extension CachedAgentProcessIdentityValidator {
         guard runtimeNames.contains((liveExecutable as NSString).lastPathComponent.lowercased()) else {
             return false
         }
-        return arguments.dropFirst().contains { argument in
-            let normalized = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
-            let basename = (normalized as NSString).lastPathComponent
-            let knownEntrypoint = ["cli.js", "cli.ts", "index.js", "index.ts"].contains(basename)
-            let hasPrimePackageMarker = normalized.contains("/.prime/agent/")
-                || normalized.contains("/prime-agent/")
-                || normalized.contains("/@earendil-works/pi-coding-agent/")
-            let hasCodingAgentMarker = normalized.contains("/coding-agent/")
-                || normalized.contains("/pi-coding-agent/")
-                || knownEntrypoint
-            return hasPrimePackageMarker && hasCodingAgentMarker
-        }
+        return arguments.dropFirst().contains(where: PrimeAgentScriptMatch.matches)
     }
 }

@@ -70,7 +70,7 @@ public enum PrimeAgentResumeArgv {
 
     private static func replayTail(capturedExecutable: String, tail: [String]) -> [String] {
         guard isJavaScriptRuntime(capturedExecutable),
-              let scriptIndex = tail.firstIndex(where: looksLikePrimeAgentScript) else {
+              let scriptIndex = tail.firstIndex(where: PrimeAgentScriptMatch.matches) else {
             return tail
         }
         // Runtime flags before the script (for example `node --no-warnings`)
@@ -81,7 +81,7 @@ public enum PrimeAgentResumeArgv {
     private static func capturedSessionFile(from arguments: [String]) -> String? {
         for (index, argument) in arguments.enumerated() {
             let candidate: String
-            if argument == "--resume", index + 1 < arguments.count {
+            if (argument == "--resume" || argument == "-r"), index + 1 < arguments.count {
                 candidate = arguments[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
             } else if argument.hasPrefix("--resume=") {
                 candidate = String(argument.dropFirst("--resume=".count))
@@ -107,18 +107,5 @@ public enum PrimeAgentResumeArgv {
         ["node", "bun", "deno", "tsx", "ts-node"].contains(
             (value as NSString).lastPathComponent.lowercased()
         )
-    }
-
-    private static func looksLikePrimeAgentScript(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/").lowercased()
-        let basename = (normalized as NSString).lastPathComponent
-        let knownEntrypoint = ["cli.js", "cli.ts", "index.js", "index.ts"].contains(basename)
-        let hasPrimePackageMarker = normalized.contains("/.prime/agent/")
-            || normalized.contains("/prime-agent/")
-            || normalized.contains("/@earendil-works/pi-coding-agent/")
-        let hasCodingAgentMarker = normalized.contains("/coding-agent/")
-            || normalized.contains("/pi-coding-agent/")
-            || knownEntrypoint
-        return hasPrimePackageMarker && hasCodingAgentMarker
     }
 }

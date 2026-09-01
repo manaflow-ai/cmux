@@ -148,7 +148,7 @@ declare -a hook_checks=(
   "opencode-session:$HOME/.config/opencode/plugins/cmux-session.js:cmux hooks opencode"
   "opencode-feed:$HOME/.config/opencode/plugins/cmux-feed.js:cmux hooks feed --source opencode"
   "pi:$HOME/.pi/agent/extensions/cmux-session.ts:cmux hooks pi"
-  "prime-agent:$HOME/.prime/agent/extensions/cmux-prime-agent-session.ts:cmux hooks prime-agent"
+  "prime-agent:${PRIME_AGENT_CODING_AGENT_DIR:-$HOME/.prime/agent}/extensions/cmux-prime-agent-session.ts:cmux hooks prime-agent"
   "amp:$HOME/.config/amp/plugins/cmux-session.ts:cmux hooks amp"
   "cursor:$HOME/.cursor/hooks.json:cmux hooks cursor"
   "gemini:$HOME/.gemini/settings.json:cmux hooks gemini"
