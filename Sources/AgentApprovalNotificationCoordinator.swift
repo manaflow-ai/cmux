@@ -20,6 +20,7 @@ final class AgentApprovalNotificationCoordinator {
         let title: String
         let subtitle: String
         let body: String
+        let agent: TerminalNotificationPolicyAgentContext?
         let correlationKey: String
     }
 
@@ -36,6 +37,7 @@ final class AgentApprovalNotificationCoordinator {
         let body: String
         let approvalID: AgentApprovalCorrelationID
         let isDerived: Bool
+        let agent: TerminalNotificationPolicyAgentContext?
         let readyAt: TimeInterval
         let sequence: UInt64
     }
@@ -118,7 +120,8 @@ final class AgentApprovalNotificationCoordinator {
         subtitle: String,
         body: String,
         approvalID: AgentApprovalCorrelationID,
-        isDerived: Bool = false
+        isDerived: Bool = false,
+        agent: TerminalNotificationPolicyAgentContext? = nil
     ) {
         let timestamp = now()
         pruneTombstones(at: timestamp)
@@ -136,6 +139,7 @@ final class AgentApprovalNotificationCoordinator {
             body: body,
             approvalID: approvalID,
             isDerived: isDerived,
+            agent: agent,
             readyAt: timestamp + settleDelay,
             sequence: nextSequence
         )
@@ -162,6 +166,7 @@ final class AgentApprovalNotificationCoordinator {
                 body: candidate.body,
                 approvalID: candidate.approvalID,
                 isDerived: candidate.isDerived,
+                agent: candidate.agent,
                 readyAt: min(existing.readyAt, candidate.readyAt),
                 sequence: existing.sequence
             )
@@ -171,6 +176,11 @@ final class AgentApprovalNotificationCoordinator {
         if state.candidates.count > Self.maxCandidatesPerPane {
             let overflow = state.candidates.count - Self.maxCandidatesPerPane
             let staleIDs = state.candidates.values
+                .filter { candidate in
+                    // Keep the candidate represented by the visible banner so
+                    // its eventual resolution can still retire that banner.
+                    candidate.approvalID.rawValue != state.deliveredApprovalID
+                }
                 .sorted { $0.sequence < $1.sequence }
                 .prefix(overflow)
                 .map { $0.approvalID.rawValue }
@@ -279,6 +289,7 @@ final class AgentApprovalNotificationCoordinator {
                 body: candidate.body,
                 approvalID: candidate.approvalID,
                 isDerived: candidate.isDerived,
+                agent: candidate.agent,
                 readyAt: candidate.readyAt,
                 sequence: candidate.sequence
             )
@@ -456,6 +467,7 @@ final class AgentApprovalNotificationCoordinator {
             title: candidate.title,
             subtitle: candidate.subtitle,
             body: candidate.body,
+            agent: candidate.agent,
             correlationKey: correlationKey
         ))
     }

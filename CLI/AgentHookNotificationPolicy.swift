@@ -427,9 +427,7 @@ struct CodexApprovalNotificationPolicy: Sendable {
         // hook payload does not expose that effective override, so no turn-wide
         // reviewer value is authoritative for MCP requests. Fall back to
         // correlated settling rather than risk silencing a user prompt.
-        let toolCall = rawObject["toolCall"] as? [String: Any]
-        let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
-            ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
+        let toolName = firstToolName(in: rawObject)
         if toolName?.lowercased().hasPrefix("mcp__") == true {
             return nil
         }
@@ -441,7 +439,7 @@ struct CodexApprovalNotificationPolicy: Sendable {
             }
         }
 
-        let requestedTurnID = firstString(
+        let requestedTurnID = firstStringDeep(
             in: rawObject,
             keys: ["turn_id", "turnId"]
         )
@@ -485,6 +483,50 @@ struct CodexApprovalNotificationPolicy: Sendable {
             guard let raw = object[key] as? String else { continue }
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    /// Finds a supported Codex field through the bounded app-server wrapper
+    /// layers. The hook payload is model-controlled JSON, so never recurse
+    /// without a depth limit.
+    private func firstStringDeep(
+        in object: [String: Any],
+        keys: [String],
+        depth: Int = 0
+    ) -> String? {
+        guard depth <= 4 else { return nil }
+        if let direct = firstString(in: object, keys: keys) {
+            return direct
+        }
+        for containerKey in ["notification", "data", "context", "extra", "params"] {
+            guard let nested = object[containerKey] as? [String: Any] else { continue }
+            if let value = firstStringDeep(in: nested, keys: keys, depth: depth + 1) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func firstToolName(
+        in object: [String: Any],
+        depth: Int = 0
+    ) -> String? {
+        guard depth <= 4 else { return nil }
+        if let direct = firstString(in: object, keys: ["tool_name", "toolName"]) {
+            return direct
+        }
+        for toolKey in ["toolCall", "tool_call"] {
+            if let toolCall = object[toolKey] as? [String: Any],
+               let name = firstString(in: toolCall, keys: ["name", "tool_name", "toolName"]) {
+                return name
+            }
+        }
+        for containerKey in ["notification", "data", "context", "extra", "params"] {
+            guard let nested = object[containerKey] as? [String: Any] else { continue }
+            if let value = firstToolName(in: nested, depth: depth + 1) {
                 return value
             }
         }

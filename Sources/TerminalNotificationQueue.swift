@@ -16,6 +16,7 @@ fileprivate struct QueuedAgentApprovalStage {
     let body: String
     let approvalID: AgentApprovalCorrelationID
     let approvalIDIsDerived: Bool
+    let agent: TerminalNotificationPolicyAgentContext?
 }
 
 fileprivate struct AgentApprovalMutationToken {
@@ -121,6 +122,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                 subtitle: delivery.subtitle,
                 body: delivery.body,
                 replyShape: .none,
+                agent: delivery.agent,
                 correlationKey: delivery.correlationKey,
                 // The coordinator already owns approval coalescing. Preserve
                 // unrelated notifications that are queued for the same pane.
@@ -229,7 +231,6 @@ final class TerminalMutationBus: @unchecked Sendable {
         if let previousWorkspaceID = approvalWorkspaceBySurface[surfaceID],
            previousWorkspaceID != toWorkspaceID {
             approvalWorkspaceGenerations[previousWorkspaceID, default: 0] &+= 1
-            approvalSurfaceGenerations[surfaceID, default: 0] &+= 1
         }
         approvalWorkspaceBySurface[surfaceID] = toWorkspaceID
         lock.unlock()
@@ -242,7 +243,8 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String,
         approvalID: AgentApprovalCorrelationID,
-        approvalIDIsDerived: Bool = false
+        approvalIDIsDerived: Bool = false,
+        agent: TerminalNotificationPolicyAgentContext? = nil
     ) {
         lock.lock()
         ensureApprovalGenerationCapacityLocked(workspaceID: tabId, surfaceID: surfaceId)
@@ -251,8 +253,13 @@ final class TerminalMutationBus: @unchecked Sendable {
         // arrives with the new workspace id.
         if let previousWorkspaceID = approvalWorkspaceBySurface[surfaceId],
            previousWorkspaceID != tabId {
-            approvalSurfaceGenerations[surfaceId, default: 0] &+= 1
             approvalWorkspaceGenerations[previousWorkspaceID, default: 0] &+= 1
+        } else if approvalWorkspaceBySurface[surfaceId] == nil {
+            // A retired surface identity may be reused for a new episode.
+            // Advance its generation before capturing the new stage token so
+            // a resolution that observed the retired mapping cannot settle
+            // this replacement episode.
+            approvalSurfaceGenerations[surfaceId, default: 0] &+= 1
         }
         approvalWorkspaceBySurface[surfaceId] = tabId
         let token = approvalMutationToken(workspaceID: tabId, surfaceID: surfaceId)
@@ -264,7 +271,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             subtitle: subtitle,
             body: body,
             approvalID: approvalID,
-            approvalIDIsDerived: approvalIDIsDerived
+            approvalIDIsDerived: approvalIDIsDerived,
+            agent: agent
         ), token))
     }
 
@@ -273,7 +281,11 @@ final class TerminalMutationBus: @unchecked Sendable {
         approvalID: AgentApprovalCorrelationID
     ) {
         lock.lock()
-        let token = approvalMutationToken(workspaceID: nil, surfaceID: surfaceId)
+        let token = approvalMutationToken(
+            workspaceID: nil,
+            surfaceID: surfaceId,
+            capturesWorkspace: false
+        )
         lock.unlock()
         enqueueApprovalMutation(.resolveAgentApproval(surfaceId, approvalID, token))
     }
@@ -283,7 +295,11 @@ final class TerminalMutationBus: @unchecked Sendable {
         approvalScope: AgentApprovalCorrelationID.Scope
     ) {
         lock.lock()
-        let token = approvalMutationToken(workspaceID: nil, surfaceID: surfaceId)
+        let token = approvalMutationToken(
+            workspaceID: nil,
+            surfaceID: surfaceId,
+            capturesWorkspace: false
+        )
         lock.unlock()
         enqueueApprovalMutation(.resolveAgentApprovalScope(surfaceId, approvalScope, token))
     }
@@ -587,9 +603,12 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private nonisolated func approvalMutationToken(
         workspaceID: UUID?,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        capturesWorkspace: Bool = true
     ) -> AgentApprovalMutationToken {
-        let resolvedWorkspaceID = workspaceID ?? surfaceID.flatMap { approvalWorkspaceBySurface[$0] }
+        let resolvedWorkspaceID = capturesWorkspace
+            ? (workspaceID ?? surfaceID.flatMap { approvalWorkspaceBySurface[$0] })
+            : workspaceID
         return AgentApprovalMutationToken(
             global: approvalGlobalGeneration,
             workspace: resolvedWorkspaceID.map { approvalWorkspaceGenerations[$0] ?? 0 } ?? 0,
@@ -1004,7 +1023,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     subtitle: stage.subtitle,
                     body: stage.body,
                     approvalID: stage.approvalID,
-                    isDerived: stage.approvalIDIsDerived
+                    isDerived: stage.approvalIDIsDerived,
+                    agent: stage.agent
                 )
             case .resolveAgentApproval(let surfaceID, let approvalID, let token):
                 guard approvalTokenIsCurrent(token, workspaceID: nil, surfaceID: surfaceID) else { continue }

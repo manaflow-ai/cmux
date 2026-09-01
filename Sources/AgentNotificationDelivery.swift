@@ -55,7 +55,13 @@ struct AgentNotificationDelivery: Sendable {
                 subtitle: subtitle,
                 body: body,
                 approvalID: approvalID,
-                approvalIDIsDerived: approvalIDIsDerived
+                approvalIDIsDerived: approvalIDIsDerived,
+                agent: Self.agentContext(
+                    category: category,
+                    pending: pending,
+                    agentKind: agentKind,
+                    isSubagent: isSubagent
+                )
             )
             return true
         }

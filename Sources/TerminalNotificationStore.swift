@@ -2205,6 +2205,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
+        // Approval episodes are process-local and cannot be reconstructed from
+        // the persisted banner rows below. Retire any episode owned by this
+        // workspace before dropping its old approval rows, otherwise a later
+        // hook would join a stale delivered episode and never present again.
+        TerminalMutationBus.shared.cancelAgentApprovals(workspaceID: tabId)
         TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
 
         let removedIds = notifications

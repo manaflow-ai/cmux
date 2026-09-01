@@ -500,7 +500,7 @@ struct FeedEventClassificationTests {
         // buried beyond it must fail closed instead of recursively walking an
         // attacker-controlled object graph.
         #expect(CodexApprovalNotificationIdentity.make(
-            rawObject: deeplyWrapped,
+            rawObject: rawObject,
             fallbackSessionID: nil
         ) == nil)
     }
@@ -580,6 +580,23 @@ struct FeedEventClassificationTests {
                 ) == nil
             )
         }
+
+        // App-server notifications may wrap the MCP tool name and turn under
+        // `notification.params`; the turn-wide reviewer must still not silence
+        // a connector whose effective reviewer is unknown.
+        #expect(
+            CodexApprovalNotificationPolicy().reviewRoute(
+                rawObject: [
+                    "notification": [
+                        "params": [
+                            "tool_name": "mcp__codex_apps__calendar_create_event",
+                            "turn_id": "turn-current",
+                        ],
+                    ],
+                ],
+                rolloutLines: rolloutLines
+            ) == nil
+        )
     }
 
     /// Lowercase UUIDs from the pane environment are normalized, not

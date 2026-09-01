@@ -305,7 +305,7 @@ def test_permission_notification_targets_rehomed_pane(cli_path: str, root: Path)
     expected = (
         f"notify_target_async {live_workspace} {live_surface} "
         "Codex|Permission|shell needs approval|c=needs-permission;p=0"
-        f";a={EXPECTED_APPROVAL_ID}"
+        f";a={EXPECTED_APPROVAL_ID};d=1"
     )
     commands = raw_commands(frames)
     if expected not in commands:

@@ -277,7 +277,7 @@ extension CMUXCLI {
         }
 
         let newestRemovableDate = Date().addingTimeInterval(-24 * 60 * 60)
-        let removableCandidates = contents.compactMap { url -> URL? in
+        let removableCandidates = contents.compactMap { url -> (url: URL, date: Date)? in
             guard !filenames.contains(url.lastPathComponent) else { return nil }
             let values = try? url.resourceValues(forKeys: [
                 .contentModificationDateKey,
@@ -289,15 +289,19 @@ extension CMUXCLI {
                   modificationDate < newestRemovableDate else {
                 return nil
             }
-            return url
+            return (url, modificationDate)
         }
         // Keep cleanup bounded if a damaged or very old installation has
-        // accumulated an unexpectedly large number of generated files. Leaving
-        // them for a later explicit install is safer than turning reconciliation
-        // into a long synchronous deletion pass.
-        guard removableCandidates.count <= 256 else { return }
-        for url in removableCandidates {
-            try? FileManager.default.removeItem(at: url)
+        // accumulated an unexpectedly large number of generated files, while
+        // deleting the oldest batch so later explicit installs make progress.
+        let boundedCandidates = removableCandidates
+            .sorted { lhs, rhs in
+                if lhs.date != rhs.date { return lhs.date < rhs.date }
+                return lhs.url.lastPathComponent < rhs.url.lastPathComponent
+            }
+            .prefix(256)
+        for url in boundedCandidates {
+            try? FileManager.default.removeItem(at: url.url)
         }
     }
 

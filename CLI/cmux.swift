@@ -448,7 +448,7 @@ final class ClaudeHookSessionStore {
         // They never mutate state, so use a shared lock and avoid the full
         // JSON encode/atomic replace that `withLockedState` performs after
         // every read. This keeps hook bursts from turning into disk I/O.
-        return try withSharedState { state in
+        return try withSharedState(deadline: deadline) { state in
             state.sessions[normalized]
         }
     }
@@ -2572,21 +2572,42 @@ final class ClaudeHookSessionStore {
         )
     }
 
-    private func withSharedState<T>(_ body: (ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+    private func withSharedState<T>(
+        deadline: Date? = nil,
+        _ body: (ClaudeHookSessionStoreFile) throws -> T
+    ) throws -> T {
         let lockPath = statePath + ".lock"
+        try fileManager.createDirectory(
+            at: URL(fileURLWithPath: lockPath).deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
             throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
         }
         defer { Darwin.close(fd) }
 
-        if flock(fd, LOCK_SH) != 0 {
+        if let deadline {
+            while flock(fd, LOCK_SH | LOCK_NB) != 0 {
+                guard errno == EWOULDBLOCK || errno == EAGAIN, Date.now < deadline else {
+                    throw CLIError(message: "Timed out locking Claude hook state: \(lockPath)")
+                }
+                usleep(5_000)
+            }
+        } else if flock(fd, LOCK_SH) != 0 {
             throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
         }
         defer { _ = flock(fd, LOCK_UN) }
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
         // Preserve expiry semantics without encoding and replacing the state
         // file for a read-only lookup.
-        var state = try loadUnlocked()
+        var state = try loadUnlocked(deadline: deadline)
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
         pruneExpired(&state)
         return try body(state)
     }

@@ -287,3 +287,19 @@ func waitForConditionBlocking(
     }
     return condition()
 }
+
+/// Requires `condition` to remain true for the full interval. This is useful
+/// for negative assertions around delayed hook delivery: a single snapshot can
+/// observe the settle window before a notification is emitted.
+func waitForConditionToRemainTrueBlocking(
+    duration: TimeInterval,
+    pollInterval: TimeInterval = 0.02,
+    _ condition: () -> Bool
+) -> Bool {
+    let deadline = Date().addingTimeInterval(duration)
+    while Date() < deadline {
+        guard condition() else { return false }
+        Thread.sleep(forTimeInterval: pollInterval)
+    }
+    return condition()
+}

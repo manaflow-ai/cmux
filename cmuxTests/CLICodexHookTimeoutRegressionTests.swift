@@ -364,9 +364,10 @@ struct CLICodexHookTimeoutRegressionTests {
                 return event["hook_event_name"] as? String == "PreToolUse"
             }
         })
-        #expect(!commands.snapshot().contains { $0.hasPrefix("notify_target_async ") })
-        #expect(!commands.snapshot().contains {
-            $0.hasPrefix("set_agent_lifecycle codex needsInput ")
+        #expect(waitForConditionToRemainTrueBlocking(duration: 0.3) {
+            let snapshot = commands.snapshot()
+            return !snapshot.contains { $0.hasPrefix("notify_target_async ") }
+                && !snapshot.contains { $0.hasPrefix("set_agent_lifecycle codex needsInput ") }
         })
     }
 

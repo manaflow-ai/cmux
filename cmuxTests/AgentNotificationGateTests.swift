@@ -125,7 +125,7 @@ import Testing
         #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=111111111111111111111111.aaaaaaaaaaaaaaaaaaaaaaaa") == nil)
-        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;a=not-a-token") == nil)
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;a=not a token") == nil)
         #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;a=111111111111111111111111.AAAAAAAAAAAAAAAAAAAAAAAA") == nil)
     }
 
