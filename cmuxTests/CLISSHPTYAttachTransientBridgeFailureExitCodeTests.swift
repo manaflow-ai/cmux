@@ -248,7 +248,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
-        let generatedCommand = SSHPTYAttachStartupCommandBuilder.command(
+        let command = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: "user@example.test",
@@ -256,12 +256,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 identityFile: nil,
                 sshOptions: [],
                 token: "foreground-auth-token"
-            )
-        )
-        XCTAssertTrue(generatedCommand.contains("/usr/bin/ssh"), generatedCommand)
-        let command = generatedCommand.replacingOccurrences(
-            of: "/usr/bin/ssh",
-            with: fakeSSH.path
+            ),
+            sshExecutable: fakeSSH.path
         )
         let result = runProcess(
             executablePath: "/bin/sh",
@@ -331,11 +327,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
+        let injectedScript = try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: generatedScript,
+            with: fakeAuth.path
+        )
         let bundledCLI = try bundledCLIPath()
-        XCTAssertTrue(generatedScript.contains("/usr/bin/ssh"), generatedScript)
-        let rewrittenScript = generatedScript
-            .replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
-            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeAuth.path)
+        let rewrittenScript = injectedScript.replacingOccurrences(
+            of: bundledCLI,
+            with: fakeAttach.path
+        )
         XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
         try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
         for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {
