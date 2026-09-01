@@ -1,3 +1,4 @@
+import CmuxSidebar
 import CmuxWorkspaces
 import Combine
 import CoreGraphics
@@ -9,17 +10,43 @@ final class SidebarState: ObservableObject {
     /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
     /// person; session snapshots save it as visible.
     var isAutoCollapsed = false
+
+    /// Whether the sidebar takes layout width or floats over the content.
+    ///
+    /// Window-scoped rather than global: a user can dock the rail in the window
+    /// they are reading a long list in and leave it floating everywhere else.
+    /// The last chosen mode is persisted separately as the default for new
+    /// windows.
+    @Published var presentationMode: SidebarPresentationMode
+
+    /// Whether the sidebar currently consumes layout width from the content.
+    ///
+    /// The distinction the whole floating mode rests on: a floating sidebar is
+    /// still "visible", it simply does not push the terminal aside.
+    var occupiesLayout: Bool {
+        isVisible && presentationMode == .docked
+    }
     private var visibilityWillChangeOwnerId: UUID?
     private var visibilityWillChange: ((Bool) -> Void)?
 
-    init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
+    init(
+        isVisible: Bool = true,
+        persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
+        presentationMode: SidebarPresentationMode = .docked
+    ) {
         self.isVisible = isVisible
+        self.presentationMode = presentationMode
         let sanitized = SessionPersistencePolicy.sanitizedSidebarWidth(Double(persistedWidth))
         self.persistedWidth = CGFloat(sanitized)
     }
 
     func toggle() {
         setVisible(!isVisible)
+    }
+
+    /// Switches between docked and floating.
+    func togglePresentationMode() {
+        presentationMode = presentationMode.toggled
     }
 
     func setVisible(_ nextValue: Bool) {

@@ -939,6 +939,11 @@ struct ContentView: View {
     /// consume the width, never this body. All reads/writes outside view
     /// bodies go through `sidebarLayout.width` directly; the computed
     /// `sidebarWidth` alias keeps call sites readable.
+    /// Owns the hover-reveal timers for this window. A StateObject (not an
+    /// environment object) because peek is per-window: two windows can be in
+    /// different peek phases at once.
+    // Not `private`: `ContentView+SidebarPeek` builds the edge strip from it.
+    @StateObject var sidebarPeek = SidebarPeekController()
     @State private var sidebarLayout = SidebarLayoutModel(
         width: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     )
@@ -1682,6 +1687,17 @@ struct ContentView: View {
                     tabManager: tabManager,
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
+            },
+            presentationMode: sidebarState.presentationMode,
+            onTogglePresentationMode: {
+                withAnimation(SidebarPeekMotion.modeChange) {
+                    sidebarState.togglePresentationMode()
+                }
+                if sidebarState.presentationMode == .docked {
+                    sidebarPeek.sidebarDocked()
+                } else {
+                    sidebarPeek.sidebarCollapsed()
+                }
             },
             observedWindowReference: observedWindowReference,
             chromeBackgroundColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor,
@@ -2467,18 +2483,31 @@ struct ContentView: View {
             layout = AnyView(
                 ZStack(alignment: .leading) {
                     terminalContentWithRightSidebarPanel(appearance: appearance)
+                        // `occupiesLayout`, not `isVisible`: a floating sidebar
+                        // is visible but does not push the terminal aside.
                         .modifier(SidebarWidthLeadingPaddingModifier(
                             layout: sidebarLayout,
-                            enabled: sidebarState.isVisible
+                            enabled: sidebarState.occupiesLayout
                         ))
+                    sidebarPeekEdgeStrip
                     SidebarWidthReader(layout: sidebarLayout) { width in
                         sidebarPanelWithBackdrop(appearance: appearance)
-                            .frame(width: sidebarState.isVisible ? width : 0, alignment: .leading)
-                            .clipped()
-                            .allowsHitTesting(sidebarState.isVisible)
-                            .accessibilityHidden(!sidebarState.isVisible)
+                            .sidebarPeekPresentation(
+                                mode: sidebarState.presentationMode,
+                                isDockedVisible: sidebarState.isVisible,
+                                isPeeking: sidebarPeek.presentsPanel,
+                                width: width,
+                                onPanelHoverChange: { isInside in
+                                    if isInside {
+                                        sidebarPeek.acquire(.pointerInsidePanel)
+                                    } else {
+                                        sidebarPeek.release(.pointerInsidePanel)
+                                    }
+                                }
+                            )
                     }
                 }
+                .animation(SidebarPeekMotion.modeChange, value: sidebarState.presentationMode)
             )
         } else if useWithinWindow {
             // Overlay mode keeps the left sidebar on top, but the right
@@ -11290,6 +11319,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
+            && lhs.presentationMode == rhs.presentationMode
             && lhs.chromeBackgroundColor.isEqual(rhs.chromeBackgroundColor)
     }
 
@@ -11304,6 +11334,10 @@ struct VerticalTabsSidebar: View, Equatable {
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
+    /// Docked or floating. Part of `==`: the toggle's own glyph flips on it,
+    /// so a change here has to defeat the equality gate.
+    var presentationMode: SidebarPresentationMode = .docked
+    let onTogglePresentationMode: () -> Void
     let observedWindowReference: WeakWindowReference
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
@@ -11318,6 +11352,8 @@ struct VerticalTabsSidebar: View, Equatable {
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State var isHoveringTopStrip = false
+    @Environment(\.colorScheme) var sidebarChromeColorScheme
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
@@ -12125,6 +12161,11 @@ struct VerticalTabsSidebar: View, Equatable {
             }
             .overlay(alignment: .topLeading) {
                 minimalModeSidebarTitlebarControlsOverlay()
+            }
+            .overlay(alignment: .topTrailing) {
+                // Layered after the drag handle so the button wins the click:
+                // the strip is draggable everywhere except this control.
+                sidebarPresentationToggleOverlay
             }
             .overlay(alignment: .top) {
                 workspaceReorderDropOverlay(
