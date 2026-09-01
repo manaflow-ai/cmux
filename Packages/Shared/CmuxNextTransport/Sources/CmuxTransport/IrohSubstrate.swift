@@ -1,5 +1,5 @@
 import Foundation
-import IrohLib
+public import IrohLib
 
 /// The iroh-mode substrate (contract 2.1, D7 rung 1): real QUIC connections
 /// via stock upstream iroh (cmux-lite IrohLib branch), plugged into the same
