@@ -225,17 +225,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           # A TERM handler in the generated authentication wrapper writes one
           # byte after it has waited for its child and completed its cleanup.
-          # Opening the FIFO with a read/write descriptor prevents the writer
-          # from blocking before this helper reaches the wait. If the wrapper
-          # is unavailable, the read timeout is the bounded fail-safe and the
-          # next process snapshot still validates every identity before KILL.
+          # Consume that event without waiting on elapsed time. The following
+          # process-state passes remain the source of truth when the wrapper
+          # does not publish an event (for example, a plain shell fixture).
           cmux_ssh_auth_wait_for_term_event() {
             if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_byte=
-            # Leave half of the overall two-second budget for the confirming
-            # snapshots and force pass when a handler does not publish.
-            IFS= read -r -t 1 -n 1 cmux_ssh_auth_term_event_byte <&9 || true
+            IFS= read -r -t 0 -n 1 cmux_ssh_auth_term_event_byte <&9 || true
             exec 9>&-
           }
 
@@ -491,7 +488,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           cmux_ssh_auth_force_attempt=0
           cmux_ssh_auth_force_frozen=0
-          while [ "$cmux_ssh_auth_force_attempt" -lt 4 ] && cmux_ssh_auth_cleanup_has_time; do
+          while [ "$cmux_ssh_auth_force_attempt" -lt 32 ] && cmux_ssh_auth_cleanup_has_time; do
             if ! cmux_ssh_auth_take_snapshot || ! cmux_ssh_auth_extract_owned; then
               cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
               break
@@ -617,7 +614,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             // The process-tree helper creates this FIFO from the root PID. The
             // classifier's parent is that root shell, so PPID identifies the
             // same per-attempt event path without an environment handoff.
-            "cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.${PPID}/done\"",
+            // The outer classifier shell is the process-tree root passed to
+            // the cleanup helper. Export its PID so the nested `script` and
+            // zsh processes use the same event path instead of their own PPID.
+            "CMUX_SSH_AUTH_ROOT_PID=\"${CMUX_SSH_AUTH_ROOT_PID:-$$}\"; export CMUX_SSH_AUTH_ROOT_PID",
+            "cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.${CMUX_SSH_AUTH_ROOT_PID}/done\"",
             "cmux_ssh_auth_signal_completion() { if [ -p \"$cmux_ssh_auth_term_event_fifo\" ]; then printf '%s\\n' done > \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null || true; fi; }",
             "cmux_ssh_auth_capture_cleanup() {",
             "  if [ -n \"${cmux_ssh_auth_classifier_guard_fd:-}\" ]; then",
