@@ -10,6 +10,271 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
+    @Test("Generic hook recovery does not trust a merely live inferred PID")
+    func genericHookRecoveryRequiresProcessBindingCorroboration() {
+        let cli = CMUXCLI(args: [])
+        let currentPID = Int(getpid())
+
+        #expect(
+            cli.preferredAgentHookEventPID(
+                agentName: "cursor",
+                mappedPID: 999_991,
+                inferredPID: currentPID
+            ) == 999_991,
+            "A live wrapper or shell PID is not ownership proof for a generic hook."
+        )
+        #expect(
+            cli.preferredAgentHookEventPID(
+                agentName: "claude",
+                mappedPID: nil,
+                inferredPID: currentPID
+            ) == nil,
+            "Without a mapped owner, an uncorroborated generic PID must fail closed."
+        )
+    }
+
+    @Test("Custom remote agent PID registration does not require a local identity")
+    func customRemoteAgentPIDRegistrationAllowsOpaqueNamespace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "remote-custom-agent",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_010,
+            relayID: "custom-remote-pid-registration",
+            relayToken: String(repeating: "p", count: 64),
+            localSocketPath: "/tmp/cmux-custom-remote-pid-registration.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh remote-custom-agent"
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let result = ControlSidebarPanelOwner.workspace(workspace).recordAgentPID(
+            key: "custom.remote-session",
+            pid: 424_242,
+            panelId: panelID,
+            acceptedProcessIdentity: nil,
+            observeProcessExit: false
+        )
+        guard case .accepted = result else {
+            Issue.record("Opaque remote custom PID registration was rejected")
+            return
+        }
+        #expect(workspace.agentPIDs["custom.remote-session"] == 424_242)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey["custom.remote-session"] == nil
+        )
+    }
+
+    @Test("Scheduled remote custom PID registration keeps the PID opaque")
+    func scheduledRemoteCustomPIDRegistrationDoesNotUseLocalGeneration() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "remote-scheduled-custom-agent",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_011,
+            relayID: "scheduled-custom-remote-pid",
+            relayToken: String(repeating: "q", count: 64),
+            localSocketPath: "/tmp/cmux-scheduled-custom-remote-pid.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh remote-scheduled-custom-agent"
+        )
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let key = "custom.remote-scheduled"
+        let localPID = Int32(getpid())
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(workspace.id),
+            key: key,
+            pid: localPID,
+            processGeneration: nil,
+            panelID: panelID
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(workspace.agentPIDs[key] == localPID)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey[key] == nil,
+            "A PID from a remote namespace must not be reconstructed against the local process table."
+        )
+    }
+
+    @Test("Rejected PID registration preserves an active Feed attention token")
+    func rejectedPIDRegistrationDoesNotEraseFeedAttention() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let token = try #require(
+            workspace.beginAgentFeedAttention(
+                key: "cursor",
+                panelId: panelID,
+                processGeneration: generation
+            )
+        )
+        defer {
+            _ = workspace.endAgentFeedAttention(
+                key: "cursor",
+                panelId: panelID,
+                token: token
+            )
+        }
+
+        let mismatchedGeneration = AgentPIDProcessIdentity(
+            pid: generation.pid,
+            startSeconds: generation.startSeconds + 1,
+            startMicroseconds: generation.startMicroseconds
+        )
+        let result = ControlSidebarPanelOwner.workspace(workspace).recordAgentPID(
+            key: "cursor.rejected-registration",
+            pid: generation.pid,
+            panelId: panelID,
+            acceptedProcessIdentity: mismatchedGeneration,
+            observeProcessExit: false
+        )
+        guard case .rejected = result else {
+            Issue.record("The mismatched PID registration was unexpectedly accepted")
+            return
+        }
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "cursor",
+                panelId: panelID
+            ),
+            "A rejected registration is not proof that the active prompt process exited."
+        )
+    }
+
+    @Test("Workspace-scoped PID ownership authorizes lifecycle updates")
+    func workspaceScopedPIDAuthorizesLifecycleWithoutPanel() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let owner = ControlSidebarPanelOwner.workspace(workspace)
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        guard case .accepted = owner.recordAgentPID(
+            key: "codex.workspace-scoped",
+            pid: generation.pid,
+            panelId: nil,
+            acceptedProcessIdentity: generation,
+            observeProcessExit: false
+        ) else {
+            Issue.record("The workspace-scoped PID registration was rejected")
+            return
+        }
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: generation.pid,
+            startSeconds: generation.startSeconds,
+            startMicroseconds: generation.startMicroseconds
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(workspace.id),
+            key: "codex",
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
+            panelID: nil
+        )
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["codex"]
+                == .running,
+            "An exact workspace-scoped PID must authorize the tab lifecycle path."
+        )
+    }
+
+    @Test("Panel transfer preserves lifecycle-owned status without a PID key")
+    func panelTransferPreservesLifecycleOwnedStatusWithoutPID() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let status = SidebarStatusEntry(
+            key: "amp",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        workspace.statusEntries["amp"] = status
+        let remoteGeneration = AgentPIDProcessIdentity(
+            pid: 42_424,
+            startSeconds: 1_700_000_000,
+            startMicroseconds: 123
+        )
+
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: remoteGeneration
+            )
+        )
+        let runtime = try #require(
+            workspace.agentRuntimeState(forPanelId: panelID)
+        )
+        #expect(runtime.agentPIDs.isEmpty)
+        #expect(runtime.agentLifecycleStates["amp"] == .running)
+        #expect(
+            runtime.statusEntries["amp"] == status,
+            "A lifecycle-owned remote status must remain visible when its panel moves without a local PID key."
+        )
+    }
+
     // Generous for loaded CI runners: subprocess spawn, signal propagation,
     // and marker writes can take multiple seconds there. A long timeout only
     // slows the failure path.
@@ -144,6 +409,341 @@ extension AgentNotificationRegressionTests {
         #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
     }
 
+    @Test("Workspace preserves concurrent sessions owned by one process generation")
+    func workspacePreservesSharedStructuredAgentGeneration() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+
+        #expect(
+            !workspace.recordAgentPID(
+                key: "amp.thread-a",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation,
+                refreshPorts: false
+            )
+        )
+        #expect(
+            !workspace.recordAgentPID(
+                key: "amp.thread-b",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation,
+                refreshPorts: false
+            )
+        )
+        #expect(
+            workspace.agentPIDKeysByPanelId[panelID]
+                == ["amp.thread-a", "amp.thread-b"]
+        )
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: generation
+            )
+        )
+
+        #expect(
+            workspace.clearAgentPID(
+                key: "amp.thread-a",
+                panelId: panelID,
+                clearStatus: true,
+                refreshPorts: false
+            )
+        )
+        #expect(workspace.agentPIDs["amp.thread-b"] == generation.pid)
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["amp"]
+                == .running
+        )
+    }
+
+    @Test("Dock preserves concurrent sessions owned by one process generation")
+    func dockPreservesSharedStructuredAgentGeneration() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+
+        #expect(
+            !dock.recordAgentPID(
+                key: "amp.thread-a",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            )
+        )
+        #expect(
+            !dock.recordAgentPID(
+                key: "amp.thread-b",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            )
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?.agentPIDKeys
+                == ["amp.thread-a", "amp.thread-b"]
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: generation
+            )
+        )
+
+        #expect(
+            dock.clearAgentPID(
+                key: "amp.thread-a",
+                panelId: panelID,
+                clearStatus: true
+            )
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentPIDs["amp.thread-b"] == generation.pid
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentLifecycleStates["amp"] == .running
+        )
+    }
+
+    @Test("Dock lifecycle mutations keep the attention projection synchronized")
+    func dockLifecycleMutationsKeepAttentionProjectionSynchronized() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+
+        #expect(
+            dock.recordAgentPIDResult(
+                key: "amp.attention",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            ).accepted
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .needsInput,
+                processGeneration: generation
+            )
+        )
+        #expect(dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+
+        #expect(
+            dock.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .idle,
+                processGeneration: generation
+            )
+        )
+        #expect(!dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+
+        let token = try #require(
+            dock.beginAgentFeedAttention(
+                key: "amp",
+                panelId: panelID,
+                processGeneration: generation
+            )
+        )
+        #expect(dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+        #expect(
+            dock.endAgentFeedAttention(
+                key: "amp",
+                panelId: panelID,
+                token: token
+            )
+        )
+        #expect(!dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+    }
+
+    @Test("Native attention resolves a Dock-owned panel")
+    func nativeAttentionResolvesDockOwnedPanel() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            scope: .global,
+            baseDirectoryProvider: { nil }
+        )
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        defer {
+            FeedCoordinator.shared.retireAgentAttention(
+                workspaceId: dock.workspaceId,
+                panelId: panelID
+            )
+            dock.closeAllPanels()
+        }
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        #expect(
+            dock.recordAgentPIDResult(
+                key: "amp.native",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            ).accepted
+        )
+
+        #expect(
+            FeedCoordinator.shared.beginObservedAgentAttention(
+                source: "amp",
+                sessionId: "dock-native-session-\(UUID().uuidString)",
+                observationId: "dock-native-observation-\(UUID().uuidString)",
+                scopeId: "dock-native-scope-\(UUID().uuidString)",
+                workspaceId: dock.workspaceId,
+                surfaceId: panelID,
+                processGeneration: generation
+            )
+        )
+        #expect(dock.agentNeedsInputAttention.surfaceIds.contains(panelID))
+    }
+
+    @Test("Workspace rejects delayed PID registration before replacing runtime")
+    func workspaceRejectsDelayedOlderPIDRegistration() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let newerGeneration = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let olderGeneration = AgentPIDProcessIdentity(
+            pid: newerGeneration.pid,
+            startSeconds: newerGeneration.startSeconds - 1,
+            startMicroseconds: newerGeneration.startMicroseconds
+        )
+        let key = "cursor.delayed-registration"
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+
+        #expect(
+            workspace.recordAgentPIDResult(
+                key: key,
+                pid: newerGeneration.pid,
+                panelId: panelID,
+                processIdentity: newerGeneration,
+                refreshPorts: false
+            ).accepted
+        )
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "cursor",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: newerGeneration
+            )
+        )
+
+        let delayedResult = workspace.recordAgentPIDResult(
+            key: key,
+            pid: olderGeneration.pid,
+            panelId: panelID,
+            processIdentity: olderGeneration,
+            refreshPorts: false
+        )
+
+        #expect(!delayedResult.accepted)
+        #expect(workspace.agentPIDs[key] == newerGeneration.pid)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey[key]
+                == newerGeneration
+        )
+        #expect(workspace.agentPIDPanelIdsByKey[key] == panelID)
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["cursor"]
+                == .running
+        )
+    }
+
+    @Test("Dock rejects delayed PID registration before replacing runtime")
+    func dockRejectsDelayedOlderPIDRegistration() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let newerGeneration = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let olderGeneration = AgentPIDProcessIdentity(
+            pid: newerGeneration.pid,
+            startSeconds: newerGeneration.startSeconds - 1,
+            startMicroseconds: newerGeneration.startMicroseconds
+        )
+        let key = "cursor.delayed-registration"
+
+        #expect(
+            dock.recordAgentPIDResult(
+                key: key,
+                pid: newerGeneration.pid,
+                panelId: panelID,
+                processIdentity: newerGeneration
+            ).accepted
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "cursor",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: newerGeneration
+            )
+        )
+
+        let delayedResult = dock.recordAgentPIDResult(
+            key: key,
+            pid: olderGeneration.pid,
+            panelId: panelID,
+            processIdentity: olderGeneration
+        )
+
+        #expect(!delayedResult.accepted)
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?.agentPIDs[key]
+                == newerGeneration.pid
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentPIDProcessIdentities[key] == newerGeneration
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentLifecycleStates["cursor"] == .running
+        )
+    }
+
     @Test("Live PID routing and runtime mutations include a Dock-owned terminal")
     func liveTTYBindingsAndRuntimeMutationsIncludeDockOwnedTerminal() throws {
         let fixture = try makeFixture()
@@ -175,6 +775,21 @@ extension AgentNotificationRegressionTests {
         #expect(binding.ttyDevice > 0)
 
         let sessionKey = "omp.dock-session"
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: processIdentity.pid,
+            startSeconds: processIdentity.startSeconds,
+            startMicroseconds: processIdentity.startMicroseconds
+        )
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(dockOwnerId),
+            key: sessionKey,
+            pid: getpid(),
+            processGeneration: processGeneration,
+            panelID: fixture.panelId
+        )
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(dockOwnerId),
             key: "omp",
@@ -187,16 +802,11 @@ extension AgentNotificationRegressionTests {
             panelID: fixture.panelId,
             pid: nil
         )
-        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
-            target: .workspace(dockOwnerId),
-            key: sessionKey,
-            pid: getpid(),
-            panelID: fixture.panelId
-        )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(dockOwnerId),
             key: "omp",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
         bus.drainForTesting()
@@ -243,6 +853,7 @@ extension AgentNotificationRegressionTests {
             target: .workspace(dockOwnerId),
             key: "omp",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
         bus.drainForTesting()
@@ -551,6 +1162,14 @@ extension AgentNotificationRegressionTests {
             bus.discardPendingNotifications()
         }
 
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: processIdentity.pid,
+            startSeconds: processIdentity.startSeconds,
+            startMicroseconds: processIdentity.startMicroseconds
+        )
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(fixture.source.id),
             key: "claude_code",
@@ -561,12 +1180,14 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: 43_210
+            pid: getpid(),
+            processGeneration: processGeneration
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(fixture.source.id),
             key: "claude_code",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
 
@@ -576,7 +1197,7 @@ extension AgentNotificationRegressionTests {
 
         #expect(fixture.source.statusEntries["claude_code"] == nil)
         #expect(fixture.destination.statusEntries["claude_code"]?.value == "Running")
-        #expect(fixture.destination.agentPIDs["claude_code"] == 43_210)
+        #expect(fixture.destination.agentPIDs["claude_code"] == getpid())
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
         )

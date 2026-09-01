@@ -333,7 +333,7 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    @Test func detachedAgentRuntimeAdoptionPreservesSavedPIDIdentity() throws {
+    @Test func detachedAgentRuntimeAdoptionRejectsMismatchedPIDIdentity() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let pidKey = "claude_code.detached-reused-pid"
@@ -348,17 +348,66 @@ struct AgentSessionAutoResumeSwiftTests {
         workspace.adoptDetachedAgentRuntimeState(
             Workspace.DetachedAgentRuntimeState(
                 panelId: panelId,
-                statusEntries: [:],
+                statusEntries: [
+                    "claude_code": SidebarStatusEntry(
+                        key: "claude_code",
+                        value: "Running"
+                    ),
+                ],
                 agentPIDs: [pidKey: livePid],
                 agentPIDProcessIdentities: [pidKey: savedIdentity],
-                agentPIDKeys: [pidKey]
+                agentPIDKeys: [pidKey],
+                agentLifecycleStates: ["claude_code": .running]
             )
         )
 
-        #expect(workspace.agentPIDProcessIdentitiesByKey[pidKey] == savedIdentity)
-        #expect(workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
         #expect(workspace.agentPIDs[pidKey] == nil)
         #expect(workspace.agentPIDProcessIdentitiesByKey[pidKey] == nil)
+        #expect(workspace.statusEntries["claude_code"] == nil)
+        #expect(
+            workspace.agentHibernationLifecycleState(
+                panelId: panelId,
+                fallback: nil
+            ) == .unknown
+        )
+        #expect(!workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
+    }
+
+    @MainActor
+    @Test func detachedRemoteAgentRuntimeAdoptionPreservesOpaqueGeneration() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let pidKey = "codex.remote-detached-agent"
+        let remotePID: pid_t = 424_242
+        let remoteGeneration = AgentPIDProcessIdentity(
+            pid: remotePID,
+            startSeconds: 9_001,
+            startMicroseconds: 17
+        )
+
+        workspace.adoptDetachedAgentRuntimeState(
+            Workspace.DetachedAgentRuntimeState(
+                panelId: panelId,
+                statusEntries: [
+                    "codex": SidebarStatusEntry(
+                        key: "codex",
+                        value: "Running"
+                    ),
+                ],
+                agentPIDs: [pidKey: remotePID],
+                agentPIDProcessIdentities: [pidKey: remoteGeneration],
+                agentPIDKeys: [pidKey],
+                agentLifecycleStates: ["codex": .running]
+            ),
+            isRemoteTerminal: true
+        )
+
+        #expect(workspace.agentPIDs[pidKey] == remotePID)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey[pidKey]
+                == remoteGeneration
+        )
+        #expect(workspace.statusEntries["codex"]?.value == "Running")
     }
 
     @MainActor

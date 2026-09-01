@@ -228,6 +228,22 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_agent_pid claude_code 43306 ")
+                    && $0.contains("--tab=\(newWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "Prompt-submit recovery must register the emitting process before setting status; saw \(commands)"
+        )
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--tab=\(newWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "Prompt-submit recovery must retain its Running status; saw \(commands)"
+        )
         #expect(commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"))
         #expect(!commands.contains("clear_notifications --tab=\(newWorkspaceId)"))
     }

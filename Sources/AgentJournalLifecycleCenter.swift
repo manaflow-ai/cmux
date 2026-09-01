@@ -404,7 +404,9 @@ final class AgentJournalLifecycleCenter: Sendable {
 
     @MainActor
     private static func apply(_ assignment: AgentLifecycleAssignment, workspaceHint: String?) {
-        guard AgentHibernationLifecycleStatusKeys.isAllowed(assignment.agentKey) else { return }
+        guard AgentHibernationLifecycleStatusKeys(rawValue: assignment.agentKey).isAllowed else {
+            return
+        }
         guard let panelId = UUID(uuidString: assignment.surfaceId) else { return }
         let owner: ControlSidebarPanelOwner?
         if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(panelId) }) {
@@ -431,6 +433,41 @@ final class AgentJournalLifecycleCenter: Sendable {
             cmuxDebugLog(
                 "agentJournal.apply.skip surface=\(assignment.surfaceId.prefix(8)) " +
                     "key=\(assignment.agentKey) reason=panelGone"
+            )
+#endif
+            return
+        }
+        // Journal assignments intentionally carry no process generation: they
+        // must remain replayable across launches. Once a local generation is
+        // already registered for this built-in key, an unbound assignment
+        // cannot prove that it belongs to that generation and may otherwise
+        // overwrite newer running evidence. Remote generation tuples are
+        // opaque to the Mac, so their journal remains the ordered authority.
+        let hasLiveAgentProcess = owner.hasLiveAgentProcess(
+            statusKey: assignment.agentKey,
+            panelId: panelId
+        )
+        // An unbound journaled completion cannot prove which process generation
+        // produced it. Do not let it replace a live local owner; the exact
+        // hook/process path is responsible for publishing that owner's idle
+        // transition. Remote owners have no local process-table evidence and
+        // continue through the ordered journal path above.
+        let isCompletionAssignment = assignment.phase == .idle
+        guard !hasLiveAgentProcess || !isCompletionAssignment else {
+            CmuxEventBus.shared.publish(
+                name: "agent.journal.apply_skipped",
+                category: "agent",
+                source: "journal",
+                surfaceId: assignment.surfaceId,
+                payload: [
+                    "agent_key": assignment.agentKey,
+                    "reason": "liveProcessGeneration",
+                ]
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "agentJournal.apply.skip surface=\(assignment.surfaceId.prefix(8)) " +
+                    "key=\(assignment.agentKey) reason=liveProcessGeneration"
             )
 #endif
             return

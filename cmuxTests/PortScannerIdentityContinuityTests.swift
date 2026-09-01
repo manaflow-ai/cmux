@@ -6,8 +6,12 @@ import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias AppAgentPIDProcessIdentity = cmux_DEV.AgentPIDProcessIdentity
+private typealias AppPIDPresence = cmux_DEV.PIDPresence
 #elseif canImport(cmux)
 @testable import cmux
+private typealias AppAgentPIDProcessIdentity = cmux.AgentPIDProcessIdentity
+private typealias AppPIDPresence = cmux.PIDPresence
 #endif
 
 @Suite("Port scanner identity continuity")
@@ -409,8 +413,8 @@ struct PortScannerIdentityContinuityTests {
     }
 
     private struct IdentityState: Sendable {
-        var identities: [Int: AgentPIDProcessIdentity]
-        var presenceByPID: [Int: PIDPresence] = [:]
+        var identities: [Int: AppAgentPIDProcessIdentity]
+        var presenceByPID: [Int: AppPIDPresence] = [:]
     }
 
     private struct RootReuseState: Sendable {

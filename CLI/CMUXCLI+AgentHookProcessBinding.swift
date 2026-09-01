@@ -35,7 +35,13 @@ extension CMUXCLI {
               isUUID(surfaceId) else {
             return .failed
         }
-        return .resolved(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
+        return .resolved(
+            pid: pid,
+            binding: CallerTerminalBinding(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
+        )
     }
 
     /// Resolves a generic hook's process identity with live evidence first.
@@ -46,14 +52,20 @@ extension CMUXCLI {
     ) -> AgentHookProcessBindingResult {
         guard resolution == .controllingTTY else {
             switch liveAgentHookProcessBinding(pid: pid, client: client) {
-            case .resolved(let binding):
-                return AgentHookProcessBindingResult(binding: binding, source: .liveProcess, rejectsAmbientClaim: false)
+            case .resolved(let verifiedPID, let binding):
+                return AgentHookProcessBindingResult(
+                    binding: binding,
+                    source: .liveProcess,
+                    verifiedPID: verifiedPID,
+                    rejectsAmbientClaim: false
+                )
             case .unsupported:
                 return corroboratedAgentHookProcessBinding(pid: pid, client: client)
             case .failed:
                 return AgentHookProcessBindingResult(
                     binding: nil,
                     source: nil,
+                    verifiedPID: nil,
                     rejectsAmbientClaim: true
                 )
             case .notAttempted:
@@ -62,16 +74,27 @@ extension CMUXCLI {
         }
 
         switch liveAgentControllingTTYBinding(pid: pid, client: client) {
-        case .resolved(let binding):
-            return AgentHookProcessBindingResult(binding: binding, source: .liveProcess, rejectsAmbientClaim: false)
+        case .resolved(let verifiedPID, let binding):
+            return AgentHookProcessBindingResult(
+                binding: binding,
+                source: .liveProcess,
+                verifiedPID: verifiedPID,
+                rejectsAmbientClaim: false
+            )
         case .unsupported:
             return corroboratedAgentHookProcessBinding(pid: pid, client: client)
         case .failed:
-            return AgentHookProcessBindingResult(binding: nil, source: nil, rejectsAmbientClaim: true)
+            return AgentHookProcessBindingResult(
+                binding: nil,
+                source: nil,
+                verifiedPID: nil,
+                rejectsAmbientClaim: true
+            )
         case .notAttempted:
             return AgentHookProcessBindingResult(
                 binding: uniqueCallerTerminalBindingByTTY(client: client),
                 source: .ambientTTY,
+                verifiedPID: nil,
                 rejectsAmbientClaim: false
             )
         }
@@ -103,7 +126,8 @@ extension CMUXCLI {
             switch liveAgentPidDeliveryTarget(pid: candidate, client: client) {
             case .resolved(let target):
                 return .resolved(
-                    CallerTerminalBinding(
+                    pid: candidate,
+                    binding: CallerTerminalBinding(
                         workspaceId: target.workspaceId,
                         surfaceId: target.surfaceId
                     )
@@ -164,11 +188,18 @@ extension CMUXCLI {
         client: SocketClient
     ) -> AgentHookProcessBindingResult {
         if let binding = uniqueCallerTerminalBindingByTTY(client: client) {
-            return AgentHookProcessBindingResult(binding: binding, source: .ambientTTY, rejectsAmbientClaim: false)
+            return AgentHookProcessBindingResult(
+                binding: binding,
+                source: .ambientTTY,
+                verifiedPID: nil,
+                rejectsAmbientClaim: false
+            )
         }
+        let binding = resolveAgentProcessTerminalBinding(pid: pid, client: client)
         return AgentHookProcessBindingResult(
-            binding: resolveAgentProcessTerminalBinding(pid: pid, client: client),
+            binding: binding,
             source: .liveProcess,
+            verifiedPID: binding == nil ? nil : pid,
             rejectsAmbientClaim: false
         )
     }

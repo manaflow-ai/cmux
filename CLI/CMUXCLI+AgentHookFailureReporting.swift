@@ -7,15 +7,27 @@ nonisolated private let agentHookDeliveryLogger = Logger(
 )
 
 extension CMUXCLI {
-    /// Chooses the live wrapper PID for Codex while preserving legacy precedence for other agents.
+    /// Chooses a process PID only after the live owner resolver corroborates it.
+    /// A merely readable process generation may belong to a shell or wrapper
+    /// parent, so generic hooks fail closed to their durable mapping when no
+    /// resolver result names the same candidate.
     func preferredAgentHookEventPID(
         agentName: String,
         mappedPID: Int?,
-        inferredPID: Int?
+        inferredPID: Int?,
+        verifiedPID: Int? = nil
     ) -> Int? {
-        agentName == "codex"
-            ? inferredPID ?? mappedPID
-            : mappedPID ?? inferredPID
+        if agentName == "codex" {
+            return inferredPID ?? mappedPID
+        }
+        guard let inferredPID else {
+            return mappedPID
+        }
+        // A provider can restart between hooks, but liveness alone does not
+        // prove that this PID is the agent rather than a shell/runner parent.
+        // The process binding resolver supplies that missing ownership proof.
+        guard verifiedPID == inferredPID else { return mappedPID }
+        return inferredPID
     }
 
     /// Reports a persistently throttled hook failure without serializing raw transport details.

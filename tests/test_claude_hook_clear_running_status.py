@@ -185,6 +185,17 @@ def has_command_with(commands: list[str], *fragments: str) -> bool:
     return any(all(fragment in command for fragment in fragments) for command in commands)
 
 
+def has_incomplete_status_process_generation(command: str) -> bool:
+    return (
+        command.startswith("set_status claude_code ")
+        and " --pid=" in command
+        and (
+            " --pid-start-seconds=" not in command
+            or " --pid-start-microseconds=" not in command
+        )
+    )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -282,6 +293,21 @@ def main() -> int:
         ):
             print("FAIL: expected clear SessionStart to set Claude Running on the current panel")
             print(f"clear_commands={clear_commands!r}")
+            return 1
+        incomplete_status_generation = next(
+            (
+                command
+                for command in clear_commands
+                if has_incomplete_status_process_generation(command)
+            ),
+            None,
+        )
+        if incomplete_status_generation is not None:
+            print(
+                "FAIL: Claude status bound a PID without its exact process "
+                "generation"
+            )
+            print(f"command={incomplete_status_generation!r}")
             return 1
 
         late_old_start = len(server.commands)

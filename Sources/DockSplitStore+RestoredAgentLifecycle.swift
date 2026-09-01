@@ -7,16 +7,24 @@ import Foundation
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
         discardPendingTerminalTitleUpdate(panelId: panelId)
-        removeDeferredAgentResumeRestore(panelId: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
-        agentRuntimeByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        if let runtime = agentRuntimeByPanelId.removeValue(forKey: panelId) {
+            for key in runtime.agentPIDKeys {
+                agentProcessExitMonitor.cancel(
+                    key: Self.agentProcessObservationKey(
+                        key: key,
+                        panelId: panelId
+                    )
+                )
+            }
+        }
         syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
@@ -138,27 +146,70 @@ extension DockSplitStore {
         )
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         if let resumeBinding = detached.resumeBinding {
-            if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: detached.panelId) {
-                surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
-            }
+            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         }
         if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
             managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
         }
-        if let deferredRestore = detached.deferredAgentResumeRestore {
-            deferAgentResumeRestore(
-                panelId: detached.panelId,
-                restore: deferredRestore
-            )
+        if let directory = detached.restoredResumeSessionWorkingDirectory {
+            restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = directory
         }
-        if let runtime = detached.agentRuntime {
+        if var runtime = detached.agentRuntime {
+            if let previous = agentRuntimeByPanelId[detached.panelId] {
+                for key in previous.agentPIDKeys {
+                    agentProcessExitMonitor.cancel(
+                        key: Self.agentProcessObservationKey(
+                            key: key,
+                            panelId: detached.panelId
+                        )
+                    )
+                }
+            }
+            Self.seedAgentLifecycleReconciliationIfNeeded(
+                runtime: &runtime,
+                panelId: detached.panelId
+            )
+            runtime.agentLifecycleStates =
+                runtime.agentLifecycleReconciliationState
+                    .resolvedStatesByPanelId[detached.panelId] ?? [:]
             agentRuntimeByPanelId[detached.panelId] = runtime
+            if !detached.isRemoteTerminal {
+                for (key, generation) in runtime.agentPIDProcessIdentities {
+                    guard runtime.agentPIDs[key] == generation.pid,
+                          Workspace.agentPIDProcessIdentity(
+                              pid: generation.pid
+                          ) == generation else {
+                        _ = clearAgentPID(
+                            key: key,
+                            panelId: detached.panelId,
+                            clearStatus: true,
+                            definitiveProcessExit: true
+                        )
+                        continue
+                    }
+                    observeAgentProcessExit(
+                        key: key,
+                        panelId: detached.panelId,
+                        generation: generation
+                    )
+                }
+            }
         } else {
-            agentRuntimeByPanelId.removeValue(forKey: detached.panelId)
+            if let previous =
+                agentRuntimeByPanelId.removeValue(forKey: detached.panelId) {
+                for key in previous.agentPIDKeys {
+                    agentProcessExitMonitor.cancel(
+                        key: Self.agentProcessObservationKey(
+                            key: key,
+                            panelId: detached.panelId
+                        )
+                    )
+                }
+            }
         }
         syncAgentNeedsInputAttention(
             panelId: detached.panelId,
-            runtime: detached.agentRuntime
+            runtime: agentRuntimeByPanelId[detached.panelId]
         )
     }
 
@@ -216,14 +267,10 @@ extension DockSplitStore {
         }
         if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId] {
             if effectiveBinding == originalBinding || effectiveBinding.isSameManagedSession(as: binding) {
-                if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
-                    surfaceResumeBindingsByPanelId[panelId] = binding
-                }
-            }
-        } else {
-            if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
                 surfaceResumeBindingsByPanelId[panelId] = binding
             }
+        } else {
+            surfaceResumeBindingsByPanelId[panelId] = binding
         }
     }
 
@@ -252,6 +299,39 @@ extension DockSplitStore {
         agentRuntimeByPanelId[panelId]?.statusEntries[key]
     }
 
+    func agentRuntimeLifecycleState(
+        key: String,
+        panelId: UUID
+    ) -> AgentHibernationLifecycleState? {
+        agentRuntimeByPanelId[panelId]?.agentLifecycleStates[key]
+    }
+
+    func hasLiveAgentProcess(
+        statusKey: String,
+        panelId: UUID,
+        matching requiredGeneration: AgentPIDProcessIdentity? = nil
+    ) -> Bool {
+        guard let runtime = agentRuntimeByPanelId[panelId] else {
+            return false
+        }
+        return runtime.agentPIDKeys.contains { pidKey in
+            guard Self.agentStatusKey(
+                forAgentPIDKey: pidKey,
+                runtime: runtime
+            ) == statusKey,
+            let pid = runtime.agentPIDs[pidKey],
+            let recordedIdentity =
+                runtime.agentPIDProcessIdentities[pidKey],
+            recordedIdentity.pid == pid,
+            requiredGeneration == nil
+                || recordedIdentity == requiredGeneration else {
+                return false
+            }
+            return Workspace.agentPIDProcessIdentity(pid: pid)
+                == recordedIdentity
+        }
+    }
+
     func setAgentRuntimeStatusEntry(
         _ entry: SidebarStatusEntry,
         key: String,
@@ -269,66 +349,289 @@ extension DockSplitStore {
     }
 
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID,
+        processIdentity providedProcessIdentity:
+            AgentPIDProcessIdentity? = nil,
+        observeProcessExit: Bool = true
+    ) -> Bool {
+        recordAgentPIDResult(
+            key: key,
+            pid: pid,
+            panelId: panelId,
+            processIdentity: providedProcessIdentity,
+            observeProcessExit: observeProcessExit
+        ).replacedOtherRuntime
+    }
+
+    /// Admits an exact process generation before replacing any Dock runtime.
+    func recordAgentPIDResult(
+        key: String,
+        pid: pid_t,
+        panelId: UUID,
+        processIdentity providedProcessIdentity:
+            AgentPIDProcessIdentity? = nil,
+        observeProcessExit: Bool = true
+    ) -> (accepted: Bool, replacedOtherRuntime: Bool) {
         var didReplaceRuntime = false
+        var didReplaceProcessGeneration = false
+        var accepted = false
+        let processIdentity =
+            providedProcessIdentity
+                ?? Workspace.agentPIDProcessIdentity(pid: pid)
+        if let processIdentity,
+           let runtime = agentRuntimeByPanelId[panelId],
+           runtime.agentPIDs[key] == pid,
+           runtime.agentPIDProcessIdentities[key] == processIdentity,
+           runtime.agentPIDKeys.contains(key) {
+            return (accepted: true, replacedOtherRuntime: false)
+        }
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) { runtime in
+            let statusKey = Self.agentStatusKey(
+                forAgentPIDKey: key,
+                runtime: runtime
+            )
+            if let processIdentity {
+                if let previousGeneration =
+                    runtime.agentPIDProcessIdentities[key],
+                   processIdentity < previousGeneration {
+                    return
+                }
+                guard runtime.agentLifecycleReconciliationState
+                    .recordProcessGeneration(
+                        key: statusKey,
+                        panelId: panelId,
+                        generation: processIdentity,
+                        isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                            rawValue: statusKey
+                        ).isAllowed
+                    ) else {
+                    return
+                }
+            }
+            accepted = true
+            if let previousGeneration =
+                runtime.agentPIDProcessIdentities[key],
+               previousGeneration != processIdentity {
+                didReplaceProcessGeneration = true
+                _ = runtime.agentLifecycleReconciliationState
+                    .recordProcessExit(
+                        key: statusKey,
+                        panelId: panelId,
+                        generation: previousGeneration
+                    )
+                let hasOtherRuntime = runtime.agentPIDKeys.contains {
+                    $0 != key
+                        && Self.agentStatusKey(
+                            forAgentPIDKey: $0,
+                            runtime: runtime
+                        ) == statusKey
+                }
+                if !hasOtherRuntime {
+                    runtime.statusEntries.removeValue(forKey: statusKey)
+                }
+            }
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
                 let staleKeys = runtime.agentPIDKeys.filter {
-                    $0 != key && Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
+                    guard $0 != key,
+                          Self.isStructuredAgentHookPIDKey(
+                              $0,
+                              runtime: runtime
+                          ) else {
+                        return false
+                    }
+                    return Self.agentStatusKey(
+                        forAgentPIDKey: $0,
+                        runtime: runtime
+                    ) != statusKey
+                        || processIdentity == nil
+                        || runtime.agentPIDProcessIdentities[$0]
+                            != processIdentity
                 }
                 for staleKey in staleKeys {
+                    agentProcessExitMonitor.cancel(
+                        key: Self.agentProcessObservationKey(
+                            key: staleKey,
+                            panelId: panelId
+                        )
+                    )
                     Self.clearAgentPID(
                         key: staleKey,
                         clearStatus: true,
+                        definitiveProcessExit: false,
                         runtime: &runtime
                     )
                 }
                 didReplaceRuntime = !staleKeys.isEmpty
             }
             runtime.agentPIDs[key] = pid
-            if let identity = Workspace.agentPIDProcessIdentity(pid: pid) {
-                runtime.agentPIDProcessIdentities[key] = identity
+            if let processIdentity {
+                runtime.agentPIDProcessIdentities[key] = processIdentity
             } else {
                 runtime.agentPIDProcessIdentities.removeValue(forKey: key)
             }
             runtime.agentPIDKeys.insert(key)
         }
-        return didReplaceRuntime
-    }
-
-    func setAgentLifecycle(
-        key: String,
-        panelId: UUID,
-        lifecycle: AgentHibernationLifecycleState
-    ) {
-        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
-            $0.agentLifecycleStates[key] = lifecycle
+        guard accepted else {
+            return (accepted: false, replacedOtherRuntime: false)
         }
-    }
-
-    func agentHibernationLifecycleState(
-        panelId: UUID,
-        fallback: AgentHibernationLifecycleState?
-    ) -> AgentHibernationLifecycleState {
-        AgentHibernationLifecycleState.aggregate(
-            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
-            fallback: fallback
-        )
-    }
-
-    func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
-        AgentHibernationLifecycleState.aggregateForTextBoxEscape(
-            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:]
+        // A remote replacement must still retire any local observer that was
+        // attached to the previous owner; it simply must not start a new
+        // observer against the Mac process table.
+        if !observeProcessExit {
+            agentProcessExitMonitor.cancel(
+                key: Self.agentProcessObservationKey(
+                    key: key,
+                    panelId: panelId
+                )
+            )
+        }
+        if observeProcessExit {
+            agentProcessExitMonitor.cancel(
+                key: Self.agentProcessObservationKey(
+                    key: key,
+                    panelId: panelId
+                )
+            )
+            if let generation = agentRuntimeByPanelId[panelId]?
+                .agentPIDProcessIdentities[key] {
+                observeAgentProcessExit(
+                    key: key,
+                    panelId: panelId,
+                    generation: generation
+                )
+            }
+        }
+        if didReplaceProcessGeneration {
+            TerminalNotificationStore.shared.clearNotifications(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            )
+        }
+        return (
+            accepted: true,
+            replacedOtherRuntime: didReplaceRuntime
         )
     }
 
     @discardableResult
-    func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
-        var didClear = false
+    func setAgentLifecycle(
+        key: String,
+        panelId: UUID,
+        lifecycle: AgentHibernationLifecycleState,
+        processGeneration: AgentPIDProcessIdentity? = nil
+    ) -> Bool {
+        var accepted = false
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
-            didClear = $0.agentLifecycleStates.removeValue(forKey: key) != nil
+            accepted = $0.agentLifecycleReconciliationState.setHookLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: key
+                ).isAllowed,
+                processGeneration: processGeneration
+            )
         }
-        return didClear
+        return accepted
+    }
+
+    @discardableResult
+    func clearAgentLifecycle(
+        key: String,
+        panelId: UUID
+    ) -> Bool {
+        var removed = false
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            removed = $0.agentLifecycleReconciliationState.removeHook(
+                key: key,
+                panelId: panelId
+            )
+        }
+        if removed,
+           !AgentHibernationLifecycleStatusKeys(rawValue: key).isManual {
+            AgentHibernationController.shared.recordAgentLifecycleChange(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+        }
+        return removed
+    }
+
+    func beginAgentFeedAttention(
+        key: String,
+        panelId: UUID,
+        processGeneration: AgentPIDProcessIdentity? = nil
+    ) -> AgentFeedAttentionToken? {
+        var token: AgentFeedAttentionToken?
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            token = $0.agentLifecycleReconciliationState
+                .beginFeedAttention(
+                    key: key,
+                    panelId: panelId,
+                    isBuiltIn:
+                        AgentHibernationLifecycleStatusKeys(
+                            rawValue: key
+                        ).isAllowed,
+                    processGeneration: processGeneration
+                )
+        }
+        return token
+    }
+
+    @discardableResult
+    func endAgentFeedAttention(
+        key: String,
+        panelId: UUID,
+        token: AgentFeedAttentionToken
+    ) -> Bool {
+        var ended = false
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            ended = $0.agentLifecycleReconciliationState
+                .endFeedAttention(
+                    key: key,
+                    panelId: panelId,
+                    token: token
+                )
+        }
+        return ended
+    }
+
+    func recordUnidentifiedAgentProcessExit(
+        key: String,
+        panelId: UUID
+    ) {
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            $0.agentLifecycleReconciliationState
+                .recordUnidentifiedProcessExit(
+                    key: key,
+                    panelId: panelId,
+                    isBuiltIn:
+                        AgentHibernationLifecycleStatusKeys(
+                            rawValue: key
+                        ).isAllowed
+                )
+        }
+    }
+
+    @discardableResult
+    func recordAgentProcessExit(
+        key: String,
+        panelId: UUID,
+        generation: AgentPIDProcessIdentity
+    ) -> Bool {
+        var recorded = false
+        mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
+            recorded = $0.agentLifecycleReconciliationState
+                .recordProcessExit(
+                    key: key,
+                    panelId: panelId,
+                    generation: generation
+                )
+        }
+        return recorded
     }
 
     @discardableResult
@@ -336,17 +639,25 @@ extension DockSplitStore {
         key: String,
         panelId: UUID,
         clearStatus: Bool,
-        requireOwnedKey: Bool = false
+        requireOwnedKey: Bool = false,
+        definitiveProcessExit: Bool = false
     ) -> Bool {
         if requireOwnedKey,
            agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) != true {
             return false
         }
+        agentProcessExitMonitor.cancel(
+            key: Self.agentProcessObservationKey(
+                key: key,
+                panelId: panelId
+            )
+        )
         var didChange = false
         mutateAgentRuntime(panelId: panelId, updatesAgentAttention: true) {
             didChange = Self.clearAgentPID(
                 key: key,
                 clearStatus: clearStatus,
+                definitiveProcessExit: definitiveProcessExit,
                 runtime: &$0
             )
         }
@@ -366,11 +677,18 @@ extension DockSplitStore {
             agentPIDProcessIdentities: [:],
             agentPIDKeys: []
         )
+        Self.seedAgentLifecycleReconciliationIfNeeded(
+            runtime: &runtime,
+            panelId: panelId
+        )
         mutation(&runtime)
+        runtime.agentLifecycleStates =
+            runtime.agentLifecycleReconciliationState.resolvedStatesByPanelId[panelId] ?? [:]
         let shouldKeep = !runtime.statusEntries.isEmpty
             || !runtime.agentPIDs.isEmpty
             || !runtime.agentPIDKeys.isEmpty
             || !runtime.agentLifecycleStates.isEmpty
+            || runtime.agentLifecycleReconciliationState.hasEvidence
         if shouldKeep {
             agentRuntimeByPanelId[panelId] = runtime
         } else {
@@ -400,24 +718,165 @@ extension DockSplitStore {
     private static func clearAgentPID(
         key: String,
         clearStatus: Bool,
+        definitiveProcessExit: Bool,
         runtime: inout Workspace.DetachedAgentRuntimeState
     ) -> Bool {
         let statusKey = agentStatusKey(forAgentPIDKey: key, runtime: runtime)
+        let generation = runtime.agentPIDProcessIdentities[key]
+        let hadFeedAttention = runtime.agentLifecycleReconciliationState
+            .hasFeedAttention(
+                key: statusKey,
+                panelId: runtime.panelId
+            )
         var didChange = false
         if runtime.agentPIDs.removeValue(forKey: key) != nil { didChange = true }
         if runtime.agentPIDProcessIdentities.removeValue(forKey: key) != nil { didChange = true }
         if runtime.agentPIDKeys.remove(key) != nil { didChange = true }
-        if runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
+        let hasRemainingStatusRuntime = runtime.agentPIDKeys.contains {
+            agentStatusKey(
+                forAgentPIDKey: $0,
+                runtime: runtime
+            ) == statusKey
+        }
+        let hasRemainingGenerationOwner = generation.map {
+            retainedGeneration in
+            runtime.agentPIDKeys.contains {
+                agentStatusKey(
+                    forAgentPIDKey: $0,
+                    runtime: runtime
+                ) == statusKey
+                    && runtime.agentPIDProcessIdentities[$0]
+                        == retainedGeneration
+            }
+        } ?? false
+        let didClearLifecycle: Bool
+        if definitiveProcessExit,
+           let generation,
+           !hasRemainingGenerationOwner {
+            didClearLifecycle = runtime.agentLifecycleReconciliationState.recordProcessExit(
+                key: statusKey,
+                panelId: runtime.panelId,
+                generation: generation
+            )
+        } else if definitiveProcessExit,
+                  AgentHibernationLifecycleStatusKeys(
+                      rawValue: statusKey
+                  ).isAllowed,
+                  !hasRemainingStatusRuntime {
+            didClearLifecycle = runtime.agentLifecycleReconciliationState
+                .recordUnidentifiedProcessExit(
+                    key: statusKey,
+                    panelId: runtime.panelId,
+                    isBuiltIn: true
+                )
+        } else if !hasRemainingStatusRuntime {
+            didClearLifecycle = runtime.agentLifecycleReconciliationState.removeKey(
+                key: statusKey,
+                panelId: runtime.panelId
+            )
+        } else {
+            didClearLifecycle = false
+        }
+        if didClearLifecycle {
             didChange = true
         }
-        if clearStatus,
-           !runtime.agentPIDKeys.contains(where: {
-               agentStatusKey(forAgentPIDKey: $0, runtime: runtime) == statusKey
-           }),
-           runtime.statusEntries.removeValue(forKey: statusKey) != nil {
-            didChange = true
+        if clearStatus, runtime.statusEntries[statusKey] != nil {
+            let feedAttentionStillVisible =
+                runtime.agentLifecycleReconciliationState
+                    .hasFeedAttention(
+                        key: statusKey,
+                        panelId: runtime.panelId
+                    )
+            if !hasRemainingStatusRuntime
+                || (hadFeedAttention && !feedAttentionStillVisible) {
+                runtime.statusEntries.removeValue(forKey: statusKey)
+                didChange = true
+            }
         }
         return didChange
+    }
+
+    private static func seedAgentLifecycleReconciliationIfNeeded(
+        runtime: inout Workspace.DetachedAgentRuntimeState,
+        panelId: UUID
+    ) {
+        guard !runtime.agentLifecycleReconciliationState.hasEvidence else {
+            return
+        }
+        for (pidKey, generation) in runtime.agentPIDProcessIdentities {
+            let statusKey = agentStatusKey(
+                forAgentPIDKey: pidKey,
+                runtime: runtime
+            )
+            runtime.agentLifecycleReconciliationState.recordProcessGeneration(
+                key: statusKey,
+                panelId: panelId,
+                generation: generation,
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: statusKey
+                ).isAllowed
+            )
+        }
+        for (key, lifecycle) in runtime.agentLifecycleStates {
+            _ = runtime.agentLifecycleReconciliationState.setHookLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: key
+                ).isAllowed
+            )
+        }
+    }
+
+    private func handleObservedAgentProcessExit(
+        key: String,
+        panelId: UUID,
+        generation: AgentPIDProcessIdentity
+    ) {
+        guard agentRuntimeByPanelId[panelId]?.agentPIDs[key] == generation.pid,
+              agentRuntimeByPanelId[panelId]?
+                .agentPIDProcessIdentities[key] == generation,
+              clearAgentPID(
+                  key: key,
+                  panelId: panelId,
+                  clearStatus: true,
+                  definitiveProcessExit: true
+              ) else {
+            return
+        }
+        TerminalNotificationStore.shared.clearNotifications(
+            forTabId: workspaceId,
+            surfaceId: panelId
+        )
+    }
+
+    private func observeAgentProcessExit(
+        key: String,
+        panelId: UUID,
+        generation: AgentPIDProcessIdentity
+    ) {
+        let observationKey = Self.agentProcessObservationKey(
+            key: key,
+            panelId: panelId
+        )
+        agentProcessExitMonitor.observe(
+            key: observationKey,
+            generation: generation
+        ) { [weak self] _, generation in
+            self?.handleObservedAgentProcessExit(
+                key: key,
+                panelId: panelId,
+                generation: generation
+            )
+        }
+    }
+
+    private static func agentProcessObservationKey(
+        key: String,
+        panelId: UUID
+    ) -> String {
+        "\(panelId.uuidString.lowercased()):\(key)"
     }
 
     private static func isStructuredAgentHookPIDKey(
@@ -440,360 +899,5 @@ extension DockSplitStore {
             return key
         }
         return String(key[..<dotIndex])
-    }
-}
-
-extension DockSplitStore {
-    /// Defers one Dock restore launch until the off-main shared agent index is ready.
-    func deferAgentResumeRestore(
-        panelId: UUID,
-        restore: DeferredAgentResumeRestore
-    ) {
-        deferredAgentResumeRestoresByPanelId[panelId] = restore
-        guard deferredAgentResumeIndexTask == nil else { return }
-        deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
-            let index = await SharedLiveAgentIndex.shared.indexRefreshingNow()
-            guard !Task.isCancelled else { return }
-            guard let self else { return }
-            self.deferredAgentResumeIndexTask = nil
-            guard let index else {
-                self.clearDeferredAgentResumeRestores()
-                return
-            }
-            self.resolveDeferredAgentResumeRestores(using: index)
-        }
-    }
-
-    private func resolveDeferredAgentResumeRestores(
-        using index: RestorableAgentSessionIndex
-    ) {
-        let policy = Workspace.makeSessionRestorePolicyService()
-        for (panelId, restore) in Array(deferredAgentResumeRestoresByPanelId) {
-            // Explicit input can cancel the staged record while this snapshot
-            // is being iterated. Never resurrect a cancelled command.
-            guard deferredAgentResumeRestoresByPanelId[panelId] != nil else {
-                continue
-            }
-            guard let terminal = panels[panelId] as? TerminalPanel else {
-                removeDeferredAgentResumeRestore(panelId: panelId)
-                continue
-            }
-            guard AgentSessionAutoResumeSettings.isEnabled(
-                defaults: agentSessionAutoResumeDefaults
-            ) else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                continue
-            }
-            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
-            guard index.isComplete(
-                forPanelId: restore.stablePanelID,
-                kind: expectedKind
-            ) else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                continue
-            }
-            guard deferredAgentResumeRestoreMatchesCurrentSession(
-                panelId: panelId,
-                restore: restore
-            ) else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                continue
-            }
-            let currentResumeBinding: SurfaceResumeBindingSnapshot?
-            if let capturedBinding = restore.resumeBinding {
-                guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
-                      currentBinding.isAgentHookBinding,
-                      currentBinding.isSameManagedSession(as: capturedBinding),
-                      currentBinding.autoResume == true else {
-                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                    continue
-                }
-                currentResumeBinding = currentBinding
-            } else {
-                currentResumeBinding = nil
-            }
-            if restore.remoteResumeCommandEmbedded {
-                // The attach command was embedded in the terminal's initial
-                // command before the ownership scan. Require the complete
-                // managed binding to remain unchanged (including its command,
-                // cwd, and launch flavor) so a changed resume payload can
-                // never execute from the stale terminal configuration.
-                guard let capturedBinding = restore.resumeBinding,
-                      let currentResumeBinding,
-                      capturedBinding == currentResumeBinding else {
-                    cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                    continue
-                }
-            }
-            let ownershipPanelID = restore.stablePanelID
-            let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
-            // Deferred admission has no exact-owner snapshot that can override a
-            // stable-panel tie, so structural ambiguity remains fail-closed even
-            // after the old owners' PIDs have exited.
-            let ownershipIsBlocked = index.hasAmbiguousPanel(ownershipPanelID) ||
-                index.hasCurrentAmbiguousPanel(
-                    ownershipPanelID,
-                    revalidateProcessEvidence: false
-                ) ||
-                index.hasUncertainStablePanelEntry(
-                    panelId: ownershipPanelID,
-                    revalidateProcessEvidence: false
-                ) ||
-                index.hasConflictingLiveStablePanelEntry(
-                    workspaceId: workspaceId,
-                    panelId: ownershipPanelID,
-                    expectedKind: expectedKind,
-                    expectedSessionId: expectedSessionId,
-                    revalidateProcessEvidence: false
-                ) ||
-                index.hasCurrentLiveProcessForStablePanel(
-                    workspaceId: workspaceId,
-                    panelId: ownershipPanelID,
-                    revalidateProcessEvidence: false
-                )
-            guard !ownershipIsBlocked else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                continue
-            }
-
-            let startupInput: String?
-            let claim: (kind: String, sessionId: String)?
-            if let restorableAgent = restore.restorableAgent {
-                startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    restorableAgent.resumeStartupInput(
-                        useLocalRestoreVerb: false,
-                        restoringWorkingDirectory: restore.resumeWorkingDirectory
-                    )
-                } else {
-                    restorableAgent.resumeStartupInput(
-                        restoringWorkingDirectory: restore.resumeWorkingDirectory
-                    )
-                }
-                claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
-            } else if let binding = currentResumeBinding ?? restore.resumeBinding {
-                if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    guard binding.launchFlavor.remoteContext == restore.remoteResumeContext else {
-                        cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                        continue
-                    }
-                }
-                let approvedBinding = policy.approvedSurfaceResumeBinding(
-                    binding,
-                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
-                        defaults: agentSessionAutoResumeDefaults
-                    ),
-                    promptForApproval: true,
-                    approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-                )
-                startupInput = approvedBinding.flatMap {
-                    if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                        return $0.remoteStartupInput()
-                    }
-                    return policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
-                }
-                claim = binding.kind.flatMap { kind in
-                    binding.checkpointId.map { (kind, $0) }
-                }
-            } else {
-                startupInput = nil
-                claim = nil
-            }
-            guard let startupInput, !startupInput.isEmpty else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                continue
-            }
-            if let claim,
-               !AgentResumeLaunchGuard.shared.claimResumeLaunch(
-                   kind: claim.kind,
-                   sessionId: claim.sessionId
-               ) {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                continue
-            }
-            if let claim {
-                deferredAgentResumeClaimsByPanelId[panelId] = claim
-            }
-            if let restoreWorkingDirectory = restore.resumeWorkingDirectory {
-                restoredResumeSessionWorkingDirectoriesByPanelId[panelId] = restoreWorkingDirectory
-            }
-            restoredAgentLifecycle.setResumeState(
-                .awaitingAutoResumeCommand,
-                panelId: panelId
-            )
-            let admitted = terminal.surface.admitStartupRestoreRuntime(
-                initialInput: restore.remoteResumeCommandEmbedded ? nil : startupInput
-            )
-            if !admitted {
-                if let claim {
-                    AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                        kind: claim.kind,
-                        sessionId: claim.sessionId
-                    )
-                }
-                deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
-                clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
-                deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
-                if restore.restorableAgent != nil {
-                    restoredAgentLifecycle.setResumeState(
-                        .manualResumeAvailable,
-                        panelId: panelId
-                    )
-                } else {
-                    restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
-                }
-            } else {
-                terminalStartupRestoreCoordinator.recordDeferredResumeIntent(
-                    panelID: panelId,
-                    snapshot: restore.restorableAgent,
-                    resumeBinding: currentResumeBinding ?? restore.resumeBinding,
-                    workingDirectory: restore.resumeWorkingDirectory ?? restore.workingDirectory
-                )
-                clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
-                deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
-                if let claim,
-                   let pendingClaim = deferredAgentResumeClaimsByPanelId[panelId],
-                   pendingClaim.kind == claim.kind,
-                   pendingClaim.sessionId == claim.sessionId {
-                    // After admission the guard's bounded TTL owns this claim;
-                    // do not let later panel teardown release a newer claimant.
-                    deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId)
-                }
-            }
-        }
-    }
-
-    func removeDeferredAgentResumeRestore(panelId: UUID) {
-        deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
-        clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
-        if let claim = deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId) {
-            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                kind: claim.kind,
-                sessionId: claim.sessionId
-            )
-        }
-    }
-
-    private func clearDeferredAgentResumeRestoreTransfer(panelId: UUID) {
-        if var transfer = detachedSurfaceTransfersByPanelId[panelId],
-           transfer.deferredAgentResumeRestore != nil {
-            transfer.deferredAgentResumeRestore = nil
-            setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
-        }
-    }
-
-    func cancelDeferredAgentResumeRestore(
-        panelId: UUID,
-        restore: DeferredAgentResumeRestore,
-        startRuntime: Bool = true
-    ) {
-        if startRuntime {
-            (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
-        } else {
-            terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(panelID: panelId)
-            restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
-        }
-        removeDeferredAgentResumeRestore(panelId: panelId)
-        if startRuntime, restore.restorableAgent == nil {
-            if let binding = restore.resumeBinding {
-                retireAgentHookResumeBinding(panelId: panelId, matching: binding)
-            }
-        }
-        if startRuntime {
-            restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
-        }
-    }
-
-    private func deferredAgentResumeRestoreMatchesCurrentSession(
-        panelId: UUID,
-        restore: DeferredAgentResumeRestore
-    ) -> Bool {
-        guard let currentRestore = deferredAgentResumeRestoresByPanelId[panelId],
-              currentRestore.stablePanelID == restore.stablePanelID,
-              let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind,
-              let expectedSessionID = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId else {
-            return false
-        }
-        let currentSnapshot = restoredAgentLifecycle.snapshotsByPanelId[panelId]
-            ?? terminalStartupRestoreCoordinator.stagedSnapshot(panelID: panelId)
-        if let currentSnapshot {
-            guard currentSnapshot.kind.rawValue == expectedKind,
-                  ManagedAgentSessionIdentity.sessionIDsMatch(
-                      kind: expectedKind,
-                      lhs: currentSnapshot.sessionId,
-                      rhs: expectedSessionID
-                  ) else {
-                return false
-            }
-        } else if restore.restorableAgent != nil {
-            return false
-        }
-
-        if restore.resumeBinding != nil {
-            guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
-                  let currentKind = currentBinding.kind,
-                  let currentSessionID = currentBinding.checkpointId,
-                  currentKind == expectedKind,
-                  ManagedAgentSessionIdentity.sessionIDsMatch(
-                      kind: expectedKind,
-                      lhs: currentSessionID,
-                      rhs: expectedSessionID
-                  ) else {
-                return false
-            }
-        } else if let currentBinding = surfaceResumeBindingsByPanelId[panelId] {
-            guard let currentKind = currentBinding.kind,
-                  let currentSessionID = currentBinding.checkpointId,
-                  currentKind == expectedKind,
-                  ManagedAgentSessionIdentity.sessionIDsMatch(
-                      kind: expectedKind,
-                      lhs: currentSessionID,
-                      rhs: expectedSessionID
-                  ) else {
-                return false
-            }
-        }
-        return true
-    }
-
-    private func retireAgentHookResumeBinding(
-        panelId: UUID,
-        matching binding: SurfaceResumeBindingSnapshot
-    ) {
-        guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
-              currentBinding.isAgentHookBinding,
-              currentBinding == binding || currentBinding.isSameManagedSession(as: binding) else {
-            return
-        }
-        retireAgentHookResumeBinding(panelId: panelId)
-    }
-
-    func clearDeferredAgentResumeRestores(startRuntime: Bool = true) {
-        deferredAgentResumeIndexTask?.cancel()
-        deferredAgentResumeIndexTask = nil
-        let panelIds = Set(
-            Array(deferredAgentResumeRestoresByPanelId.keys)
-                + Array(deferredAgentResumeClaimsByPanelId.keys)
-        )
-        for panelId in panelIds {
-            if let restore = deferredAgentResumeRestoresByPanelId[panelId] {
-                cancelDeferredAgentResumeRestore(
-                    panelId: panelId,
-                    restore: restore,
-                    startRuntime: startRuntime
-                )
-            } else {
-                if startRuntime {
-                    (panels[panelId] as? TerminalPanel)?.surface.cancelStartupRestoreAdmission()
-                } else {
-                    terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(panelID: panelId)
-                    restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
-                }
-                removeDeferredAgentResumeRestore(panelId: panelId)
-            }
-        }
-        deferredAgentResumeRestoresByPanelId.removeAll()
-        for panelId in Array(detachedSurfaceTransfersByPanelId.keys) {
-            clearDeferredAgentResumeRestoreTransfer(panelId: panelId)
-        }
     }
 }

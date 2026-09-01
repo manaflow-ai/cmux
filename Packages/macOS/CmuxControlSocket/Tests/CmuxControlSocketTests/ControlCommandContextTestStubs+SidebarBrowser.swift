@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        processGeneration: ControlSidebarAgentProcessGeneration?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -71,12 +72,23 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
         panelID: UUID?
     ) {}
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
 
+    nonisolated func controlSidebarAgentStrings() -> ControlSidebarAgentStrings {
+        .englishFallback
+    }
+
     nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool { false }
+
+    nonisolated func controlSidebarRequiresAgentProcessGeneration(
         _ key: String,
         target: ControlSidebarTabTarget,
         panelID: UUID?
@@ -86,6 +98,7 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
         panelID: UUID?
     ) {}
 

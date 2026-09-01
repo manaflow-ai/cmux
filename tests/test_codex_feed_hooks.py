@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -82,9 +83,11 @@ class FakeCmuxSocket:
         feed_response_ok: bool = True,
         include_feed_item_id: bool = True,
         raw_response_delay: float = 0,
+        raw_response_gate: threading.Event | None = None,
         surfaces_by_workspace: dict[str, list[dict]] | None = None,
         surface_delivery_target: tuple[str, str] | None = None,
         method_errors: dict[str, tuple[str, str]] | None = None,
+        method_error_once: dict[str, tuple[str, str]] | None = None,
         single_batch_item_id: bool = False,
         method_delays: dict[str, float] | None = None,
     ):
@@ -96,19 +99,29 @@ class FakeCmuxSocket:
         self.feed_response_ok = feed_response_ok
         self.include_feed_item_id = include_feed_item_id
         self.raw_response_delay = raw_response_delay
+        self.raw_response_gate = raw_response_gate
         self.surfaces_by_workspace = surfaces_by_workspace
         self.surface_delivery_target = surface_delivery_target
         self.method_errors = method_errors or {}
+        self.method_error_once = dict(method_error_once or {})
         self.single_batch_item_id = single_batch_item_id
         self.method_delays = method_delays or {}
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
+        self._frame_condition = threading.Condition()
+        self._raw_response_gate_lock = threading.Lock()
+        self._raw_response_gate_pending = raw_response_gate is not None
+        self._method_error_once_lock = threading.Lock()
         self._next_connection_id = 0
         self._ready = threading.Event()
         self.feed_frame_received = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def arm_next_raw_response_gate(self) -> None:
+        with self._raw_response_gate_lock:
+            self._raw_response_gate_pending = True
 
     def __enter__(self) -> "FakeCmuxSocket":
         self.path.unlink(missing_ok=True)
@@ -172,16 +185,34 @@ class FakeCmuxSocket:
                     try:
                         frame = json.loads(raw_line)
                     except json.JSONDecodeError:
-                        self.frames.append({"raw": raw_line})
+                        with self._frame_condition:
+                            self.frames.append({"raw": raw_line})
+                            self._frame_condition.notify_all()
                         if self.raw_response_delay > 0:
                             time.sleep(self.raw_response_delay)
+                        gated_response = False
+                        with self._raw_response_gate_lock:
+                            if self._raw_response_gate_pending:
+                                self._raw_response_gate_pending = False
+                                gated_response = True
+                        if gated_response and self.raw_response_gate is not None:
+                            self.raw_response_gate.wait(timeout=5)
                         reply(b"OK\n")
                         continue
-                    self.frames.append(frame)
-                    self.frames_with_connection.append((connection_id, frame))
+                    with self._frame_condition:
+                        self.frames.append(frame)
+                        self.frames_with_connection.append((connection_id, frame))
+                        self._frame_condition.notify_all()
                     if delay := self.method_delays.get(frame.get("method")):
                         time.sleep(delay)
-                    if method_error := self.method_errors.get(frame.get("method")):
+                    method_error = self.method_errors.get(frame.get("method"))
+                    if method_error is None:
+                        with self._method_error_once_lock:
+                            method_error = self.method_error_once.pop(
+                                frame.get("method"),
+                                None,
+                            )
+                    if method_error:
                         code, message = method_error
                         response = {
                             "id": frame.get("id"),
@@ -250,6 +281,24 @@ class FakeCmuxSocket:
                             "message": "Feed rejected the event",
                         }
                     reply(json.dumps(response).encode("utf-8") + b"\n")
+
+    def wait_for_frame(
+        self,
+        predicate,
+        *,
+        start_index: int = 0,
+        timeout: float = 5,
+    ) -> dict | None:
+        deadline = time.monotonic() + timeout
+        with self._frame_condition:
+            while True:
+                for frame in self.frames[start_index:]:
+                    if predicate(frame):
+                        return frame
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._frame_condition.wait(timeout=remaining)
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:
@@ -336,7 +385,7 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
                 f"stdout={result.stdout}\nstderr={result.stderr}"
             )
 
-        pids = wait_for_monitor_pids(session_id, present=True, timeout=5)
+        wait_for_monitor_pids(session_id, present=True, timeout=5)
         stop = {
             "session_id": session_id,
             "turn_id": turn_id,
@@ -588,6 +637,1368 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
+def test_codex_subagent_stop_replays_deferred_turn_settlement(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-codex-deferred-settlement.sock"
+    state_dir = root / "codex-deferred-settlement-state"
+    transcript_path = root / "codex-deferred-settlement.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-deferred-settlement-session-{os.getpid()}"
+    turn_id = f"codex-deferred-settlement-turn-{os.getpid()}"
+    work_id = f"codex-deferred-settlement-work-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CODEX_PID"] = str(os.getpid())
+
+    def run_hook(arguments: list[str], payload: dict) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def raw_commands_after(fake: FakeCmuxSocket, index: int) -> list[str]:
+        return [
+            frame.get("raw", "")
+            for frame in fake.frames[index:]
+            if "raw" in frame
+        ]
+
+    def wait_for_raw_command(
+        fake: FakeCmuxSocket,
+        index: int,
+        fragment: str,
+    ) -> list[str]:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            commands = raw_commands_after(fake, index)
+            if any(fragment in command for command in commands):
+                return commands
+            time.sleep(0.05)
+        raise AssertionError(
+            f"deferred Codex settlement never emitted {fragment!r}: "
+            f"{fake.frames[index:]!r}"
+        )
+
+    def wait_for_feed_event(
+        fake: FakeCmuxSocket,
+        index: int,
+        event_name: str,
+    ) -> list[str]:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            for frame in fake.frames[index:]:
+                if frame.get("method") != "feed.push":
+                    continue
+                params = frame.get("params", {})
+                events = params.get("events")
+                candidates = (
+                    events
+                    if isinstance(events, list)
+                    else [params.get("event")]
+                )
+                if any(
+                    isinstance(event, dict)
+                    and event.get("hook_event_name") == event_name
+                    for event in candidates
+                ):
+                    return raw_commands_after(fake, index)
+            time.sleep(0.05)
+        raise AssertionError(
+            f"Codex pipeline never drained through {event_name!r}: "
+            f"{fake.frames[index:]!r}"
+        )
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        try:
+            base_payload = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            # Feed hooks are synchronous while Codex lifecycle hooks are
+            # fire-and-forget. Exercise the real delivery race by recording
+            # structured work before the delayed session/prompt handlers.
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **base_payload,
+                    "hook_event_name": "SubagentStart",
+                    "agent_id": work_id,
+                },
+            )
+            run_hook(["hooks", "codex", "session-start"], base_payload)
+            run_hook(["hooks", "codex", "prompt-submit"], base_payload)
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+
+            before_stop = len(fake.frames)
+            run_hook(["hooks", "codex", "stop"], base_payload)
+            premature_commands = wait_for_feed_event(
+                fake,
+                before_stop,
+                "Stop",
+            )
+            if any(
+                "set_agent_lifecycle codex idle" in command
+                or command.startswith("notify_target_async ")
+                for command in premature_commands
+            ):
+                raise AssertionError(
+                    "Codex Stop finalized while structured background work "
+                    f"was active: {premature_commands!r}"
+                )
+
+            next_turn_id = f"{turn_id}-next"
+            next_work_id = f"{work_id}-next"
+            next_payload = {
+                **base_payload,
+                "turn_id": next_turn_id,
+            }
+            run_hook(
+                ["hooks", "codex", "prompt-submit"],
+                next_payload,
+            )
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **next_payload,
+                    "hook_event_name": "SubagentStart",
+                    "agent_id": next_work_id,
+                },
+            )
+
+            # Draining the older turn must claim only that turn's deferred
+            # settlement. It cannot drain or complete the newer turn.
+            before_old_subagent_stop = len(fake.frames)
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStop",
+                ],
+                {
+                    **base_payload,
+                    "hook_event_name": "SubagentStop",
+                    "agent_id": work_id,
+                },
+            )
+            old_turn_commands = wait_for_feed_event(
+                fake,
+                before_old_subagent_stop,
+                "Stop",
+            )
+            if any(
+                "set_agent_lifecycle codex idle" in command
+                or command.startswith("notify_target_async ")
+                for command in old_turn_commands
+            ):
+                raise AssertionError(
+                    "An older subagent completion finalized the newer turn: "
+                    f"{old_turn_commands!r}"
+                )
+
+            state = json.loads(
+                (
+                    state_dir / "codex-hook-sessions.json"
+                ).read_text(encoding="utf-8")
+            )
+            session_state = state["sessions"][session_id]
+            active_by_turn = session_state.get(
+                "activeBackgroundWorkIdsByTurn",
+                {},
+            )
+            deferred_by_turn = session_state.get(
+                "deferredTurnSettlementsByTurn",
+                {},
+            )
+            if active_by_turn.get(next_turn_id) != [next_work_id]:
+                raise AssertionError(
+                    "The older subagent stop consumed newer structured work: "
+                    f"{session_state!r}"
+                )
+            if turn_id in deferred_by_turn:
+                raise AssertionError(
+                    "The older turn's claimed settlement remained pending: "
+                    f"{session_state!r}"
+                )
+
+            before_next_stop = len(fake.frames)
+            run_hook(["hooks", "codex", "stop"], next_payload)
+            next_premature_commands = wait_for_feed_event(
+                fake,
+                before_next_stop,
+                "Stop",
+            )
+            if any(
+                "set_agent_lifecycle codex idle" in command
+                or command.startswith("notify_target_async ")
+                for command in next_premature_commands
+            ):
+                raise AssertionError(
+                    "The newer Codex turn finalized before its work drained: "
+                    f"{next_premature_commands!r}"
+                )
+
+            before_subagent_stop = len(fake.frames)
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStop",
+                ],
+                {
+                    **next_payload,
+                    "hook_event_name": "SubagentStop",
+                    "agent_id": next_work_id,
+                },
+            )
+            settled_commands = wait_for_raw_command(
+                fake,
+                before_subagent_stop,
+                "set_agent_lifecycle codex idle",
+            )
+            if not any(
+                command.startswith("notify_target_async ")
+                for command in settled_commands
+            ):
+                raise AssertionError(
+                    "Codex settlement did not route the completion "
+                    f"notification: {settled_commands!r}"
+                )
+
+            late_work_id = f"{next_work_id}-late"
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **next_payload,
+                    "hook_event_name": "SubagentStart",
+                    "agent_id": late_work_id,
+                },
+            )
+            reordered_turn_id = f"{turn_id}-reordered"
+            reordered_work_id = f"{work_id}-reordered"
+            reordered_payload = {
+                **base_payload,
+                "turn_id": reordered_turn_id,
+                "agent_id": reordered_work_id,
+            }
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStop",
+                ],
+                {
+                    **reordered_payload,
+                    "hook_event_name": "SubagentStop",
+                },
+            )
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **reordered_payload,
+                    "hook_event_name": "SubagentStart",
+                },
+            )
+            final_state = json.loads(
+                (
+                    state_dir / "codex-hook-sessions.json"
+                ).read_text(encoding="utf-8")
+            )["sessions"][session_id]
+            final_active = final_state.get(
+                "activeBackgroundWorkIdsByTurn",
+                {},
+            )
+            if next_turn_id in final_active:
+                raise AssertionError(
+                    "A delayed SubagentStart reopened an already-terminal "
+                    f"turn: {final_state!r}"
+                )
+            if reordered_turn_id in final_active:
+                raise AssertionError(
+                    "A reordered SubagentStart survived its matching earlier "
+                    f"SubagentStop: {final_state!r}"
+                )
+            wait_for_monitor_pids(session_id, present=False, timeout=5)
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
+def test_codex_deferred_settlement_has_single_live_replay_claim(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-codex-single-settlement-claim.sock"
+    state_dir = root / "codex-single-settlement-claim-state"
+    transcript_path = root / "codex-single-settlement-claim.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-single-settlement-claim-session-{os.getpid()}"
+    turn_id = f"codex-single-settlement-claim-turn-{os.getpid()}"
+    work_id = f"codex-single-settlement-claim-work-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CODEX_PID"] = str(os.getpid())
+    replay_secret = f"deferred-replay-secret-{os.getpid()}"
+    env["CMUX_SOCKET_PASSWORD"] = replay_secret
+
+    base_payload = {
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "cwd": str(root),
+        "transcript_path": str(transcript_path),
+    }
+    stop_payload = {
+        **base_payload,
+        "hook_event_name": "SubagentStop",
+        "agent_id": work_id,
+    }
+    stop_arguments = [
+        "hooks",
+        "feed",
+        "--source",
+        "codex",
+        "--event",
+        "SubagentStop",
+    ]
+
+    def run_hook(arguments: list[str], payload: dict) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def start_stop_hook() -> subprocess.Popen[str]:
+        process = subprocess.Popen(
+            [cli_path, "--socket", str(socket_path), *stop_arguments],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        if process.stdin is None:
+            raise AssertionError("SubagentStop subprocess has no stdin")
+        process.stdin.write(json.dumps(stop_payload))
+        process.stdin.close()
+        process.stdin = None
+        return process
+
+    def assert_success(process: subprocess.Popen[str], label: str) -> None:
+        stdout, stderr = process.communicate(timeout=10)
+        if process.returncode != 0:
+            raise AssertionError(
+                f"{label} failed exit={process.returncode}\n"
+                f"stdout={stdout}\nstderr={stderr}"
+            )
+
+    def is_feed_event(frame: dict, event_name: str) -> bool:
+        if frame.get("method") != "feed.push":
+            return False
+        params = frame.get("params", {})
+        events = params.get("events")
+        candidates = events if isinstance(events, list) else [params.get("event")]
+        return any(
+            isinstance(event, dict)
+            and event.get("hook_event_name") == event_name
+            for event in candidates
+        )
+
+    def replay_child_environment(parent_pid: int) -> str:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            result = subprocess.run(
+                ["/bin/ps", "-ww", "-axo", "pid=,ppid=,command="],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"ps failed while checking deferred replay credentials: {result.stderr}"
+                )
+            for line in result.stdout.splitlines():
+                fields = line.strip().split(None, 2)
+                if len(fields) != 3:
+                    continue
+                try:
+                    child_pid = int(fields[0])
+                    child_parent_pid = int(fields[1])
+                except ValueError:
+                    continue
+                if child_parent_pid != parent_pid or "hooks codex stop" not in fields[2]:
+                    continue
+                child_result = subprocess.run(
+                    ["/bin/ps", "eww", "-p", str(child_pid)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                if child_result.returncode == 0:
+                    return child_result.stdout
+            time.sleep(0.02)
+        raise AssertionError(
+            f"deferred replay child was not observable under parent {parent_pid}"
+        )
+
+    raw_response_gate = threading.Event()
+    raw_response_gate.set()
+    first_process: subprocess.Popen[str] | None = None
+    second_process: subprocess.Popen[str] | None = None
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        raw_response_gate=raw_response_gate,
+    ) as fake:
+        try:
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **base_payload,
+                    "hook_event_name": "SubagentStart",
+                    "agent_id": work_id,
+                },
+            )
+            run_hook(["hooks", "codex", "session-start"], base_payload)
+            run_hook(["hooks", "codex", "prompt-submit"], base_payload)
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+
+            before_stop = len(fake.frames)
+            run_hook(["hooks", "codex", "stop"], base_payload)
+            if fake.wait_for_frame(
+                lambda frame: is_feed_event(frame, "Stop"),
+                start_index=before_stop,
+            ) is None:
+                raise AssertionError(
+                    "Codex Stop did not persist its deferred settlement before "
+                    f"the replay-claim race: {fake.frames[before_stop:]!r}"
+                )
+
+            fake.arm_next_raw_response_gate()
+            raw_response_gate.clear()
+            first_start = len(fake.frames)
+            first_process = start_stop_hook()
+            first_replay = fake.wait_for_frame(
+                lambda frame: "raw" in frame,
+                start_index=first_start,
+                timeout=3,
+            )
+            if first_replay is None:
+                raise AssertionError(
+                    "The first drained SubagentStop never began replaying its "
+                    f"durable settlement: {fake.frames[first_start:]!r}"
+                )
+            child_environment = replay_child_environment(first_process.pid)
+            if replay_secret in child_environment:
+                raise AssertionError(
+                    "Deferred settlement replay exposed CMUX_SOCKET_PASSWORD "
+                    f"to its child process: {child_environment!r}"
+                )
+
+            second_start = len(fake.frames)
+            second_process = start_stop_hook()
+            assert_success(second_process, "overlapping SubagentStop")
+            second_process = None
+            duplicate_replay = next(
+                (
+                    frame
+                    for frame in fake.frames[second_start:]
+                    if "raw" in frame
+                ),
+                None,
+            )
+            if duplicate_replay is not None:
+                raise AssertionError(
+                    "Two overlapping SubagentStop hooks replayed the same "
+                    f"durable settlement: {fake.frames[first_start:]!r}"
+                )
+        finally:
+            raw_response_gate.set()
+            for process, label in (
+                (first_process, "first SubagentStop"),
+                (second_process, "overlapping SubagentStop"),
+            ):
+                if process is not None:
+                    assert_success(process, label)
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
+def test_codex_deferred_settlement_replay_requires_exact_acknowledgement(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-codex-settlement-ack.sock"
+    state_dir = root / "codex-settlement-ack-state"
+    transcript_path = root / "codex-settlement-ack.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-settlement-ack-session-{os.getpid()}"
+    settled_turn_id = f"codex-settlement-ack-turn-{os.getpid()}"
+    active_turn_id = f"{settled_turn_id}-active"
+    settled_id = "11111111-1111-4111-8111-111111111111"
+    active_id = "22222222-2222-4222-8222-222222222222"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CODEX_PID"] = str(os.getpid())
+
+    def run_hook(arguments: list[str], payload: dict) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            settled_payload = {
+                "session_id": session_id,
+                "turn_id": settled_turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            run_hook(["hooks", "codex", "session-start"], settled_payload)
+            run_hook(["hooks", "codex", "prompt-submit"], settled_payload)
+            settled_output = run_hook(
+                ["hooks", "codex", "stop"],
+                {
+                    **settled_payload,
+                    "cmux_turn_boundary": "settled",
+                    "cmux_deferred_settlement_id": settled_id,
+                },
+            )
+            expected_acknowledgement = {
+                "cmux_deferred_settlement_acknowledged_id": settled_id,
+            }
+            if settled_output != expected_acknowledgement:
+                raise AssertionError(
+                    "A genuinely settled Codex replay did not acknowledge its "
+                    f"exact durable boundary: {settled_output!r}"
+                )
+
+            active_payload = {
+                **settled_payload,
+                "turn_id": active_turn_id,
+            }
+            run_hook(["hooks", "codex", "prompt-submit"], active_payload)
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **active_payload,
+                    "hook_event_name": "SubagentStart",
+                    "agent_id": f"codex-settlement-ack-work-{os.getpid()}",
+                },
+            )
+            active_output = run_hook(
+                ["hooks", "codex", "stop"],
+                {
+                    **active_payload,
+                    "cmux_turn_boundary": "settled",
+                    "cmux_deferred_settlement_id": active_id,
+                },
+            )
+            if active_output != {}:
+                raise AssertionError(
+                    "A Codex replay with active structured work acknowledged "
+                    f"an unsettled boundary: {active_output!r}"
+                )
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
+def test_structured_background_work_bounds_and_generation_owned_clear(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-structured-background-work-bounds.sock"
+    bounds_state_dir = root / "structured-background-work-bounds-state"
+    generation_state_dir = root / "structured-background-work-generation-state"
+    bounds_state_dir.mkdir()
+    generation_state_dir.mkdir()
+
+    bounds_session_id = f"structured-background-work-bounds-{os.getpid()}"
+    bounds_env = os.environ.copy()
+    bounds_env["CMUX_SOCKET_PATH"] = str(socket_path)
+    bounds_env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    bounds_env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    bounds_env["CMUX_AGENT_HOOK_STATE_DIR"] = str(bounds_state_dir)
+    bounds_env["CMUX_CODEX_PID"] = str(os.getpid())
+
+    def run_hook(
+        arguments: list[str],
+        payload: dict,
+        env: dict[str, str],
+    ) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def record_work(
+        *,
+        source: str,
+        session_id: str,
+        turn_id: str | None,
+        work_id: str | None,
+        env: dict[str, str],
+    ) -> None:
+        payload = {
+            "session_id": session_id,
+            "cwd": str(root),
+            "hook_event_name": "SubagentStart",
+        }
+        if turn_id is not None:
+            payload["turn_id"] = turn_id
+        if work_id is not None:
+            payload["agent_id"] = work_id
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                source,
+                "--event",
+                "SubagentStart",
+            ],
+            payload,
+            env,
+        )
+
+    def finish_work(
+        *,
+        source: str,
+        session_id: str,
+        turn_id: str | None,
+        work_id: str | None,
+        env: dict[str, str],
+    ) -> None:
+        payload = {
+            "session_id": session_id,
+            "cwd": str(root),
+            "hook_event_name": "SubagentStop",
+        }
+        if turn_id is not None:
+            payload["turn_id"] = turn_id
+        if work_id is not None:
+            payload["agent_id"] = work_id
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                source,
+                "--event",
+                "SubagentStop",
+            ],
+            payload,
+            env,
+        )
+
+    def session_state(state_dir: Path, source: str, session_id: str) -> dict:
+        state = json.loads(
+            (state_dir / f"{source}-hook-sessions.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        return state["sessions"][session_id]
+
+    def wait_for_stop_delivery(fake: FakeCmuxSocket, index: int) -> None:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            for frame in fake.frames[index:]:
+                if frame.get("method") != "feed.push":
+                    continue
+                params = frame.get("params", {})
+                events = params.get("events")
+                candidates = (
+                    events
+                    if isinstance(events, list)
+                    else [params.get("event")]
+                )
+                if any(
+                    isinstance(event, dict)
+                    and event.get("hook_event_name") == "Stop"
+                    for event in candidates
+                ):
+                    return
+            time.sleep(0.05)
+        raise AssertionError(
+            "bounded structured-work Stop never reached Feed: "
+            f"{fake.frames[index:]!r}"
+        )
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        oversized_turn_id = "structured-work-oversized-id"
+        record_work(
+            source="codex",
+            session_id=bounds_session_id,
+            turn_id=oversized_turn_id,
+            work_id="x" * 513,
+            env=bounds_env,
+        )
+
+        raw_oversized_turn_id = "t" * (512 * 1024)
+        raw_oversized_session_id = "s" * 513
+        raw_turn_session_id = f"structured-work-raw-turn-bound-{os.getpid()}"
+        record_work(
+            source="codex",
+            session_id=raw_turn_session_id,
+            turn_id=raw_oversized_turn_id,
+            work_id="raw-turn-bound-work",
+            env=bounds_env,
+        )
+        raw_turn_state = session_state(
+            bounds_state_dir,
+            "codex",
+            raw_turn_session_id,
+        )
+        raw_turn_keys = set(raw_turn_state.get("activeBackgroundWorkIdsByTurn", {}))
+        raw_turn_keys.update(raw_turn_state.get("backgroundWorkOverflowTurnKeys", []))
+        raw_turn_keys.update(raw_turn_state.get("deferredTurnSettlementsByTurn", {}))
+        if any(len(key.encode("utf-8")) > 512 for key in raw_turn_keys):
+            raise AssertionError(
+                "A raw structured-work turn id exceeded the durable key bound: "
+                f"{raw_turn_state!r}"
+            )
+        record_work(
+            source="codex",
+            session_id=raw_oversized_session_id,
+            turn_id="bounded-session-turn",
+            work_id="bounded-session-work",
+            env=bounds_env,
+        )
+        raw_session_file = json.loads(
+            (bounds_state_dir / "codex-hook-sessions.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if raw_oversized_session_id in raw_session_file.get("sessions", {}):
+            raise AssertionError(
+                "An oversized structured-work session id entered durable state"
+            )
+
+        active_id_turn = "structured-work-active-id-bound"
+        for index in range(65):
+            record_work(
+                source="codex",
+                session_id=bounds_session_id,
+                turn_id=active_id_turn,
+                work_id=f"bounded-work-{index:02d}",
+                env=bounds_env,
+            )
+
+        # The oversized-id and active-id turns already retain two of the 32
+        # bounded turn slots. Fill the other 30, then cross the turn bound.
+        for index in range(30):
+            record_work(
+                source="codex",
+                session_id=bounds_session_id,
+                turn_id=f"bounded-turn-{index:02d}",
+                work_id=f"bounded-turn-work-{index:02d}",
+                env=bounds_env,
+            )
+        unretained_turn_id = "structured-work-turn-overflow"
+        record_work(
+            source="codex",
+            session_id=bounds_session_id,
+            turn_id=unretained_turn_id,
+            work_id="unretained-turn-work",
+            env=bounds_env,
+        )
+
+        bounded_state = session_state(
+            bounds_state_dir,
+            "codex",
+            bounds_session_id,
+        )
+        active_by_turn = bounded_state.get(
+            "activeBackgroundWorkIdsByTurn",
+            {},
+        )
+        overflow_turn_keys = set(
+            bounded_state.get("backgroundWorkOverflowTurnKeys", [])
+        )
+        if len(active_by_turn.get(active_id_turn, [])) != 64:
+            raise AssertionError(
+                "Structured work retained more than 64 exact ids: "
+                f"{bounded_state!r}"
+            )
+        if oversized_turn_id not in overflow_turn_keys:
+            raise AssertionError(
+                "An oversized structured-work id did not fail closed: "
+                f"{bounded_state!r}"
+            )
+        if active_id_turn not in overflow_turn_keys:
+            raise AssertionError(
+                "The 65th structured-work id did not record overflow: "
+                f"{bounded_state!r}"
+            )
+        if bounded_state.get("hasBackgroundWorkTurnOverflow") is not True:
+            raise AssertionError(
+                "The 33rd structured-work turn did not fail closed: "
+                f"{bounded_state!r}"
+            )
+        if unretained_turn_id in active_by_turn:
+            raise AssertionError(
+                "Structured work retained a 33rd exact turn: "
+                f"{bounded_state!r}"
+            )
+
+        unknown_session_id = (
+            f"structured-background-work-unknown-id-{os.getpid()}"
+        )
+        unknown_turn_id = "structured-work-unknown-id"
+        record_work(
+            source="codex",
+            session_id=unknown_session_id,
+            turn_id=unknown_turn_id,
+            work_id=None,
+            env=bounds_env,
+        )
+        unknown_state = session_state(
+            bounds_state_dir,
+            "codex",
+            unknown_session_id,
+        )
+        if unknown_turn_id not in unknown_state.get(
+            "backgroundWorkOverflowTurnKeys",
+            [],
+        ):
+            raise AssertionError(
+                "A missing subagent id did not fail closed: "
+                f"{unknown_state!r}"
+            )
+        unknown_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": unknown_session_id,
+                "turn_id": unknown_turn_id,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, unknown_stop_start)
+        unknown_stop_commands = [
+            frame.get("raw", "")
+            for frame in fake.frames[unknown_stop_start:]
+            if "raw" in frame
+        ]
+        if any(
+            "set_agent_lifecycle codex idle" in command
+            or command.startswith("notify_target_async ")
+            for command in unknown_stop_commands
+        ):
+            raise AssertionError(
+                "A missing subagent id allowed Stop to settle: "
+                f"{unknown_stop_commands!r}"
+            )
+        unknown_stopped_state = session_state(
+            bounds_state_dir,
+            "codex",
+            unknown_session_id,
+        )
+        if unknown_turn_id not in unknown_stopped_state.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "A missing subagent id did not retain a provisional Stop: "
+                f"{unknown_stopped_state!r}"
+            )
+
+        uncorrelated_session_id = (
+            f"structured-background-work-uncorrelated-{os.getpid()}"
+        )
+        record_work(
+            source="codex",
+            session_id=uncorrelated_session_id,
+            turn_id=None,
+            work_id="uncorrelated-work-id",
+            env=bounds_env,
+        )
+        uncorrelated_state = session_state(
+            bounds_state_dir,
+            "codex",
+            uncorrelated_session_id,
+        )
+        if uncorrelated_state.get("hasBackgroundWorkTurnOverflow") is not True:
+            raise AssertionError(
+                "A work item without turn identity did not latch conservative state: "
+                f"{uncorrelated_state!r}"
+            )
+        uncorrelated_stop_turn = "uncorrelated-stop-turn"
+        uncorrelated_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": uncorrelated_session_id,
+                "turn_id": uncorrelated_stop_turn,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, uncorrelated_stop_start)
+        uncorrelated_stop_commands = [
+            frame.get("raw", "")
+            for frame in fake.frames[uncorrelated_stop_start:]
+            if "raw" in frame
+        ]
+        if any(
+            "set_agent_lifecycle codex idle" in command
+            or command.startswith("notify_target_async ")
+            for command in uncorrelated_stop_commands
+        ):
+            raise AssertionError(
+                "A turn-specific Stop settled work with no turn identity: "
+                f"{uncorrelated_stop_commands!r}"
+            )
+        uncorrelated_stopped_state = session_state(
+            bounds_state_dir,
+            "codex",
+            uncorrelated_session_id,
+        )
+        if uncorrelated_stop_turn not in uncorrelated_stopped_state.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "A turn-specific Stop did not remain provisional after an "
+                "uncorrelated start: "
+                f"{uncorrelated_stopped_state!r}"
+            )
+
+        terminal_reorder_session_id = (
+            f"structured-background-work-terminal-reorder-{os.getpid()}"
+        )
+        terminal_reorder_turn_id = "terminal-reorder-turn"
+        terminal_reorder_payload = {
+            "session_id": terminal_reorder_session_id,
+            "turn_id": terminal_reorder_turn_id,
+            "cwd": str(root),
+            "hook_event_name": "UserPromptSubmit",
+        }
+        run_hook(
+            ["hooks", "codex", "prompt-submit"],
+            terminal_reorder_payload,
+            bounds_env,
+        )
+        terminal_reorder_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                **terminal_reorder_payload,
+                "hook_event_name": "Stop",
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, terminal_reorder_stop_start)
+        record_work(
+            source="codex",
+            session_id=terminal_reorder_session_id,
+            turn_id=terminal_reorder_turn_id,
+            work_id=None,
+            env=bounds_env,
+        )
+        terminal_reorder_state = session_state(
+            bounds_state_dir,
+            "codex",
+            terminal_reorder_session_id,
+        )
+        if terminal_reorder_state.get("backgroundWorkOverflowTurnKeys"):
+            raise AssertionError(
+                "A terminal turn's late no-id SubagentStart latched overflow: "
+                f"{terminal_reorder_state!r}"
+            )
+
+        before_stop = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": bounds_session_id,
+                "turn_id": oversized_turn_id,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, before_stop)
+        stop_commands = [
+            frame.get("raw", "")
+            for frame in fake.frames[before_stop:]
+            if "raw" in frame
+        ]
+        if any(
+            "set_agent_lifecycle codex idle" in command
+            or command.startswith("notify_target_async ")
+            for command in stop_commands
+        ):
+            raise AssertionError(
+                "Overflowing structured work allowed Stop to settle: "
+                f"{stop_commands!r}"
+            )
+        stopped_state = session_state(
+            bounds_state_dir,
+            "codex",
+            bounds_session_id,
+        )
+        if oversized_turn_id not in stopped_state.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "Overflowing structured work did not keep Stop provisional: "
+                f"{stopped_state!r}"
+            )
+
+        per_turn_session_id = (
+            f"structured-background-work-per-turn-recovery-{os.getpid()}"
+        )
+        per_turn_id = "per-turn-overflow"
+        per_turn_work_ids = [f"per-turn-work-{index:02d}" for index in range(65)]
+        for work_id in per_turn_work_ids:
+            record_work(
+                source="codex",
+                session_id=per_turn_session_id,
+                turn_id=per_turn_id,
+                work_id=work_id,
+                env=bounds_env,
+            )
+        per_turn_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": per_turn_session_id,
+                "turn_id": per_turn_id,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, per_turn_stop_start)
+        for work_id in reversed(per_turn_work_ids):
+            finish_work(
+                source="codex",
+                session_id=per_turn_session_id,
+                turn_id=per_turn_id,
+                work_id=work_id,
+                env=bounds_env,
+            )
+        per_turn_overflowed = session_state(
+            bounds_state_dir,
+            "codex",
+            per_turn_session_id,
+        )
+        if per_turn_id not in per_turn_overflowed.get(
+            "backgroundWorkOverflowTurnKeys",
+            [],
+        ):
+            raise AssertionError(
+                "A dropped work identity was treated as authoritatively drained: "
+                f"{per_turn_overflowed!r}"
+            )
+        if per_turn_id not in per_turn_overflowed.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "Per-turn overflow released its deferred settlement without "
+                f"an authoritative drain: {per_turn_overflowed!r}"
+            )
+
+        turn_overflow_session_id = (
+            f"structured-background-work-turn-recovery-{os.getpid()}"
+        )
+        turn_overflow_ids = [f"turn-overflow-{index:02d}" for index in range(33)]
+        for turn_id in turn_overflow_ids:
+            record_work(
+                source="codex",
+                session_id=turn_overflow_session_id,
+                turn_id=turn_id,
+                work_id=f"work-{turn_id}",
+                env=bounds_env,
+            )
+        turn_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": turn_overflow_session_id,
+                "turn_id": turn_overflow_ids[0],
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, turn_stop_start)
+        for turn_id in reversed(turn_overflow_ids[1:]):
+            finish_work(
+                source="codex",
+                session_id=turn_overflow_session_id,
+                turn_id=turn_id,
+                work_id=f"work-{turn_id}",
+                env=bounds_env,
+            )
+        finish_work(
+            source="codex",
+            session_id=turn_overflow_session_id,
+            turn_id=turn_overflow_ids[0],
+            work_id=f"work-{turn_overflow_ids[0]}",
+            env=bounds_env,
+        )
+        turns_overflowed = session_state(
+            bounds_state_dir,
+            "codex",
+            turn_overflow_session_id,
+        )
+        if turns_overflowed.get("hasBackgroundWorkTurnOverflow") is not True:
+            raise AssertionError(
+                "Dropped turn identity was treated as authoritatively drained: "
+                f"{turns_overflowed!r}"
+            )
+        if turn_overflow_ids[0] not in turns_overflowed.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "Turn overflow released its deferred settlement without an "
+                f"authoritative drain: {turns_overflowed!r}"
+            )
+
+        older_process = subprocess.Popen(["/bin/sleep", "30"])
+        newer_process = subprocess.Popen(["/bin/sleep", "30"])
+        try:
+            generation_session_id = (
+                f"structured-background-work-generation-{os.getpid()}"
+            )
+            newer_env = os.environ.copy()
+            newer_env["CMUX_SOCKET_PATH"] = str(socket_path)
+            newer_env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+            newer_env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+            newer_env["CMUX_AGENT_HOOK_STATE_DIR"] = str(
+                generation_state_dir
+            )
+            newer_env["CMUX_GEMINI_PID"] = str(newer_process.pid)
+            older_env = newer_env.copy()
+            older_env["CMUX_GEMINI_PID"] = str(older_process.pid)
+            older_probe_session_id = f"{generation_session_id}-older-probe"
+            record_work(
+                source="gemini",
+                session_id=older_probe_session_id,
+                turn_id="older-generation-probe",
+                work_id="older-generation-probe",
+                env=older_env,
+            )
+            older_owner = session_state(
+                generation_state_dir,
+                "gemini",
+                older_probe_session_id,
+            ).get("backgroundWorkProcessGeneration")
+            record_work(
+                source="gemini",
+                session_id=generation_session_id,
+                turn_id="generation-owned-overflow",
+                work_id="y" * 513,
+                env=newer_env,
+            )
+            generation_state = session_state(
+                generation_state_dir,
+                "gemini",
+                generation_session_id,
+            )
+            owner = generation_state.get("backgroundWorkProcessGeneration")
+            if not isinstance(owner, dict) or owner.get("pid") != newer_process.pid:
+                raise AssertionError(
+                    "Structured-work overflow did not retain its process owner: "
+                    f"{generation_state!r}"
+                )
+            if not isinstance(older_owner, dict):
+                raise AssertionError(
+                    "Could not capture the older process generation: "
+                    f"{older_owner!r}"
+                )
+            older_start = (
+                int(older_owner.get("startSeconds", -1)),
+                int(older_owner.get("startMicroseconds", -1)),
+                int(older_owner.get("pid", -1)),
+            )
+            newer_start = (
+                int(owner.get("startSeconds", -1)),
+                int(owner.get("startMicroseconds", -1)),
+                int(owner.get("pid", -1)),
+            )
+            if newer_start <= older_start:
+                raise AssertionError(
+                    "Expected the second process generation to be newer: "
+                    f"older={older_owner!r} newer={owner!r}"
+                )
+
+            session_start_payload = {
+                "session_id": generation_session_id,
+                "cwd": str(root),
+            }
+            run_hook(
+                ["hooks", "gemini", "session-start"],
+                session_start_payload,
+                older_env,
+            )
+            stale_clear_state = session_state(
+                generation_state_dir,
+                "gemini",
+                generation_session_id,
+            )
+            if "generation-owned-overflow" not in stale_clear_state.get(
+                "backgroundWorkOverflowTurnKeys",
+                [],
+            ):
+                raise AssertionError(
+                    "An older process generation cleared newer overflow: "
+                    f"{stale_clear_state!r}"
+                )
+
+            run_hook(
+                ["hooks", "gemini", "session-start"],
+                session_start_payload,
+                newer_env,
+            )
+            exact_clear_state = session_state(
+                generation_state_dir,
+                "gemini",
+                generation_session_id,
+            )
+            uncleared_fields = {
+                "activeBackgroundWorkIdsByTurn",
+                "terminalBackgroundWorkIdsByTurn",
+                "deferredTurnSettlementsByTurn",
+                "backgroundWorkOverflowTurnKeys",
+                "hasBackgroundWorkTurnOverflow",
+                "backgroundWorkProcessGeneration",
+            }.intersection(exact_clear_state)
+            if uncleared_fields:
+                raise AssertionError(
+                    "The owning process generation did not clear structured "
+                    f"work fields {sorted(uncleared_fields)!r}: "
+                    f"{exact_clear_state!r}"
+                )
+        finally:
+            for process in (older_process, newer_process):
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=3)
+
+
 def run_feed_hook_optional_frame(
     cli_path: str,
     socket_path: Path,
@@ -828,6 +2239,242 @@ def codex_hook_commands(hooks: dict) -> list[str]:
                 if isinstance(command, str):
                     commands.append(command)
     return commands
+
+
+def test_non_codex_structured_work_replays_deferred_stop(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-non-codex-deferred-settlement.sock"
+    state_dir = root / "non-codex-deferred-settlement-state"
+    state_dir.mkdir()
+    session_id = f"pi-deferred-settlement-session-{os.getpid()}"
+    turn_id = f"pi-deferred-settlement-turn-{os.getpid()}"
+    work_id = f"pi-deferred-settlement-work-{os.getpid()}"
+    env = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+    def run_hook(arguments: list[str], payload: dict) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def raw_commands_after(fake: FakeCmuxSocket, index: int) -> list[str]:
+        return [
+            frame.get("raw", "")
+            for frame in fake.frames[index:]
+            if "raw" in frame
+        ]
+
+    def wait_for_raw_command(
+        fake: FakeCmuxSocket,
+        index: int,
+        fragment: str,
+    ) -> list[str]:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            commands = raw_commands_after(fake, index)
+            if any(fragment in command for command in commands):
+                return commands
+            time.sleep(0.05)
+        raise AssertionError(
+            f"non-Codex deferred settlement never emitted {fragment!r}: "
+            f"{fake.frames[index:]}"
+        )
+
+    base_payload = {
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "cwd": str(root),
+        "hook_event_name": "UserPromptSubmit",
+    }
+    with FakeCmuxSocket(socket_path, None) as fake:
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            base_payload,
+        )
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "SubagentStart",
+            ],
+            {
+                **base_payload,
+                "hook_event_name": "SubagentStart",
+                "agent_id": work_id,
+            },
+        )
+        sibling_turn_id = f"{turn_id}-sibling"
+        sibling_payload = {
+            **base_payload,
+            "turn_id": sibling_turn_id,
+            "hook_event_name": "UserPromptSubmit",
+        }
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            sibling_payload,
+        )
+        stop_start = len(fake.frames)
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "stop",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            {
+                **sibling_payload,
+                "hook_event_name": "Stop",
+                "cmux_turn_boundary": "turn_end",
+            },
+        )
+        provisional_commands = raw_commands_after(fake, stop_start)
+        if any(
+            "set_agent_lifecycle pi idle" in command
+            or command.startswith("notify_target_async ")
+            for command in provisional_commands
+        ):
+            raise AssertionError(
+                "non-Codex Stop finalized while structured work was active: "
+                f"{provisional_commands!r}"
+            )
+
+        subagent_stop_start = len(fake.frames)
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "SubagentStop",
+            ],
+            {
+                **base_payload,
+                "hook_event_name": "SubagentStop",
+                "agent_id": work_id,
+            },
+        )
+        settled_commands = wait_for_raw_command(
+            fake,
+            subagent_stop_start,
+            "set_agent_lifecycle pi idle",
+        )
+        if not any(
+            command.startswith("notify_target_async ")
+            for command in settled_commands
+        ):
+            raise AssertionError(
+                "non-Codex deferred settlement did not route completion "
+                f"notification: {settled_commands!r}"
+            )
+
+    state = json.loads(
+        (state_dir / "pi-hook-sessions.json").read_text(encoding="utf-8")
+    )
+    session_state = state["sessions"][session_id]
+    if session_state.get("deferredTurnSettlementsByTurn"):
+        raise AssertionError(
+            "non-Codex deferred settlement remained after SubagentStop: "
+            f"{session_state!r}"
+        )
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        # OMP/Campfire-style generic hooks may not expose a turn id at all.
+        # Their session-scoped Stop is still authoritative once the exact
+        # process is live and no structured work remains.
+        sessionless_id = f"pi-sessionless-stop-{os.getpid()}"
+        sessionless_payload = {
+            "session_id": sessionless_id,
+            "cwd": str(root),
+            "hook_event_name": "UserPromptSubmit",
+        }
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            sessionless_payload,
+        )
+        sessionless_stop_start = len(fake.frames)
+        run_hook(
+            [
+                "hooks",
+                "pi",
+                "stop",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            {
+                **sessionless_payload,
+                "hook_event_name": "Stop",
+            },
+        )
+        sessionless_commands = wait_for_raw_command(
+            fake,
+            sessionless_stop_start,
+            "set_agent_lifecycle pi idle",
+        )
+        if not any(
+            command.startswith("notify_target_async ")
+            for command in sessionless_commands
+        ):
+            raise AssertionError(
+                "session-scoped generic Stop did not route completion "
+                f"notification: {sessionless_commands!r}"
+            )
 
 
 def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -> None:
@@ -2111,7 +3758,10 @@ def test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path: str
         )
 
 
-def test_codex_permission_request_is_nonblocking_telemetry(cli_path: str, root: Path) -> None:
+def test_codex_permission_request_stays_native_telemetry(
+    cli_path: str,
+    root: Path,
+) -> None:
     socket_path = root / "cmux.sock"
     payload = {
         "session_id": "codex-session",
@@ -2129,16 +3779,25 @@ def test_codex_permission_request_is_nonblocking_telemetry(cli_path: str, root: 
         {"kind": "permission", "mode": "once"},
     )
     if stdout != {}:
-        raise AssertionError(f"Codex PermissionRequest telemetry should not emit a decision: {stdout!r}")
+        raise AssertionError(
+            "Codex's native reviewer must not receive a competing Feed decision: "
+            f"{stdout!r}"
+        )
     params = frame["params"]
     if params.get("wait_timeout_seconds") != 0:
-        raise AssertionError(f"Codex PermissionRequest should not wait for Feed reply: {frame!r}")
+        raise AssertionError(
+            "Codex PermissionRequest should remain non-blocking telemetry: "
+            f"{frame!r}"
+        )
     event = params["event"]
     if event.get("hook_event_name") != "PreToolUse" or event.get("_source") != "codex":
         raise AssertionError(f"wrong feed event: {event!r}")
 
 
-def test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path: str, root: Path) -> None:
+def test_codex_permission_request_modes_never_render_feed_decisions(
+    cli_path: str,
+    root: Path,
+) -> None:
     payload = {
         "session_id": "codex-session",
         "turn_id": "turn-persistent",
@@ -2149,14 +3808,964 @@ def test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path: str
     }
 
     for mode in ["once", "always", "all", "bypass", "deny"]:
-        stdout, _ = run_feed_hook(
+        stdout, frame = run_feed_hook(
             cli_path,
             root / f"cmux-{mode}.sock",
             payload,
             {"kind": "permission", "mode": mode},
         )
         if stdout != {}:
-            raise AssertionError(f"Codex PermissionRequest must not answer {mode}: {stdout!r}")
+            raise AssertionError(
+                f"Codex native reviewer mode {mode!r} rendered a Feed decision: {stdout!r}"
+            )
+        if frame["params"].get("wait_timeout_seconds") != 0:
+            raise AssertionError(
+                f"Codex native reviewer mode {mode!r} blocked on Feed: {frame!r}"
+            )
+
+
+def test_cursor_native_approval_observer_surfaces_only_real_prompt(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cursor-native-approval.sock"
+    cursor_pid = os.getpid()
+    cursor_temporary_directory = root / "cursor-tmp"
+    cursor_temporary_directory.mkdir()
+    log_directory = (
+        cursor_temporary_directory
+        / f"cursor-agent-logs-{os.getuid()}"
+    )
+    log_directory.mkdir(parents=True, exist_ok=True)
+    log_path = log_directory / f"session-test-{cursor_pid}-1.log"
+    session_start_time = datetime.now(timezone.utc).isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+    session_header = json.dumps(
+        {
+            "event": "debug-session-start",
+            "pid": cursor_pid,
+            "startTime": session_start_time,
+        }
+    )
+
+    def reset_log() -> None:
+        log_path.write_text(
+            "--- Cursor Agent Debug Session ---\n"
+            + session_header
+            + "\n",
+            encoding="utf-8",
+        )
+
+    reset_log()
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write('{"msg":"cursor test log ready"}\n')
+
+    env = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        env.pop(key, None)
+    env["CMUX_CURSOR_PID"] = str(cursor_pid)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    env["TMPDIR"] = str(cursor_temporary_directory)
+
+    def run_cursor_feed(event: str, payload: dict) -> dict:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "cursor",
+                "--event",
+                event,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                "Cursor feed hook failed "
+                f"exit={result.returncode} stdout={result.stdout!r} "
+                f"stderr={result.stderr!r}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def append_native_decision(
+        message: str,
+        tool_call_id: str,
+        *,
+        command_padding: int = 0,
+    ) -> None:
+        record = {
+            "msg": message,
+            "toolCallId": tool_call_id,
+        }
+        if command_padding > 0:
+            record["command"] = "x" * command_padding
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+            handle.flush()
+
+    def cursor_observer_pids(tool_call_id: str) -> list[int]:
+        result = subprocess.run(
+            ["/bin/ps", "-axo", "pid=,command="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"ps failed while locating Cursor observer: {result.stderr}"
+            )
+        expected_option = f"--expected-tool-call-id {tool_call_id}"
+        pids: list[int] = []
+        for line in result.stdout.splitlines():
+            pid_text, separator, command = line.strip().partition(" ")
+            if (
+                separator
+                and "__observe-native-approval" in command
+                and expected_option in command
+            ):
+                pids.append(int(pid_text))
+        return pids
+
+    def wait_for_cursor_observer(
+        tool_call_id: str,
+        *,
+        present: bool,
+    ) -> None:
+        deadline = time.monotonic() + 5
+        last: list[int] = []
+        while time.monotonic() < deadline:
+            last = cursor_observer_pids(tool_call_id)
+            if bool(last) is present:
+                return
+            time.sleep(0.05)
+        state = "start" if present else "exit"
+        raise AssertionError(
+            f"Cursor observer for {tool_call_id} did not {state}: {last!r}"
+        )
+
+    def wait_for_method(
+        fake: FakeCmuxSocket,
+        method: str,
+        *,
+        after: int = 0,
+        timeout: float = 3,
+    ) -> dict:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            frame = next(
+                (
+                    candidate
+                    for candidate in fake.frames[after:]
+                    if candidate.get("method") == method
+                ),
+                None,
+            )
+            if frame is not None:
+                return frame
+            time.sleep(0.05)
+        raise AssertionError(
+            f"Cursor observer did not emit {method}: {fake.frames[after:]!r}"
+        )
+
+    try:
+        with FakeCmuxSocket(
+            socket_path,
+            None,
+            method_error_once={
+                "agent.attention.begin": (
+                    "transient_attention_failure",
+                    "retry the acknowledged attention delivery",
+                )
+            },
+        ) as fake:
+            id_suffix = str(os.getpid())
+            requested_tool_call_id = f"cursor-call-requested-{id_suffix}"
+            auto_tool_call_id = f"cursor-call-auto-{id_suffix}"
+            concurrent_requested_tool_call_id = (
+                f"cursor-call-concurrent-requested-{id_suffix}"
+            )
+            concurrent_auto_tool_call_id = (
+                f"cursor-call-concurrent-auto-{id_suffix}"
+            )
+            requested_payload = {
+                "conversation_id": "cursor-session",
+                "model": "cursor-test-model",
+                "cwd": str(root),
+                "tool_name": "Shell",
+                "command": "rm -rf build-output",
+                "tool_input": {"command": "rm -rf build-output"},
+                "tool_use_id": requested_tool_call_id,
+            }
+            # The detached observer starts from a bounded historical tail so a
+            # native decision written before the child is scheduled cannot be
+            # lost. Exact tool-call correlation prevents this record from
+            # satisfying any later observation.
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                requested_tool_call_id,
+                command_padding=20 * 1024,
+            )
+            requested_stdout = run_cursor_feed(
+                "preToolUse",
+                requested_payload,
+            )
+            if requested_stdout != {}:
+                raise AssertionError(
+                    "Cursor's pre-policy hook must stay telemetry-only: "
+                    f"{requested_stdout!r}"
+                )
+            feed_frame = wait_for_method(fake, "feed.push")
+            if feed_frame["params"].get("wait_timeout_seconds") != 0:
+                raise AssertionError(
+                    "Cursor's pre-policy hook blocked for a Feed decision: "
+                    f"{feed_frame!r}"
+                )
+            if (
+                feed_frame["params"]["event"].get("hook_event_name")
+                != "PreToolUse"
+            ):
+                raise AssertionError(
+                    f"Cursor shell telemetry was misclassified: {feed_frame!r}"
+                )
+
+            failed_attention_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+            )
+            retry_start = fake.frames.index(failed_attention_begin) + 1
+            attention_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=retry_start,
+            )
+            begin_params = attention_begin.get("params", {})
+            if (
+                begin_params.get("source") != "cursor"
+                or begin_params.get("workspace_id") != FAKE_WORKSPACE_ID
+                or begin_params.get("surface_id") != FAKE_SURFACE_ID
+                or begin_params.get("session_id") != "cursor-session"
+            ):
+                raise AssertionError(
+                    "Cursor native prompt targeted the wrong owner: "
+                    f"{attention_begin!r}"
+                )
+
+            before_shell_done = len(fake.frames)
+            run_cursor_feed(
+                "postToolUse",
+                {
+                    **requested_payload,
+                    "command": "rm -rf a-different-output",
+                    "tool_output": "x" * (1024 * 1024 + 128),
+                    "duration": 10,
+                },
+            )
+            attention_end = wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=before_shell_done,
+            )
+            if (
+                attention_end.get("params", {}).get("observation_id")
+                != begin_params.get("observation_id")
+                or attention_end.get("params", {}).get("session_id")
+                != begin_params.get("session_id")
+            ):
+                raise AssertionError(
+                    "Cursor shell completion cleared a different observation: "
+                    f"begin={attention_begin!r} end={attention_end!r}"
+                )
+            if any(
+                frame.get("method") == "feed.push"
+                for frame in fake.frames[before_shell_done:]
+            ):
+                raise AssertionError(
+                    "Oversized Cursor output should conclude native attention "
+                    "without forwarding the oversized Feed payload"
+                )
+
+            # Cursor does not promise JSON field order. The bounded reader
+            # must still find correlation IDs after a large output field and
+            # conclude only this exact approval observation.
+            trailing_tool_call_id = f"cursor-call-trailing-id-{id_suffix}"
+            trailing_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-trailing-id",
+                "tool_use_id": trailing_tool_call_id,
+                "tool_input": {"command": "swift test"},
+            }
+            reset_log()
+            trailing_start = len(fake.frames)
+            run_cursor_feed("preToolUse", trailing_payload)
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                trailing_tool_call_id,
+            )
+            trailing_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=trailing_start,
+            )
+            oversized_ordered_payload = {
+                "tool_output": "x" * (1024 * 1024 + 2_048),
+                "conversation_id": "cursor-session",
+                "tool_use_id": trailing_tool_call_id,
+                "event": "postToolUse",
+                "tool_name": "Shell",
+                "cwd": str(root),
+            }
+            before_trailing_end = len(fake.frames)
+            run_cursor_feed("postToolUse", oversized_ordered_payload)
+            trailing_end = wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=before_trailing_end,
+            )
+            if (
+                trailing_end.get("params", {}).get("observation_id")
+                != trailing_begin.get("params", {}).get("observation_id")
+            ):
+                raise AssertionError(
+                    "Cursor oversized completion with a leading large field "
+                    f"cleared the wrong observation: begin={trailing_begin!r} "
+                    f"end={trailing_end!r}"
+                )
+            if any(
+                frame.get("method") == "feed.push"
+                for frame in fake.frames[before_trailing_end:]
+            ):
+                raise AssertionError(
+                    "Oversized Cursor completion must not forward its large output"
+                )
+
+            # Cursor can create the per-process native log after preToolUse
+            # starts. The observer must wait for that file instead of
+            # abandoning the real approval before the first record exists.
+            delayed_tool_call_id = f"cursor-call-delayed-log-{id_suffix}"
+            delayed_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-delayed-log",
+                "tool_use_id": delayed_tool_call_id,
+                "tool_input": {"command": "pnpm test"},
+            }
+            log_path.unlink(missing_ok=True)
+            delayed_start = len(fake.frames)
+            run_cursor_feed("preToolUse", delayed_payload)
+            observer_deadline = time.monotonic() + 1
+            while time.monotonic() < observer_deadline:
+                if cursor_observer_pids(delayed_tool_call_id):
+                    break
+                time.sleep(0.02)
+            reset_log()
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                delayed_tool_call_id,
+            )
+            delayed_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=delayed_start,
+            )
+            if delayed_begin.get("params", {}).get("session_id") != "cursor-session":
+                raise AssertionError(
+                    "Cursor delayed-log observer targeted the wrong session: "
+                    f"{delayed_begin!r}"
+                )
+            run_cursor_feed("postToolUse", {
+                **delayed_payload,
+                "tool_output": "delayed approval completed",
+            })
+            wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=delayed_start,
+            )
+
+            delayed_directory_tool_call_id = (
+                f"cursor-call-delayed-directory-{id_suffix}"
+            )
+            delayed_directory_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-delayed-directory",
+                "tool_use_id": delayed_directory_tool_call_id,
+                "tool_input": {"command": "cargo test"},
+            }
+            shutil.rmtree(log_directory)
+            delayed_directory_start = len(fake.frames)
+            run_cursor_feed("preToolUse", delayed_directory_payload)
+            observer_deadline = time.monotonic() + 1
+            while time.monotonic() < observer_deadline:
+                if cursor_observer_pids(delayed_directory_tool_call_id):
+                    break
+                time.sleep(0.02)
+            log_directory.mkdir(parents=True, exist_ok=True)
+            reset_log()
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                delayed_directory_tool_call_id,
+            )
+            delayed_directory_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=delayed_directory_start,
+            )
+            if delayed_directory_begin.get("params", {}).get("session_id") != "cursor-session":
+                raise AssertionError(
+                    "Cursor directory-creation observer targeted the wrong session: "
+                    f"{delayed_directory_begin!r}"
+                )
+            run_cursor_feed("postToolUse", {
+                **delayed_directory_payload,
+                "tool_output": "directory-created approval completed",
+            })
+            wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=delayed_directory_start,
+            )
+
+            cancelled_tool_call_id = (
+                f"cursor-call-cancelled-during-observation-{id_suffix}"
+            )
+            cancelled_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-cancelled-observation",
+                "tool_use_id": cancelled_tool_call_id,
+                "tool_input": {"command": "npm run deploy"},
+            }
+            # A turn boundary can cancel an observer while it is waiting for
+            # Cursor's native decision. A decision arriving after that
+            # cancellation must not resurrect Needs Input for the old turn.
+            reset_log()
+            cancelled_start = len(fake.frames)
+            run_cursor_feed("preToolUse", cancelled_payload)
+            wait_for_cursor_observer(cancelled_tool_call_id, present=True)
+            run_cursor_feed(
+                "postToolUse",
+                {
+                    **cancelled_payload,
+                    "tool_output": "turn ended before approval decision",
+                },
+            )
+            wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=cancelled_start,
+            )
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                cancelled_tool_call_id,
+            )
+            wait_for_cursor_observer(cancelled_tool_call_id, present=False)
+            stale_begins = [
+                frame
+                for frame in fake.frames[cancelled_start:]
+                if frame.get("method") == "agent.attention.begin"
+            ]
+            if stale_begins:
+                raise AssertionError(
+                    "Cursor observer published attention after its lease was cancelled: "
+                    f"{stale_begins!r}"
+                )
+
+            auto_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-2",
+                "tool_input": {"command": "git status --short"},
+                "tool_use_id": auto_tool_call_id,
+            }
+            before_auto = len(fake.frames)
+            auto_stdout = run_cursor_feed("preToolUse", auto_payload)
+            if auto_stdout != {}:
+                raise AssertionError(
+                    f"Cursor auto-approved hook emitted a decision: {auto_stdout!r}"
+                )
+            wait_for_cursor_observer(auto_tool_call_id, present=True)
+            append_native_decision(
+                "Shell permissions: auto-approved shell command",
+                auto_tool_call_id,
+            )
+            wait_for_cursor_observer(auto_tool_call_id, present=False)
+            leaked_attention = [
+                frame
+                for frame in fake.frames[before_auto:]
+                if frame.get("method") == "agent.attention.begin"
+            ]
+            if leaked_attention:
+                raise AssertionError(
+                    "Cursor auto-approved command surfaced Needs Input: "
+                    f"{leaked_attention!r}"
+                )
+
+            oversized_tool_call_id = "cursor-call-oversized-" + ("x" * 161)
+            oversized_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-oversized-id",
+                "tool_use_id": oversized_tool_call_id,
+            }
+            before_oversized = len(fake.frames)
+            oversized_stdout = run_cursor_feed(
+                "preToolUse",
+                oversized_payload,
+            )
+            if oversized_stdout != {}:
+                raise AssertionError(
+                    "Cursor oversized tool-call id changed hook output: "
+                    f"{oversized_stdout!r}"
+                )
+            # A malformed identifier must be rejected before the detached
+            # observer is spawned. Keep the assertion window long enough for
+            # a normal Process launch to appear on a loaded runner.
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                if cursor_observer_pids(oversized_tool_call_id):
+                    raise AssertionError(
+                        "Cursor oversized tool-call id spawned an observer"
+                    )
+                time.sleep(0.05)
+            if any(
+                frame.get("method") == "agent.attention.begin"
+                for frame in fake.frames[before_oversized:]
+            ):
+                raise AssertionError(
+                    "Cursor oversized tool-call id surfaced native attention"
+                )
+
+            malformed_surface_tool_call_id = (
+                f"cursor-call-malformed-surface-{id_suffix}"
+            )
+            malformed_surface_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-malformed-surface",
+                "tool_use_id": malformed_surface_tool_call_id,
+                "surface_id": "not-a-surface-uuid",
+            }
+            before_malformed_surface = len(fake.frames)
+            malformed_surface_stdout = run_cursor_feed(
+                "preToolUse",
+                malformed_surface_payload,
+            )
+            if malformed_surface_stdout != {}:
+                raise AssertionError(
+                    "Cursor malformed-surface hook changed its neutral output: "
+                    f"{malformed_surface_stdout!r}"
+                )
+            try:
+                wait_for_cursor_observer(
+                    malformed_surface_tool_call_id,
+                    present=False,
+                )
+            except AssertionError:
+                for pid in cursor_observer_pids(malformed_surface_tool_call_id):
+                    subprocess.run(["/bin/kill", str(pid)], check=False)
+                raise
+            if any(
+                frame.get("method") == "agent.attention.begin"
+                for frame in fake.frames[before_malformed_surface:]
+            ):
+                raise AssertionError(
+                    "Cursor malformed-surface hook surfaced native attention"
+                )
+
+            concurrent_start = len(fake.frames)
+            concurrent_requested = {
+                **requested_payload,
+                "generation_id": "cursor-turn-3",
+                "tool_input": {"command": "make release"},
+                "tool_use_id": concurrent_requested_tool_call_id,
+            }
+            concurrent_auto = {
+                **concurrent_requested,
+                "tool_input": {"command": "pwd"},
+                "tool_use_id": concurrent_auto_tool_call_id,
+            }
+            run_cursor_feed("preToolUse", concurrent_requested)
+            run_cursor_feed("preToolUse", concurrent_auto)
+            wait_for_cursor_observer(
+                concurrent_requested_tool_call_id,
+                present=True,
+            )
+            wait_for_cursor_observer(
+                concurrent_auto_tool_call_id,
+                present=True,
+            )
+            # Deliver the decisions in the opposite order. Exact tool-use
+            # correlation must keep the auto-approved observer from claiming
+            # the real prompt and vice versa.
+            append_native_decision(
+                "Shell permissions: auto-approved shell command",
+                concurrent_auto_tool_call_id,
+            )
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                concurrent_requested_tool_call_id,
+            )
+            concurrent_begin = wait_for_method(
+                fake,
+                "agent.attention.begin",
+                after=concurrent_start,
+            )
+            wait_for_cursor_observer(
+                concurrent_requested_tool_call_id,
+                present=False,
+            )
+            wait_for_cursor_observer(
+                concurrent_auto_tool_call_id,
+                present=False,
+            )
+            concurrent_begins = [
+                frame
+                for frame in fake.frames[concurrent_start:]
+                if frame.get("method") == "agent.attention.begin"
+            ]
+            if concurrent_begins != [concurrent_begin]:
+                raise AssertionError(
+                    "Concurrent Cursor observers claimed the same native "
+                    f"decision: {concurrent_begins!r}"
+                )
+
+            before_concurrent_end = len(fake.frames)
+            run_cursor_feed(
+                "postToolUse",
+                {
+                    **concurrent_requested,
+                    "tool_output": "release complete",
+                    "duration": 20,
+                },
+            )
+            concurrent_end = wait_for_method(
+                fake,
+                "agent.attention.end",
+                after=before_concurrent_end,
+            )
+            if (
+                concurrent_end.get("params", {}).get("observation_id")
+                != concurrent_begin.get("params", {}).get("observation_id")
+            ):
+                raise AssertionError(
+                    "Concurrent Cursor completion cleared a different "
+                    f"observation: begin={concurrent_begin!r} "
+                    f"end={concurrent_end!r}"
+                )
+
+            # A reused PID can leave a freshly touched log from an older
+            # process generation. Filename/mtime heuristics must not let that
+            # stale record publish attention for the new invocation.
+            stale_tool_call_id = f"cursor-call-stale-generation-{id_suffix}"
+            stale_payload = {
+                **requested_payload,
+                "generation_id": "cursor-turn-stale-generation",
+                "tool_use_id": stale_tool_call_id,
+                "tool_input": {"command": "make stale-check"},
+            }
+            stale_header = json.dumps(
+                {
+                    "event": "debug-session-start",
+                    "pid": cursor_pid,
+                    "startTime": "1970-01-01T00:00:00.000Z",
+                }
+            )
+            log_path.write_text(
+                "--- Cursor Agent Debug Session ---\n"
+                + stale_header
+                + "\n"
+                + json.dumps(
+                    {
+                        "msg": "Shell permissions: requesting shell approval",
+                        "toolCallId": stale_tool_call_id,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            stale_start = len(fake.frames)
+            run_cursor_feed("preToolUse", stale_payload)
+            stale_deadline = time.monotonic() + 1
+            while time.monotonic() < stale_deadline:
+                stale_begins = [
+                    frame
+                    for frame in fake.frames[stale_start:]
+                    if frame.get("method") == "agent.attention.begin"
+                ]
+                if stale_begins:
+                    raise AssertionError(
+                        "A stale Cursor log from a reused PID published native attention: "
+                        f"{stale_begins!r}"
+                    )
+                time.sleep(0.02)
+            run_cursor_feed("postToolUse", stale_payload)
+            wait_for_cursor_observer(stale_tool_call_id, present=False)
+            reset_log()
+    finally:
+        log_path.unlink(missing_ok=True)
+
+
+def test_cursor_native_approval_observer_rejects_oversized_pid(
+    cli_path: str,
+    root: Path,
+) -> None:
+    environment = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        environment.pop(key, None)
+    environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    result = subprocess.run(
+        [
+            cli_path,
+            "--socket",
+            str(root / "cursor-oversized-pid.sock"),
+            "hooks",
+            "cursor",
+            "__observe-native-approval",
+            "--pid",
+            str(2**31),
+            "--pid-start-seconds",
+            "1",
+            "--pid-start-microseconds",
+            "0",
+            "--scope-id",
+            "cursor-oversized-pid",
+            "--observation-id",
+            "cursor-oversized-pid",
+            "--workspace-id",
+            FAKE_WORKSPACE_ID,
+            "--session-id",
+            "cursor-oversized-pid-session",
+            "--expected-tool-call-id",
+            "cursor-oversized-pid",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        timeout=10,
+    )
+    if result.returncode <= 0:
+        raise AssertionError(
+            "Cursor native approval observer crashed or accepted an "
+            f"oversized PID: returncode={result.returncode}"
+        )
+    if "Invalid native approval observer arguments" not in result.stderr:
+        raise AssertionError(
+            "Cursor oversized PID did not follow normal CLI validation: "
+            f"stderr={result.stderr!r}"
+        )
+
+
+def test_amp_native_attention_helper_publishes_exact_generation(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "amp-native-attention.sock"
+    environment = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        environment.pop(key, None)
+    environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    oversized_pid = subprocess.run(
+        [
+            cli_path,
+            "hooks",
+            "amp",
+            "__native-attention",
+            "identify",
+            "--pid",
+            str(2**31),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        timeout=10,
+    )
+    if oversized_pid.returncode == 0:
+        raise AssertionError("Amp native attention accepted a PID above pid_t.max")
+    if "Invalid native approval observer process" not in oversized_pid.stderr:
+        raise AssertionError(
+            "Amp oversized PID did not follow normal CLI validation: "
+            f"stderr={oversized_pid.stderr!r}"
+        )
+    identify = subprocess.run(
+        [
+            cli_path,
+            "hooks",
+            "amp",
+            "__native-attention",
+            "identify",
+            "--pid",
+            str(os.getpid()),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        timeout=10,
+    )
+    if identify.returncode != 0:
+        raise AssertionError(
+            "Amp native attention identity capture failed "
+            f"exit={identify.returncode} stdout={identify.stdout!r} "
+            f"stderr={identify.stderr!r}"
+        )
+    process_generation = json.loads(identify.stdout)
+    common_arguments = [
+        "--pid",
+        str(os.getpid()),
+        "--pid-start-seconds",
+        str(process_generation["pid_start_seconds"]),
+        "--pid-start-microseconds",
+        str(process_generation["pid_start_microseconds"]),
+        "--scope-id",
+        "amp-scope-regression",
+        "--observation-id",
+        "amp-approval-regression",
+    ]
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        bare_pid = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "amp",
+                "__native-attention",
+                "begin",
+                "--pid",
+                str(os.getpid()),
+                "--scope-id",
+                "amp-scope-missing-generation",
+                "--observation-id",
+                "amp-approval-missing-generation",
+                "--workspace-id",
+                FAKE_WORKSPACE_ID,
+                "--surface-id",
+                FAKE_SURFACE_ID,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=10,
+        )
+        if bare_pid.returncode == 0:
+            raise AssertionError(
+                "Amp native attention accepted a recyclable bare PID"
+            )
+
+        begin = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "amp",
+                "__native-attention",
+                "begin",
+                *common_arguments,
+                "--workspace-id",
+                FAKE_WORKSPACE_ID,
+                "--surface-id",
+                FAKE_SURFACE_ID,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=10,
+        )
+        if begin.returncode != 0:
+            raise AssertionError(
+                "Amp native attention begin failed "
+                f"exit={begin.returncode} stdout={begin.stdout!r} "
+                f"stderr={begin.stderr!r}"
+            )
+
+        end = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "amp",
+                "__native-attention",
+                "end",
+                *common_arguments,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+            timeout=10,
+        )
+        if end.returncode != 0:
+            raise AssertionError(
+                "Amp native attention end failed "
+                f"exit={end.returncode} stdout={end.stdout!r} "
+                f"stderr={end.stderr!r}"
+            )
+
+    attention_frames = [
+        frame
+        for frame in fake.frames
+        if frame.get("method", "").startswith("agent.attention.")
+    ]
+    if [frame.get("method") for frame in attention_frames] != [
+        "agent.attention.begin",
+        "agent.attention.end",
+    ]:
+        raise AssertionError(
+            "Amp native attention did not use the shared begin/end lane: "
+            f"{attention_frames!r}"
+        )
+    begin_params = attention_frames[0].get("params", {})
+    end_params = attention_frames[1].get("params", {})
+    for key in (
+        "source",
+        "pid",
+        "pid_start_seconds",
+        "pid_start_microseconds",
+        "scope_id",
+        "observation_id",
+    ):
+        if begin_params.get(key) != end_params.get(key):
+            raise AssertionError(
+                f"Amp native attention lost exact {key} correlation: "
+                f"begin={begin_params!r} end={end_params!r}"
+            )
+    if (
+        begin_params.get("source") != "amp"
+        or begin_params.get("workspace_id") != FAKE_WORKSPACE_ID
+        or begin_params.get("surface_id") != FAKE_SURFACE_ID
+    ):
+        raise AssertionError(
+            f"Amp native attention targeted the wrong runtime: {begin_params!r}"
+        )
 
 
 def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Path) -> None:
@@ -2351,6 +4960,39 @@ def test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path:
         raise AssertionError(f"oversize Codex PostToolUse should fall back to empty output: {stdout!r}")
     if frame is not None:
         raise AssertionError(f"oversize Codex PostToolUse should not send feed.push: {frame!r}")
+
+
+def test_cursor_post_tool_use_oversize_payload_is_dropped_before_decode(
+    cli_path: str,
+    root: Path,
+) -> None:
+    payload = {
+        "session_id": "cursor-session",
+        "generation_id": "cursor-turn-oversize-post-tool",
+        "cwd": "/tmp/project",
+        "event": "postToolUse",
+        "tool_name": "Shell",
+        "tool_input": {"command": "python3 very_noisy.py"},
+        "tool_output": "x" * (1024 * 1024 + 128),
+    }
+
+    stdout, frame = run_feed_hook_optional_frame(
+        cli_path,
+        root / "cmux-cursor-oversize-posttool.sock",
+        payload,
+        None,
+        source="cursor",
+    )
+    if stdout != {}:
+        raise AssertionError(
+            "oversize Cursor postToolUse should fall back to empty output: "
+            f"{stdout!r}"
+        )
+    if frame is not None:
+        raise AssertionError(
+            "oversize Cursor postToolUse should not send feed.push: "
+            f"{frame!r}"
+        )
 
 
 def test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path: str, root: Path) -> None:
@@ -3960,6 +6602,119 @@ def test_pi_feed_rejects_oversized_input(cli_path: str, root: Path) -> None:
         raise AssertionError(f"oversized Pi feed reached the socket: {fake.frames!r}")
 
 
+def _session_cat_pids(session_id: int) -> list[int]:
+    result = subprocess.run(
+        ["/bin/ps", "-axo", "pid=,sid=,command="],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"ps failed while checking oversized stdin drainers: {result.stderr}")
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(None, 2)
+        if len(fields) != 3:
+            continue
+        try:
+            pid = int(fields[0])
+            sid = int(fields[1])
+        except ValueError:
+            continue
+        executable = fields[2].split(None, 1)[0]
+        if sid == session_id and Path(executable).name == "cat":
+            pids.append(pid)
+    return pids
+
+
+def test_oversized_feed_stdin_does_not_leave_a_drainer(
+    cli_path: str,
+    root: Path,
+) -> None:
+    """An open producer must not strand a child reading the hook pipe."""
+    environment = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+    ):
+        environment.pop(key, None)
+    environment["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    environment["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    process = subprocess.Popen(
+        [
+            cli_path,
+            "--socket",
+            str(root / "cmux-held-stdin.sock"),
+            "hooks",
+            "feed",
+            "--source",
+            "codex",
+            "--event",
+            "PostToolUse",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+        start_new_session=True,
+    )
+    try:
+        payload = json.dumps(
+            {
+                "session_id": "held-stdin-overflow",
+                "hook_event_name": "PostToolUse",
+                "padding": "x" * (1024 * 1024 + 128),
+            }
+        ).encode("utf-8")
+        if process.stdin is None:
+            raise AssertionError("oversized stdin test could not open the producer pipe")
+        try:
+            process.stdin.write(payload)
+            process.stdin.flush()
+        except BrokenPipeError:
+            # The fixed reader closes its end as soon as the bound is crossed;
+            # a producer that is still writing can observe that close directly.
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("oversized Feed hook did not return while stdin stayed open") from exc
+
+        deadline = time.monotonic() + 1
+        lingering: list[int] = []
+        while time.monotonic() < deadline:
+            lingering = _session_cat_pids(process.pid)
+            if lingering:
+                break
+            time.sleep(0.02)
+        if lingering:
+            raise AssertionError(
+                f"oversized Feed hook stranded cat drainer processes: {lingering!r}"
+            )
+    finally:
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except BrokenPipeError:
+                pass
+        for pid in _session_cat_pids(process.pid):
+            try:
+                os.kill(pid, 9)
+            except ProcessLookupError:
+                pass
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -3997,6 +6752,26 @@ def main() -> int:
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_subagent_stop_replays_deferred_turn_settlement(
+                cli_path,
+                root,
+            )
+            test_codex_deferred_settlement_has_single_live_replay_claim(
+                cli_path,
+                root,
+            )
+            test_codex_deferred_settlement_replay_requires_exact_acknowledgement(
+                cli_path,
+                root,
+            )
+            test_structured_background_work_bounds_and_generation_owned_clear(
+                cli_path,
+                root,
+            )
+            test_non_codex_structured_work_replays_deferred_stop(
+                cli_path,
+                root,
+            )
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
@@ -4024,13 +6799,29 @@ def main() -> int:
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path, root)
-            test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
-            test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
+            test_codex_permission_request_stays_native_telemetry(cli_path, root)
+            test_codex_permission_request_modes_never_render_feed_decisions(cli_path, root)
+            test_cursor_native_approval_observer_surfaces_only_real_prompt(
+                cli_path,
+                root,
+            )
+            test_cursor_native_approval_observer_rejects_oversized_pid(
+                cli_path,
+                root,
+            )
+            test_amp_native_attention_helper_publishes_exact_generation(
+                cli_path,
+                root,
+            )
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_accepts_native_event_label(cli_path, root)
             test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path, root)
+            test_cursor_post_tool_use_oversize_payload_is_dropped_before_decode(
+                cli_path,
+                root,
+            )
             test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path, root)
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
@@ -4059,6 +6850,7 @@ def main() -> int:
             test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
             test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
             test_pi_feed_rejects_oversized_input(cli_path, root)
+            test_oversized_feed_stdin_does_not_leave_a_drainer(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")

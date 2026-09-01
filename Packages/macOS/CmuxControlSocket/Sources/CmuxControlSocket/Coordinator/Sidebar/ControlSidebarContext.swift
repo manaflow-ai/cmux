@@ -59,7 +59,8 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        processGeneration: ControlSidebarAgentProcessGeneration?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
@@ -74,6 +75,7 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
         panelID: UUID?
     )
 
@@ -81,9 +83,21 @@ public protocol ControlSidebarContext: AnyObject {
     /// (the app owns the `AgentHibernationLifecycleState` token table).
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String?
 
+    /// Returns app-bundle-resolved strings for agent PID and lifecycle
+    /// command validation.
+    nonisolated func controlSidebarAgentStrings() -> ControlSidebarAgentStrings
+
     /// Whether a lifecycle key is allowed (built-in status keys or a
     /// registered vault agent id for the target tab).
     nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool
+
+    /// Whether this key/owner requires an exact process generation before a
+    /// lifecycle mutation may be acknowledged.
+    nonisolated func controlSidebarRequiresAgentProcessGeneration(
         _ key: String,
         target: ControlSidebarTabTarget,
         panelID: UUID?
@@ -94,6 +108,7 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
+        processGeneration: ControlSidebarAgentProcessGeneration?,
         panelID: UUID?
     )
 
