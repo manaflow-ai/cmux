@@ -193,8 +193,7 @@ impl OscMetadataState {
         let Self::Fenced { identity_revision } = self else {
             return true;
         };
-        let (Some(identity_revision), Some(stream_revision)) =
-            (identity_revision, stream_revision)
+        let (Some(identity_revision), Some(stream_revision)) = (identity_revision, stream_revision)
         else {
             return true;
         };
@@ -1279,13 +1278,8 @@ mod tests {
         // A confirmed exit also leaves a fence. The host cannot clear its
         // retained fields, so the next acquisition waits for new output.
         for attempt in 0..AGENT_MISS_CONFIRMATION_ATTEMPTS {
-            let edge = tracker.note_foreground_job_at_with_revision(
-                "term_a",
-                None,
-                None,
-                Some(42),
-                t0,
-            );
+            let edge =
+                tracker.note_foreground_job_at_with_revision("term_a", None, None, Some(42), t0);
             assert_eq!(edge, attempt + 1 == AGENT_MISS_CONFIRMATION_ATTEMPTS);
         }
         assert!(tracker.note_foreground_job_at_with_revision(
