@@ -33,6 +33,14 @@ struct MobileWhatsNewPage: Identifiable {
     /// Remote announcements are visually marked to distinguish service news
     /// from binary release notes.
     let isAnnouncement: Bool
+    /// Build channels this catalog entry may render on
+    /// (``MobileBuildType/token`` values). `nil` (the norm) means the
+    /// ``MobileWhatsNewChannelPolicy`` default: team lanes only, never the
+    /// official App Store app. The remote list can override per entry
+    /// (`entryChannels`), so an entry can be opted into official without a
+    /// binary change. Only meaningful for binary catalog entries; resolved
+    /// announcements are channel-filtered before page construction.
+    var channels: [String]? = nil
 
     /// SwiftUI list identity, namespaced by kind so an announcement id can
     /// never collide with a binary entry id in a mixed list (the server
@@ -65,6 +73,22 @@ enum MobileWhatsNewCatalog {
 
     static func entry(withID id: String) -> MobileWhatsNewPage? {
         entries.first { $0.id == id }
+    }
+
+    /// The catalog restricted to entries this build's channel may show, per
+    /// their compiled-in channel declarations. This is the no-remote-list
+    /// baseline: never-fetched devices and centerless fallbacks (previews)
+    /// use it, so an official App Store build renders NO What's New surface
+    /// before its first fetch, while team builds keep the full catalog.
+    static func channelVisibleEntries(
+        buildType: MobileBuildType = .current()
+    ) -> [MobileWhatsNewPage] {
+        entries.filter { page in
+            MobileWhatsNewChannelPolicy.isVisible(
+                channelTokens: page.channels,
+                buildType: buildType
+            )
+        }
     }
 
     /// Catalog position (0 = newest). The unseen computation compares

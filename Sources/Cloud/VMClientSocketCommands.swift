@@ -334,6 +334,10 @@ extension TerminalController {
             return socketWorkerVMWorkspaceOpenResponse(id: id, params: params)
         case "vm.workspace_close":
             return socketWorkerVMWorkspaceCloseResponse(id: id, params: params)
+        case "vm.workspace_delete":
+            return socketWorkerVMWorkspaceDeleteResponse(id: id, params: params)
+        case "vm.workspace_rename":
+            return socketWorkerVMWorkspaceRenameResponse(id: id, params: params)
         case "vm.terminal_close":
             return socketWorkerVMTerminalCloseResponse(id: id, params: params)
         default:
@@ -408,6 +412,8 @@ extension TerminalController {
             "provider": vm.provider,
             "image": vm.image,
             "kind": vm.resolvedKind.rawValue,
+            // What the provider can honor; agents skip Checkpoint/Fork the way the menus do.
+            "capabilities": ["snapshot": vm.capabilities.snapshot, "restore": vm.capabilities.restore, "fork": vm.capabilities.fork],
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
