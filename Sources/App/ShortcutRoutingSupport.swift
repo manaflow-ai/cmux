@@ -42,7 +42,7 @@ func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
-func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+nonisolated func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
     flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
@@ -175,7 +175,7 @@ func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
 /// Returns true when a focused terminal should receive a macOS line-delete
 /// equivalent before AppKit offers the same key to an Edit menu item.
 /// Function and numeric-pad flags are transport details for forward delete.
-func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+nonisolated func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsTerminal: Bool,
     firstResponderHasMarkedText: Bool = false,

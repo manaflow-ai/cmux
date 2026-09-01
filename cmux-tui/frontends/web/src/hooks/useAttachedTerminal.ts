@@ -59,6 +59,13 @@ export function useAttachedTerminal({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    const sendInput = (text: string) => {
+      // xterm can still deliver a queued data event after a detach or while
+      // the authoritative replay is being installed. Keep the transport gate
+      // in one place so every input path fails closed in those states.
+      if (cancelled || terminal.options.disableStdin) return;
+      void client.send(surface, { text }).catch(onError);
+    };
     // xterm.js deliberately leaves Command editing chords to the browser on
     // macOS. Forward only the editing subset that the render-mode terminal
     // handles, keeping Cmd-C/V/W and other browser shortcuts untouched.
@@ -75,7 +82,7 @@ export function useAttachedTerminal({
       }
       if (event.type === "keydown") {
         event.preventDefault();
-        void client.send(surface, { text: action.text }).catch(onError);
+        sendInput(action.text);
       }
       // A keydown can also produce keypress and keyup events. Keep xterm from
       // translating those same editing chords a second time.
@@ -117,9 +124,7 @@ export function useAttachedTerminal({
     window.visualViewport?.addEventListener("resize", sendResize);
     window.visualViewport?.addEventListener("scroll", sendResize);
     sendResize();
-    const input = terminal.onData((text) => {
-      void client.send(surface, { text }).catch(onError);
-    });
+    const input = terminal.onData(sendInput);
     const writeTerminal = (data: string | Uint8Array) =>
       new Promise<void>((resolve) => terminal.write(data, resolve));
     const applyColors = async (
@@ -177,6 +182,7 @@ export function useAttachedTerminal({
       try {
         let recoveryAttempt = 0;
         for (;;) {
+          terminal.options.disableStdin = true;
           stream = await client.attachSurface(surface);
           // Cleanup may have raced the attach round-trip; close the stream we
           // just opened or its buffered events leak for the surface's lifetime.
@@ -198,6 +204,7 @@ export function useAttachedTerminal({
             }
             if (cancelled) return;
             if (event.event === "detached") {
+              terminal.options.disableStdin = true;
               return;
             } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
@@ -241,7 +248,10 @@ export function useAttachedTerminal({
           }
           stream.close();
           stream = null;
-          if (!overflowed) return;
+          if (!overflowed) {
+            terminal.options.disableStdin = true;
+            return;
+          }
           const delayMs = attachRecoveryDelay(recoveryAttempt++);
           if (delayMs === null) {
             throw new Error(t("attachOverflowRecoveryFailed"));
@@ -250,8 +260,10 @@ export function useAttachedTerminal({
           if (cancelled) return;
         }
       } catch (error) {
+        terminal.options.disableStdin = true;
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
+        terminal.options.disableStdin = true;
         stream?.close();
         if (!cancelled) {
           reportedFit = null;
@@ -266,6 +278,7 @@ export function useAttachedTerminal({
 
     return () => {
       cancelled = true;
+      terminal.options.disableStdin = true;
       observer.disconnect();
       window.visualViewport?.removeEventListener("resize", sendResize);
       window.visualViewport?.removeEventListener("scroll", sendResize);
