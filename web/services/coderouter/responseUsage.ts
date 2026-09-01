@@ -34,7 +34,7 @@ export function observeModelUsage(
   let head = "";
   let tail = "";
   let model: string | undefined;
-  const source = onError ? reportingSource(body, onError) : body;
+  const source = onError ? reportStreamErrors(body, onError) : body;
   return source.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
@@ -60,7 +60,7 @@ export function observeModelUsage(
  * route handler has long since returned), so the failure would otherwise be
  * invisible to observability. Surface it once, then propagate unchanged.
  */
-function reportingSource(
+export function reportStreamErrors(
   body: ReadableStream<Uint8Array>,
   onError: (error: unknown) => void,
 ): ReadableStream<Uint8Array> {

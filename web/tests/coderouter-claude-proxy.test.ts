@@ -17,6 +17,7 @@ type UpstreamCall = {
 let selectInputs: SelectInput[] = [];
 let accountsToServe: { id: string; sticky: boolean }[] = [];
 let cooldowns: string[] = [];
+let cooldownReasons: (string | undefined)[] = [];
 let upstreamStatuses: number[] = [];
 let upstreamCalls: UpstreamCall[] = [];
 let credentialCalls: { accountId: string; force?: boolean }[] = [];
@@ -77,8 +78,9 @@ const proxy = createClaudeMessagesProxy({
       expiresAt: Date.now() + 60_000,
     };
   },
-  cooldown: async (accountId) => {
+  cooldown: async (accountId, _durationMs, reason) => {
     cooldowns.push(accountId);
+    cooldownReasons.push(reason);
   },
 });
 
@@ -86,6 +88,7 @@ beforeEach(() => {
   selectInputs = [];
   accountsToServe = [];
   cooldowns = [];
+  cooldownReasons = [];
   upstreamStatuses = [];
   upstreamCalls = [];
   credentialCalls = [];
@@ -219,6 +222,8 @@ describe("claude messages proxy", () => {
       { accountId: "acct-2" },
     ]);
     expect(cooldowns).toEqual(["acct-1"]);
+    // Recorded as an auth failure, not a rate limit.
+    expect(cooldownReasons).toEqual(["auth_rejected"]);
     expect(upstreamCalls).toHaveLength(3);
     expect(upstreamCalls[2]?.headers.get("authorization")).toBe(
       "Bearer claude-access-acct-2",
@@ -234,6 +239,8 @@ describe("claude messages proxy", () => {
     const response = await proxy(messagesRequest());
     expect(response.status).toBe(200);
     expect(cooldowns).toEqual(["acct-1"]);
+    // Default reason: a rate limit.
+    expect(cooldownReasons).toEqual([undefined]);
     expect(selectInputs).toHaveLength(2);
     expect(selectInputs[1]?.excludedAccountIds).toEqual(["acct-1"]);
   });

@@ -368,6 +368,10 @@ function aiUsageProperties(
     inputTokens,
     safeCount(input.cached_input_tokens),
   );
+  const cacheCreationInputTokens = Math.min(
+    inputTokens - cachedInputTokens,
+    safeCount(input.cache_creation_input_tokens),
+  );
   const outputTokens = safeCount(input.output_tokens);
   const totalTokens = Math.max(
     inputTokens + outputTokens,
@@ -378,6 +382,7 @@ function aiUsageProperties(
     model,
     inputTokens,
     cachedInputTokens,
+    cacheCreationInputTokens,
     outputTokens,
     totalTokens,
   });
@@ -386,6 +391,7 @@ function aiUsageProperties(
     $ai_provider: provider,
     $ai_input_tokens: inputTokens,
     $ai_cache_read_input_tokens: cachedInputTokens,
+    $ai_cache_creation_input_tokens: cacheCreationInputTokens,
     $ai_cache_reporting_exclusive: false,
     $ai_output_tokens: outputTokens,
     ...(estimate.pricedTokens > 0

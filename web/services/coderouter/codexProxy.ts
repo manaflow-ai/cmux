@@ -202,6 +202,8 @@ async function proxyCodexRequestWith(
     }
     if (upstream.status === 401) {
       refreshRetries++;
+      // The rejected response is retried past; do not keep its stream alive.
+      await upstream.body?.cancel().catch(() => undefined);
       addCoderouterBreadcrumb(
         "refresh",
         "Refreshing rejected credential",
@@ -235,6 +237,7 @@ async function proxyCodexRequestWith(
       }
     }
     if (upstream.status === 429) {
+      await upstream.body?.cancel().catch(() => undefined);
       reportCoderouterFailure(
         "provider_rate_limit",
         new Error("rate limited"),

@@ -4,6 +4,8 @@ type ApiRate = {
   readonly inputUsdPerMillion: number;
   readonly cachedInputUsdPerMillion: number;
   readonly outputUsdPerMillion: number;
+  /** Prompt-cache writes as a multiple of the input rate (Anthropic: 1.25). */
+  readonly cacheWriteInputMultiplier: number;
   readonly longContext?: {
     readonly inputTokensAbove: number;
     readonly inputMultiplier: number;
@@ -13,11 +15,17 @@ type ApiRate = {
 
 export type AggregateModelUsage = {
   readonly model: string;
+  /** Total prompt tokens, including cached reads and cache writes. */
   readonly inputTokens: number;
   readonly cachedInputTokens: number;
+  /** Prompt tokens written to the provider cache this request (Anthropic). */
+  readonly cacheCreationInputTokens?: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
 };
+
+// Anthropic bills 5-minute prompt-cache writes at 1.25x the input rate.
+const ANTHROPIC_CACHE_WRITE_MULTIPLIER = 1.25;
 
 export type ApiEquivalentEstimate = {
   readonly usd: number;
@@ -53,14 +61,21 @@ const RATES: readonly {
   }),
   rate(/^gpt-5\.(?:3-codex|2(?:-codex)?)(?:-|$)/, 1.75, 0.175, 14),
   rate(/^gpt-5(?:\.1)?-codex(?:-|$)/, 1.25, 0.125, 10),
-  rate(/^claude-sonnet-5(?:-|$)/, 2, 0.2, 10),
-  rate(/^claude-(?:opus-4\.[5-8]|opus-4-5|opus-4-6|opus-4-7|opus-4-8)(?:-|$)/, 5, 0.5, 25),
+  rate(/^claude-sonnet-5(?:-|$)/, 2, 0.2, 10, undefined, ANTHROPIC_CACHE_WRITE_MULTIPLIER),
+  rate(
+    /^claude-(?:opus-4\.[5-8]|opus-4-5|opus-4-6|opus-4-7|opus-4-8)(?:-|$)/,
+    5,
+    0.5,
+    25,
+    undefined,
+    ANTHROPIC_CACHE_WRITE_MULTIPLIER,
+  ),
   rate(/^claude-sonnet-4(?:[.-][456])?(?:-|$)/, 3, 0.3, 15, {
     inputTokensAbove: 200_000,
     inputMultiplier: 2,
     outputMultiplier: 1.5,
-  }),
-  rate(/^claude-haiku-4[.-]5(?:-|$)/, 1, 0.1, 5),
+  }, ANTHROPIC_CACHE_WRITE_MULTIPLIER),
+  rate(/^claude-haiku-4[.-]5(?:-|$)/, 1, 0.1, 5, undefined, ANTHROPIC_CACHE_WRITE_MULTIPLIER),
 ];
 
 export function estimateApiEquivalent(
@@ -82,9 +97,13 @@ export function estimateApiEquivalent(
     usage.inputTokens,
     usage.cachedInputTokens,
   );
+  const cacheCreationInputTokens = Math.min(
+    Math.max(0, usage.inputTokens - cachedInputTokens),
+    usage.cacheCreationInputTokens ?? 0,
+  );
   const uncachedInputTokens = Math.max(
     0,
-    usage.inputTokens - cachedInputTokens,
+    usage.inputTokens - cachedInputTokens - cacheCreationInputTokens,
   );
   const longContext = matched.rate.longContext;
   const usesLongContext = longContext
@@ -104,6 +123,10 @@ export function estimateApiEquivalent(
       cachedInputTokens *
         matched.rate.cachedInputUsdPerMillion *
         inputMultiplier +
+      cacheCreationInputTokens *
+        matched.rate.inputUsdPerMillion *
+        matched.rate.cacheWriteInputMultiplier *
+        inputMultiplier +
       usage.outputTokens *
         matched.rate.outputUsdPerMillion *
         outputMultiplier
@@ -121,6 +144,7 @@ function rate(
   cachedInputUsdPerMillion: number,
   outputUsdPerMillion: number,
   longContext?: ApiRate["longContext"],
+  cacheWriteInputMultiplier = 1,
 ) {
   return {
     matches: (model: string) => pattern.test(model),
@@ -128,6 +152,7 @@ function rate(
       inputUsdPerMillion,
       cachedInputUsdPerMillion,
       outputUsdPerMillion,
+      cacheWriteInputMultiplier,
       ...(longContext ? { longContext } : {}),
     },
   };

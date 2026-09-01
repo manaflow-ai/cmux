@@ -10,10 +10,18 @@ import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
-import { observeModelUsage, type ModelUsage } from "./responseUsage";
+import {
+  observeModelUsage,
+  reportStreamErrors,
+  type ModelUsage,
+} from "./responseUsage";
 import { CLAUDE_OAUTH_BETA } from "./claudeOAuth";
 
 const CLAUDE_UPSTREAM_ORIGIN = "https://api.anthropic.com";
+// A fresh token that the provider still rejects means a revoked subscription
+// or a provider-side block, not a burst: keep the account out of rotation long
+// enough that it is not re-refreshed and re-rejected on every message.
+const AUTH_REJECTED_COOLDOWN_MS = 15 * 60 * 1_000;
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
   "content-encoding",
@@ -246,6 +254,7 @@ async function proxyClaudeRequestWith(
     }
     if (upstream.status === 401) {
       refreshRetries++;
+      await discardBody(upstream);
       addCoderouterBreadcrumb(
         "refresh",
         "Refreshing rejected credential",
@@ -280,20 +289,23 @@ async function proxyClaudeRequestWith(
         continue;
       }
       // Still rejected with a fresh token: this account is unusable right now
-      // (revoked subscription, provider-side block). Cool it down and let a
-      // healthy sibling take the session instead of surfacing its 401.
+      // (revoked subscription, provider-side block). Park it as an auth
+      // failure and let a healthy sibling take the session instead of
+      // surfacing its 401.
       if (upstream.status === 401) {
+        await discardBody(upstream);
         reportCoderouterFailure("provider_refresh", new Error("credential rejected after refresh"), {
           provider: "claude",
           status: 401,
         });
-        await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
+        await dependencies.cooldown(account.id, AUTH_REJECTED_COOLDOWN_MS, "auth_rejected");
         continue;
       }
     }
     // 429: this account is out of quota; 529: Anthropic is overloaded for it.
     // Either way, cool the account down and let another one take the session.
     if (upstream.status === 429 || upstream.status === 529) {
+      await discardBody(upstream);
       reportCoderouterFailure(
         "provider_rate_limit",
         new Error("rate limited"),
@@ -357,19 +369,32 @@ async function proxyClaudeRequestWith(
     outcome: status >= 200 && status < 300 ? "success" : "upstream_error",
     responseStreamed: upstream.body !== null,
   });
+  const onStreamError = (error: unknown) =>
+    reportCoderouterFailure("upstream_transport", error, {
+      provider: "claude",
+      stage: "response_stream",
+      target,
+    });
   if (target === "count_tokens") {
-    return new Response(upstream.body, { status, headers: responseHeaders });
+    return new Response(
+      upstream.body ? reportStreamErrors(upstream.body, onStreamError) : null,
+      { status, headers: responseHeaders },
+    );
   }
   const observedBody = observeModelUsage(
     upstream.body,
     (usage) => captureModelUsage(identity.teamId, usage),
-    (error) =>
-      reportCoderouterFailure("upstream_transport", error, {
-        provider: "claude",
-        stage: "response_stream",
-      }),
+    onStreamError,
   );
   return new Response(observedBody, { status, headers: responseHeaders });
+}
+
+/**
+ * A response the loop is about to retry past must not keep its upstream
+ * stream (and connection) alive behind the next attempt.
+ */
+async function discardBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
 }
 
 async function sendClaude(
@@ -478,6 +503,7 @@ function captureModelUsage(teamId: string, usage: ModelUsage | null): void {
       input_tokens: usage.inputTokens + usage.cachedInputTokens +
         usage.cacheCreationInputTokens,
       cached_input_tokens: usage.cachedInputTokens,
+      cache_creation_input_tokens: usage.cacheCreationInputTokens,
       output_tokens: usage.outputTokens,
       total_tokens: usage.totalTokens + usage.cachedInputTokens +
         usage.cacheCreationInputTokens,
