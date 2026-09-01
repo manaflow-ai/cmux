@@ -81,6 +81,17 @@ extension TabItemView {
         }
         .disabled(context.pinState == nil)
 
+        // Label text is count-independent (it never names the workspace), so a
+        // single key serves both single and multi selection.
+        let isNotificationsMuted = context.allTargetsNotificationsMuted
+        let muteNotificationsLabel = isNotificationsMuted
+            ? String(localized: "contextMenu.unmuteWorkspaceNotifications", defaultValue: "Unmute Notifications")
+            : String(localized: "contextMenu.muteWorkspaceNotifications", defaultValue: "Mute Notifications")
+        Button(muteNotificationsLabel) {
+            actions.setNotificationsMuted(!isNotificationsMuted, targetIds)
+        }
+        .disabled(targetIds.isEmpty)
+
         workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
 
         Divider()

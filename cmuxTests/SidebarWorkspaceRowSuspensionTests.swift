@@ -21,6 +21,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             title: "Workspace",
             customDescription: customDescription,
             isPinned: false,
+            notificationsMuted: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",

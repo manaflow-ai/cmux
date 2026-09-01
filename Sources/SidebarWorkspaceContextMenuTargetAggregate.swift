@@ -14,6 +14,9 @@ struct SidebarWorkspaceContextMenuTargetAggregate: Equatable {
     let eligibleGroupTargetIds: [UUID]
     let allEligibleTargetsGroupId: UUID?
     let hasGroupedEligibleTarget: Bool
+    /// True only when every target workspace has notifications muted; drives
+    /// the shared Mute/Unmute label + action across the selection.
+    let allTargetsNotificationsMuted: Bool
     let canMarkRead: Bool
     let canMarkUnread: Bool
     let hasLatestNotification: Bool
@@ -47,6 +50,10 @@ struct SidebarWorkspaceContextMenuTargetAggregate: Equatable {
         hasGroupedEligibleTarget = eligibleGroupTargetIds.contains {
             workspaceRowsById[$0]?.groupId != nil
         }
+        allTargetsNotificationsMuted = !targetWorkspaceIds.isEmpty
+            && targetWorkspaceIds.allSatisfy {
+                workspaceRowsById[$0]?.workspace.notificationsMuted == true
+            }
         canMarkRead = targetWorkspaceIds.contains {
             (workspaceRowsById[$0]?.unreadCount ?? 0) > 0
         }

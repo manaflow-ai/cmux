@@ -12,6 +12,9 @@ struct SidebarWorkspaceContextMenuSnapshot: Equatable {
     let allRemoteTargetsConnecting: Bool
     let allRemoteTargetsDisconnected: Bool
     let pinState: WorkspaceActionDispatcher.PinState?
+    /// Aggregate mute state of the targets: true only when every target
+    /// workspace is muted. Drives the Mute/Unmute label + action.
+    let allTargetsNotificationsMuted: Bool
     let groupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let canCreateEmptyGroup: Bool
     let eligibleGroupTargetIds: [UUID]

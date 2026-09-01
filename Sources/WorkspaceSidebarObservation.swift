@@ -164,6 +164,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
+    let notificationsMuted: Bool
     let customColor: String?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
@@ -227,13 +228,16 @@ extension Workspace {
             todoState.$checklist
         )
 
+        // `notificationsMuted` is workspace-config state, not conversation data, so
+        // it gets its own leg rather than padding `conversationFields`.
         let immediateFields = workspaceFields
-            .combineLatest(conversationFields, todoFields)
-            .map { workspaceFields, conversationFields, todoFields in
+            .combineLatest(conversationFields, todoFields, $notificationsMuted)
+            .map { workspaceFields, conversationFields, todoFields, notificationsMuted in
                 SidebarImmediateObservationState(
                     customTitle: workspaceFields.0,
                     customDescription: workspaceFields.1,
                     isPinned: workspaceFields.2,
+                    notificationsMuted: notificationsMuted,
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
