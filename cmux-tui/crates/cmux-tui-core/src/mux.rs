@@ -9952,10 +9952,41 @@ impl Mux {
                         "cmux-tui: journaling an agent report for {} failed: {error}",
                         agent.terminal_id
                     );
+                    self.materialize_direct_report_in_roster(&agent);
                 }
             }
         }
         Ok((commit, Some(agent)))
+    }
+
+    /// Keep a committed direct report visible while its journal echo waits in
+    /// the durable retry queue. The later echo is idempotent because it
+    /// carries the same state, source, session, and timestamp.
+    fn materialize_direct_report_in_roster(&self, agent: &AgentRecord) {
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut host = self.agent_roster.lock().unwrap();
+        let entry = crate::journal_reducers::RosterEntry {
+            state: agent.state.as_str().to_string(),
+            source: agent.source.as_str().to_string(),
+            session: agent.session.clone(),
+            agent: agent.agent.clone(),
+            updated_at_ms: agent.updated_at_ms,
+        };
+        if host.roster.entries.get(agent.terminal_id.as_str()) == Some(&entry) {
+            return;
+        }
+        host.roster.entries.insert(agent.terminal_id.to_string(), entry);
+        host.ordering_token = host.ordering_token.saturating_add(1);
+        if let Err(error) = registry.put_journal_reducer_state_ordered(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            host.cursor,
+            host.ordering_token,
+            &host.roster.snapshot().to_string(),
+        ) {
+            eprintln!("cmux-tui: persisting the direct agent roster fallback failed: {error}");
+        }
     }
 
     /// Drop per-surface metadata for a surface that has left the tree.
