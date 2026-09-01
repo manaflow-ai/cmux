@@ -160,4 +160,73 @@ struct WindowVideoBackgroundControllerTests {
         coordinator.advance(after: snapshots.last?.generation ?? 0)
         #expect(snapshots.count == 1)
     }
+
+    @Test
+    func sharedPlayheadFreezesWhenTheLastPlayerPauses() {
+        var clock: CFTimeInterval = 100
+        let coordinator = VideoBackgroundPlaybackCoordinator(now: { clock })
+        _ = coordinator.configure(
+            sourceTexts: ["dQw4w9WgXcQ"],
+            quality: "1080p"
+        )
+        let first = coordinator.register { _ in }
+        let second = coordinator.register { _ in }
+
+        coordinator.setPlayerRunning(true, for: first.token)
+        clock += 5
+        #expect(abs(coordinator.synchronizedSnapshot().position - 5) < 0.001)
+
+        // Once the only running player pauses, elapsed time must stop counting
+        // even if the app remains backgrounded for a long interval.
+        coordinator.setPlayerRunning(false, for: first.token)
+        clock += 100
+        #expect(abs(coordinator.synchronizedSnapshot().position - 5) < 0.001)
+
+        // A second visible window resumes from the frozen position.
+        coordinator.setPlayerRunning(true, for: second.token)
+        clock += 2
+        #expect(abs(coordinator.synchronizedSnapshot().position - 7) < 0.001)
+        coordinator.setPlayerRunning(false, for: second.token)
+    }
+
+    @Test
+    func failedQueueEntriesAdvanceOnceAndExhaustAfterEveryEntryFails() {
+        let coordinator = VideoBackgroundPlaybackCoordinator()
+        var snapshots: [VideoBackgroundPlaybackCoordinator.Snapshot] = []
+        let initial = coordinator.configure(
+            sourceTexts: ["dQw4w9WgXcQ", "M7lc1UVf-VE"],
+            quality: "1080p"
+        )
+        let registration = coordinator.register { snapshot in
+            snapshots.append(snapshot)
+        }
+
+        coordinator.recordFailure(after: initial.generation)
+        let second = coordinator.synchronizedSnapshot()
+        #expect(second.currentSource == .youTubeVideo(id: "M7lc1UVf-VE"))
+
+        coordinator.recordFailure(after: second.generation)
+        let exhausted = coordinator.synchronizedSnapshot()
+        #expect(exhausted.currentSource == nil)
+        #expect(exhausted.sources.count == 2)
+        #expect(snapshots.count == 2)
+
+        // A duplicate/stale failure cannot restart the exhausted queue.
+        coordinator.recordFailure(after: second.generation)
+        #expect(coordinator.synchronizedSnapshot().currentSource == nil)
+        coordinator.unregister(registration.token)
+    }
+
+    @Test
+    func staleFailureGenerationCannotAffectAReplacementQueue() {
+        let coordinator = VideoBackgroundPlaybackCoordinator()
+        let old = coordinator.configure(sourceTexts: ["dQw4w9WgXcQ"], quality: "1080p")
+        let replacement = coordinator.configure(sourceTexts: ["M7lc1UVf-VE"], quality: "1080p")
+
+        coordinator.recordFailure(after: old.generation)
+
+        let current = coordinator.synchronizedSnapshot()
+        #expect(current.generation == replacement.generation)
+        #expect(current.currentSource == replacement.currentSource)
+    }
 }
