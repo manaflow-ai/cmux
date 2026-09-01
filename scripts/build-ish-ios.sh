@@ -502,6 +502,12 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
+# Serialize every mode before touching shared rootfs resources or asking the
+# tool helper to mutate its cache. `--check` also validates and may install the
+# archive, so leaving it outside this lock would let two checks race a partial
+# copy while a build is publishing the same resource.
+acquire_lock
+
 # Keep direct invocations reproducible too. The verifier passes a private bin
 # directory when it starts a missing-artifact build, but callers often invoke
 # this script directly from a fresh checkout. Reusing the helper here keeps
@@ -522,11 +528,6 @@ if [[ "$CHECK_ONLY" == 1 ]]; then
     echo "iSH build prerequisites are valid"
     exit 0
 fi
-
-# Serialize before touching the shared resource or build output. The iSH
-# Meson target is not safe to run concurrently, even with distinct Xcode
-# products, because its helper scripts inspect shared source state.
-acquire_lock
 install_rootfs
 
 # Capture the exact inputs before compiling. These values are embedded in each
