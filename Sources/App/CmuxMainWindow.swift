@@ -119,7 +119,8 @@ final class CmuxMainWindow: NSWindow {
             Self.frameByRaisingUndersizedDimensions(
                 capped,
                 minimumSize: Self.minimumContentSize,
-                currentFrame: frame
+                currentFrame: frame,
+                isLiveResize: inLiveResize
             ),
             display: flag
         )
@@ -176,17 +177,20 @@ final class CmuxMainWindow: NSWindow {
     /// tab bar overlap and clip. Frames that already fit are returned
     /// byte-for-byte.
     ///
-    /// The raise anchors the edge the gesture is holding still, inferred by
-    /// comparing the proposal against `currentFrame`: a proposal that keeps
-    /// the current bottom (top-edge drag) is pinned at that bottom so the top
-    /// edge stops at the floor, and likewise for a kept right edge. Anything
-    /// else — including every programmatic shrink, which moves both edges —
-    /// keeps the proposal's top-left corner so the titlebar stays where the
-    /// caller put it and the raise extends downward.
+    /// During a live drag (`isLiveResize`) the raise anchors the edge the
+    /// gesture is holding still, inferred by comparing the proposal against
+    /// `currentFrame`: a proposal that keeps the current bottom (top-edge
+    /// drag) is pinned at that bottom so the top edge stops at the floor, and
+    /// likewise for a kept right edge. Outside live resize the inference is
+    /// meaningless — a programmatic shrink that happens to share the current
+    /// origin is not a drag — so every programmatic raise keeps the
+    /// proposal's top-left corner: the titlebar stays where the caller put it
+    /// and the raise extends downward.
     nonisolated static func frameByRaisingUndersizedDimensions(
         _ proposedFrame: NSRect,
         minimumSize: NSSize,
-        currentFrame: NSRect
+        currentFrame: NSRect,
+        isLiveResize: Bool
     ) -> NSRect {
         var raised = proposedFrame
         raised.size.width = max(raised.width, minimumSize.width)
@@ -195,14 +199,16 @@ final class CmuxMainWindow: NSWindow {
 
         let epsilon: CGFloat = 0.5
         if raised.height != proposedFrame.height {
-            let keepsBottomEdge = abs(proposedFrame.minY - currentFrame.minY) <= epsilon
+            let keepsBottomEdge = isLiveResize
+                && abs(proposedFrame.minY - currentFrame.minY) <= epsilon
                 && abs(proposedFrame.maxY - currentFrame.maxY) > epsilon
             if !keepsBottomEdge {
                 raised.origin.y = proposedFrame.maxY - raised.height
             }
         }
         if raised.width != proposedFrame.width {
-            let keepsRightEdge = abs(proposedFrame.maxX - currentFrame.maxX) <= epsilon
+            let keepsRightEdge = isLiveResize
+                && abs(proposedFrame.maxX - currentFrame.maxX) <= epsilon
                 && abs(proposedFrame.minX - currentFrame.minX) > epsilon
             if keepsRightEdge {
                 raised.origin.x = proposedFrame.maxX - raised.width

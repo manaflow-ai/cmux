@@ -236,7 +236,8 @@ final class MainWindowSelfSizingTests: XCTestCase {
             CmuxMainWindow.frameByRaisingUndersizedDimensions(
                 fitting,
                 minimumSize: CmuxMainWindow.minimumContentSize,
-                currentFrame: NSRect(x: 0, y: 0, width: 1_000, height: 700)
+                currentFrame: NSRect(x: 0, y: 0, width: 1_000, height: 700),
+                isLiveResize: true
             ),
             fitting,
             "A frame at or above the minimum must be returned unchanged"
@@ -255,7 +256,8 @@ final class MainWindowSelfSizingTests: XCTestCase {
         let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
             proposed,
             minimumSize: minimum,
-            currentFrame: current
+            currentFrame: current,
+            isLiveResize: true
         )
         XCTAssertEqual(raised.minY, current.minY, accuracy: 0.01, "Kept bottom edge must stay pinned")
         XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
@@ -270,9 +272,27 @@ final class MainWindowSelfSizingTests: XCTestCase {
         let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
             proposed,
             minimumSize: minimum,
-            currentFrame: current
+            currentFrame: current,
+            isLiveResize: true
         )
         XCTAssertEqual(raised.maxY, current.maxY, accuracy: 0.01, "Kept top edge must stay pinned")
+        XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
+    }
+
+    /// Outside live resize a shrink that happens to share the window's
+    /// current origin is not a drag — the raise must still keep the
+    /// proposal's top edge (the titlebar) rather than pinning the bottom.
+    func testFrameRaiseKeepsTopEdgeForProgrammaticShrinkSharingOrigin() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 100, y: 100, width: 1_000, height: 95)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current,
+            isLiveResize: false
+        )
+        XCTAssertEqual(raised.maxY, proposed.maxY, accuracy: 0.01, "Programmatic raises keep the proposal's top edge")
         XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
     }
 
@@ -285,7 +305,8 @@ final class MainWindowSelfSizingTests: XCTestCase {
         let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
             proposed,
             minimumSize: minimum,
-            currentFrame: current
+            currentFrame: current,
+            isLiveResize: true
         )
         XCTAssertEqual(raised.maxX, current.maxX, accuracy: 0.01, "Kept right edge must stay pinned")
         XCTAssertEqual(raised.width, minimum.width, accuracy: 0.01)
