@@ -9988,6 +9988,22 @@ impl Mux {
         let _fold = self.agent_roster_fold.lock().unwrap();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut host = self.agent_roster.lock().unwrap();
+        if agent.state == AgentState::Done {
+            if !host.roster.retire_terminal(agent.terminal_id.as_str()) {
+                return;
+            }
+            host.ordering_token = host.ordering_token.saturating_add(1);
+            if let Err(error) = registry.put_journal_reducer_state_ordered(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                host.cursor,
+                host.ordering_token,
+                &host.roster.snapshot().to_string(),
+            ) {
+                eprintln!("cmux-tui: persisting the direct agent roster fallback failed: {error}");
+            }
+            return;
+        }
         let entry = crate::journal_reducers::RosterEntry {
             state: agent.state.as_str().to_string(),
             source: agent.source.as_str().to_string(),
