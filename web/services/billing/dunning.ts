@@ -51,6 +51,14 @@ export type BillingDunningDeliveryStore = {
     input: BillingDunningDeliveryInput,
     deliver: () => Promise<void>,
   ): Promise<BillingDunningDeliveryResult>;
+  /**
+   * Atomically claim the one operator report for a terminally abandoned
+   * delivery. The production store implements this against Postgres; the
+   * optional shape keeps older test doubles source-compatible.
+   */
+  claimAbandonedReport?: (
+    input: BillingDunningAbandonedSignal,
+  ) => Promise<boolean>;
 };
 
 export type BillingDunningEmailInput = {
@@ -174,7 +182,15 @@ export async function sendBillingDunningEmail(
   if (result === "delivery_abandoned") {
     const reportAbandoned =
       dependencies.reportAbandoned ?? defaultDependencies.reportAbandoned;
-    await reportAbandoned({ invoiceId: input.invoiceId, scope: input.scope });
+    const shouldReport = deliveryStore.claimAbandonedReport
+      ? await deliveryStore.claimAbandonedReport({
+          invoiceId: input.invoiceId,
+          scope: input.scope,
+        })
+      : true;
+    if (shouldReport) {
+      await reportAbandoned({ invoiceId: input.invoiceId, scope: input.scope });
+    }
   }
   return result;
 }
@@ -257,6 +273,8 @@ export function makeBillingDunningDeliveryStore(
   db: DeliveryDb = cloudDb(),
 ): BillingDunningDeliveryStore {
   return {
+    claimAbandonedReport: async (input) =>
+      await claimAbandonedDeliveryReport(db, input, new Date()),
     deliverOnce: async (input, deliver) => {
       const claimedAt = new Date();
       const claim = await claimDelivery(db, input, claimedAt);
@@ -276,6 +294,44 @@ export function makeBillingDunningDeliveryStore(
       return "sent";
     },
   };
+}
+
+/**
+ * Claim the terminal operator report under the same invoice advisory lock as
+ * delivery state. Only the transaction that changes a null marker can report.
+ */
+async function claimAbandonedDeliveryReport(
+  db: DeliveryDb,
+  input: BillingDunningAbandonedSignal,
+  reportedAt: Date,
+): Promise<boolean> {
+  return await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${dunningLockKey(input.invoiceId)}, 0))`,
+    );
+    const [existing] = await tx
+      .select({
+        sentAt: billingDunningDeliveries.sentAt,
+        abandonedReportedAt: billingDunningDeliveries.abandonedReportedAt,
+      })
+      .from(billingDunningDeliveries)
+      .where(eq(billingDunningDeliveries.invoiceId, input.invoiceId))
+      .limit(1);
+
+    // A successful delivery or a previous report makes this a no-op. The
+    // advisory lock makes the read-and-set transition atomic across workers.
+    if (!existing || existing.sentAt || existing.abandonedReportedAt) {
+      return false;
+    }
+    await tx
+      .update(billingDunningDeliveries)
+      .set({
+        abandonedReportedAt: reportedAt,
+        updatedAt: reportedAt,
+      })
+      .where(eq(billingDunningDeliveries.invoiceId, input.invoiceId));
+    return true;
+  });
 }
 
 type StoredDunningDelivery = {

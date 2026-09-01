@@ -195,6 +195,10 @@ export const env = createEnv({
     CMUX_PERSONAL_PRO_WELCOME_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_FOUNDERS_FROM_EMAIL: z.string().email().optional(),
     CMUX_PRO_FROM_EMAIL: z.string().email().optional(),
+    // Canonical public origin for customer-facing links sent outside a
+    // browser request (for example, Stripe dunning emails). Defaults to
+    // https://cmux.com when unset.
+    CMUX_APP_ORIGIN: z.string().url().optional(),
     // Direct Stripe billing for cmux Pro. Optional: when unset, checkout is
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
@@ -369,6 +373,7 @@ export const env = createEnv({
     ),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
+    CMUX_APP_ORIGIN: trimEnv(process.env.CMUX_APP_ORIGIN),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),

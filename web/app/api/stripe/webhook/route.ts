@@ -5,6 +5,7 @@ import { after, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { env } from "../../../env";
+import { canonicalAppOrigin } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeWebhookEvents } from "../../../../db/schema";
 import { captureBillingError } from "../../../../services/errors";
@@ -53,6 +54,8 @@ type StripeWebhookDependencies = {
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
   revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
+  /** Trusted public origin for links sent from the webhook. */
+  appOrigin?: () => string;
   defer: (task: () => Promise<void>) => void;
 };
 
@@ -70,6 +73,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
   revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
   captureStripeBillingEvent: captureStripeBillingEventDefault,
+  appOrigin: canonicalAppOrigin,
   defer: (task) => after(task),
 };
 
@@ -131,7 +135,7 @@ export function makeStripeWebhookHandler(
         const { analytics, ...result } = await processStripeEvent(
           event,
           dependencies,
-          new URL(request.url).origin,
+          (dependencies.appOrigin ?? canonicalAppOrigin)(),
         );
         await db
           .update(stripeWebhookEvents)
@@ -161,7 +165,7 @@ export function makeStripeWebhookHandler(
 async function processStripeEvent(
   event: Stripe.Event,
   dependencies: StripeWebhookDependencies,
-  requestOrigin = "https://cmux.com",
+  publicOrigin: string,
 ): Promise<{
   processed?: string;
   skipped?: string;
@@ -283,7 +287,7 @@ async function processStripeEvent(
         const sendDunningEmail =
           dependencies.sendDunningEmail ?? sendBillingDunningEmailDefault;
         const dunningResult: unknown = await sendDunningEmail(
-          billingDunningInput(event.data.object, result, requestOrigin),
+          billingDunningInput(event.data.object, result, publicOrigin),
         );
         // The canonical sender throws for this state. Keep the webhook
         // boundary defensive for injected senders and future implementations:
@@ -429,9 +433,9 @@ function billingDunningInput(
   result:
     | { readonly scope: "user"; readonly stackUserId: string; readonly isActive: boolean }
     | { readonly scope: "team"; readonly stackTeamId: string; readonly isActive: boolean },
-  requestOrigin: string,
+  publicOrigin: string,
 ): BillingDunningEmailInput {
-  const portalUrl = new URL("/api/billing/portal", requestOrigin);
+  const portalUrl = new URL("/api/billing/portal", publicOrigin);
   if (result.scope === "team") portalUrl.searchParams.set("scope", "team");
   return {
     invoiceId: invoice.id,

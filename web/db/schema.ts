@@ -738,6 +738,11 @@ export const billingDunningDeliveries = pgTable(
       withTimezone: true,
     }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    // Set atomically when the terminal provider-window abandonment is first
+    // reported. It prevents repeated Stripe deliveries from spamming operators.
+    abandonedReportedAt: timestamp("abandoned_reported_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
