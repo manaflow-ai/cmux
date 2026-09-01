@@ -5384,7 +5384,7 @@ enum AppIconSettings {
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
-        let imageForPath: (String) -> NSImage? = { _ in nil }
+        let imageForPath: (String) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
