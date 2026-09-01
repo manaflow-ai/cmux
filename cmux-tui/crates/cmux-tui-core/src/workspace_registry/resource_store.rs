@@ -14,6 +14,9 @@ pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
 pub(crate) const AGENT_HOOK_DEAD_LETTER_CAP: i64 = 1024;
 
+pub(crate) type PendingAgentHookProjection = (String, String, String, u64, JournalIngress);
+pub(crate) type PendingAgentHookCursor = (u64, String, i64);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentHookRetryClass {
     Transient,
@@ -551,7 +554,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
         sequence: u64,
-        ingress: &crate::JournalIngress,
+        ingress: &JournalIngress,
     ) -> anyhow::Result<()> {
         let ingress_json = serde_json::to_string(ingress)?;
         let terminal_id = ingress
@@ -572,13 +575,13 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    pub fn enqueue_agent_hook_pending(
+    pub(crate) fn enqueue_agent_hook_pending(
         &mut self,
         producer_id: &str,
         origin: &str,
         idempotency_key: &str,
         sequence: u64,
-        ingress: &crate::JournalIngress,
+        ingress: &JournalIngress,
         error: &str,
         retry_class: AgentHookRetryClass,
     ) -> anyhow::Result<()> {
@@ -645,7 +648,7 @@ impl WorkspaceRegistry {
 
     pub(crate) fn purge_agent_hook_pending_for_terminal(
         &mut self,
-        terminal_id: &crate::resource::TerminalPublicId,
+        terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
         self.connection.execute(
             "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
@@ -690,9 +693,9 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    pub fn pending_agent_hook_projections(
+    pub(crate) fn pending_agent_hook_projections(
         &self,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
@@ -720,10 +723,10 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    pub fn pending_agent_hook_projections_for_terminal(
+    pub(crate) fn pending_agent_hook_projections_for_terminal(
         &self,
-        terminal_id: &crate::resource::TerminalPublicId,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
@@ -766,13 +769,10 @@ impl WorkspaceRegistry {
         Ok(pending)
     }
 
-    pub fn pending_agent_hook_projections_page(
+    pub(crate) fn pending_agent_hook_projections_page(
         &self,
-        after: Option<(u64, String, i64)>,
-    ) -> anyhow::Result<(
-        Vec<(String, String, String, u64, crate::JournalIngress)>,
-        Option<(u64, String, i64)>,
-    )> {
+        after: Option<PendingAgentHookCursor>,
+    ) -> anyhow::Result<(Vec<PendingAgentHookProjection>, Option<PendingAgentHookCursor>)> {
         let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
         let mut statement = self.connection.prepare(
             "SELECT rowid, producer_id, origin, idempotency_key, event_sequence, ingress_json
@@ -823,7 +823,7 @@ impl WorkspaceRegistry {
         Ok((pending, next_cursor))
     }
 
-    pub fn commit_agent_projection_with_hook_state(
+    pub(crate) fn commit_agent_projection_with_hook_state(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -845,7 +845,7 @@ impl WorkspaceRegistry {
         )
     }
 
-    pub fn commit_agent_projection_with_hook_state_and_sequence(
+    pub(crate) fn commit_agent_projection_with_hook_state_and_sequence(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -1385,7 +1385,7 @@ impl WorkspaceRegistry {
         // patch's own upserts inside this same transaction.
         let workspace_revision = workspace_ledger
             .map(|ledger| {
-                super::commit_workspace_registry_in_transaction(
+        commit_workspace_registry_in_transaction(
                     &tx,
                     mutation,
                     &fingerprint,
@@ -1590,17 +1590,6 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
-    pub(crate) fn delete_agent_hook_state_for_test(
-        &mut self,
-        terminal_id: &crate::resource::TerminalPublicId,
-    ) -> anyhow::Result<()> {
-        self.connection.execute(
-            "DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1",
-            [terminal_id.as_str()],
-        )?;
-        Ok(())
-    }
-
     #[cfg(test)]
     pub(crate) fn agent_hook_pending_retry_state_for_test(
         &self,

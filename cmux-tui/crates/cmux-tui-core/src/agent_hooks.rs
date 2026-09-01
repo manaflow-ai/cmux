@@ -116,18 +116,6 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
-/// Compatibility name from the first agent-plugin preview. New code should
-/// use [`journal_plugin_exit_journal_ingress`].
-pub(crate) fn agent_plugin_exit_journal_ingress(
-    plugin_id: &str,
-    generation: u64,
-) -> anyhow::Result<JournalIngress> {
-    journal_plugin_exit_journal_ingress(plugin_id, generation)
-}
-
-/// Compatibility name from the first agent-plugin preview.
-pub(crate) const AGENT_PLUGIN_EXIT_NATIVE_EVENT: &str = JOURNAL_PLUGIN_EXIT_NATIVE_EVENT;
-
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
     if semantic_key(native_event) == "input" {
         return json!({"redacted":true,"reason":"raw_input"});

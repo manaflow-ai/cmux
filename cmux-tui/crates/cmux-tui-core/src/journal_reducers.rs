@@ -185,7 +185,7 @@ impl<'a> RosterEvent<'a> {
             return false;
         }
         let Some(observed_at_ms) = normalized.get("observed_at_ms") else { return false };
-        if !decimal_u64(observed_at_ms).is_some() {
+        if decimal_u64(observed_at_ms).is_none() {
             return false;
         }
         if let Some(generation) = normalized.get("plugin_generation")
@@ -538,12 +538,11 @@ impl AgentRoster {
                 }
             }
             AgentSource::Socket => {
-                if let Some(existing) = self.entries.get(terminal_id) {
-                    if existing.agent_source() != AgentSource::Socket
-                        || !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
-                    {
-                        return Vec::new();
-                    }
+                if let Some(existing) = self.entries.get(terminal_id)
+                    && (existing.agent_source() != AgentSource::Socket
+                        || !timestamp_is_current(existing.updated_at_ms, updated_at_ms))
+                {
+                    return Vec::new();
                 }
             }
         }
@@ -1033,7 +1032,7 @@ mod tests {
         let subjects_b = terminal_subject("term_b");
         let payload = |session: &str, timestamp: u64| {
             json!({
-                "format": crate::journal_reducers::AGENT_PLUGIN_FORMAT,
+                "format": AGENT_PLUGIN_FORMAT,
                 "plugin": {"id":"screen_detector","version":1},
                 "adapter": {"id":"codex","version":1},
                 "event":"state.changed",
@@ -1064,7 +1063,7 @@ mod tests {
         let exit = json!({
                 "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
             "adapter":{"id":"cmux","version":1},
-            "native_event": crate::agent_hooks::AGENT_PLUGIN_EXIT_NATIVE_EVENT,
+            "native_event": crate::agent_hooks::JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
             "normalized":{"plugin_id":"screen_detector","observed_at_ms":"200"},
             "native":{}
         });
@@ -1121,7 +1120,7 @@ mod tests {
         let exit = json!({
             "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
             "adapter":{"id":"cmux","version":1},
-            "native_event": crate::agent_hooks::AGENT_PLUGIN_EXIT_NATIVE_EVENT,
+            "native_event": crate::agent_hooks::JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
             "normalized": {
                 "plugin_id":"screen_detector",
                 "plugin_generation":"1",
@@ -1172,7 +1171,7 @@ mod tests {
         let exit = json!({
             "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
             "adapter":{"id":"cmux","version":1},
-            "native_event": crate::agent_hooks::AGENT_PLUGIN_EXIT_NATIVE_EVENT,
+            "native_event": crate::agent_hooks::JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
             "normalized": {
                 "plugin_id":"screen_detector",
                 "plugin_generation":"1",
@@ -1226,7 +1225,7 @@ mod tests {
             json!({
                 "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
                 "adapter":{"id":"cmux","version":1},
-                "native_event": crate::agent_hooks::AGENT_PLUGIN_EXIT_NATIVE_EVENT,
+                "native_event": crate::agent_hooks::JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
                 "normalized": {
                     "plugin_id":"screen_detector",
                     "plugin_generation":generation,
@@ -1300,7 +1299,7 @@ mod tests {
         let exit = json!({
             "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
             "adapter":{"id":"cmux","version":1},
-            "native_event": crate::agent_hooks::AGENT_PLUGIN_EXIT_NATIVE_EVENT,
+                "native_event": crate::agent_hooks::JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
             "normalized":{"plugin_id":"screen_detector","observed_at_ms":"200"},
             "native":{}
         });

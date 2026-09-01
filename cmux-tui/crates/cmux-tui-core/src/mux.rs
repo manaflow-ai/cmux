@@ -4056,7 +4056,7 @@ impl Mux {
                     id: workspace.id,
                     public_id: public_id.clone(),
                     key: key.clone(),
-                    name: name.clone(),
+                    name,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);
@@ -5647,7 +5647,6 @@ impl Mux {
         // fence for a start would let a delayed, session-less start mutate a
         // newer lifecycle.
         let agent_session_id = explicit_session_id
-            .clone()
             .or_else(|| {
                 (!is_session_start)
                     .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
@@ -9477,7 +9476,7 @@ impl Mux {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
         let now = now_ms();
-        let mut records = self.agent_records.lock().unwrap();
+        let records = self.agent_records.lock().unwrap();
         // Hook and plugin observations are stronger agent truth than a direct
         // socket report. Check the durable projection as well as the
         // in-memory cache so arbitration survives a restart.
@@ -9544,10 +9543,10 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":persisted_source_session.clone().or(record.session.clone()),
+            "source_session":persisted_source_session.as_deref().or(record.session.as_deref()),
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.clone());
+        public_value["source_session"] = serde_json::json!(record.session.as_deref());
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -9585,19 +9584,18 @@ impl Mux {
                 effective_hook_state,
             )?,
         };
-        if !commit.replayed {
-            if let (Some(direct_state), Some(sequence_guard)) =
+        if !commit.replayed
+            && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
-            {
-                sequence_guard.insert(
-                    terminal_id.clone(),
-                    HookFence {
-                        session_id: direct_state.agent_session_id.clone(),
-                        sequence: direct_state.applied_sequence,
-                        ended: false,
-                    },
-                );
-            }
+        {
+            sequence_guard.insert(
+                terminal_id.clone(),
+                HookFence {
+                    session_id: direct_state.agent_session_id.clone(),
+                    sequence: direct_state.applied_sequence,
+                    ended: false,
+                },
+            );
         }
         state.resource_revision = commit.revision;
         drop(state);

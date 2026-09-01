@@ -525,7 +525,7 @@ fn spawn_plugin(
         let process_group_id = libc::pid_t::try_from(child.id()).map_err(|_| {
             anyhow::anyhow!("journal plugin pid is outside the process-group range")
         })?;
-        return Ok(JournalPluginChild { process_group_id, child });
+        Ok(JournalPluginChild { process_group_id, child })
     }
     #[cfg(windows)]
     {
@@ -544,7 +544,7 @@ fn spawn_plugin(
             let _ = child.wait();
             return Err(anyhow::anyhow!("resume isolated journal plugin: {error}"));
         }
-        return Ok(JournalPluginChild { child, job });
+        Ok(JournalPluginChild { child, job })
     }
     #[cfg(not(any(unix, windows)))]
     {
