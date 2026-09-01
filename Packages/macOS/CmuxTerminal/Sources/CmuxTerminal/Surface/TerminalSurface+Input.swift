@@ -335,6 +335,10 @@ extension TerminalSurface {
 
     /// Splits socket text into ordered raw-byte, terminal-byte, and key
     /// events (the socket input grammar).
+    ///
+    /// This parser is intentionally static and pure even though it lives on
+    /// the stateful ``TerminalSurface``: parsing must not observe or mutate a
+    /// runtime surface, which keeps socket grammar tests deterministic.
     public static func parsedSocketInputEvents(for text: String) -> [ParsedSocketInput] {
         guard !text.isEmpty else { return [] }
 

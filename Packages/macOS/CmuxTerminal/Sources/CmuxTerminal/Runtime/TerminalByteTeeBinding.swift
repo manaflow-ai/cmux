@@ -40,6 +40,8 @@ public protocol TerminalByteTeeLease: AnyObject, Sendable {
     func setContextPressureProvider(_ provider: String?)
 }
 
+/// Supplies safe no-op context-monitoring operations for tee implementations
+/// that only forward mobile bytes and do not parse provider pressure.
 public extension TerminalByteTeeLease {
     /// Default no-op for tee leases that do not install context-pressure
     /// detectors.
