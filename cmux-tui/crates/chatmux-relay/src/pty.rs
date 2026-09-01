@@ -172,6 +172,9 @@ fn scoped_cwd(
         &raw_owned
     };
     let path = expand_path(raw, home, home);
+    if path.components().any(|component| component == std::path::Component::ParentDir) {
+        return Err("cwd parent traversal is not supported".to_owned());
+    }
     #[cfg(unix)]
     let allowed_root_groups: Vec<Vec<Vec<DirectoryIdentity>>> =
         [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
@@ -231,12 +234,14 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     use std::os::unix::io::FromRawFd;
 
-    // Linux O_PATH avoids requiring read permission. Darwin and other Unix
-    // targets use O_RDONLY because their libc does not expose a portable
-    // execute-only directory-open flag.
+    // Linux O_PATH avoids requiring read permission. Darwin's O_EXEC value is
+    // not exposed by every libc release, so keep the documented Darwin value
+    // local and retain execute-only cwd support.
     #[cfg(target_os = "linux")]
     const ACCESS_MODE: libc::c_int = libc::O_PATH;
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    const ACCESS_MODE: libc::c_int = 0x4000_0000;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     let mut parent = std::fs::OpenOptions::new()
