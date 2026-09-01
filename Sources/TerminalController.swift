@@ -1159,11 +1159,6 @@ class TerminalController {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
-        // The async socket dispatcher has a dedicated render path that
-        // suspends across the AppKit mount. Keep the synchronous compatibility
-        // dispatcher on the shared main-actor response seam instead of calling
-        // the render body directly from a worker.
-        "sidebar.custom.render",
     ]
 
     nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
@@ -1171,6 +1166,16 @@ class TerminalController {
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
+            }
+            if request.method == "sidebar.custom.render" {
+                // Rendering is intentionally async-only for socket workers:
+                // the async dispatcher suspends across the AppKit mount, while
+                // this legacy synchronous seam must never wait on v2MainSync.
+                return Self.v2Encoder.error(
+                    id: parsedRequest.id,
+                    code: "async_required",
+                    message: "sidebar.custom.render requires the asynchronous socket dispatcher"
+                )
             }
             if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
                 // Mirror processParsedV2Command's tail: one main hop for the

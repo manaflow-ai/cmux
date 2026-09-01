@@ -208,12 +208,39 @@ public struct CustomSidebarRenderDiagnostic: Sendable {
 
     @MainActor
     private func visiblePixelCount(in bitmap: NSBitmapImageRep) -> Int {
+        guard bitmap.hasAlpha,
+              !bitmap.isPlanar,
+              bitmap.bitsPerSample == 8,
+              bitmap.bitsPerPixel.isMultiple(of: 8),
+              bitmap.pixelsWide > 0,
+              bitmap.pixelsHigh > 0,
+              let bitmapData = bitmap.bitmapData else {
+            return 0
+        }
+
+        let bytesPerPixel = bitmap.bitsPerPixel / 8
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        guard bytesPerPixel > 0,
+              bitmap.bytesPerRow >= width * bytesPerPixel else {
+            return 0
+        }
+
+        // The diagnostic allocates a packed 8-bit RGBA representation. Keep
+        // this as one linear pass over its raw bytes: colorAt performs a
+        // color-space conversion for every coordinate and made a maximum-size
+        // render quadratic in the reviewer's model of the hot path.
+        let alphaOffset = bitmap.bitmapFormat.contains(.alphaFirst)
+            ? 0
+            : bytesPerPixel - 1
+        let pixelCount = width * height
         var count = 0
-        for y in 0..<bitmap.pixelsHigh {
-            for x in 0..<bitmap.pixelsWide {
-                if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.01 {
-                    count += 1
-                }
+        for pixelIndex in 0..<pixelCount {
+            let row = pixelIndex / width
+            let column = pixelIndex - (row * width)
+            let byteOffset = (row * bitmap.bytesPerRow) + (column * bytesPerPixel) + alphaOffset
+            if bitmapData[byteOffset] > 2 { // 0.01 * 255, rounded up.
+                count += 1
             }
         }
         return count

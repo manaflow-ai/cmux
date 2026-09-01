@@ -40,9 +40,9 @@ extension TerminalController {
     /// Evaluates, mounts, and renders a custom sidebar on the main actor.
     /// Socket connections use ``v2CustomSidebarRenderAsync(request:)`` so the
     /// worker task suspends while AppKit performs the mount instead of waiting
-    /// synchronously on the main queue. This synchronous entry remains for
-    /// the legacy in-process dispatcher, whose main-actor hop preserves its
-    /// existing response contract.
+    /// synchronously on the main queue. This synchronous entry remains only
+    /// for direct main-actor in-process callers; synchronous socket-worker
+    /// callers receive an explicit async-required response.
     @MainActor
     func v2CustomSidebarRender(params: [String: Any]) -> V2CallResult {
         switch prepareCustomSidebarRender(params: params) {
