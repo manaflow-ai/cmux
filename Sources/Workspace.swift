@@ -12762,6 +12762,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var initialTerminalEnvironment: [String: String]
         var remoteConfiguration: WorkspaceRemoteConfiguration?
         var autoConnectRemoteConfiguration: Bool
+        var startupRestoreAgent: SessionRestorableAgentSnapshot?
     }
 
     func forkAgentWorkspaceLaunch(
@@ -12774,7 +12775,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
-        let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let isRemoteFork = remoteStartupCommand != nil
         guard panels[panelId] is TerminalPanel,
               let startupInput = forkStartupInput(
                   snapshot: launchSnapshot,
@@ -12794,7 +12795,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialTerminalInput: startupInput,
             initialTerminalEnvironment: isRemoteFork ? (remoteConfiguration?.sshTerminalStartupEnvironment ?? [:]) : [:],
             remoteConfiguration: remoteConfiguration,
-            autoConnectRemoteConfiguration: remoteConfiguration != nil
+            autoConnectRemoteConfiguration: remoteConfiguration != nil,
+            startupRestoreAgent: isRemoteFork ? nil : launchSnapshot
         )
     }
     @discardableResult
@@ -12901,7 +12903,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             focus: true,
             workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
             initialInput: startupInput,
-            startupRestoreAgent: remoteStartupCommand == nil ? launchSnapshot : nil, suppressWorkspaceRemoteStartupCommand: remoteStartupCommand == nil
+            startupRestoreAgent: remoteStartupCommand == nil ? launchSnapshot : nil,
+            suppressWorkspaceRemoteStartupCommand: remoteStartupCommand == nil
         )
         if let forkedPanel {
             _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)

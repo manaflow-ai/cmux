@@ -3,6 +3,15 @@ import Testing
 
 @Suite("AgentForkPlanner")
 struct AgentForkPlannerTests {
+    @Test("Legacy fork detection uses shell tokens")
+    func legacyForkDetectionIgnoresPromptText() {
+        let renderer = AgentLaunchTemplateRenderer()
+        #expect(renderer.containsForkOption(in: "agent --fork-session SID"))
+        #expect(renderer.containsForkOption(in: "agent --fork=SID"))
+        #expect(!renderer.containsForkOption(in: "agent 'please mention --fork'"))
+        #expect(!renderer.containsForkOption(in: "agent --resume SID"))
+    }
+
     @Test("Custom fork templates render through the package boundary")
     func customForkTemplateRendersStructuredArguments() throws {
         let request = AgentForkRequest(

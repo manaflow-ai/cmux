@@ -136,6 +136,7 @@ extension CMUXCLI {
         }
         environment.merge(record.environment) { _, restored in restored }
         if record.forkArguments == nil,
+           record.launchCommand == nil,
            let legacyCommand {
             try execLegacyForkRecord(
                 legacyCommand,
@@ -250,7 +251,7 @@ extension CMUXCLI {
         }
         // Older command-only records had no separate fork field. Reuse one only
         // when its command explicitly carries a fork switch, never a plain resume.
-        guard legacy.contains("--fork") || legacy.contains("--fork-session") else {
+        guard AgentLaunchTemplateRenderer().containsForkOption(in: legacy) else {
             return nil
         }
         return legacy

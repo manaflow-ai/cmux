@@ -272962,15 +272962,15 @@
         "ja": { "stringUnit": { "state": "translated", "value": "fork: このセッションにはフォークできるものがありません。このターミナルでエージェントをもう一度起動してください。" } },
         "km": { "stringUnit": { "state": "translated", "value": "fork: វគ្គ​នេះ​មិន​មាន​អ្វី​ត្រូវ​បំបែក​ទេ។ ចាប់ផ្តើមភ្នាក់ងារម្តងទៀតនៅក្នុងស្ថានីយនេះ។" } },
         "ko": { "stringUnit": { "state": "translated", "value": "fork: 이 세션에는 분기할 항목이 없습니다. 이 터미널에서 에이전트를 다시 시작하십시오." } },
-        "nb": { "stringUnit": { "state": "translated", "value": "fork: denne økten har ingenting å forkaste. Start agenten på nytt i denne terminalen." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "fork: denne økten har ingenting å forke. Start agenten på nytt i denne terminalen." } },
         "pl": { "stringUnit": { "state": "translated", "value": "fork: ta sesja nie ma nic do rozwidlenia. Uruchom agenta ponownie w tym terminalu." } },
         "pt-BR": { "stringUnit": { "state": "translated", "value": "fork: esta sessão não tem nada para bifurcar. Inicie o agente novamente neste terminal." } },
         "ru": { "stringUnit": { "state": "translated", "value": "fork: в этой сессии нечего разветвлять. Запустите агент еще раз в этом терминале." } },
         "th": { "stringUnit": { "state": "translated", "value": "fork: เซสชั่นนี้ไม่มีอะไรจะแยก เริ่มต้นตัวแทนอีกครั้งในเทอร์มินัลนี้" } },
         "tr": { "stringUnit": { "state": "translated", "value": "fork: Bu oturumun çatallanacak hiçbir şeyi yok. Aracıyı bu terminalde yeniden başlatın." } },
         "uk": { "stringUnit": { "state": "translated", "value": "fork: цій сесії нема чого роздвоюватися. Знову запустіть агента в цьому терміналі." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "fork: 本次会议没有什么可分叉的。在此终端中再次启动代理。" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "fork: 本次會議沒有什麼好分叉的。在此終端中再次啟動代理程式。" } }
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "fork: 本次会话没有什么可分叉的。在此终端中再次启动代理。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "fork: 本次會話沒有什麼好分叉的。在此終端中再次啟動代理程式。" } }
       }
     },
     "cli.fork.error.surfaceNotFound": {

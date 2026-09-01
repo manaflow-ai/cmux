@@ -19,7 +19,7 @@ public struct AgentLaunchTemplateRenderer: Sendable, Equatable {
         workingDirectory: String?,
         sessionDirectory: String?
     ) -> [String]? {
-        guard let templateParts = splitShellWords(template),
+        guard let templateParts = Self.splitShellWords(template),
               !templateParts.isEmpty else {
             return nil
         }
@@ -39,6 +39,21 @@ public struct AgentLaunchTemplateRenderer: Sendable, Equatable {
         }
         guard resolved.first?.isEmpty == false else { return nil }
         return resolved
+    }
+
+    /// Reports whether a shell command contains an explicit fork option.
+    ///
+    /// This is used only for legacy command-only records. Tokenizing first keeps
+    /// prompt text such as `"please mention --fork"` from being mistaken for a
+    /// provider fork switch while preserving older generated fork commands.
+    public func containsForkOption(in command: String) -> Bool {
+        guard let words = Self.splitShellWords(command) else { return false }
+        return words.contains { word in
+            word == "--fork"
+                || word == "--fork-session"
+                || word.hasPrefix("--fork=")
+                || word.hasPrefix("--fork-session=")
+        }
     }
 
     private func resolveTemplatePart(
@@ -68,7 +83,7 @@ public struct AgentLaunchTemplateRenderer: Sendable, Equatable {
         return resolved
     }
 
-    private func splitShellWords(_ command: String) -> [String]? {
+    private static func splitShellWords(_ command: String) -> [String]? {
         enum Quote: Equatable { case single, double }
         var words: [String] = []
         var current = ""
