@@ -72,6 +72,18 @@ import Testing
         #expect(Set(manager.tabs.map(\.id)) == initialWorkspaceIDs)
     }
 
+    @Test func emptyWorkingDirectoryAliasFallsBackToCwd() throws {
+        let manager = TabManager()
+        let result = TerminalController.shared.v2WorkspaceCreate(
+            params: ["working_directory": "", "cwd": "/tmp"],
+            tabManager: manager
+        )
+
+        let createdID = try #require(Self.workspaceID(from: result))
+        let created = try #require(manager.tabs.first { $0.id == createdID })
+        #expect(created.currentDirectory == "/tmp")
+    }
+
     @Test func mobileValidationReceivesRawRelativeCwdBeforeCanonicalization() async throws {
         let manager = TabManager()
         let initialWorkspaceIDs = Set(manager.tabs.map(\.id))

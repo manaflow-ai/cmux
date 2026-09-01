@@ -110,7 +110,7 @@ struct SidebarJSRuntimeTests {
         #expect(captured == [.cmux(method: "workspace.select", params: ["workspace_id": "w1"])])
     }
 
-    @Test func buttonTapPreservesStructuredWorkspaceCreateParams() async {
+    @Test func buttonTapPreservesStructuredWorkspaceCreateParams() async throws {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
         runtime.dispatch = SidebarActionDispatch { action in
@@ -125,7 +125,7 @@ struct SidebarJSRuntimeTests {
             layout: { direction: "horizontal" },
         })))
         """)
-        let rootId = try! #require(runtime.store.rootId)
+        let rootId = try #require(runtime.store.rootId)
         runtime.dispatchEvent(nodeId: rootId, event: "tap")
         await pumpActions()
         #expect(captured.count == 1)

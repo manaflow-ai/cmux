@@ -92,11 +92,25 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                           let line = String(data: data, encoding: .utf8) else { continue }
                     let response = controller.handleSocketLine(line)
                     guard let responseData = response.data(using: .utf8),
-                          let envelope = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-                          (envelope["ok"] as? Bool) == false else {
+                          let envelope = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
                         continue
                     }
-                    let error = envelope["error"] as? [String: Any] ?? [:]
+                    let error: [String: Any]
+                    if (envelope["ok"] as? Bool) == false {
+                        error = envelope["error"] as? [String: Any] ?? [:]
+                    } else if method == "workspace.create",
+                              let result = envelope["result"] as? [String: Any],
+                              let delivery = result["command_delivery"] as? [String: Any],
+                              (delivery["accepted"] as? Bool) == false {
+                        // workspace.create commits the workspace even when its
+                        // secondary terminal-input delivery fails. Surface that
+                        // nested failure through the same sidebar diagnostic
+                        // channel as an ordinary rejected command.
+                        error = delivery["error"] as? [String: Any]
+                            ?? ["code": "command_delivery_failed"]
+                    } else {
+                        continue
+                    }
                     var diagnostic: [String: Any] = [
                         "method": method,
                         "code": error["code"] as? String ?? "command_failed",

@@ -15,6 +15,13 @@ private func sanitizedInitialEnvironment(_ environment: [String: String]) -> [St
 }
 
 extension TerminalController {
+    nonisolated static var workspaceCreateTabManagerUnavailableMessage: String {
+        String(
+            localized: "socket.workspace.create.tabManagerUnavailable",
+            defaultValue: "TabManager not available"
+        )
+    }
+
     /// Parameter names accepted by the shared `workspace.create` execution
     /// path. Keeping this list at the command boundary prevents a sidebar (or
     /// any other caller) from believing a misspelled option was honored.
@@ -117,20 +124,23 @@ extension TerminalController {
         }
         params.removeValue(forKey: "name")
 
-        let workingDirectory = v2WorkspaceCreateStringValue(params["working_directory"])
-        let legacyCwd = v2WorkspaceCreateStringValue(params["cwd"])
-        if let workingDirectory, let legacyCwd,
-           !workingDirectory.isEmpty, !legacyCwd.isEmpty,
-           workingDirectory != legacyCwd {
+        let workingDirectory = v2WorkspaceCreateStringValue(params["working_directory"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let legacyCwd = v2WorkspaceCreateStringValue(params["cwd"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let primaryDirectory = workingDirectory?.isEmpty == false ? workingDirectory : nil
+        let legacyDirectory = legacyCwd?.isEmpty == false ? legacyCwd : nil
+        if let primaryDirectory, let legacyDirectory,
+           primaryDirectory != legacyDirectory {
             return v2WorkspaceCreateConflictingParameters(
                 first: "working_directory",
                 second: "cwd"
             )
         }
-        if let rawDirectory = workingDirectory ?? legacyCwd {
+        if let rawDirectory = primaryDirectory ?? legacyDirectory {
             guard !rawDirectory.utf8.contains(0) else {
                 return v2WorkspaceCreateInvalidParameter(
-                    key: workingDirectory != nil ? "working_directory" : "cwd",
+                    key: primaryDirectory != nil ? "working_directory" : "cwd",
                     expected: String(
                         localized: "socket.workspace.create.expected.pathWithoutNUL",
                         defaultValue: "a path without NUL bytes"

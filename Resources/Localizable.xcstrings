@@ -271572,6 +271572,23 @@
         }
       }
     },
+    "socket.workspace.create.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TabManager not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TabManager を利用できません"
+          }
+        }
+      }
+    },
     "socket.workspace.create.invalidParameter": {
       "extractionState": "manual",
       "localizations": {

@@ -31,7 +31,7 @@ extension TerminalController {
     ) -> V2CallResult {
         let candidateTabManager = resolvedTabManager ?? v2ResolveTabManager(params: params)
         guard let candidateTabManager else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: Self.workspaceCreateTabManagerUnavailableMessage, data: nil)
         }
         var normalizedParams = params
         if let parameterError = v2NormalizeWorkspaceCreateParams(
@@ -316,7 +316,7 @@ extension TerminalController {
         var createParams = params
         let candidateTabManager = resolvedTabManager ?? v2ResolveTabManager(params: params)
         guard let candidateTabManager else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: Self.workspaceCreateTabManagerUnavailableMessage, data: nil)
         }
         if let parameterError = v2NormalizeWorkspaceCreateParams(
             &createParams,
