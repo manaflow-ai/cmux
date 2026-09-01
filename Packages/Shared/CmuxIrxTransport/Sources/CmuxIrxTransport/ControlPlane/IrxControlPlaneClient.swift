@@ -119,6 +119,35 @@ public actor IrxControlPlaneClient {
         return decoder
     }()
 
+    /// The server sends an application heartbeat every 60 seconds. A receive
+    /// that outlives that interval is a zombie WebSocket, not a healthy idle
+    /// connection, so bound it and let `run()` own reconnect/backoff.
+    private static let receiveTimeout: Duration = .seconds(90)
+
+    private struct ReceiveTimeout: Error, Sendable {}
+
+    private func receive(
+        from task: URLSessionWebSocketTask
+    ) async throws -> URLSessionWebSocketTask.Message {
+        do {
+            return try await withThrowingTaskGroup(
+                of: URLSessionWebSocketTask.Message.self
+            ) { group in
+                group.addTask { try await task.receive() }
+                group.addTask {
+                    try await Task.sleep(for: Self.receiveTimeout)
+                    throw ReceiveTimeout()
+                }
+                defer { group.cancelAll() }
+                return try await group.next()!
+            }
+        } catch is ReceiveTimeout {
+            task.cancel(with: .goingAway, reason: nil)
+            journal.record("control-plane", "receive-timeout")
+            throw IrxConnectionError.closed(nil)
+        }
+    }
+
     /// Reconstruct the generated legacy payload from the tolerant overlay.
     /// Older servers omit the lease fields, so `CTLDirectory` cannot decode
     /// them directly. Keeping this bridge means the existing directory
@@ -262,7 +291,7 @@ public actor IrxControlPlaneClient {
         )
 
         while !Task.isCancelled {
-            let message = try await task.receive()
+            let message = try await receive(from: task)
             let data: Data
             switch message {
             case .string(let text): data = Data(text.utf8)

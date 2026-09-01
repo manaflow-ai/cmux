@@ -21,14 +21,15 @@ public actor IrxServerSessionRegistry {
         sessionID: String,
         connection: IrxConnection
     ) async {
-        if let previous = sessionsByDevice[deviceID] {
+        let previous = sessionsByDevice.updateValue(
+            (sessionID, connection), forKey: deviceID)
+        if let previous {
             journal.record(
                 "registry", "superseded",
                 ["device": deviceID, "old_session": previous.session, "new_session": sessionID]
             )
             await previous.connection.close(code: .superseded, origin: .local)
         }
-        sessionsByDevice[deviceID] = (sessionID, connection)
     }
 
     /// Removes a session when its supervisor exits, unless a newer session
@@ -39,10 +40,13 @@ public actor IrxServerSessionRegistry {
     }
 
     public func closeAll(code: IrxCloseCode) async {
-        for entry in sessionsByDevice.values {
+        let entries = Array(sessionsByDevice)
+        for (deviceID, entry) in entries {
             await entry.connection.close(code: code, origin: .local)
+            if sessionsByDevice[deviceID]?.session == entry.session {
+                sessionsByDevice[deviceID] = nil
+            }
         }
-        sessionsByDevice.removeAll()
     }
 
     /// Closes every live session whose TLS-authenticated peer endpoint the
@@ -63,7 +67,9 @@ public actor IrxServerSessionRegistry {
                 ]
             )
             await entry.connection.close(code: code, origin: .local)
-            sessionsByDevice[deviceID] = nil
+            if sessionsByDevice[deviceID]?.session == entry.session {
+                sessionsByDevice[deviceID] = nil
+            }
         }
     }
 }
