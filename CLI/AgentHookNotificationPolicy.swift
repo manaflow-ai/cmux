@@ -196,12 +196,17 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
             in: object,
             keys: [
                 "approval_id", "approvalId", "tool_call_id", "toolCallId",
-                "call_id", "callId",
+                "call_id", "callId", "request_id", "requestId",
+                "item_id", "itemId", "_opencode_request_id",
             ]
         ) ?? toolCall.flatMap {
             firstNonemptyString(
                 in: $0,
-                keys: ["approval_id", "approvalId", "tool_call_id", "toolCallId", "call_id", "callId"]
+                keys: [
+                    "approval_id", "approvalId", "tool_call_id", "toolCallId",
+                    "call_id", "callId", "request_id", "requestId",
+                    "item_id", "itemId", "_opencode_request_id",
+                ]
             )
         }
         let toolInput = firstNestedValue(in: object, keys: ["tool_input", "toolInput"])

@@ -411,7 +411,7 @@ import Testing
         #expect(fixture.deliveries.first?.body == "new tool needs approval")
     }
 
-    @Test func duplicateApprovalSignalsClearWithOneCompletion() {
+    @Test func duplicateApprovalSignalsRequireScopeResolution() {
         let fixture = Fixture()
 
         for body in ["first identical call", "second identical call"] {
@@ -430,6 +430,15 @@ import Testing
         fixture.coordinator.resolve(
             surfaceID: Self.surfaceID,
             approvalID: Self.firstApprovalID
+        )
+        // Without a provider call id, the identical signals may represent two
+        // distinct executions. An exact completion must fail closed instead of
+        // clearing both through one derived identity.
+        #expect(fixture.clears.isEmpty)
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalScope: Self.firstApprovalID.scope
         )
         #expect(fixture.clears.count == 1)
 

@@ -48,6 +48,10 @@ final class AgentApprovalNotificationCoordinator {
         // Key by the logical approval id so duplicate hook deliveries replace
         // one record instead of growing an unbounded sequence-keyed bag.
         var candidates: [String: Candidate] = [:]
+        // A derived tuple identity can represent either a retried hook or two
+        // distinct identical calls. Keep that ambiguity explicit so one exact
+        // completion cannot settle more than one logical request.
+        var ambiguousApprovalIDs: Set<String> = []
         var scheduledID: UUID?
         var scheduledAt: TimeInterval?
         var cancelScheduled: Cancellation?
@@ -141,7 +145,10 @@ final class AgentApprovalNotificationCoordinator {
         state.lastTouchedSequence = nextSequence
         if let existing = state.candidates[approvalID.rawValue] {
             // Preserve the original deadline/order for a duplicate signal;
-            // only the latest display text may have changed.
+            // only the latest display text may have changed. If no provider
+            // discriminator exists, an exact completion is intentionally
+            // treated as ambiguous and waits for a scope-level resolution.
+            state.ambiguousApprovalIDs.insert(approvalID.rawValue)
             state.candidates[approvalID.rawValue] = Candidate(
                 workspaceID: candidate.workspaceID,
                 title: candidate.title,
@@ -162,6 +169,7 @@ final class AgentApprovalNotificationCoordinator {
                 .map { $0.approvalID.rawValue }
             for staleID in staleIDs {
                 state.candidates.removeValue(forKey: staleID)
+                state.ambiguousApprovalIDs.remove(staleID)
             }
         }
         panes[surfaceID] = state
@@ -180,8 +188,15 @@ final class AgentApprovalNotificationCoordinator {
         exactResolutionTombstones[
             ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
         ] = timestamp + tombstoneLifetime
-        guard var state = panes[surfaceID],
-              state.candidates.removeValue(forKey: approvalID.rawValue) != nil else { return }
+        guard var state = panes[surfaceID] else { return }
+        if state.ambiguousApprovalIDs.contains(approvalID.rawValue) {
+            // The provider did not give us enough information to know which
+            // identical request completed. Leave the candidate visible until
+            // the authoritative turn/scope resolution arrives.
+            panes[surfaceID] = state
+            return
+        }
+        guard state.candidates.removeValue(forKey: approvalID.rawValue) != nil else { return }
         finishResolution(surfaceID: surfaceID, state: &state, timestamp: timestamp)
     }
 
@@ -195,6 +210,9 @@ final class AgentApprovalNotificationCoordinator {
         guard var state = panes[surfaceID] else { return }
         state.candidates = state.candidates.filter {
             $0.value.approvalID.scope != approvalScope
+        }
+        state.ambiguousApprovalIDs = state.ambiguousApprovalIDs.filter {
+            state.candidates[$0] != nil
         }
         finishResolution(surfaceID: surfaceID, state: &state, timestamp: timestamp)
     }

@@ -36281,24 +36281,10 @@ export default CMUXSessionRestore;
                     print("{}")
                     return
                 }
-                // A permission banner without a stable turn/tool identity can
-                // never be resolved safely. Fail closed rather than emit an
-                // ordinary notification that the correlation lane cannot own.
-                guard approvalIdentity != nil else {
-#if DEBUG
-                    agentHookDebugLog(
-                        "agentHook.notification.skip agent=codex session=\(agentHookDebugShort(sessionId)) reason=missingApprovalIdentity",
-                        socketPath: client.socketPath,
-                        env: env
-                    )
-#endif
-                    sendAgentFeedTelemetryUnlessSuppressed(
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
-                    print("{}")
-                    return
-                }
+                // Older Codex payloads can omit the structured turn/tool
+                // fields. They still represent a blocked native prompt, so
+                // keep the legacy pane-scoped notification fallback; only an
+                // exact completion is allowed to clear by approval ID.
             }
 
             if antigravitySuppressDuplicateIdleWhileBackgroundWork {
@@ -36455,8 +36441,8 @@ export default CMUXSessionRestore;
             )
             let shouldRouteThroughApprovalCoordinator = def.name == "codex"
                 && summary.notifyCategory == .needsPermission
+                && approvalIdentity != nil
             if (!summary.body.isEmpty || approvalIdentity != nil)
-                && (!shouldRouteThroughApprovalCoordinator || approvalIdentity != nil)
                 && (approvalIdentity != nil || shouldSendNotification(fingerprint: notificationFingerprint)) {
                 // One ancestry walk per delivered notification, feeding the
                 // notify payload's subagent tag below.
@@ -36486,6 +36472,13 @@ export default CMUXSessionRestore;
                     notificationMeta = summary.notifyCategory.metaSegment(
                         pending: notificationPending,
                         approvalID: approvalIdentity.approvalID
+                    )
+                } else if def.name == "codex", summary.notifyCategory == .needsPermission {
+                    // Preserve the pre-correlation Codex wire form when the
+                    // payload cannot provide a stable identity.
+                    notificationMeta = summary.notifyCategory.metaSegment(
+                        pending: notificationPending,
+                        approvalID: nil
                     )
                 } else {
                     // Error status wins over a classifier category so every

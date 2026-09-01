@@ -341,7 +341,10 @@ struct FeedEventClassificationTests {
     }
 
     @Test func nativeApprovalAttentionRequiresCorrelationIdentity() {
-        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", approvalIdentity: nil) == nil)
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "shell", approvalIdentity: nil)
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0"
+        )
         #expect(attentionCommand("codex", "PostToolUse", tool: "shell", approvalIdentity: nil) == nil)
     }
 
@@ -457,6 +460,28 @@ struct FeedEventClassificationTests {
         var unsupported = rawObject
         unsupported["tool_input"] = Date()
         #expect(CodexApprovalNotificationIdentity.make(rawObject: unsupported, fallbackSessionID: nil) == nil)
+    }
+
+    @Test func codexApprovalIdentityUsesSharedRequestIdentifierWhenPresent() throws {
+        let base: [String: Any] = [
+            "session_id": "codex-session",
+            "turn_id": "turn-current",
+            "tool_name": "shell",
+            "tool_input": ["command": "git status"],
+        ]
+        var first = base
+        first["request_id"] = "request-a"
+        var second = base
+        second["request_id"] = "request-b"
+        let firstIdentity = try #require(CodexApprovalNotificationIdentity.make(
+            rawObject: first,
+            fallbackSessionID: nil
+        ))
+        let secondIdentity = try #require(CodexApprovalNotificationIdentity.make(
+            rawObject: second,
+            fallbackSessionID: nil
+        ))
+        #expect(firstIdentity != secondIdentity)
     }
 
     @Test func codexApprovalIdentityBoundsNestedEnvelopeTraversal() {

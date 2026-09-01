@@ -42,10 +42,10 @@ struct FeedEventClassification: Equatable {
     /// against the approval-prompt hook, so clearing there could erase a
     /// just-raised prompt while the agent is still blocked.
     ///
-    /// Codex does not expose a tool-use id on `PermissionRequest`, so the CLI
-    /// derives an opaque id from the stable session/turn/tool/input tuple and
-    /// uses the same id on `PostToolUse`. This fences a delayed old completion
-    /// from a newer genuinely blocking prompt in the same pane.
+    /// Newer Codex payloads carry an approval/call id; older payloads fall back
+    /// to a bounded session/turn/tool/input identity. The app-side coordinator
+    /// marks repeated derived identities ambiguous, so one completion cannot
+    /// settle multiple identical requests.
     let clearsNativeApprovalPrompt: Bool
 }
 
@@ -436,9 +436,9 @@ struct FeedEventClassifier {
     /// shape, gate/correlation meta) is unit-testable; the CLI feed hook sends the
     /// returned line request/response and awaits the app's acknowledgement.
     ///
-    /// Returns `nil` when the classification carries no attention side
-    /// effect or when either identity is missing/not a UUID: the command is
-    /// advisory and must never fail the hook.
+    /// Returns `nil` when the classification carries no attention side effect,
+    /// when targets are invalid, or when an exact Codex completion lacks its
+    /// identity. A legacy prompt may still use the pane-scoped notify form.
     ///
     /// The notification body deliberately names only the TOOL — mirroring
     /// the in-app Feed approval banner (`feed.notification.permission.body`)
@@ -463,17 +463,17 @@ struct FeedEventClassifier {
               let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceUUID = UUID(uuidString: surfaceRaw)
         else { return nil }
-        // A Codex approval is correlated by an exact identity. Other native
+        // A Codex completion is correlated by an exact identity. Other native
         // approval producers retain the historical pane-scoped command shape;
         // callers that omit `source` are treated as Codex for compatibility
-        // with the strict, identity-required test/helper path.
+        // with the strict completion path.
         let requiresCorrelatedIdentity = source?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "codex" || source == nil
         // A hook payload is bounded, but a single tool-name field could still
         // consume nearly the entire budget and force large socket/UI copies.
         // Keep attention lines small and predictable on the synchronous path.
-        guard !classification.notifiesNativeApprovalPrompt
+        guard !classification.clearsNativeApprovalPrompt
                 || !requiresCorrelatedIdentity
                 || approvalIdentity != nil else {
             return nil
