@@ -1,6 +1,8 @@
 import Testing
 @testable import CmuxTerminalCore
 
+private typealias Snapshot = TerminalConfigurationApplySchedulerTestSnapshot
+
 @Suite("Terminal configuration apply scheduler")
 struct TerminalConfigurationApplySchedulerTests {
     @Test @MainActor
@@ -367,36 +369,5 @@ struct TerminalConfigurationApplySchedulerTests {
         #expect(abandonedIDs == [1])
         #expect(abandonReasons == [.retryLimitReached])
         #expect(didFinish)
-    }
-}
-
-private final class Snapshot {
-    let id: Int
-
-    init(id: Int) {
-        self.id = id
-    }
-}
-
-@MainActor
-private final class ManualConfigurationApplyScheduler {
-    typealias Action = @MainActor @Sendable () -> Void
-
-    private var pending: [Action] = []
-
-    var pendingCount: Int {
-        pending.count
-    }
-
-    func schedule(_ action: @escaping Action) {
-        pending.append(action)
-    }
-
-    func fireNext() {
-        guard !pending.isEmpty else {
-            Issue.record("Expected a scheduled configuration apply turn")
-            return
-        }
-        pending.removeFirst()()
     }
 }

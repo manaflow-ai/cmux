@@ -12,16 +12,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         @MainActor @Sendable (@escaping ScheduledAction) -> Void
 
     /// Describes one bounded pull from a fixed traversal snapshot.
-    public enum NextIDResult {
-        /// A live identity is ready to apply.
-        case id(ID)
-
-        /// One released or otherwise skipped registration was consumed.
-        case skipped
-
-        /// The fixed traversal has reached its endpoint.
-        case exhausted
-    }
+    public typealias NextIDResult = TerminalConfigurationApplyNextIDResult<ID>
 
     /// Pulls one bounded visit from a fixed traversal snapshot.
     public typealias NextID = @MainActor () -> NextIDResult
