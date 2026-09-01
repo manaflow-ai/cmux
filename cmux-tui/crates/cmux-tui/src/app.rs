@@ -17043,6 +17043,9 @@ impl App {
         let range = handle
             .with_terminal(|terminal| match mode {
                 SelectionMode::Word => {
+                    // Query both directions: Ghostty's nearest-word lookup is
+                    // directional, and the paired bounds preserve reverse
+                    // drags through whitespace or punctuation.
                     let first = terminal
                         .select_word_between_screen(anchor_point, current_point)
                         .ok()
