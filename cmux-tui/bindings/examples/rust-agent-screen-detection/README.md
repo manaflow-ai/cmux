@@ -73,6 +73,11 @@ rollback guard. They are separate filesystem transactions, so a power loss
 between the two writes can leave a mismatched old/new pair. Startup validation
 and a later explicit update repair that state.
 
+The manager bounds one installed-plugin root to 256 filesystem entries. This
+includes hidden transaction files and registry metadata, so stale install debris
+cannot turn a list or selector operation into an unbounded scan. Remove stale
+entries before retrying an operation that reports this limit.
+
 On Linux, hosts that do not expose a controlling-terminal foreground group can
 opt in to herdr-compatible child-group inference with
 `CMUX_AGENT_PROCESS_DETECTION=child-groups` (the legacy

@@ -109,6 +109,9 @@ unless `--force` is supplied.
 
 Relative manifest run commands are resolved to absolute paths under the plugin
 directory before `sidebar plugin use` writes the runnable command into the cmux-tui config.
+The manager inspects at most 256 entries in one install root, including hidden
+transaction leftovers and registry metadata. A larger root fails closed and
+must be cleaned up before `list`, `use`, `update`, or `remove` can continue.
 
 ## Agent Plugins
 

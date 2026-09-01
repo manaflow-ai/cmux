@@ -18,6 +18,11 @@ const MAX_PLUGIN_MANIFEST_BYTES: usize = 256 * 1024;
 const MAX_PLUGIN_NAME_BYTES: usize = 64;
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
+/// Bound the number of filesystem entries inspected by one plugin-manager
+/// operation. The registry is user-controlled, so a malicious or stale data
+/// directory must not turn `list` or selector resolution into an unbounded
+/// scan and allocation.
+const MAX_INSTALLED_PLUGIN_ENTRIES: usize = 256;
 const ARTIFACT_HASH_BUFFER_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -563,18 +568,7 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
     let root = install_root(kind)?;
     let selection = selected_plugin_config(kind)?;
     let mut plugins = Vec::new();
-    let entries = match fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(plugins),
-        Err(error) => {
-            return Err(anyhow::anyhow!(
-                "failed to read plugin registry {}: {error}",
-                root.display()
-            ));
-        }
-    };
-    for entry in entries {
-        let entry = entry?;
+    for entry in bounded_plugin_registry_entries(&root)? {
         if !entry.file_type()?.is_dir() {
             continue;
         }
@@ -596,6 +590,36 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
     }
     plugins.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(plugins)
+}
+
+/// Read at most [`MAX_INSTALLED_PLUGIN_ENTRIES`] entries from an installed
+/// plugin root. Count every entry, including hidden transaction leftovers and
+/// the registry metadata directory, so an attacker cannot bypass the bound by
+/// creating entries the normal list path later ignores.
+fn bounded_plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(anyhow::anyhow!(
+                "failed to read plugin registry {}: {error}",
+                root.display()
+            ));
+        }
+    };
+
+    let mut bounded = Vec::with_capacity(MAX_INSTALLED_PLUGIN_ENTRIES);
+    for (index, entry) in entries.enumerate() {
+        if index >= MAX_INSTALLED_PLUGIN_ENTRIES {
+            anyhow::bail!(
+                "plugin registry {} exceeds the entry limit of {}",
+                root.display(),
+                MAX_INSTALLED_PLUGIN_ENTRIES
+            );
+        }
+        bounded.push(entry?);
+    }
+    Ok(bounded)
 }
 
 fn resolve_installed_plugin(
@@ -1483,7 +1507,7 @@ mod tests {
             now_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
-        for index in 0..=256 {
+        for index in 0..=MAX_INSTALLED_PLUGIN_ENTRIES {
             fs::create_dir(root.join(format!("plugin-{index}"))).unwrap();
         }
 
