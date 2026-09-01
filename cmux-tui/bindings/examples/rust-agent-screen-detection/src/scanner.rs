@@ -638,8 +638,9 @@ fn scan_terminal(
     // change, so the userland plugin fences replacement agents until a
     // post-edge output revision. The first acquisition deliberately keeps
     // evidence already emitted by the new agent, matching herdr's behavior.
-    // Older daemons do not expose revisions, and the tracker keeps the
-    // compatibility path.
+    // Older daemons do not expose revisions, and a terminal with no known
+    // fence keeps the compatibility path. A known fence fails closed while
+    // the current host revision is missing.
     // A screen read can carry the first revision on hosts whose catalog
     // snapshot did not. Enrich a replacement fence after the read before
     // consulting OSC fields, closing that compatibility race without a daemon

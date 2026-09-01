@@ -351,7 +351,9 @@ impl ScreenDetectTracker {
 
     /// Return whether generic OSC metadata may be attributed to the current
     /// foreground process. Hosts without a stream revision remain supported,
-    /// but the plugin cannot prove that their retained metadata is fresh.
+    /// but the plugin cannot prove that their retained metadata is fresh. A
+    /// terminal with a known fence fails closed while its current revision is
+    /// missing.
     pub(crate) fn metadata_is_fresh(
         &self,
         terminal_id: &str,
