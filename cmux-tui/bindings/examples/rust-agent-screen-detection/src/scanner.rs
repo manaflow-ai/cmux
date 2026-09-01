@@ -504,6 +504,12 @@ fn scan_terminal(
         // A terminal can remain in the catalog briefly after its PTY exits.
         // Close the plugin-owned emission now instead of waiting for catalog
         // pruning, so the roster does not show a dead agent during that gap.
+        // Capture the final host revision before the tracker fences retained
+        // OSC metadata. Without this, a later terminal incarnation could look
+        // newer than a stale pre-exit anchor without emitting any OSC bytes.
+        if let Some(revision) = snapshot.stream_revision {
+            let _ = state.tracker.observe_revision(&terminal_id, revision, now);
+        }
         if let Some(emission) =
             state.tracker.record_detection_at(&terminal_id, None, now, true, true)
         {
