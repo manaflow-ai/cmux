@@ -459,6 +459,9 @@ describe("background provisioning", () => {
     expect(CMUX_PROVISION_SCRIPT).toContain("/home/cmux/.bun/bin/bun");
     expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.npm-global");
     expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.bun");
+    // Legacy sandboxes (volume still at /root) were provisioned by the old driver;
+    // the script is a no-op there instead of writing tools to disposable rootfs.
+    expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /root 2>/dev/null && exit 0");
     // The stock-image path installs sudo too (baked images already ship it).
     expect(CMUX_PROVISION_SCRIPT).toMatch(/apt-get install[^\n]*\n[^\n]*\bsudo\b/);
     expect(CMUX_PROVISION_SCRIPT).toMatch(/apk add[^\n]*\bsudo\b/);

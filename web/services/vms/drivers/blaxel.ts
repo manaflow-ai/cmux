@@ -237,6 +237,10 @@ export const CMUX_PROVISION_SCRIPT = `#!/bin/bash
 # session daemon is NOT part of this script: bootstrapDaemon installs and starts it via
 # cmuxTuiInstallCommand on every image, so a stamped image still gets its daemon.
 [ -f /etc/cmux/image-stamp ] && exit 0
+# A pre-layout sandbox keeps its persistent volume at /root (the daemon and exec
+# paths detect and honor that); its old driver already provisioned /root at create.
+# Writing the new-layout home there would target disposable rootfs, so do nothing.
+mountpoint -q /root 2>/dev/null && exit 0
 export HOME=${CMUX_CLOUD_HOME} DEBIAN_FRONTEND=noninteractive
 export PATH=${CMUX_CLOUD_HOME}/.bun/bin:${CMUX_CLOUD_HOME}/.npm-global/bin:${CMUX_CLOUD_HOME}/.local/bin:/usr/local/bin:$PATH
 mkdir -p ${CMUX_CLOUD_HOME}/.npm-global ${CMUX_CLOUD_HOME}/.local/bin
