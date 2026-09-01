@@ -11,6 +11,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     private enum SessionIDKind: Equatable, Sendable {
         case uuid
         case ampThread
+        case hermesSession
     }
 
     static let claude = Self(
@@ -37,11 +38,20 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         sessionIDKind: .ampThread
     )
 
+    static let hermesAgent = Self(
+        kind: "hermes-agent",
+        executableName: "hermes",
+        wrapperShimEnvironmentKey: "CMUX_HERMES_AGENT_WRAPPER_SHIM",
+        customExecutablePathEnvironmentKey: "CMUX_CUSTOM_HERMES_AGENT_PATH",
+        sessionIDKind: .hermesSession
+    )
+
     static func registered(kind: String) -> Self? {
         switch kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case claude.kind: claude
         case codex.kind: codex
         case amp.kind: amp
+        case hermesAgent.kind: hermesAgent
         default: nil
         }
     }
@@ -71,6 +81,8 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
                     return false
                 }
             }
+        case .hermesSession:
+            AgentRestoreCLIArgument(rawValue: sessionID) != nil
         }
     }
 
