@@ -8333,6 +8333,7 @@ pub(crate) enum MachineControllerCompletion {
 struct MachineActionWorker {
     sender: Option<std::sync::mpsc::SyncSender<MachineControllerCommand>>,
     stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -8350,6 +8351,8 @@ impl MachineActionWorker {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
         let worker =
             std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
                 let mut next_action_id = 1_u64;
@@ -8505,7 +8508,11 @@ impl MachineActionWorker {
                             }
                         }
                     };
-                    if !send_machine_controller_completion(&app_events, completion, &worker_stop) {
+                    if !send_machine_controller_completion(
+                        &app_events,
+                        completion,
+                        &worker_cancellation,
+                    ) {
                         break;
                     }
                 }
@@ -8514,7 +8521,7 @@ impl MachineActionWorker {
                 }
                 controller.close();
             })?;
-        Ok(Self { sender: Some(sender), stop, worker: Some(worker) })
+        Ok(Self { sender: Some(sender), stop, cancellation, worker: Some(worker) })
     }
 
     fn perform(
@@ -8604,6 +8611,7 @@ impl MachineActionWorker {
 
     fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         self.sender.take();
         if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
             && let Some(worker) = self.worker.take()
@@ -8662,25 +8670,15 @@ fn prepare_machine_session(
 
 fn send_machine_controller_completion(
     app_events: &SyncSender<AppEvent>,
-    mut completion: MachineControllerCompletion,
-    stop: &AtomicBool,
+    completion: MachineControllerCompletion,
+    cancellation: &EventCancellation,
 ) -> bool {
-    loop {
-        match app_events.try_send(AppEvent::MachineControllerCompleted(Box::new(completion))) {
-            Ok(()) => return true,
-            Err(TrySendError::Full(AppEvent::MachineControllerCompleted(returned))) => {
-                completion = *returned;
-                if stop.load(Ordering::Acquire) {
-                    return false;
-                }
-                std::thread::park_timeout(Duration::from_millis(1));
-            }
-            Err(TrySendError::Full(_)) => {
-                unreachable!("machine completion sender returned a different event")
-            }
-            Err(TrySendError::Disconnected(_)) => return false,
-        }
-    }
+    send_bounded_cancelable(
+        app_events,
+        AppEvent::MachineControllerCompleted(Box::new(completion)),
+        cancellation,
+    )
+    .is_ok()
 }
 
 impl MachineUpdatePump {
@@ -24377,7 +24375,8 @@ mod tests {
         DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
         FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
         GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
-        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
+        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute,
+        MachineControllerCompletion, MenuAction,
         MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
         OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
         PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
@@ -24404,9 +24403,9 @@ mod tests {
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, send_bounded_cancelable,
-        should_claim_clear_history_shortcut, sidebar_layout_for, sidebar_layout_for_state,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
-        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        send_machine_controller_completion, should_claim_clear_history_shortcut,
+        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
+        start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
