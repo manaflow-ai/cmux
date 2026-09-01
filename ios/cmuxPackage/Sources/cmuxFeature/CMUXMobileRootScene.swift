@@ -23,8 +23,8 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 #if os(iOS) && DEBUG
 /// DEBUG launch switches are accepted from either the environment (the
 /// reload scripts use this form) or the command line (convenient in Xcode).
-private enum MobileDebugEntryPoint {
-    static var localLinuxEnabled: Bool {
+private struct MobileDebugEntryPoint {
+    func localLinuxEnabled() -> Bool {
         ProcessInfo.processInfo.environment["CMUX_LOCAL_LINUX"] == "1"
             || ProcessInfo.processInfo.arguments.contains("--cmux-local-linux")
     }
@@ -435,7 +435,7 @@ public struct CMUXMobileRootScene: View {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
-        } else if MobileDebugEntryPoint.localLinuxEnabled {
+        } else if MobileDebugEntryPoint().localLinuxEnabled() {
             LocalLinuxDebugView(
                 runtime: localLinuxComputerProvider.controller.runtime
             )
