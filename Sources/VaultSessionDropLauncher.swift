@@ -56,7 +56,7 @@ struct VaultSessionDropLauncher {
             }
             if remoteStartupCommand != nil,
                let launchWorkingDirectory = launch.workingDirectory {
-                workspace.updateRemotePanelDirectory(
+                workspace.updateVaultRemotePanelDirectory(
                     panelId: panel.id,
                     directory: launchWorkingDirectory
                 )
@@ -76,12 +76,25 @@ struct VaultSessionDropLauncher {
             }
             if remoteStartupCommand != nil,
                let launchWorkingDirectory = launch.workingDirectory {
-                workspace.updateRemotePanelDirectory(
+                workspace.updateVaultRemotePanelDirectory(
                     panelId: panel.id,
                     directory: launchWorkingDirectory
                 )
             }
             return true
         }
+    }
+}
+
+private extension Workspace {
+    /// Seeds saved Vault cwd metadata without claiming it came from the remote host.
+    @discardableResult
+    func updateVaultRemotePanelDirectory(panelId: UUID, directory: String) -> Bool {
+        updatePanelDirectory(
+            panelId: panelId,
+            directory: directory,
+            displayLabel: nil,
+            source: .restoredSnapshotMetadata
+        )
     }
 }

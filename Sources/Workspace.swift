@@ -5650,7 +5650,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
     }
 
-    private enum PanelDirectoryUpdateSource {
+    enum PanelDirectoryUpdateSource {
         case liveReport
         case remoteReport
         case restoredSnapshotMetadata
@@ -5715,7 +5715,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     @discardableResult
-    private func updatePanelDirectory(
+    func updatePanelDirectory(
         panelId: UUID,
         directory: String,
         displayLabel: String?,

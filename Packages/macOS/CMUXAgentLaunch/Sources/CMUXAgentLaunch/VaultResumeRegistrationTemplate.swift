@@ -16,8 +16,10 @@ struct VaultResumeRegistrationTemplate: Sendable {
         launchArguments: [String],
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(registration.resumeCommand)
-        guard !templateParts.isEmpty else { return [] }
+        guard let templateParts = splitShellWords(registration.resumeCommand),
+              !templateParts.isEmpty else {
+            return []
+        }
         guard let executable = normalized(launchArguments.first)
             ?? normalized(registration.defaultExecutable) else {
             return []
@@ -68,7 +70,7 @@ struct VaultResumeRegistrationTemplate: Sendable {
     }
 
     /// Splits a registration template into quote-aware words.
-    private func splitShellWords(_ command: String) -> [String] {
+    private func splitShellWords(_ command: String) -> [String]? {
         enum Quote {
             case single
             case double
@@ -98,6 +100,24 @@ struct VaultResumeRegistrationTemplate: Sendable {
                 escaping = false
                 continue
             }
+            if quote == nil {
+                switch character {
+                case ";", "&", "|", "<", ">", "(", ")", "`", "$":
+                    // These characters are shell syntax rather than argv data.
+                    // Keep such registrations on the explicitly bounded
+                    // compatibility path instead of silently changing their
+                    // command semantics in a structured restore record.
+                    return nil
+                case "\n":
+                    // An unquoted newline terminates a shell command.
+                    return nil
+                case "#" where !hasToken:
+                    // A comment at a token boundary is not an argv argument.
+                    return nil
+                default:
+                    break
+                }
+            }
             if character == "\\", quote != .single {
                 hasToken = true
                 escaping = true
@@ -119,9 +139,7 @@ struct VaultResumeRegistrationTemplate: Sendable {
                 current.append(character)
             }
         }
-        if escaping {
-            current.append("\\")
-        }
+        guard quote == nil, !escaping else { return nil }
         finishWord()
         return words
     }
