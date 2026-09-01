@@ -228,11 +228,19 @@ impl AgentRoster {
         let socket_echo = event.adapter_id() == Some(SOCKET_REPORT_ADAPTER);
         let detected_echo = event.adapter_id() == Some(DETECTED_REPORT_ADAPTER);
         let external_echo = socket_echo || detected_echo;
-        if self.retired_terminals.contains_key(terminal_id) {
-            // The resource registry permanently tombstones a terminal public
-            // id. No delayed journal row can create a new lifecycle for that
-            // id, including a later session-start event.
-            return Vec::new();
+        if let Some(retired_at) = self.retired_terminals.get(terminal_id).copied() {
+            // A terminal retirement fences records through the committed
+            // cursor that caused it. A strictly newer hook session start is a
+            // new lifecycle, so clear only that terminal's fence and let the
+            // normal session-generation checks below run. All older rows,
+            // non-start rows, and external echoes remain suppressed.
+            if external_echo
+                || event.kind != "agent.session.started"
+                || event.sequence <= retired_at
+            {
+                return Vec::new();
+            }
+            self.retired_terminals.remove(terminal_id);
         }
         let (state, source, session, agent, updated_at_ms) = if external_echo {
             // Socket echo: explicit state and timestamp carried in the
@@ -907,7 +915,7 @@ mod tests {
     }
 
     #[test]
-    fn retired_terminal_rejects_late_events_even_with_a_new_session_start() {
+    fn retired_terminal_rejects_late_events_but_allows_a_newer_session_start() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});
         let mut roster = AgentRoster::default();
@@ -920,22 +928,23 @@ mod tests {
         assert!(roster.apply(&hook_event(2, "agent.turn.started", &subjects, &payload)).is_empty());
         assert!(!roster.entries.contains_key("term_a"));
 
-        // A terminal resource id is tombstoned permanently. A later hook
-        // session start must not recreate roster state for that id, even when
-        // it claims a different provider session.
+        // A session start at or before the retirement cursor is still stale.
         assert!(
             roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload)).is_empty()
         );
         let new_session_payload = json!({
+            "adapter": {"id": "claude", "version": 1},
             "normalized": {"agent_session_id": "new-session"}
         });
-        assert!(
-            roster
-                .apply(&hook_event(2, "agent.session.started", &subjects, &new_session_payload))
-                .is_empty()
-        );
-        assert!(!roster.entries.contains_key("term_a"));
-        assert!(roster.is_retired("term_a"));
+        let deltas =
+            roster.apply(&hook_event(2, "agent.session.started", &subjects, &new_session_payload));
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].session.as_deref(), Some("new-session"));
+        assert!(!roster.is_retired("term_a"));
+
+        // Session-less rows from the old lifecycle cannot cross into the
+        // reopened native session.
+        assert!(roster.apply(&hook_event(3, "agent.turn.started", &subjects, &payload)).is_empty());
     }
 
     #[test]
