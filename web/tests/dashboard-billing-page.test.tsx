@@ -99,7 +99,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Free");
     expect(html).toContain("You are currently on the Free plan.");
     expect(html).toContain(
-      "Upgrade when you need cloud agents or shared CodeRouter.",
+      "Upgrade when you need cloud agents.",
     );
     expect(html).toContain(
       'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month"',
@@ -185,9 +185,25 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("Confirm cancellation");
   });
 
+  test("renders a past-due banner that links to the Stripe portal", async () => {
+    subscriptionRows = [stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      status: "past_due",
+    })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain(
+      "Your latest payment failed. Update your payment method to keep your plan active.",
+    );
+    expect(html).toContain('href="/api/billing/portal"');
+  });
+
   test("renders active Stripe Team with seats, cancel, and team portal actions", async () => {
     proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
     subscriptionResults = [
+      [],
       [],
       [],
       [
@@ -217,6 +233,7 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -237,6 +254,7 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -253,6 +271,7 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$35/seat/mo");
 
     subscriptionResults = [
+      [],
       [],
       [],
       [
@@ -284,6 +303,7 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -301,7 +321,7 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Team Pro renews on");
     expect(html).toContain('name="scope" value="team"');
     expect(html).not.toContain(
-      "Upgrade when you need cloud agents or shared CodeRouter.",
+      "Upgrade when you need cloud agents.",
     );
   });
 
@@ -359,6 +379,7 @@ async function renderBillingPage(searchParams: Record<string, string> = {}) {
 
 function stripeSubscriptionRow({
   cancelAtPeriodEnd,
+  status = "active",
   plan = "pro",
   scope = "user",
   seats = null,
@@ -367,6 +388,7 @@ function stripeSubscriptionRow({
   recurringInterval,
 }: {
   cancelAtPeriodEnd: boolean;
+  status?: string;
   plan?: string;
   scope?: string;
   seats?: number | null;
@@ -376,7 +398,7 @@ function stripeSubscriptionRow({
 }) {
   return {
     id: "sub_123",
-    status: "active",
+    status,
     priceId: "price_123",
     plan,
     scope,
