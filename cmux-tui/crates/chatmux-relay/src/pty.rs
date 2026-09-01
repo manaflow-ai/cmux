@@ -369,10 +369,8 @@ struct AuthSnapshot {
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
     auth_generation: Option<u64>,
     transport_kind: TransportKind,
-    /// The connection lifetime that published this snapshot. A detached
-    /// owner remains fenced until this token is cancelled, so a queued
-    /// refresh cannot recreate its authority after disconnect.
     cancellation: CancellationToken,
+    revision: u64,
 }
 
 impl AuthSnapshot {
@@ -386,6 +384,7 @@ impl AuthSnapshot {
             auth_generation: context.auth_generation,
             transport_kind: context.transport_kind,
             cancellation: context.cancellation.clone(),
+            revision: context.auth_generation.unwrap_or(0),
         }
     }
 }
@@ -513,9 +512,6 @@ struct Inner {
     /// provider can consume only the finite terminal budget, never an
     /// unbounded number of reservations or tasks.
     open_slots: Arc<Semaphore>,
-    /// Detached owners remain fenced while their connection cancellation is
-    /// still live. Entries are pruned once cancellation is observed.
-    detached_transport_cancellations: Mutex<HashMap<TransportOwner, CancellationToken>>,
 }
 
 struct ShellStartReservation {
@@ -685,7 +681,6 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                detached_transport_cancellations: Mutex::new(HashMap::new()),
                 transport_auth_updates: Mutex::new(()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
@@ -716,7 +711,6 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                detached_transport_cancellations: Mutex::new(HashMap::new()),
                 transport_auth_updates: Mutex::new(()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
@@ -844,17 +838,6 @@ impl PtyManager {
         // new one is published, so stale frames cannot re-register it during
         // attachment cleanup.
         let _update = self.inner.transport_auth_updates.lock().expect("transport auth update lock");
-        {
-            let mut detached = self
-                .inner
-                .detached_transport_cancellations
-                .lock()
-                .expect("detached transport lock");
-            detached.retain(|_, cancellation| !cancellation.is_cancelled());
-            if detached.contains_key(&owner) {
-                return;
-            }
-        }
         let changed = {
             let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
             if context.cancellation.is_cancelled()
@@ -863,6 +846,14 @@ impl PtyManager {
                 return;
             }
             let transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
+            if let Some(current) = transport_auth.get(&owner)
+                && owner.kind == TransportKind::Relay
+                && (snapshot.revision < current.revision
+                    || (snapshot.revision == current.revision
+                        && !auth_snapshot_matches(current, &snapshot)))
+            {
+                return;
+            }
             let changed = transport_auth
                 .get(&owner)
                 .is_some_and(|current| !auth_snapshot_matches(current, &snapshot));
@@ -875,20 +866,10 @@ impl PtyManager {
         // releasing the update lock, so platform cleanup cannot block a
         // concurrent authority refresh.
         let retired = if changed {
-            Some(self.detach_matching_locked(|candidate| candidate == &owner))
+            Some(self.detach_matching_locked(|candidate| candidate == &owner, false))
         } else {
             None
         };
-        if changed {
-            // A live connection is refreshing its own authority. The old
-            // snapshot was retired as part of this update, so clear its
-            // temporary disconnect fence before publishing the replacement.
-            self.inner
-                .detached_transport_cancellations
-                .lock()
-                .expect("detached transport lock")
-                .remove(&owner);
-        }
         {
             let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
             if !context.cancellation.is_cancelled()
@@ -1007,12 +988,16 @@ impl PtyManager {
 
     fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) -> RetiredAttachments {
         let _update = self.inner.transport_auth_updates.lock().expect("transport auth update lock");
-        self.detach_matching_locked(owns)
+        self.detach_matching_locked(owns, true)
     }
 
     /// Remove one ownership set while the authority-update lock is held.
     /// Callers must retire the returned controls after the state boundary.
-    fn detach_matching_locked(&self, owns: impl Fn(&TransportOwner) -> bool) -> RetiredAttachments {
+    fn detach_matching_locked(
+        &self,
+        owns: impl Fn(&TransportOwner) -> bool,
+        cancel_connections: bool,
+    ) -> RetiredAttachments {
         // Revoke the transport snapshot and opening reservations at one
         // authority boundary. Do not wait for an attachment operation while
         // holding the state lock: output/control callbacks take the gate
@@ -1020,23 +1005,14 @@ impl PtyManager {
         let candidates = {
             let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
             let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
-            let detached = transport_auth
-                .iter()
-                .filter(|(owner, _)| owns(owner))
-                .map(|(owner, snapshot)| (owner.clone(), snapshot.cancellation.clone()))
-                .collect::<Vec<_>>();
-            transport_auth.retain(|owner, _| !owns(owner));
-            let mut detached_cancellations = self
-                .inner
-                .detached_transport_cancellations
-                .lock()
-                .expect("detached transport lock");
-            detached_cancellations.retain(|_, cancellation| !cancellation.is_cancelled());
-            for (owner, cancellation) in detached {
-                if !cancellation.is_cancelled() {
-                    detached_cancellations.insert(owner, cancellation);
+            if cancel_connections {
+                for (owner, snapshot) in transport_auth.iter() {
+                    if owns(owner) {
+                        snapshot.cancellation.cancel();
+                    }
                 }
             }
+            transport_auth.retain(|owner, _| !owns(owner));
             let mut opening = self.inner.opening_state.lock().expect("opening state lock");
             let cancelled: Vec<(String, OpeningOwner)> = opening
                 .reservations
@@ -5121,6 +5097,7 @@ mod tests {
 
         let mut changed = old.clone();
         changed.trust = "observe".to_owned();
+        changed.auth_generation = Some(1);
         h.manager.update_transport_auth(&changed);
 
         assert!(cancellation.is_cancelled());
@@ -5130,6 +5107,8 @@ mod tests {
         assert!(!state.cancelled.contains_key("p1"));
         drop(state);
         assert!(!inner.cache_transport_auth(&old));
+        assert!(inner.cache_transport_auth(&changed));
+        h.manager.update_transport_auth(&old);
         assert!(inner.cache_transport_auth(&changed));
 
         let frame = serde_json::json!({

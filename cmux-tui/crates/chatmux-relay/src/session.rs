@@ -95,6 +95,7 @@ struct AuthSnapshot {
     trust: String,
     roots: Option<Vec<String>>,
     owner: Option<String>,
+    revision: u64,
 }
 
 pub(crate) struct OutboundFrame {
@@ -615,7 +616,7 @@ fn make_context(
         transport_id: Some(transport_id.to_owned()),
         cancellation: cancellation.clone(),
         transport_kind: TransportKind::Relay,
-        auth_generation: None,
+        auth_generation: Some(auth.revision),
     }
 }
 
@@ -1010,6 +1011,7 @@ async fn relay_session(
                             snapshot.trust = effective_trust;
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
+                            snapshot.revision = snapshot.revision.saturating_add(1);
                             #[cfg(unix)]
                             reconcile_tunnel_authority(
                                 runtime,
@@ -1095,7 +1097,11 @@ async fn relay_session(
                         if !state.managed {
                             save(config, config_path);
                         }
-                        auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
+                        {
+                            let mut snapshot = auth.lock().expect("auth lock");
+                            snapshot.trust = ack.as_str().to_owned();
+                            snapshot.revision = snapshot.revision.saturating_add(1);
+                        }
                         #[cfg(unix)]
                         {
                             let snapshot = auth.lock().expect("auth lock").clone();
