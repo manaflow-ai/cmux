@@ -1732,7 +1732,11 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         let surface = resolved
             .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
         if !remote.supports_surface_subscription_filter() {
-            anyhow::bail!(messages.filtered_subscription_unavailable);
+            let error = anyhow::anyhow!(messages.filtered_subscription_unavailable);
+            if args.pipe_io {
+                exit_pipe_io_startup_failure(&error);
+            }
+            return Err(error);
         }
         if let Err(error) = remote.scope_events_to_surface(surface) {
             if args.pipe_io {

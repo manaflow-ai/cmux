@@ -1,5 +1,8 @@
 import CmuxTerminal
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 #if DEBUG
 import CMUXDebugLog
 #endif
@@ -308,6 +311,9 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     /// counts as a claim: the relay claims geometry itself at attach.
     func setHandle(_ newHandle: FileHandle?, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         writeLock.lock()
+        if let newHandle {
+            makeNonBlocking(newHandle)
+        }
         lock.lock()
         generation &+= 1
         handle = newHandle
@@ -319,6 +325,18 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         }
         lock.unlock()
         writeLock.unlock()
+    }
+
+    private func makeNonBlocking(_ handle: FileHandle) {
+#if canImport(Darwin)
+        let descriptor = handle.fileDescriptor
+        let flags = fcntl(descriptor, F_GETFL)
+        if flags >= 0 {
+            _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK)
+        }
+#else
+        _ = handle
+#endif
     }
 
     func send(_ line: Data) {
@@ -999,7 +1017,11 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
               let diag = object["diag"] as? [String: Any],
               let resize = diag["resize"] as? [String: Any]
         else { return nil }
-        return resize["error"] == nil
+        guard resize["error"] == nil else { return false }
+        // Older relays did not include `accepted`; their lack of an error is
+        // still a successful acknowledgement. New relays must report true,
+        // and an explicit false keeps the scheduler retryable.
+        return (resize["accepted"] as? Bool) ?? true
     }
 }
 

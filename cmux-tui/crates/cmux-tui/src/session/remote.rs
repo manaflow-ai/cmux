@@ -3150,6 +3150,15 @@ impl RemoteSession {
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) {
         use crossbeam_channel::TrySendError;
+        // Avoid cloning every output frame on the normal path when no
+        // renderer-less relay is attached. Construct the owned event only
+        // after observing an active tap for this surface.
+        {
+            let tap = self.pipe_io_tap.lock().unwrap();
+            if tap.as_ref().is_none_or(|tap| tap.surface != surface) {
+                return;
+            }
+        }
         let event = event();
         if matches!(&event, PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost) {
             self.signal_pipe_io_event(Some(surface), None, event);
