@@ -15,9 +15,14 @@ if rg -n 'changes\.base' "$WORKFLOW" >/dev/null; then
 fi
 
 # The protected ruleset must be migrated to the versioned check context before
-# enforcement. The admission queue is bounded per pull request. Its known
-# case-insensitive replacement behavior is an availability residual; the
-# exact shell check still prevents an invalid comment from reaching signing.
+# enforcement. The admission queue is bounded per pull request, and its
+# case-insensitive bot check must work on the macOS system Bash as well as on
+# the Linux runner.
+if rg -n '\$\{[^}]*,,[^}]*\}' "$WORKFLOW" >/dev/null; then
+  echo 'FAIL: CLA trigger gate must not use Bash 4-only lowercase expansion' >&2
+  exit 1
+fi
+grep -Fq "LC_ALL=C tr '[:upper:]' '[:lower:]'" "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant v2"' "$WORKFLOW"
 grep -Fq 'name: "CLA Assistant"' "$WORKFLOW"
 grep -Fq 'github.event.comment.body == '\''recheck'\''' "$WORKFLOW"
