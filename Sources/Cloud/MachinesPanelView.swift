@@ -234,26 +234,120 @@ struct MachinesPanelView: View {
         }
 
         var body: some View {
-            VStack(spacing: 8) {
-                Text(String(
+            // One header only: the shared sign-in view carries the pane's
+            // copy through its idle state, and its later stages (waiting,
+            // failed, signed in) stand alone instead of stacking under a
+            // second title.
+            AccountSignInView(
+                model: signInModel,
+                automaticallyStartsSignIn: false,
+                idleTitle: String(
                     localized: "machines.auth.title",
                     defaultValue: "Sign in to use Cloud Machines"
-                ))
-                .cmuxFont(size: 13, weight: .semibold)
-                Text(String(
+                ),
+                idleSubtitle: String(
                     localized: "machines.auth.subtitle",
                     defaultValue: "Sign in to see and manage the machines in your cmux account."
-                ))
-                .cmuxFont(size: 12)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-                AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
-                    .frame(maxWidth: 440)
-            }
+                )
+            )
+            .frame(maxWidth: 440)
+            .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("CloudMachinesSignInView")
         }
+    }
+
+    @ViewBuilder
+    private var unreachableState: some View {
+        Image(systemName: "cloud.slash")
+            .font(.system(size: 26, weight: .light))
+            .foregroundColor(.secondary.opacity(0.55))
+        Text(String(localized: "machines.unavailable.title", defaultValue: "Cloud is unreachable"))
+            .cmuxFont(size: 13)
+            .foregroundColor(.primary.opacity(0.85))
+        Text(String(
+            localized: "machines.unavailable.subtitle",
+            defaultValue: "Your machines are still there. cmux couldn\u{2019}t reach the Cloud service just now; it retries on its own."
+        ))
+        .cmuxFont(size: 12)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 24)
+        Button {
+            viewModel.refresh()
+        } label: {
+            Text(String(localized: "machines.unavailable.retry", defaultValue: "Retry"))
+                .cmuxFont(size: 12)
+        }
+        .padding(.top, 2)
+    }
+
+    /// HTTP 401 from the Cloud service while the app still holds a session:
+    /// retrying can never fix it, so route straight to a fresh sign-in.
+    @ViewBuilder
+    private var sessionRejectedState: some View {
+        Image(systemName: "person.crop.circle.badge.exclamationmark")
+            .font(.system(size: 26, weight: .light))
+            .foregroundColor(.secondary.opacity(0.55))
+        Text(String(localized: "machines.sessionRejected.title", defaultValue: "Sign-in needs a refresh"))
+            .cmuxFont(size: 13, weight: .semibold)
+            .foregroundColor(.primary.opacity(0.85))
+        Text(String(
+            localized: "machines.sessionRejected.subtitle",
+            defaultValue: "The Cloud service no longer accepts this Mac\u{2019}s saved session. Sign out and sign back in to reconnect."
+        ))
+        .cmuxFont(size: 12)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 24)
+        Button {
+            signOutForFreshSignIn()
+        } label: {
+            Text(String(localized: "machines.sessionRejected.signInAgain", defaultValue: "Sign Out & Sign In Again"))
+                .cmuxFont(size: 12)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .padding(.top, 2)
+        .accessibilityIdentifier("CloudMachinesSessionRejectedSignInButton")
+    }
+
+    /// HTTP 402: the plan gates Cloud access, so the fix is an upgrade, not a
+    /// retry and not a sign-in.
+    @ViewBuilder
+    private var requiresProState: some View {
+        Image(systemName: "sparkles")
+            .font(.system(size: 26, weight: .light))
+            .foregroundColor(.secondary.opacity(0.55))
+        Text(String(localized: "machines.requiresPro.title", defaultValue: "Cloud machines need cmux Pro"))
+            .cmuxFont(size: 13, weight: .semibold)
+            .foregroundColor(.primary.opacity(0.85))
+        Text(String(
+            localized: "machines.requiresPro.subtitle",
+            defaultValue: "This account\u{2019}s plan doesn\u{2019}t include Cloud machine access. Upgrade to create and reconnect machines."
+        ))
+        .cmuxFont(size: 12)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 24)
+        Button {
+            ProUpgradePresenter.present()
+        } label: {
+            Text(String(localized: "machines.requiresPro.upgrade", defaultValue: "Upgrade to Pro"))
+                .cmuxFont(size: 12)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .padding(.top, 2)
+        .accessibilityIdentifier("CloudMachinesRequiresProUpgradeButton")
+    }
+
+    /// Server-rejected sessions can only be fixed by re-authenticating; the
+    /// sign-out flips the pane to the sign-in gate, whose flow mints a fresh
+    /// session.
+    private func signOutForFreshSignIn() {
+        guard let accountFlow else { return }
+        Task { await accountFlow.signOut() }
     }
 
     /// Cloud-agent launcher: each agent entry opens a local terminal running
@@ -364,29 +458,18 @@ struct MachinesPanelView: View {
         VStack(spacing: 10) {
             Spacer()
             if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {
-                // The list failed to load: say so instead of pretending the fleet is
-                // empty, and make retry one click.
-                Image(systemName: "cloud.slash")
-                    .font(.system(size: 26, weight: .light))
-                    .foregroundColor(.secondary.opacity(0.55))
-                Text(String(localized: "machines.unavailable.title", defaultValue: "Cloud is unreachable"))
-                    .cmuxFont(size: 13)
-                    .foregroundColor(.primary.opacity(0.85))
-                Text(String(
-                    localized: "machines.unavailable.subtitle",
-                    defaultValue: "Your machines are still there. cmux couldn\u{2019}t reach the Cloud service just now; it retries on its own."
-                ))
-                .cmuxFont(size: 12)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-                Button {
-                    viewModel.refresh()
-                } label: {
-                    Text(String(localized: "machines.unavailable.retry", defaultValue: "Retry"))
-                        .cmuxFont(size: 12)
+                // The list failed to load: say the true thing instead of
+                // pretending the fleet is empty. A server-rejected session and
+                // a plan gate each get their real fix; only transient-shaped
+                // failures keep the retry-first "unreachable" copy.
+                switch viewModel.listProblem ?? .unreachable {
+                case .sessionRejected:
+                    sessionRejectedState
+                case .requiresPro:
+                    requiresProState
+                case .unreachable:
+                    unreachableState
                 }
-                .padding(.top, 2)
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
