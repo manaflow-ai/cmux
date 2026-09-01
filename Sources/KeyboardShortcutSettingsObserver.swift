@@ -19,8 +19,9 @@ final class KeyboardShortcutSettingsObserver {
     )
     typealias BrowserCaptureMatcherSnapshot = (
         settingsRevision: UInt64,
-        settingsStoreID: ObjectIdentifier,
-        configStoreID: ObjectIdentifier?,
+        settingsOwner: () -> AnyObject?,
+        configOwner: () -> AnyObject?,
+        configOwnerPresent: Bool,
         configRevision: UInt64?,
         actions: [BrowserCaptureMatcherEntry],
         configuredShortcuts: [StoredShortcut],
@@ -80,6 +81,7 @@ final class KeyboardShortcutSettingsObserver {
         ) { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
                 self?.revision &+= 1
+                self?.invalidateBrowserCaptureMatcherSnapshots()
             }
         }
         inputSourceObserver = distributedNotificationCenter.addObserver(
@@ -111,6 +113,12 @@ final class KeyboardShortcutSettingsObserver {
         globalSearchShortcut = shortcutProvider(.globalSearch)
         revision &+= 1
         rightSidebarModeShortcutMatcher.reload()
+        invalidateBrowserCaptureMatcherSnapshots()
+    }
+
+    private func invalidateBrowserCaptureMatcherSnapshots() {
+        browserCaptureMatcherSnapshotCache.removeAll(keepingCapacity: true)
+        browserCaptureMatcherCacheNextIndex = 0
     }
 
     /// Returns the browser-capture matcher snapshot for the current shortcut
@@ -119,15 +127,16 @@ final class KeyboardShortcutSettingsObserver {
     /// filtering/sorting path. Stale-default menu eligibility is intentionally
     /// left to the caller at match time because menu state is independent.
     func browserCaptureMatcherSnapshot(
-        settingsStoreID: ObjectIdentifier,
-        configStoreID: ObjectIdentifier?,
+        settingsOwner: AnyObject,
+        configOwner: AnyObject?,
         configRevision: UInt64?,
         configuredShortcuts: () -> [StoredShortcut]
     ) -> BrowserCaptureMatcherSnapshot {
         if let snapshot = browserCaptureMatcherSnapshotCache.first(where: { snapshot in
             snapshot.settingsRevision == revision
-                && snapshot.settingsStoreID == settingsStoreID
-                && snapshot.configStoreID == configStoreID
+                && snapshot.settingsOwner() === settingsOwner
+                && snapshot.configOwnerPresent == (configOwner != nil)
+                && snapshot.configOwner() === configOwner
                 && snapshot.configRevision == configRevision
         }) {
             return snapshot
@@ -184,8 +193,9 @@ final class KeyboardShortcutSettingsObserver {
 
         let snapshot = BrowserCaptureMatcherSnapshot(
             settingsRevision: revision,
-            settingsStoreID: settingsStoreID,
-            configStoreID: configStoreID,
+            settingsOwner: { [weak settingsOwner] in settingsOwner },
+            configOwner: { [weak configOwner] in configOwner },
+            configOwnerPresent: configOwner != nil,
             configRevision: configRevision,
             actions: actions,
             configuredShortcuts: configured,

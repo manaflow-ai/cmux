@@ -18148,8 +18148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> KeyboardShortcutSettingsObserver.BrowserCaptureMatcherSnapshot {
         let configOwner = context?.cmuxConfigStore
         return KeyboardShortcutSettingsObserver.shared.browserCaptureMatcherSnapshot(
-            settingsStoreID: ObjectIdentifier(KeyboardShortcutSettings.settingsFileStore),
-            configStoreID: configOwner.map(ObjectIdentifier.init),
+            settingsOwner: KeyboardShortcutSettings.settingsFileStore,
+            configOwner: configOwner,
             configRevision: configOwner?.configRevision,
             configuredShortcuts: {
                 configuredCmuxShortcutActions(for: context).compactMap { action in

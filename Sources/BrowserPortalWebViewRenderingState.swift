@@ -18,9 +18,14 @@ private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 
 /// Resolves the primary page-content child of a macOS `WKWebView` without
 /// depending on WebKit's sibling ordering. Inspector/companion children are
-/// excluded explicitly; when multiple candidates overlap, the unique child
-/// covering the largest portion of the web view wins and ties fail closed.
-func cmuxBrowserPageContentRoot(for webView: WKWebView) -> NSView? {
+/// excluded explicitly. When a responder is available, its direct child
+/// ownership disambiguates overlapping page/overlay views; otherwise the
+/// unique child covering the largest portion of the web view wins and ties
+/// fail closed.
+func cmuxBrowserPageContentRoot(
+    for webView: WKWebView,
+    owningResponder: NSResponder? = nil
+) -> NSView? {
     let candidates = webView.subviews.filter {
         !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
     }
@@ -37,9 +42,44 @@ func cmuxBrowserPageContentRoot(for webView: WKWebView) -> NSView? {
     guard let maximumCoverage = scored.map(\.coverage).max(), maximumCoverage > 0 else {
         return nil
     }
+
+    if let owningResponder,
+       let responderView = cmuxBrowserViewOwningResponder(owningResponder),
+       let owner = scored.first(where: {
+           responderView === $0.view || responderView.isDescendant(of: $0.view)
+       }) {
+        // A clearly smaller sibling is browser chrome. If the focused
+        // responder belongs to a tied/overlapping candidate, its direct
+        // ownership is the only stable discriminator available from AppKit.
+        guard owner.coverage + 0.01 >= maximumCoverage else { return nil }
+        return owner.view
+    }
+
     let winners = scored.filter { abs($0.coverage - maximumCoverage) <= 0.01 }
     guard winners.count == 1 else { return nil }
     return winners[0].view
+}
+
+private func cmuxBrowserViewOwningResponder(_ responder: NSResponder) -> NSView? {
+    if let view = responder as? NSView {
+        return view
+    }
+    if let fieldEditor = responder as? NSTextView,
+       fieldEditor.isFieldEditor,
+       let ownerView = cmuxFieldEditorOwnerView(fieldEditor) {
+        return ownerView
+    }
+
+    var current = responder.nextResponder
+    var hops = 0
+    while let next = current, hops < 64 {
+        if let view = next as? NSView {
+            return view
+        }
+        current = next.nextResponder
+        hops += 1
+    }
+    return nil
 }
 
 #if DEBUG

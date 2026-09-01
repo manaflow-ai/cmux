@@ -9,9 +9,12 @@ private var shortcutEventBrowserWebViewCacheKey: UInt8 = 0
 /// The cache is attached to the event itself, so it cannot grow with the
 /// number of panes or keystrokes and needs no app-wide mutable registry.
 final class ShortcutEventBrowserWebViewCache {
-    let eventWindow: NSWindow
-    let firstResponder: NSResponder
-    let webView: CmuxWebView?
+    /// Event associations must not keep a closed auxiliary window or WebView
+    /// alive. Ownership is held by the window/panel graph; this cache only
+    /// observes it while that graph remains live.
+    weak var eventWindow: NSWindow?
+    weak var firstResponder: NSResponder?
+    weak var webView: CmuxWebView?
     var captureDecision: Bool?
 
     init(
@@ -25,7 +28,8 @@ final class ShortcutEventBrowserWebViewCache {
     }
 
     func matches(window: NSWindow, responder: NSResponder) -> Bool {
-        eventWindow === window && firstResponder === responder
+        guard let eventWindow, let firstResponder else { return false }
+        return eventWindow === window && firstResponder === responder
     }
 }
 

@@ -56,7 +56,9 @@ final class BrowserPopupPanel: NSPanel {
            ) == true {
             // Let CmuxWebView run the shared capture path before this panel's
             // Close Tab interception can consume the same command.
-            return browserWebView.performKeyEquivalent(with: event)
+            if browserWebView.performKeyEquivalent(with: event) {
+                return true
+            }
         }
         if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
             return true

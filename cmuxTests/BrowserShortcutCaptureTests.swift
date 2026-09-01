@@ -300,6 +300,11 @@ final class BrowserShortcutCaptureTests {
             )
             pageRoot.addSubview(pageChild)
             defer { pageChild.removeFromSuperview() }
+            let overlappingUnknownSibling = BrowserCaptureFocusableView(
+                frame: harness.webView.bounds
+            )
+            harness.webView.addSubview(overlappingUnknownSibling, positioned: .above, relativeTo: nil)
+            defer { overlappingUnknownSibling.removeFromSuperview() }
             #expect(harness.window.makeFirstResponder(pageChild))
 
             let commandR = try #require(makeKeyDownEvent(
