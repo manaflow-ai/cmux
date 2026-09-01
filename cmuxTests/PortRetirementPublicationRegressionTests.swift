@@ -74,7 +74,8 @@ struct PortRetirementPublicationRegressionTests {
             )])
         }
 
-        let batch = try #require(buffer.takePendingBatch())
+        let pendingBatch = buffer.takePendingBatch()
+        let batch = try #require(pendingBatch)
         #expect(batch.panelPublicationsByKey[panelKey]?.ports.isEmpty == true)
         #expect(batch.agentPublicationsByWorkspace[workspaceID]?.ports.isEmpty == true)
     }
