@@ -21,9 +21,10 @@ final class PortScanner: @unchecked Sendable {
 
     let commandRunner: any CommandRunning
 
-    /// Port scanning is only useful when the sidebar surfaces detected ports.
-    /// Otherwise the periodic `lsof` sweep over agent process trees runs (and
-    /// can pin `fileproviderd`/`fseventsd`) for data nothing consumes.
+    /// Port scanning is only useful when the sidebar surfaces detected ports
+    /// (`sidebar.showPorts` on and details not globally hidden). Otherwise the
+    /// periodic `lsof` sweep over agent process trees runs (and can pin
+    /// `fileproviderd`/`fseventsd`) for data nothing consumes.
     private var portScanningEnabled: Bool {
         SidebarWorkspaceDetailDefaults.portScanningEnabled(defaults: .standard)
     }
@@ -343,6 +344,10 @@ final class PortScanner: @unchecked Sendable {
         agentRevisions: [UUID: UInt64],
         requestID: UInt64
     ) async {
+        // Fail-closed re-check: this is the authoritative gate right before
+        // `runLsof`, catching a setting change during the async hops that ran
+        // after the earlier check.
+        guard portScanningEnabled else { return }
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
 
         // Build TTY set (deduplicated).
@@ -703,6 +708,10 @@ final class PortScanner: @unchecked Sendable {
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
         agentRevisions: [UUID: UInt64]
     ) {
+        // Fail-closed re-check: `refreshAgentPorts()` reaches here directly,
+        // bypassing the `runTrackedAgentScan` gate, and the setting can flip
+        // between the two.
+        guard portScanningEnabled else { return }
         guard !workspaceIds.isEmpty else { return }
         let request = AgentPortScanRequest(
             workspaceIds: workspaceIds,

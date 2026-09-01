@@ -91,10 +91,16 @@ extension SidebarWorkspaceDetailDefaults {
         UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPorts)
     }
 
-    /// Ports are only surfaced when `showPorts` is on. When it is off the sidebar
-    /// shows no ports, so scanning for them is pure waste.
+    /// Ports are surfaced only when `showPorts` is on AND details aren't globally
+    /// hidden — mirrors the remote-session gate
+    /// (`Workspace.remotePortScanningEnabledFromSettings`). When this is false the
+    /// sidebar shows no ports, so scanning for them is pure waste.
     static func portScanningEnabled(defaults: UserDefaults) -> Bool {
-        showPortsValue(defaults: defaults)
+        showPortsValue(defaults: defaults) && !hideAllDetailsValue(defaults: defaults)
+    }
+
+    private static func hideAllDetailsValue(defaults: UserDefaults) -> Bool {
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().hideAllDetails)
     }
 
     static func pullRequestActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
