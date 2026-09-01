@@ -34,10 +34,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # These events can carry pull-request content. Keep the workspace on
-          # the trusted default branch; never place an untrusted PR checkout at
-          # the workspace root before the secret-bearing action.
-          ref: ${{ github.event.repository.default_branch }}
+          # Leave the ref unset. GitHub checks out the trusted base/default
+          # ref for these events, and the action then fetches the PR branch
+          # itself after validating the actor and restoring protected config.
           fetch-depth: 1
           persist-credentials: false
 
