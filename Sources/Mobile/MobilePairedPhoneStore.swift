@@ -254,11 +254,10 @@ private extension MobilePairedPhoneStore {
               let rawRecords = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
             return [:]
         }
-        let decoder = JSONDecoder()
         let decoded = rawRecords.compactMap { rawRecord -> MobilePairedPhoneRecord? in
             guard let object = rawRecord as? [String: Any],
                   let elementData = try? JSONSerialization.data(withJSONObject: object),
-                  let record = try? decoder.decode(
+                  let record = try? JSONDecoder().decode(
                       MobilePairedPhoneRecord.self,
                       from: elementData
                   ) else {
