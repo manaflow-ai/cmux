@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-28-r10
+ENV CMUX_IMAGE_EPOCH=2026-08-31-r11
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -200,6 +200,37 @@ RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.b
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cua/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf
+
+# Pre-generate ble.sh's per-TERM tput caches for the terminals cmux panes use.
+# Without them the FIRST shell on a machine prints
+# "ble/term.sh: updating tput cache for TERM=... done" into the pane (and pays
+# the tput walk) before its first prompt. ble.sh resolves its cache dir in two
+# steps (verified live on a machine): ${XDG_CACHE_HOME:-~/.cache}/blesh/<ver>
+# only when that base dir ALREADY exists, else <blesh>/cache.d/<uid>. A fresh
+# home volume has no ~/.cache, so panes start on cache.d/<uid> and switch to
+# the XDG path once anything creates ~/.cache — both places are seeded:
+# cache.d here, the XDG copy by cmux-bashrc from /etc/cmux/blesh-cache-seed.
+# Generation runs ble.sh itself through the rc chain above under a pty
+# (`script`; ble.sh refuses `bash -c` and ttyless shells), so the cache layout
+# stays ble.sh's own business. The freshness test ble.sh applies is
+# "cache newer than lib/init-term.sh" — everything here is written after the
+# tarball unpack, and the hard `test` guards prove the bake produced files.
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       printf 'exit\n' | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chmod a+rwxt /usr/local/share/blesh/cache.d \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chown -R cua:cua /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted at

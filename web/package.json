@@ -13,6 +13,7 @@
     "coderouter:benchmark": "bun scripts/coderouter/benchmark.ts",
     "coderouter:reconcile-billing": "bun scripts/coderouter/reconcile-billing.ts",
     "testflight:backfill-legacy-ownership": "bun scripts/stripe/backfill-pro-testflight-legacy-ownership.ts",
+    "billing:backfill-founders-lockout": "bun scripts/backfill-founders-lockout.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
@@ -123,6 +124,7 @@
     "unrs-resolver"
   ],
   "patchedDependencies": {
-    "@stackframe/stack@2.8.89": "patches/@stackframe%2Fstack@2.8.89.patch"
+    "@stackframe/stack@2.8.108": "patches/@stackframe%2Fstack@2.8.108.patch",
+    "@stackframe/stack-shared@2.8.108": "patches/@stackframe%2Fstack-shared@2.8.108.patch"
   }
 }

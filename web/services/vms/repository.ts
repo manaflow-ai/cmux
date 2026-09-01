@@ -138,6 +138,8 @@ export type VmRepositoryShape = {
   readonly activeLimitCandidates: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
+    /** Maximum number of rows to inspect in the synchronous limit retry. */
+    readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   readonly reservePausedResume: (input: {
     readonly id: string;
@@ -1082,7 +1084,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             isNotNull(cloudVms.providerVmId),
             accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
           ),
-        );
+        )
+        .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
     }),
 
   reservePausedResume: (input) =>

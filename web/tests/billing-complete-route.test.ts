@@ -11,6 +11,11 @@ let recordCheckoutCompletionResult: unknown = {
   subscriptionId: "sub_1",
 };
 const recordCheckoutCompletion = mock(async () => recordCheckoutCompletionResult);
+const recordFoundersCheckoutCompletion = mock(async () => ({
+  scope: "user" as const,
+  stackUserId: "founder-user",
+  subscriptionId: "founder-subscription",
+}));
 
 const GET = makeBillingCompleteHandler({
   isConfigured: () => stripeConfigured,
@@ -23,6 +28,7 @@ const GET = makeBillingCompleteHandler({
       },
     }) as never,
   recordCheckoutCompletion: recordCheckoutCompletion as never,
+  recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletion as never,
 });
 
 describe("billing complete route", () => {
@@ -38,6 +44,7 @@ describe("billing complete route", () => {
     };
     retrieveSession.mockClear();
     recordCheckoutCompletion.mockClear();
+    recordFoundersCheckoutCompletion.mockClear();
     recordCheckoutCompletionResult = {
       stackUserId: "user-1",
       subscriptionId: "sub_1",
@@ -127,6 +134,67 @@ describe("billing complete route", () => {
     );
   });
 
+  test("records paid Founder sessions through the Founder completion path", async () => {
+    retrievedSession = {
+      id: "cs_founder",
+      payment_status: "paid",
+      client_reference_id: null,
+      metadata: { founders_edition: "true" },
+      subscription: null,
+      customer: { id: "cus_founder" },
+    };
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/complete?session_id=cs_founder"),
+    );
+
+    expect(recordFoundersCheckoutCompletion).toHaveBeenCalledWith({
+      session: retrievedSession,
+      subscription: null,
+      customer: retrievedSession.customer,
+    });
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/billing/success?session_id=cs_founder&cmux_scheme=cmux",
+    );
+  });
+
+  test("rejects conflicting Team and Founder metadata before provisioning", async () => {
+    retrievedSession = {
+      id: "cs_conflicting_scope",
+      payment_status: "paid",
+      client_reference_id: "team-1",
+      metadata: {
+        founders_edition: "true",
+        app: "cmux",
+        plan: "team",
+        stackTeamId: "team-1",
+      },
+      subscription: {
+        id: "sub_conflicting_scope",
+        metadata: {
+          founders_edition: "true",
+          app: "cmux",
+          plan: "team",
+          stackTeamId: "team-1",
+        },
+      },
+      customer: { id: "cus_conflicting_scope" },
+    };
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/complete?session_id=cs_conflicting_scope",
+      ),
+    );
+
+    expect(recordFoundersCheckoutCompletion).not.toHaveBeenCalled();
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=error",
+    );
+  });
+
   test("does not redirect to success when checkout is cancelled for account deletion", async () => {
     recordCheckoutCompletionResult = {
       skipped: "account_deletion_in_progress",
@@ -157,6 +225,30 @@ describe("billing complete route", () => {
       new NextRequest("https://cmux.test/api/billing/complete?session_id=cs_foreign"),
     );
 
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
+  });
+
+  test("rejects a foreign session when its expanded subscription says Founder", async () => {
+    retrievedSession = {
+      id: "cs_foreign_founder",
+      payment_status: "paid",
+      client_reference_id: "foreign-user",
+      metadata: { app: "other", plan: "pro" },
+      subscription: {
+        id: "sub_foreign_founder",
+        metadata: { app: "cmux", founders_edition: "true" },
+      },
+      customer: { id: "cus_foreign_founder" },
+    };
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/complete?session_id=cs_foreign_founder",
+      ),
+    );
+
+    expect(recordFoundersCheckoutCompletion).not.toHaveBeenCalled();
     expect(recordCheckoutCompletion).not.toHaveBeenCalled();
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=error");
   });
