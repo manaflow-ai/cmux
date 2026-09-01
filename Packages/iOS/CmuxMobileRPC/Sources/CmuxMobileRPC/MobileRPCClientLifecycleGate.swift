@@ -4,14 +4,6 @@ internal import os
 
 /// Linearizes new transport ownership against synchronous client retirement.
 final class MobileRPCClientLifecycleGate: Sendable {
-    struct IndependentEventAdmission: Sendable {
-        fileprivate let revision: UInt64
-    }
-
-    struct ArtifactLaneAdmission: Sendable {
-        fileprivate let revision: UInt64
-    }
-
     private struct State: Sendable {
         var retired = false
         var revision: UInt64 = 0
@@ -65,52 +57,6 @@ final class MobileRPCClientLifecycleGate: Sendable {
         return transport
     }
 
-    func beginIndependentEventAdmission() throws -> IndependentEventAdmission {
-        try state.withLock { state in
-            guard !state.retired else {
-                throw MobileShellConnectionError.connectionClosed
-            }
-            return IndependentEventAdmission(revision: state.revision)
-        }
-    }
-
-    func finishIndependentEventAdmission(
-        _ admission: IndependentEventAdmission,
-        stream: CmxIndependentEventByteStream
-    ) async throws -> CmxIndependentEventByteStream {
-        let accepted = state.withLock { state in
-            !state.retired && state.revision == admission.revision
-        }
-        guard accepted else {
-            await Self.dispose(stream)
-            throw MobileShellConnectionError.connectionClosed
-        }
-        return stream
-    }
-
-    func beginArtifactLaneAdmission() throws -> ArtifactLaneAdmission {
-        try state.withLock { state in
-            guard !state.retired else {
-                throw MobileShellConnectionError.connectionClosed
-            }
-            return ArtifactLaneAdmission(revision: state.revision)
-        }
-    }
-
-    func finishArtifactLaneAdmission(
-        _ admission: ArtifactLaneAdmission,
-        connection: any MobileArtifactLaneConnection
-    ) async throws -> any MobileArtifactLaneConnection {
-        let accepted = state.withLock { state in
-            !state.retired && state.revision == admission.revision
-        }
-        guard accepted else {
-            await connection.close()
-            throw MobileShellConnectionError.connectionClosed
-        }
-        return connection
-    }
-
     func retire() {
         let waiters = state.withLock { state in
             state.retired = true
@@ -136,18 +82,6 @@ final class MobileRPCClientLifecycleGate: Sendable {
                 continuation.resume()
             }
         }
-    }
-
-    private static func dispose(_ stream: CmxIndependentEventByteStream) async {
-        let drain = Task {
-            do {
-                for try await _ in stream {}
-            } catch {
-                // Cancellation is the disposal mechanism for the abandoned stream.
-            }
-        }
-        drain.cancel()
-        _ = await drain.result
     }
 
     private func completeFailedTransportAdmission() {

@@ -43,3 +43,32 @@ final class MobileTerminalRenderGridAnchorRegistry: Sendable {
         anchorsByConnectionID.withLock { Set($0.values) }
     }
 }
+
+/// Tracks which mobile connections opted into zlib event-frame compression
+/// (`event_compression: "deflate"` at subscribe). Same lifecycle as the
+/// anchor registry: set at subscribe, removed when the connection closes. A
+/// sender must never emit a compressed frame to a connection not in here.
+final class MobileHostEventCompressionRegistry: Sendable {
+    static let shared = MobileHostEventCompressionRegistry()
+
+    private let deflateConnectionIDs =
+        OSAllocatedUnfairLock<Set<UUID>>(initialState: [])
+
+    func set(deflateEnabled: Bool, connectionID: UUID) {
+        deflateConnectionIDs.withLock {
+            if deflateEnabled {
+                $0.insert(connectionID)
+            } else {
+                $0.remove(connectionID)
+            }
+        }
+    }
+
+    func isDeflateEnabled(connectionID: UUID) -> Bool {
+        deflateConnectionIDs.withLock { $0.contains(connectionID) }
+    }
+
+    func remove(connectionID: UUID) {
+        _ = deflateConnectionIDs.withLock { $0.remove(connectionID) }
+    }
+}

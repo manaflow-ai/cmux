@@ -6,7 +6,10 @@
   "include": [
     "test/**/*.ts",
     "tools/**/*.ts",
-    "src/protocol.ts",
-    "src/ticket.ts"
+    "src/protocol.ts"
+  ],
+  "exclude": [
+    "test/do-forwarding.test.ts",
+    "test/object-naming.test.ts"
   ]
 }

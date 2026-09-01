@@ -17,7 +17,11 @@ upgrade (`x-cmux-stack-access`); the worker verifies it against the Stack API
 (client access type, public project configuration only, short per-isolate
 verdict cache) and derives the object id from the VERIFIED user id
 (`v2:<userId>:<hostDeviceId>`), so isolation is by construction and no web-app
-call exists anywhere on the connect path. The host additionally admits each
+call exists anywhere on the connect path. An optional `x-cmux-instance-tag`
+header adds a per-build dimension (`v2t:<userId>:<hostDeviceId>:<tag>`) so two
+tagged dev Mac builds on one machine stop contending for the single host slot;
+absent, blank, and release-lane values keep the historical untagged name, so
+old clients and production endpoints are unchanged. The host additionally admits each
 client session end to end (`mobile.session.admit`, the session's first frame)
 before serving it. Long sessions extend in-band with `refresh` (a current
 access token, re-verified by the object); the session deadline caps at 1 h

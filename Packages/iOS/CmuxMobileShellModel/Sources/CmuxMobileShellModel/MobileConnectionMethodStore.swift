@@ -3,18 +3,16 @@ public import CMUXMobileCore
 import Observation
 
 /// How the phone should reach a paired Mac.
+///
+/// `relay` is the default: it needs no setup and works from any network. The
+/// legacy `automatic` (iroh) and `direct` (iroh pinned to user addresses) raw
+/// values no longer decode, so pairings that used them land on the relay
+/// default; an explicit `tailscale` choice persists unchanged.
 public enum MobileConnectionMethod: String, CaseIterable, Sendable {
-    /// Dial the built-in encrypted peer-to-peer transport (direct paths with
-    /// managed relays as fallback). The default; no setup required.
-    case automatic
     /// Require the user's Tailscale network. Requires entering the Tailscale
     /// pairing code shown on the Mac once, which authorizes that exact peer;
-    /// Iroh is never used as a fallback while this method is selected.
+    /// no other method is used as a fallback while this method is selected.
     case tailscale
-    /// Dial only the user-enabled direct addresses configured on the
-    /// Computer (LAN, WireGuard, or any other reachable network). No other
-    /// method is ever used as a fallback while this method is selected.
-    case direct
     /// Dial only the cmux mobile relay (one WebSocket through the HostRelay
     /// Durable Object). Requires the Mac's "Relay Remote Access" toggle; no
     /// other method is ever used as a fallback while this method is selected,
@@ -27,9 +25,7 @@ extension MobileConnectionMethod {
     /// method becomes a compile error here instead of silently misreporting.
     var diagnosticMethod: DiagnosticConnectionMethod {
         switch self {
-        case .automatic: .automatic
         case .tailscale: .tailscale
-        case .direct: .direct
         case .relay: .relay
         }
     }
@@ -37,10 +33,10 @@ extension MobileConnectionMethod {
 
 /// Persists the user's connection-method choice.
 ///
-/// The choice is exclusive: `automatic` uses the built-in encrypted transport,
-/// while `tailscale` dials only an authorized Tailscale route. It never
-/// manufactures Tailscale authorization by itself; a pairing code entry remains
-/// the authorization event for each Mac.
+/// The choice is exclusive: `relay` dials only the cmux relay, while
+/// `tailscale` dials only an authorized Tailscale route. It never manufactures
+/// Tailscale authorization by itself; a pairing code entry remains the
+/// authorization event for each Mac.
 ///
 /// The backing `UserDefaults` is injected so the store is testable without
 /// touching `.standard`; the app constructs it at the composition root.
@@ -79,7 +75,9 @@ public final class MobileConnectionMethodStore {
            let method = MobileConnectionMethod(rawValue: rawValue) {
             self.method = method
         } else {
-            self.method = .automatic
+            // Includes legacy persisted "automatic": the raw value no longer
+            // decodes, which IS the migration to the relay default.
+            self.method = .relay
         }
         recordConfiguredMethodDiagnostic()
     }

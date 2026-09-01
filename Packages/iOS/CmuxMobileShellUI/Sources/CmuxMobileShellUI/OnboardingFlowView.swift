@@ -31,7 +31,7 @@ struct OnboardingFlowView: View {
         context: OnboardingContext,
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
-        connectionMethod: MobileConnectionMethod = .automatic,
+        connectionMethod: MobileConnectionMethod = .relay,
         onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onEnablePush: @escaping () async -> Bool,
         onReachedConnection: @escaping () -> Void,

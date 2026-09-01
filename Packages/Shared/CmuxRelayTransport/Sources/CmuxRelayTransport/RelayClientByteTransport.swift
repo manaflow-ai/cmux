@@ -29,6 +29,10 @@ public actor RelayClientByteTransport: CmxByteTransport {
     /// shipped client needs no configuration.
     private let relayURLOverride: URL?
     private let hostDeviceID: String
+    /// The target Mac build's app-instance tag (from the pairing), so this
+    /// dial lands on that build's own relay object. nil = the untagged
+    /// (production) object.
+    private let hostInstanceTag: String?
     private let deviceID: @Sendable () async throws -> String
     private let accessToken: RelayAccessTokenProvider
     private let makeConnection: RelayConnectionFactory
@@ -44,6 +48,7 @@ public actor RelayClientByteTransport: CmxByteTransport {
     public init(
         relayURLOverride: URL? = nil,
         hostDeviceID: String,
+        hostInstanceTag: String? = nil,
         deviceID: @escaping @Sendable () async throws -> String,
         accessToken: @escaping RelayAccessTokenProvider,
         makeConnection: @escaping RelayConnectionFactory = RelayConnection.factory(),
@@ -51,6 +56,7 @@ public actor RelayClientByteTransport: CmxByteTransport {
     ) {
         self.relayURLOverride = relayURLOverride
         self.hostDeviceID = hostDeviceID
+        self.hostInstanceTag = hostInstanceTag
         self.deviceID = deviceID
         self.accessToken = accessToken
         self.makeConnection = makeConnection
@@ -81,7 +87,8 @@ public actor RelayClientByteTransport: CmxByteTransport {
             accessToken: token,
             role: .client,
             hostDeviceID: hostDeviceID,
-            deviceID: ownDeviceID
+            deviceID: ownDeviceID,
+            instanceTag: hostInstanceTag
         ))
         let welcome: RelayWelcome
         do {

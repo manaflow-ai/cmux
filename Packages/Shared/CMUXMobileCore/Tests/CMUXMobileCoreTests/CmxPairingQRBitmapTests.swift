@@ -67,18 +67,20 @@ import Testing
     }
 
     /// The pairing window's real Tailscale compatibility payload also carries
-    /// the `ub` account binding (an opaque user id, in practice a UUID) and
-    /// the `pc` compatibility level. Built through the real encoder with the
-    /// longest realistic inputs (tagged dev scheme, IPv4 + IPv6 routes) so
-    /// this tracks whatever the encoder actually emits: it may exceed
-    /// version 6, but stays at or below version 8 (49 modules), where
-    /// modules still render large on screen. The full-key JSON payload this
-    /// replaced rendered version 23 (109 modules).
-    @Test func realCompatibilityPayloadStaysAtOrBelowVersionEight() throws {
+    /// the `d` device id (a UUID, buying the phone's relay method its
+    /// pre-handshake dial binding), the `ub` account binding (an opaque user
+    /// id, in practice a UUID), and the `pc` compatibility level. Built
+    /// through the real encoder with the longest realistic inputs (tagged
+    /// dev scheme, IPv4 + IPv6 routes) so this tracks whatever the encoder
+    /// actually emits: it may exceed version 6, but stays at or below
+    /// version 10 (57 modules), where modules still render large on screen.
+    /// The full-key JSON payload this replaced rendered version 23
+    /// (109 modules).
+    @Test func realCompatibilityPayloadStaysAtOrBelowVersionTen() throws {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
-            macDeviceID: "mac-device-uuid",
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
             macDisplayName: "Lawrence's Mac",
             macUserEmail: nil,
             macUserID: "8b7e6a2f-1234-4c5d-9e8f-0a1b2c3d4e5f",
@@ -113,8 +115,8 @@ import Testing
         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
         #expect((modules - 17) % 4 == 0, "\(modules) modules is not a QR version")
         #expect(
-            modules <= 49,
-            "account-bound compat payload should stay at version <= 8, got \(modules) modules"
+            modules <= 57,
+            "account-bound compat payload should stay at version <= 10, got \(modules) modules"
         )
     }
 

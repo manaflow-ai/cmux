@@ -3,7 +3,6 @@ import Foundation
 
 actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
-    typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias TransportConnectObserver = @Sendable (MobileRPCTransportConnectEvent) -> Void
     typealias TearDownRegistrationHook = @Sendable () async -> Void
@@ -58,24 +57,17 @@ actor MobileCoreRPCSession {
         var cancelledRequestResolutionTask: Task<Void, Never>?
     }
 
-    struct IndependentEventPreparation: Sendable {
-        let id: UUID
-        let task: Task<CmxIndependentEventByteStream, any Error>
-    }
-
-    struct IndependentEventReader: Sendable {
-        let id: UUID
-        let task: Task<Void, Never>
-    }
-
     let taskTimeout = RPCTaskTimeout()
     private let connectAttemptKey: MobileRPCConnectAttemptKey?
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
+    /// Make-before-break: this session's dial may coexist with the ONE
+    /// installed same-route session it is about to displace, instead of being
+    /// gated `.busy` behind that session's still-live route lease.
+    private let admitsReplacementDialAlongsideInstalledSession: Bool
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     let cancelledWriteCompletionGraceNanoseconds: UInt64
     private let makeTransport: TransportFactory
-    let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
     private let transportConnectObserver: TransportConnectObserver?
@@ -96,11 +88,6 @@ actor MobileCoreRPCSession {
     private var recordedConnectCancellationAttemptIDs: Set<Int> = []
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
-    var independentEventPreparation: IndependentEventPreparation?
-    var independentEventReader: IndependentEventReader?
-    /// Subscription stream IDs that already made their one optional-lane
-    /// negotiation attempt during this control-session generation.
-    var independentEventSubscriptionStreamIDs: Set<String> = []
     var pending: [String: PendingContinuation] = [:]
     var pipelinedPending: [String: PipelinedRequestSettlement] = [:]
     var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
@@ -127,12 +114,12 @@ actor MobileCoreRPCSession {
     init(
         connectAttemptKey: MobileRPCConnectAttemptKey? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
+        admitsReplacementDialAlongsideInstalledSession: Bool = false,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         cancelledWriteCompletionGraceNanoseconds: UInt64 =
             MobileCoreRPCSession.defaultCancelledWriteCompletionGraceNanoseconds,
         makeTransport: @escaping TransportFactory,
-        makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
         diagnosticTransport: DiagnosticTransportKind? = nil,
         transportConnectObserver: TransportConnectObserver? = nil,
@@ -141,12 +128,13 @@ actor MobileCoreRPCSession {
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
+        self.admitsReplacementDialAlongsideInstalledSession =
+            admitsReplacementDialAlongsideInstalledSession
         self.abandonedConnectCleanupTimeoutNanoseconds = abandonedConnectCleanupTimeoutNanoseconds
         self.lateAbandonedConnectCloseTimeoutNanoseconds = lateAbandonedConnectCloseTimeoutNanoseconds
         self.cancelledWriteCompletionGraceNanoseconds =
             cancelledWriteCompletionGraceNanoseconds
         self.makeTransport = makeTransport
-        self.makeIndependentEventByteStream = makeIndependentEventByteStream
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
         self.diagnosticTransport = diagnosticTransport
         self.transportConnectObserver = transportConnectObserver
@@ -204,8 +192,6 @@ actor MobileCoreRPCSession {
             }
         }
         readerTask?.cancel()
-        independentEventPreparation?.task.cancel()
-        independentEventReader?.task.cancel()
         activeWrite?.task.cancel()
         activeWrite?.cancelledRequestResolutionTask?.cancel()
         writerTask?.cancel()
@@ -430,11 +416,6 @@ actor MobileCoreRPCSession {
         transport = nil
         readerTask?.cancel()
         readerTask = nil
-        independentEventPreparation?.task.cancel()
-        independentEventPreparation = nil
-        independentEventReader?.task.cancel()
-        independentEventReader = nil
-        independentEventSubscriptionStreamIDs.removeAll()
         await tearDownRegistrationHook?()
         if let transportToClose {
             await enqueueTransportClose(
@@ -504,7 +485,9 @@ actor MobileCoreRPCSession {
             connectionTask?.waiters.insert(waiterID)
         } else {
             switch await connectAttemptRegistry.beginConnect(
-                key: connectAttemptKey
+                key: connectAttemptKey,
+                allowsReplacementAlongsideActiveLease:
+                    admitsReplacementDialAlongsideInstalledSession
             ) {
             case .granted(let lease):
                 connectLease = lease

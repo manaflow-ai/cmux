@@ -892,4 +892,157 @@ import Testing
         "'\(value.replacingOccurrences(of: "'", with: "''"))'"
     }
 
+    @Test func learnedCapabilitiesRoundTripWithoutBumpingLWWFreshness() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 8443)
+        )
+        let pairedAt = Date(timeIntervalSince1970: 1_000)
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [route],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: pairedAt
+        )
+
+        let rawJSON = MobilePairedMac.encodeLearnedCapabilities(
+            ["events.v1", "terminal.render_grid.v1"]
+        )
+        // Dispatch through the protocol existential exactly like production
+        // callers: the witness is the concrete store method.
+        let storing: any MobilePairedMacStoring = store
+        try await storing.setLearnedCapabilities(
+            macDeviceID: "mac-a",
+            instanceTag: "default",
+            rawJSON: rawJSON,
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        let loaded = try #require(
+            try await store.loadAll(stackUserID: "user-1", teamID: nil).first
+        )
+        #expect(loaded.learnedCapabilities == ["events.v1", "terminal.render_grid.v1"])
+        // Device-local column: persisting a snapshot must NOT become the
+        // freshest write that LWW backup propagates to other devices.
+        #expect(loaded.lastSeenAt == pairedAt)
+
+        // nil clears the snapshot back to "never learned".
+        try await storing.setLearnedCapabilities(
+            macDeviceID: "mac-a",
+            instanceTag: "default",
+            rawJSON: nil,
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        let cleared = try #require(
+            try await store.loadAll(stackUserID: "user-1", teamID: nil).first
+        )
+        #expect(cleared.learnedCapabilities.isEmpty)
+    }
+
+    @Test func migratesV11DatabaseAddingLearnedCapabilitiesColumn() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+
+        // Seed a complete v11 schema (the v6/v7 row shape plus the v8/v9 grant
+        // table and the v10/v11 device-local columns) with one saved pairing,
+        // exactly what a pre-capability build leaves on disk.
+        var handle: OpaquePointer?
+        #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+        let seed = """
+            CREATE TABLE paired_macs (
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                display_name TEXT,
+                stack_user_id TEXT,
+                team_id TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                custom_name TEXT,
+                custom_color TEXT,
+                custom_icon TEXT,
+                instance_tag TEXT,
+                connection_method TEXT,
+                direct_addresses TEXT,
+                PRIMARY KEY (mac_device_id, owner_key)
+            );
+            CREATE TABLE mac_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (mac_device_id, owner_key)
+                    REFERENCES paired_macs(mac_device_id, owner_key)
+                    ON DELETE CASCADE
+            );
+            CREATE TABLE legacy_tailscale_route_grants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'migration',
+                UNIQUE (mac_device_id, owner_key, endpoint_json),
+                FOREIGN KEY (mac_device_id, owner_key)
+                    REFERENCES paired_macs(mac_device_id, owner_key)
+                    ON DELETE CASCADE
+            );
+            INSERT INTO paired_macs
+                (mac_device_id, owner_key, display_name, stack_user_id, team_id,
+                 created_at, last_seen_at, is_active, instance_tag)
+                VALUES ('mac-1', 'user-1' || char(31) || '' || char(31) || '',
+                        'Studio', 'user-1', NULL, 0, 0, 1, NULL);
+            PRAGMA user_version = 11;
+        """
+        #expect(sqlite3_exec(handle, seed, nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(handle)
+
+        // Opening runs v11→v12 (adds learned_capabilities). Existing rows read
+        // back with no learned snapshot, the new column is writable, and the
+        // on-disk schema version advances to the current one.
+        let store = try MobilePairedMacStore(databaseURL: url)
+        let migrated = try #require(
+            try await store.loadAll(stackUserID: "user-1", teamID: nil).first
+        )
+        #expect(migrated.displayName == "Studio")
+        #expect(migrated.learnedCapabilities.isEmpty)
+
+        let storing: any MobilePairedMacStoring = store
+        try await storing.setLearnedCapabilities(
+            macDeviceID: "mac-1",
+            instanceTag: nil,
+            rawJSON: MobilePairedMac.encodeLearnedCapabilities(["events.v1"]),
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        let updated = try #require(
+            try await store.loadAll(stackUserID: "user-1", teamID: nil).first
+        )
+        #expect(updated.learnedCapabilities == ["events.v1"])
+
+        var check: OpaquePointer?
+        #expect(sqlite3_open(url.path, &check) == SQLITE_OK)
+        var stmt: OpaquePointer?
+        #expect(sqlite3_prepare_v2(check, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK)
+        #expect(sqlite3_step(stmt) == SQLITE_ROW)
+        #expect(sqlite3_column_int(stmt, 0) == MobilePairedMacStore.currentSchemaVersion)
+        sqlite3_finalize(stmt)
+        sqlite3_close(check)
+    }
+
 }

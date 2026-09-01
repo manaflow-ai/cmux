@@ -1,11 +1,24 @@
 // Stack access-token verification for the relay worker and Durable Object.
 //
-// The endpoint's token is verified against the Stack API with the CLIENT
-// access type — the same check the Mac's own verifier performs — using only
-// non-secret configuration (project id + publishable client key). A short
-// per-isolate verdict cache keyed by token hash keeps reconnect bursts and
-// in-band refreshes from re-hitting Stack; failures are never cached.
+// Access tokens are ES256 JWTs signed by the Stack backend; the primary path
+// verifies them LOCALLY against the project's published JWKS
+// (`/api/v1/projects/<id>/.well-known/jwks.json`), so a connect normally
+// costs zero upstream round trips. The JWKS is cached per isolate with
+// jose's remote set (kid-miss refetch handles key rotation). Tokens that are
+// not structurally JWTs fall back to the legacy `/users/me` check with the
+// CLIENT access type. A short per-isolate verdict cache keyed by token hash
+// keeps reconnect bursts from re-verifying; failures are never cached.
+//
+// Claim contract (mirrors the backend's signer): `sub` is the user id and
+// `aud` is the project id — an `:anon` or `:restricted` audience suffix
+// marks a user class that must never reach a relay host, so only the exact
+// project id is accepted. `iss` is pinned to the issuer the backend derives
+// from its API base URL (`<base>/api/v1/projects/<projectId>`, verified
+// against a real token 2026-08); the allow-set is computed from the
+// configured STACK_API_URL, plus its stack-auth ↔ hexclave rebrand alias
+// host (the backend's validator accepts both during the domain transition).
 
+import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 import { MAX_ACCESS_TOKEN_CHARS } from "./protocol";
 
 export interface StackAuthEnv {
@@ -60,6 +73,143 @@ function writeCache(key: string, userId: string, nowMs: number): void {
 /** Test seam. */
 export function clearStackVerdictCacheForTesting(): void {
   verdictCache.clear();
+  jwksByUrl.clear();
+}
+
+// The JWKS is fetched as plain JSON with the injected fetch (testable) and
+// cached per isolate: 24h TTL, with a cooldown-limited refetch when a token
+// names an unknown kid (key rotation).
+interface JwksEntry {
+  set: ReturnType<typeof createLocalJWKSet>;
+  kids: Set<string>;
+  fetchedAtMs: number;
+}
+const jwksByUrl = new Map<string, JwksEntry>();
+const JWKS_TTL_MS = 24 * 60 * 60 * 1000;
+const JWKS_KID_MISS_COOLDOWN_MS = 60 * 1000;
+
+async function loadJwks(
+  url: string,
+  fetchImpl: typeof fetch,
+  nowMs: number,
+): Promise<JwksEntry | null> {
+  let response: Response;
+  try {
+    response = await fetchImpl(url, { signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS) });
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  let body: { keys?: { kid?: string }[] };
+  try {
+    body = (await response.json()) as { keys?: { kid?: string }[] };
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(body.keys)) return null;
+  try {
+    const entry: JwksEntry = {
+      set: createLocalJWKSet(body as Parameters<typeof createLocalJWKSet>[0]),
+      kids: new Set(body.keys.map((key) => key.kid).filter((kid): kid is string => typeof kid === "string")),
+      fetchedAtMs: nowMs,
+    };
+    jwksByUrl.set(url, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+// The stack-auth ↔ hexclave rebrand host pairs, mirroring the backend's
+// `CLOUD_HOST_PAIRS` (`packages/shared/src/utils/cloud-hosts.tsx` in the
+// Stack source): tokens minted under one brand host must validate under the
+// other. A Map (not a plain object) avoids prototype-key collisions on a
+// host string that ultimately comes from configuration.
+const issuerHostAliases = new Map<string, string>(
+  (
+    [
+      ["api.stack-auth.com", "api.hexclave.com"],
+      ["api.dev.stack-auth.com", "api.dev.hexclave.com"],
+      ["api.staging.stack-auth.com", "api.staging.hexclave.com"],
+    ] as const
+  ).flatMap(([stackAuthHost, hexclaveHost]) => [
+    [stackAuthHost, hexclaveHost] as const,
+    [hexclaveHost, stackAuthHost] as const,
+  ]),
+);
+
+/**
+ * Issuers a token for `projectId` may carry, derived from the configured
+ * Stack API base URL exactly the way the backend's `getIssuer` builds the
+ * claim for normal users: `new URL('/api/v1/projects/<id>', base)`. Anonymous
+ * and restricted user types issue under `/projects-anonymous-users/` and
+ * `/projects-restricted-users/`; those users are already rejected by the
+ * audience check, so only the normal-user issuer is allowed.
+ */
+export function computeAllowedIssuers(base: string, projectId: string): string[] {
+  let issuerUrl: URL;
+  try {
+    issuerUrl = new URL(`/api/v1/projects/${projectId}`, base);
+  } catch {
+    return [`${base.replace(/\/$/, "")}/api/v1/projects/${projectId}`];
+  }
+  const issuers = [issuerUrl.toString()];
+  const aliasHost = issuerHostAliases.get(issuerUrl.host);
+  if (aliasHost) {
+    const aliased = new URL(issuerUrl.toString());
+    aliased.host = aliasHost;
+    issuers.push(aliased.toString());
+  }
+  return issuers;
+}
+
+function looksLikeJwt(token: string): boolean {
+  return token.startsWith("ey") && token.split(".").length === 3;
+}
+
+async function verifyJwtLocally(
+  token: string,
+  projectId: string,
+  base: string,
+  fetchImpl: typeof fetch,
+  nowMs: number,
+): Promise<StackVerification | null> {
+  let kid: string | undefined;
+  try {
+    kid = decodeProtectedHeader(token).kid;
+  } catch {
+    return null; // Not a JWT after all; the caller falls back.
+  }
+  const url = `${base}/api/v1/projects/${projectId}/.well-known/jwks.json`;
+  let entry = jwksByUrl.get(url);
+  if (!entry || nowMs - entry.fetchedAtMs > JWKS_TTL_MS) {
+    entry = (await loadJwks(url, fetchImpl, nowMs)) ?? entry;
+  } else if (kid !== undefined && !entry.kids.has(kid)
+    && nowMs - entry.fetchedAtMs > JWKS_KID_MISS_COOLDOWN_MS) {
+    // Unknown kid on a fresh-enough set: likely key rotation; refetch once
+    // per cooldown window so a garbage kid cannot hammer the endpoint.
+    entry = (await loadJwks(url, fetchImpl, nowMs)) ?? entry;
+  }
+  if (!entry) return { ok: false, error: "verify_unavailable" };
+  try {
+    const { payload } = await jwtVerify(token, entry.set, {
+      algorithms: ["ES256"],
+      // Exact project id only: `<id>:anon` / `<id>:restricted` audiences are
+      // user classes a relay host must reject.
+      audience: projectId,
+      // Issuer pinned to the configured Stack API base (plus its rebrand
+      // alias host); a mismatch is a definitive invalid_token.
+      issuer: computeAllowedIssuers(base, projectId),
+    });
+    const userId = payload.sub;
+    if (typeof userId !== "string" || userId.length === 0) {
+      return { ok: false, error: "invalid_token" };
+    }
+    return { ok: true, userId };
+  } catch {
+    // With a fresh key set in hand, a verification failure is definitive.
+    return { ok: false, error: "invalid_token" };
+  }
 }
 
 export async function verifyStackAccessToken(
@@ -79,6 +229,13 @@ export async function verifyStackAccessToken(
   if (cached) return { ok: true, userId: cached.userId };
 
   const base = (env.STACK_API_URL?.trim() || DEFAULT_STACK_API_URL).replace(/\/$/, "");
+  if (looksLikeJwt(token)) {
+    const local = await verifyJwtLocally(token, projectId, base, fetchImpl, nowMs);
+    if (local) {
+      if (local.ok) writeCache(cacheKey, local.userId, nowMs);
+      return local;
+    }
+  }
   let response: Response;
   try {
     response = await fetchImpl(`${base}/api/v1/users/me`, {

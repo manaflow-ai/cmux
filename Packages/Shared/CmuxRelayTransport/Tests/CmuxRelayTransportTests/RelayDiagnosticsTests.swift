@@ -30,6 +30,37 @@ import Testing
     }
 }
 
+@Suite struct RelayTLSPrewarmURLTests {
+    @Test func healthzSwapsWssToHttpsAndReplacesThePath() throws {
+        let relay = try #require(URL(string: "wss://relay.example.test/v1/connect?x=1#frag"))
+        let healthz = RelayConnectAuth.healthzURL(forRelayURL: relay)
+        #expect(healthz?.absoluteString == "https://relay.example.test/healthz")
+    }
+
+    @Test func healthzKeepsAnExplicitPort() throws {
+        let relay = try #require(URL(string: "wss://relay.example.test:8443/v1/connect"))
+        let healthz = RelayConnectAuth.healthzURL(forRelayURL: relay)
+        #expect(healthz?.absoluteString == "https://relay.example.test:8443/healthz")
+    }
+
+    @Test func loopbackDevWsBecomesHttp() throws {
+        let relay = try #require(URL(string: "ws://127.0.0.1:8787/v1/connect"))
+        let healthz = RelayConnectAuth.healthzURL(forRelayURL: relay)
+        #expect(healthz?.absoluteString == "http://127.0.0.1:8787/healthz")
+    }
+
+    @Test func unknownSchemeFailsClosed() throws {
+        let relay = try #require(URL(string: "ftp://relay.example.test/v1/connect"))
+        #expect(RelayConnectAuth.healthzURL(forRelayURL: relay) == nil)
+    }
+
+    @Test func defaultDebugRelayDerivesTheDevWorkerHealthz() throws {
+        let relay = try #require(URL(string: RelayConnectAuth.debugDefaultRelayURLString))
+        let healthz = RelayConnectAuth.healthzURL(forRelayURL: relay)
+        #expect(healthz?.absoluteString == "https://cmux-mobile-relay-dev.debussy.workers.dev/healthz")
+    }
+}
+
 /// Collects transport log lines across concurrency domains.
 private final class LogCapture: @unchecked Sendable {
     private let lock = NSLock()

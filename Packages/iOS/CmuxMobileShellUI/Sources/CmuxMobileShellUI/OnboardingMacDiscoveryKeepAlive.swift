@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShellModel
 import Foundation
 import os
 

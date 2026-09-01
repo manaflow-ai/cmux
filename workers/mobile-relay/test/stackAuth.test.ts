@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { MAX_ACCESS_TOKEN_CHARS } from "../src/protocol";
-import { clearStackVerdictCacheForTesting, verifyStackAccessToken } from "../src/stackAuth";
+import {
+  clearStackVerdictCacheForTesting,
+  computeAllowedIssuers,
+  verifyStackAccessToken,
+} from "../src/stackAuth";
 
 const ENV = {
   STACK_PROJECT_ID: "project-1",
@@ -78,5 +82,155 @@ describe("verifyStackAccessToken", () => {
     const { fetch } = fetchReturning(200, { nope: true });
     expect(await verifyStackAccessToken(ENV, "token", 1_000, fetch))
       .toEqual({ ok: false, error: "verify_unavailable" });
+  });
+});
+
+describe("verifyStackAccessToken (local JWKS path)", () => {
+  const jose = require("jose") as typeof import("jose");
+
+  async function makeSigner() {
+    const { publicKey, privateKey } = await jose.generateKeyPair("ES256", { extractable: true });
+    const kid = "test-kid-1";
+    const jwk = { ...(await jose.exportJWK(publicKey)), kid, alg: "ES256" as const };
+    return { privateKey, kid, jwks: { keys: [jwk] } };
+  }
+
+  function jwksAndUsersFetch(jwks: unknown): { calls: string[]; fetch: typeof fetch } {
+    const calls: string[] = [];
+    const impl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      calls.push(url);
+      if (url.includes(".well-known/jwks.json")) {
+        return new Response(JSON.stringify(jwks), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: "fallback-user" }), { status: 200 });
+    }) as typeof fetch;
+    return { calls, fetch: impl };
+  }
+
+  async function signToken(
+    // jose v5 types signing keys as its own KeyLike, not CryptoKey.
+    privateKey: Awaited<ReturnType<typeof jose.generateKeyPair>>["privateKey"],
+    kid: string,
+    {
+      aud = "project-1",
+      sub = "user-jwt",
+      expiresIn = 600,
+      // Real-token issuer shape: `<base>/api/v1/projects/<projectId>`.
+      iss = "https://api.stack-auth.com/api/v1/projects/project-1",
+    }: { aud?: string; sub?: string; expiresIn?: number; iss?: string } = {},
+  ): Promise<string> {
+    return await new jose.SignJWT({ sub })
+      .setProtectedHeader({ alg: "ES256", kid })
+      .setAudience(aud)
+      .setIssuer(iss)
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) + expiresIn)
+      .sign(privateKey);
+  }
+
+  beforeEach(() => {
+    clearStackVerdictCacheForTesting();
+  });
+
+  test("verifies a signed token locally without calling /users/me", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { calls, fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(privateKey, kid);
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+    expect(calls.filter((url) => url.includes("/users/me")).length).toBe(0);
+    expect(calls.filter((url) => url.includes("jwks.json")).length).toBe(1);
+    // Second call: verdict cache, no fetches at all.
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+    expect(calls.length).toBe(1);
+  });
+
+  test("rejects anonymous and restricted audiences", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    for (const aud of ["project-1:anon", "project-1:restricted", "other-project"]) {
+      const token = await signToken(privateKey, kid, { aud });
+      expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+        .toEqual({ ok: false, error: "invalid_token" });
+    }
+  });
+
+  test("rejects expired tokens", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(privateKey, kid, { expiresIn: -600 });
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: false, error: "invalid_token" });
+  });
+
+  test("rejects a token signed by the wrong key", async () => {
+    const { jwks } = await makeSigner();
+    const rogue = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(rogue.privateKey, rogue.kid, {});
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: false, error: "invalid_token" });
+  });
+
+  test("rejects issuers not derivable from the configured Stack API base", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    for (const iss of [
+      "https://evil.example.com/api/v1/projects/project-1", // wrong host
+      "https://api.stack-auth.com/api/v1/projects/other-project", // wrong project
+      "https://api.stack-auth.com/api/v1/projects-anonymous-users/project-1", // wrong user type
+      "https://api.dev.stack-auth.com/api/v1/projects/project-1", // wrong environment
+    ]) {
+      const token = await signToken(privateKey, kid, { iss });
+      expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+        .toEqual({ ok: false, error: "invalid_token" });
+    }
+  });
+
+  test("accepts the rebrand alias host issuer", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const token = await signToken(privateKey, kid, {
+      iss: "https://api.hexclave.com/api/v1/projects/project-1",
+    });
+    expect(await verifyStackAccessToken(ENV, token, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+  });
+
+  test("pins the issuer to a configured non-default STACK_API_URL", async () => {
+    const { privateKey, kid, jwks } = await makeSigner();
+    const { fetch } = jwksAndUsersFetch(jwks);
+    const env = { ...ENV, STACK_API_URL: "http://localhost:8102" };
+    const good = await signToken(privateKey, kid, {
+      iss: "http://localhost:8102/api/v1/projects/project-1",
+    });
+    expect(await verifyStackAccessToken(env, good, Date.now(), fetch))
+      .toEqual({ ok: true, userId: "user-jwt" });
+    clearStackVerdictCacheForTesting();
+    const bad = await signToken(privateKey, kid, {
+      iss: "https://api.stack-auth.com/api/v1/projects/project-1",
+    });
+    expect(await verifyStackAccessToken(env, bad, Date.now(), fetch))
+      .toEqual({ ok: false, error: "invalid_token" });
+  });
+
+  test("computeAllowedIssuers derives from base URL plus alias host", () => {
+    expect(computeAllowedIssuers("https://api.stack-auth.com", "p-1")).toEqual([
+      "https://api.stack-auth.com/api/v1/projects/p-1",
+      "https://api.hexclave.com/api/v1/projects/p-1",
+    ]);
+    expect(computeAllowedIssuers("http://localhost:8102", "p-1")).toEqual([
+      "http://localhost:8102/api/v1/projects/p-1",
+    ]);
+  });
+
+  test("non-JWT tokens fall back to /users/me", async () => {
+    const { jwks } = await makeSigner();
+    const { calls, fetch } = jwksAndUsersFetch(jwks);
+    expect(await verifyStackAccessToken(ENV, "opaque-token", Date.now(), fetch))
+      .toEqual({ ok: true, userId: "fallback-user" });
+    expect(calls.filter((url) => url.includes("/users/me")).length).toBe(1);
   });
 });

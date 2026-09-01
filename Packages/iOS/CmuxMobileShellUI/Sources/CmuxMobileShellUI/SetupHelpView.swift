@@ -16,7 +16,7 @@ import SwiftUI
 /// inspects an in-flight pairing. It only reads durable signals (signed in,
 /// known paired Mac) to pick which gate to highlight, and renders static
 /// guidance for each of the four setup gates classified by
-/// ``MobileSetupGuidancePolicy``. The network section explains Iroh's default
+/// ``MobileSetupGuidancePolicy``. The network section explains the relay's default
 /// direct-or-relay path and keeps Tailscale and other private networks as
 /// optional fallbacks.
 struct SetupHelpView: View {
@@ -124,7 +124,7 @@ struct SetupHelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string(
                     "mobile.setupHelp.networkBody",
-                    defaultValue: "cmux connects through Iroh, which links this phone to your computer directly when possible and through an encrypted cmux relay when not. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
+                    defaultValue: "cmux connects through the cmux relay: one encrypted connection from each device, joined at the relay. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

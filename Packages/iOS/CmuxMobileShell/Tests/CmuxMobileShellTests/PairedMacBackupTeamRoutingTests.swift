@@ -5,16 +5,6 @@ import Testing
 @testable import CmuxMobileShell
 
 /// A forget capability that succeeds without side effects, so the test reaches
-/// the local-row + backup-tombstone cleanup that follows the revoke.
-@MainActor
-private final class BackupRoutingForget: MobileIrohMacForgetting {
-    func forgetComputer(
-        macDeviceID _: String,
-        instanceTag _: String?,
-        expectedAccountID _: String
-    ) async throws {}
-}
-
 /// Regression coverage for the backup-team routing of a forget.
 ///
 /// A tombstone's destination is correctness-critical: sent to the wrong team's
@@ -60,7 +50,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -134,7 +123,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -235,7 +223,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -320,7 +307,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -406,7 +392,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -477,7 +462,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -632,7 +616,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -728,7 +711,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -796,7 +778,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -863,7 +844,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -1024,7 +1004,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -1108,7 +1087,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-shown" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -1209,7 +1187,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { team.value },
             hiddenMacStore: InMemoryPairedMacHiddenStore()
@@ -1275,7 +1252,6 @@ private final class BackupRoutingForget: MobileIrohMacForgetting {
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: store,
-            personalIrohForget: BackupRoutingForget(),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             hiddenMacStore: InMemoryPairedMacHiddenStore()

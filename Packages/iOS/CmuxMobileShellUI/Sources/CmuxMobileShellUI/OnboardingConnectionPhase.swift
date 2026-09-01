@@ -1,8 +1,8 @@
 #if os(iOS)
 /// Presentation state for the final onboarding scene.
 ///
-/// Same-account Iroh discovery always gets the first attempt. QR pairing is
-/// revealed only after that attempt finishes without a live Mac.
+/// Same-account automatic discovery always gets the first attempt. QR pairing
+/// is revealed only after that attempt finishes without a live Mac.
 enum OnboardingConnectionPhase: Equatable, Sendable {
     case idle
     case searching

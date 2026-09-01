@@ -86,6 +86,7 @@ import Testing
             attachTicketAuthenticated: false,
             didFinishAuthBootstrap: true,
             isRestoringSession: false,
+            hasRestoredAccountIdentity: true,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
@@ -93,6 +94,7 @@ import Testing
             attachTicketAuthenticated: true,
             didFinishAuthBootstrap: true,
             isRestoringSession: false,
+            hasRestoredAccountIdentity: true,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
@@ -100,6 +102,7 @@ import Testing
             attachTicketAuthenticated: true,
             didFinishAuthBootstrap: true,
             isRestoringSession: false,
+            hasRestoredAccountIdentity: true,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
@@ -107,6 +110,7 @@ import Testing
             attachTicketAuthenticated: false,
             didFinishAuthBootstrap: true,
             isRestoringSession: true,
+            hasRestoredAccountIdentity: true,
             connectionState: .disconnected
         ))
         #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
@@ -114,7 +118,119 @@ import Testing
             attachTicketAuthenticated: false,
             didFinishAuthBootstrap: false,
             isRestoringSession: false,
+            hasRestoredAccountIdentity: true,
             connectionState: .disconnected
+        ))
+    }
+
+    @Test func dialsEarlyOnlyForARestoredSessionWithAReadableIdentity() {
+        // Launch restore of a keychain session with a readable cached user id:
+        // the dial overlaps the auth bootstrap instead of waiting behind it.
+        #expect(MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: true,
+            connectionState: .disconnected
+        ))
+        // No readable restored identity: the account scope cannot be pinned,
+        // so the dial waits for the bootstrap verdict.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: false,
+            connectionState: .disconnected
+        ))
+        // A temporary attach ticket still owns the connection during restore.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: true,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: true,
+            connectionState: .disconnected
+        ))
+        // Already connected: nothing to dial.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: true,
+            connectionState: .connected
+        ))
+        // Restoring without published stack auth (no cached user at priming).
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: false,
+            connectionState: .disconnected
+        ))
+    }
+
+    @Test func startsStartupConnectionsAfterBootstrapOrDuringRestoredSessionRestore() {
+        // Classic post-bootstrap barrier.
+        #expect(MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: true,
+            isRestoringSession: false,
+            hasRestoredAccountIdentity: true
+        ))
+        // Early launch window against the restored keychain session.
+        #expect(MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: true
+        ))
+        // Restored session with no readable id keeps waiting for bootstrap.
+        #expect(!MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: false
+        ))
+        // Interactive sign-in published before the bootstrap barrier: startup
+        // still waits for the team scope the bootstrap continuation applies.
+        #expect(!MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: false,
+            hasRestoredAccountIdentity: true
+        ))
+        // Attach-ticket-only authentication starts nothing before bootstrap
+        // (the ticket, not startup, owns the connection) but passes the
+        // composite gate after it, matching the pre-early-dial behavior.
+        #expect(!MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: true,
+            didFinishAuthBootstrap: false,
+            isRestoringSession: true,
+            hasRestoredAccountIdentity: false
+        ))
+        #expect(MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: true,
+            didFinishAuthBootstrap: true,
+            isRestoringSession: false,
+            hasRestoredAccountIdentity: false
+        ))
+        // Signed out entirely.
+        #expect(!MobileRootAuthGate.shouldStartStartupConnections(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            didFinishAuthBootstrap: true,
+            isRestoringSession: false,
+            hasRestoredAccountIdentity: false
         ))
     }
 

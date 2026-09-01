@@ -9,9 +9,17 @@ import Foundation
 /// cleanup. One unresolved cleanup permits one recovery dial; two block the
 /// route until either exact cleanup finishes. A global admission budget bounds
 /// live transports, active dials, and cleanup debt across all routes.
+///
+/// Exclusive admission grants one active lease per route. A make-before-break
+/// replacement dial may request coexistence with the one installed session it
+/// is about to displace: exactly one extra lease, and never a third, so a
+/// roaming swap can dial the same relay endpoint while the old session keeps
+/// serving, without ever permitting an unbounded fan-out of same-route dials.
 public actor MobileRPCConnectAttemptRegistry {
     private static let maximumUnresolvedCleanupsPerRoute = 2
     private static let maximumGlobalOutstandingAttempts = 16
+    /// One installed session plus one replacement dial.
+    private static let maximumCoexistingReplacementLeases = 2
 
     private var routeStates:
         [MobileRPCConnectAttemptKey: MobileRPCConnectRouteState] = [:]
@@ -22,7 +30,8 @@ public actor MobileRPCConnectAttemptRegistry {
     public init() {}
 
     func beginConnect(
-        key: MobileRPCConnectAttemptKey?
+        key: MobileRPCConnectAttemptKey?,
+        allowsReplacementAlongsideActiveLease: Bool = false
     ) -> MobileRPCConnectAdmission {
         guard unresolvedPhysicalCleanupCount
                 < Self.maximumGlobalOutstandingAttempts else {
@@ -41,7 +50,10 @@ public actor MobileRPCConnectAttemptRegistry {
             return .granted(lease)
         }
         var state = routeStates[key] ?? MobileRPCConnectRouteState()
-        guard state.activeLeaseID == nil else {
+        let maximumActiveLeases = allowsReplacementAlongsideActiveLease
+            ? Self.maximumCoexistingReplacementLeases
+            : 1
+        guard state.activeLeaseIDs.count < maximumActiveLeases else {
             return .busy
         }
         guard state.physicalCleanupTasks.count
@@ -49,7 +61,7 @@ public actor MobileRPCConnectAttemptRegistry {
             return .cleanupBlocked
         }
         let lease = MobileRPCConnectAttemptLease(key: key, id: UUID())
-        state.activeLeaseID = lease.id
+        state.activeLeaseIDs.insert(lease.id)
         routeStates[key] = state
         return .granted(lease)
     }
@@ -61,10 +73,9 @@ public actor MobileRPCConnectAttemptRegistry {
             return
         }
         guard var state = routeStates[key],
-              state.activeLeaseID == lease.id else {
+              state.activeLeaseIDs.remove(lease.id) != nil else {
             return
         }
-        state.activeLeaseID = nil
         store(state, forKey: key)
     }
 
@@ -87,9 +98,7 @@ public actor MobileRPCConnectAttemptRegistry {
         guard state.physicalCleanupTasks[lease.id] == nil else {
             return
         }
-        if state.activeLeaseID == lease.id {
-            state.activeLeaseID = nil
-        }
+        state.activeLeaseIDs.remove(lease.id)
         state.physicalCleanupTasks[lease.id] = Task.detached {
             [weak self] in
             await operation()
@@ -106,7 +115,7 @@ public actor MobileRPCConnectAttemptRegistry {
         // are ownership facts, not route-health strikes, so a network change must
         // not erase them and accidentally admit duplicate dials.
         for (key, state) in routeStates
-            where state.activeLeaseID == nil && state.physicalCleanupTasks.isEmpty {
+            where state.activeLeaseIDs.isEmpty && state.physicalCleanupTasks.isEmpty {
             routeStates[key] = nil
         }
     }
@@ -139,9 +148,7 @@ public actor MobileRPCConnectAttemptRegistry {
         unresolvedPhysicalCleanupCount
             + activeUntrackedLeaseIDs.count
             + routeStates.values.reduce(into: 0) {
-                if $1.activeLeaseID != nil {
-                    $0 += 1
-                }
+                $0 += $1.activeLeaseIDs.count
             }
     }
 
@@ -149,7 +156,7 @@ public actor MobileRPCConnectAttemptRegistry {
         _ state: MobileRPCConnectRouteState,
         forKey key: MobileRPCConnectAttemptKey
     ) {
-        if state.activeLeaseID == nil,
+        if state.activeLeaseIDs.isEmpty,
            state.physicalCleanupTasks.isEmpty {
             routeStates[key] = nil
         } else {

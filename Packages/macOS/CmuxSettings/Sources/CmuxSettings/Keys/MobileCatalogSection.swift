@@ -48,14 +48,16 @@ public struct MobileCatalogSection: SettingCatalogSection {
     private static let iOSPairingHostDefault = false
     #endif
 
-    /// Mac-side mobile relay host (the cmux Cloudflare relay). OFF by default
-    /// on EVERY build channel: while off the Mac never mints a relay ticket
-    /// and never opens the relay WebSocket, so "off" is provably zero relay
-    /// connections. Independent of the Tailscale listener toggle above; the
-    /// two transports never substitute for each other.
+    /// Mac-side mobile relay host (the cmux Cloudflare relay). ON by default:
+    /// the relay is the iPhone's default connection method, so a fresh
+    /// pairing must work out of the box. Turning it off provably closes the
+    /// relay WebSocket and stops all relay sessions. Every session is
+    /// admitted end to end against the Mac's own signed-in account before
+    /// anything is served. Independent of the Tailscale listener toggle
+    /// above; the two transports never substitute for each other.
     public let relayHost = DefaultsKey<Bool>(
         id: "mobile.relayHost.enabled",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "mobile.relayHost.enabled"
     )
 

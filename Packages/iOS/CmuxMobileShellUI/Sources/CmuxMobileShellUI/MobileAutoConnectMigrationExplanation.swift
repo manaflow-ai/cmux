@@ -50,7 +50,7 @@ struct MobileAutoConnectMigrationExplanation: View {
     private var bodyText: some View {
         Text(L10n.string(
             "mobile.autoConnectMigration.body",
-            defaultValue: "Iroh needs cmux 0.64.20 or later on your Mac for its authenticated, end-to-end encrypted connection."
+            defaultValue: "cmux needs a current version on your Mac for its authenticated, end-to-end encrypted connection."
         ))
         .font(.body)
         .accessibilityIdentifier("MobileAutoConnectMigrationBody")

@@ -93,29 +93,18 @@ enum MobileWhatsNewCatalog {
                     ),
                     detail: L10n.string(
                         "mobile.connectionsUpdate.perComputer.detail",
-                        defaultValue: "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method."
+                        defaultValue: "Each computer now picks how this iPhone reaches it: Relay or Tailscale Only. Set it in Computers → your computer → Connection Method."
                     )
                 ),
                 .init(
                     symbol: "bolt.horizontal",
                     title: L10n.string(
-                        "mobile.connectionsUpdate.iroh.title",
-                        defaultValue: "Auto-Connect is now Iroh"
+                        "mobile.connectionsUpdate.relay.title",
+                        defaultValue: "New: Relay connections"
                     ),
                     detail: L10n.string(
-                        "mobile.connectionsUpdate.iroh.detail",
-                        defaultValue: "Same authenticated, end-to-end encrypted connection, now with a clearer name. The app-wide setting moved out of Settings."
-                    )
-                ),
-                .init(
-                    symbol: "network",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.direct.title",
-                        defaultValue: "New: Direct addresses"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.direct.detail",
-                        defaultValue: "On your LAN, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback."
+                        "mobile.connectionsUpdate.relay.detail",
+                        defaultValue: "Your phone now reaches your Mac through the cmux relay from any network. No VPN and no setup; both devices verify your account, and the relay cannot read your terminals."
                     )
                 ),
                 .init(

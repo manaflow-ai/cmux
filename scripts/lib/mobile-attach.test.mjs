@@ -786,13 +786,9 @@ test("ensure-mac rotates an armed exact-tag app before using explicit credential
   );
 });
 
-test("release gate grants asynchronous Iroh publication a bounded startup window", () => {
+test("attach minting keeps a bounded, overridable attempt budget", () => {
   const launcher = fs.readFileSync(
     path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
-    "utf8",
-  );
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
     "utf8",
   );
 
@@ -803,14 +799,6 @@ test("release gate grants asynchronous Iroh publication a bounded startup window
   assert.match(
     launcher,
     /cmux_attach_mint_url[^\n]+"\$ATTACH_TARGET" "\$ATTACH_MINT_MAX_ATTEMPTS"/,
-  );
-  assert.match(
-    gate,
-    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,320}\.\/scripts\/mobile-dev-launch\.sh/,
-  );
-  assert.match(
-    gate,
-    /CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \\[\s\S]{0,120}cmux_attach_ensure_mac/,
   );
 });
 
@@ -850,44 +838,6 @@ test("simulator launch seeds a deterministic durable device id before app launch
     seedEnvironment < launch,
     "the sandboxed app must receive its durable identity before launch",
   );
-});
-
-test("release gate assigns each mode to its transport proof", () => {
-  const cases = [
-    ["automatic", "app-rpc"],
-    ["relay-only", "app-rpc"],
-    ["relay-expiry", "app-rpc"],
-    ["direct-only", "simulator-direct-transport"],
-    ["private-path", "host-private-path-transport"],
-  ];
-
-  for (const [mode, expectedPlan] of cases) {
-    const result = run("bash", [
-      "scripts/run-iroh-release-gate.sh",
-      "--mode",
-      mode,
-      "--tag",
-      `plan-${mode}`,
-      "--print-plan",
-    ]);
-    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
-    assert.equal(result.stdout.trim(), expectedPlan);
-  }
-});
-
-test("private-path plan ignores the unrelated staging base URL", () => {
-  const result = run("bash", [
-    "scripts/run-iroh-release-gate.sh",
-    "--mode",
-    "private-path",
-    "--tag",
-    "plan-private",
-    "--staging-base-url",
-    "not-a-network-url",
-    "--print-plan",
-  ]);
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), "host-private-path-transport");
 });
 
 test("mobile launch accepts an explicit no-attach override", () => {
@@ -974,109 +924,14 @@ test("local iOS reload never hides a requested setup failure with a plain launch
   );
 });
 
-test("release gate builds and installs on its exact isolated simulator", () => {
+test("ios reload can target one exact isolated simulator", () => {
   const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
-    "utf8",
-  );
-  const targets = fs.readFileSync(
-    path.join(repoRoot, "scripts/lib/iroh-release-gate-targets.sh"),
-    "utf8",
-  );
 
   assert.match(iosReload, /--simulator-id\)/);
   assert.match(
     iosReload,
     /DESTINATION="platform=iOS Simulator,id=\$SIMULATOR_ID"/,
   );
-  assert.match(targets, /--simulator-id "\$simulator_id"/);
-  assert.match(gate, /iroh_release_gate_set_ios_reload_args/);
-  assert.match(gate, /\.\/ios\/scripts\/reload\.sh "\$\{IROH_RELEASE_GATE_IOS_RELOAD_ARGS\[@\]\}"/);
-});
-
-test("release gate shuts down retained same-tag simulators before creating its replacement", () => {
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
-    "utf8",
-  );
-  const shutdown = gate.indexOf(
-    'shutdown_prior_gate_simulators "$SIMULATOR_NAME"',
-  );
-  const create = gate.indexOf(
-    'SIMULATOR_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME"',
-  );
-
-  assert.notEqual(
-    shutdown,
-    -1,
-    "a retained same-tag simulator can keep replacing the deterministic device binding",
-  );
-  assert.notEqual(create, -1, "release-gate simulator creation is missing");
-  assert.ok(
-    shutdown < create,
-    "all prior same-tag simulators must stop before the replacement is created",
-  );
-  assert.match(
-    gate,
-    /device\.get\("name"\) == os\.environ\["SIMULATOR_NAME"\]/,
-  );
-  assert.match(gate, /xcrun simctl shutdown "\$prior_simulator_id"/);
-});
-
-test("release gate points Mac and iOS at one explicit presence backend", () => {
-  const gate = fs.readFileSync(
-    path.join(repoRoot, "scripts/run-iroh-release-gate.sh"),
-    "utf8",
-  );
-
-  assert.match(gate, /--presence-base-url <url>/);
-  assert.match(
-    gate,
-    /--presence-base-url\) PRESENCE_BASE_URL="\$\{2:-\}"; shift 2 ;;/,
-  );
-  assert.match(
-    gate,
-    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,240}\.\/scripts\/reload\.sh/,
-  );
-  assert.match(
-    gate,
-    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,320}\.\/ios\/scripts\/reload\.sh/,
-  );
-  assert.match(
-    gate,
-    /CMUX_PRESENCE_BASE_URL="\$PRESENCE_BASE_URL" \\\n[\s\S]{0,160}cmux_attach_ensure_mac/,
-  );
-});
-
-test("physical-route attach reports a missing tagged Mac before blaming Iroh", () => {
-  const tag = `missing-mac-${process.pid}`;
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-missing-mac-test-"));
-  fs.mkdirSync(path.join(tempRoot, ".secrets"));
-  fs.writeFileSync(
-    path.join(tempRoot, ".secrets/cmuxterm-dev.env"),
-    "CMUX_UITEST_STACK_EMAIL=agent@example.com\nCMUX_UITEST_STACK_PASSWORD=test-password\n",
-    { mode: 0o600 },
-  );
-  const result = run("bash", [
-    "scripts/mobile-dev-launch.sh",
-    "--tag",
-    tag,
-    "--simulator",
-    "iPhone 17",
-    "--attach",
-    "--agent",
-    "--detach",
-    "--iroh-release-gate",
-    "automatic",
-  ], { HOME: tempRoot });
-  fs.rmSync(tempRoot, { recursive: true, force: true });
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /tagged Mac.*not running|debug socket.*not ready/i);
-  assert.match(result.stderr, /--ensure-mac/);
-  assert.doesNotMatch(result.stderr, /must advertise an encrypted Iroh route/i);
-  assert.doesNotMatch(result.stderr, /--no-attach/);
 });
 
 for (const entrypoint of [

@@ -6,13 +6,14 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "bun test",
-    "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json",
+    "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json && tsgo --noEmit -p tsconfig.worker-test.json",
     "generate": "bun tools/generate.ts --write",
     "generate:check": "bun tools/generate.ts --check",
     "check": "bun run generate:check && bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
   },
   "dependencies": {
-    "effect": "^3.21.2"
+    "effect": "^3.21.2",
+    "jose": "^5.9.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260525.0",

@@ -155,6 +155,13 @@ actor LivenessHostRouter {
         recorded.filter { $0.method == method }.count
     }
 
+    /// Every recorded request method in arrival order, for wire-order
+    /// assertions (e.g. the pipelined connect subscribe preceding the
+    /// workspace-list request it rides with).
+    func recordedMethods() -> [String?] {
+        recorded.map(\.method)
+    }
+
     func requests(for method: String) -> [RecordedRequest] {
         recorded.filter { $0.method == method }
     }

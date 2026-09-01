@@ -12,9 +12,17 @@ import Testing
         return defaults
     }
 
-    @Test func defaultsToAutomatic() {
+    @Test func defaultsToRelay() {
         let store = MobileConnectionMethodStore(defaults: makeDefaults())
-        #expect(store.method == .automatic)
+        #expect(store.method == .relay)
+    }
+
+    @Test func legacyAutomaticAndDirectValuesMigrateToRelay() {
+        for legacy in ["automatic", "direct"] {
+            let defaults = makeDefaults()
+            defaults.set(legacy, forKey: MobileConnectionMethodStore.methodKey)
+            #expect(MobileConnectionMethodStore(defaults: defaults).method == .relay)
+        }
     }
 
     @Test func persistsSelectionAcrossInstances() {
@@ -25,8 +33,8 @@ import Testing
         let reloaded = MobileConnectionMethodStore(defaults: defaults)
         #expect(reloaded.method == .tailscale)
 
-        reloaded.method = .automatic
-        #expect(MobileConnectionMethodStore(defaults: defaults).method == .automatic)
+        reloaded.method = .relay
+        #expect(MobileConnectionMethodStore(defaults: defaults).method == .relay)
     }
 
     @Test func ignoresUnknownPersistedValue() {
@@ -34,7 +42,7 @@ import Testing
         defaults.set("carrier-pigeon", forKey: MobileConnectionMethodStore.methodKey)
 
         let store = MobileConnectionMethodStore(defaults: defaults)
-        #expect(store.method == .automatic)
+        #expect(store.method == .relay)
     }
 
     @Test func recordsPreferenceChangesAtThePersistenceOwner() async {
@@ -55,11 +63,11 @@ import Testing
         let events = await log.snapshot().events
         #expect(events.first?.a
             == DiagnosticAppEventKind.connectionMethodConfigured.rawValue)
-        #expect(events.first?.c == 0)
+        #expect(events.first?.c == DiagnosticConnectionMethod.relay.rawValue)
         let change = events.last
         #expect(change?.a
             == DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue)
-        #expect(change?.c == 1)
+        #expect(change?.c == DiagnosticConnectionMethod.tailscale.rawValue)
     }
 
     /// A shared report window must state the configured method even when the
@@ -89,7 +97,7 @@ import Testing
         for event in events {
             #expect(event.a
                 == DiagnosticAppEventKind.connectionMethodConfigured.rawValue)
-            #expect(event.c == 1)
+            #expect(event.c == DiagnosticConnectionMethod.tailscale.rawValue)
         }
     }
 }

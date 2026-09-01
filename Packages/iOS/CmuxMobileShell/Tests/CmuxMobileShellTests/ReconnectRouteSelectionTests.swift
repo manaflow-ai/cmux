@@ -723,31 +723,28 @@ import Testing
         )
     }
 
-    /// Switching an Iroh-identified pairing to Tailscale Only still replaces
-    /// the live session (its route decisions were made under the old method),
-    /// but the replacement dial rides the Iroh lane pinned to the pairing's
-    /// numeric Tailscale addresses: transport admission stays the single auth
-    /// authority for every session purpose, and the raw TCP lane is reserved
-    /// for legacy pairings without an Iroh identity.
-    @Test func changingToTailscaleReplacesLiveIrohWithPinnedIrohDial() async throws {
+    /// Switching a pairing from the relay default to Tailscale Only still
+    /// replaces the live session (its route decisions were made under the old
+    /// method): the synthesized relay WebSocket lane stops dialing entirely
+    /// and the replacement dial uses only the exact Tailscale route the
+    /// user's local pairing grant authorizes.
+    @Test func changingToTailscaleReplacesLiveRelayWithGrantedTailscaleDial() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
-        // The factory boxes the live Iroh transport it hands out, so the test
+        // The factory boxes the live relay transport it hands out, so the test
         // can observe physical teardown, not just the store's logical route.
         let liveTransportBox = TransportBox()
         let factory = KindRecordingTransportFactory(
             router: router,
-            box: liveTransportBox,
-            failingKinds: [.tailscale]
+            box: liveTransportBox
         )
         let tailscale = try tailscale()
-        let iroh = try iroh()
         let (pairedStore, directory) = try makePairedMacStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         try await pairedStore.upsert(
             macDeviceID: "test-mac",
             displayName: "Test Mac",
-            routes: [tailscale, iroh],
+            routes: [tailscale],
             instanceTag: "default",
             markActive: true,
             stackUserID: "user-1",
@@ -769,7 +766,7 @@ import Testing
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
+                supportedRouteKinds: [.tailscale]
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
@@ -783,9 +780,12 @@ import Testing
         )
         await store.loadPairedMacs()
 
+        // The fresh method store defaults to relay, so the first dial is the
+        // one synthesized relay route; the stored raw Tailscale route never
+        // dials under the relay method.
         #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(store.activeRoute?.kind == .iroh)
-        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
+        #expect(store.activeRoute?.kind == .websocket)
+        #expect(factory.attemptedKinds() == [.websocket])
 
         // The box tracks the most recent transport, so capture the original
         // live session before the method change replaces it.
@@ -794,19 +794,19 @@ import Testing
         methodStore.method = .tailscale
 
         // The reconnected route only proves the store's logical state; the
-        // replaced live Iroh transport must also finish closing so no
+        // replaced live relay transport must also finish closing so no
         // physical cleanup work is still pending when the test completes.
         let applied = try await pollUntil {
             let originalTransportClosed =
                 await originalTransport?.isClosedForTesting() == true
-            return factory.attemptedKinds().filter { $0 == .iroh }.count == 2
+            return factory.attemptedKinds().contains(.tailscale)
                 && store.connectionState == .connected
                 && originalTransportClosed
         }
         #expect(applied)
-        #expect(store.activeRoute?.kind == .iroh)
-        // Tailscale Only never dials the raw TCP lane for a pairing with an
-        // Iroh identity, even when that dial would be authorized.
-        #expect(!factory.attemptedKinds().contains(.tailscale))
+        #expect(store.activeRoute?.kind == .tailscale)
+        // Tailscale Only never falls back to the relay: no websocket dial
+        // happens after the method change.
+        #expect(factory.attemptedKinds().filter { $0 == .websocket }.count == 1)
     }
 }

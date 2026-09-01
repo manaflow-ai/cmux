@@ -113,6 +113,18 @@ actor MobileHostStackAuthVerifier {
     }
 
     private func fetchAndCacheRemoteUserID(cacheKey: String, accessToken: String) async throws -> String? {
+        // Primary path: verify the ES256 JWT locally against the project's
+        // published JWKS — zero network once the key set is cached, which
+        // takes session admission from a Stack round trip (~110-290ms) to
+        // ~1ms. Opaque tokens and JWKS outages fall back to the legacy
+        // /users/me check below; definitive signature/claim failures reject.
+        if let localUserID = try await verifyLocallyIfPossible(accessToken: accessToken) {
+            cache[cacheKey] = CacheEntry(
+                userID: localUserID,
+                expiresAt: Date().addingTimeInterval(Self.cacheTTLSeconds)
+            )
+            return localUserID
+        }
         let stack = Self.makeStackClient(accessToken: accessToken)
         guard let user = try await Self.withVerificationTimeout({
             try await stack.getUser(or: .throw)
@@ -137,6 +149,117 @@ actor MobileHostStackAuthVerifier {
         defer { refreshingKeys.remove(cacheKey) }
         // Best-effort: on failure leave the existing entry to expire naturally.
         _ = try? await fetchAndCacheRemoteUserID(cacheKey: cacheKey, accessToken: accessToken)
+    }
+
+    // MARK: Local JWKS verification
+
+    private var jwksKeys: [StackAccessTokenJWT.JWK] = []
+    private var jwksFetchedAt: Date = .distantPast
+    private var jwksLastAttemptAt: Date = .distantPast
+    private static let jwksTTLSeconds: TimeInterval = 24 * 60 * 60
+    private static let jwksRefetchCooldownSeconds: TimeInterval = 60
+    private static let jwksDefaultsKey = "mobile.stackJwks.v1"
+
+    /// The persisted JWKS snapshot: the raw fetched key-set JSON plus its
+    /// fetch time and source URL. Public signing keys only — tokens and
+    /// verification verdicts are never persisted. Persisting the set lets the
+    /// first admission after app launch verify locally instead of paying the
+    /// ~110ms key fetch; the 24h TTL still applies from the persisted fetch
+    /// time, and the URL check drops the snapshot when the configured Stack
+    /// base URL or project changes.
+    private struct PersistedJWKS: Codable {
+        let url: String
+        let fetchedAtEpochSeconds: Double
+        let keySetJSON: Data
+    }
+
+    init() {
+        guard let data = UserDefaults.standard.data(forKey: Self.jwksDefaultsKey),
+              let persisted = try? JSONDecoder().decode(PersistedJWKS.self, from: data),
+              persisted.url == Self.jwksURL().absoluteString,
+              let decoded = try? JSONDecoder().decode(StackAccessTokenJWT.JWKS.self, from: persisted.keySetJSON),
+              !decoded.keys.isEmpty else {
+            return
+        }
+        jwksKeys = decoded.keys
+        jwksFetchedAt = Date(timeIntervalSince1970: persisted.fetchedAtEpochSeconds)
+    }
+
+    private static func jwksURL() -> URL {
+        AuthEnvironment.stackBaseURL
+            .appendingPathComponent("api/v1/projects/\(AuthEnvironment.stackProjectID)/.well-known/jwks.json")
+    }
+
+    private static func persistJWKS(keySetJSON: Data, fetchedAt: Date, url: URL) {
+        let persisted = PersistedJWKS(
+            url: url.absoluteString,
+            fetchedAtEpochSeconds: fetchedAt.timeIntervalSince1970,
+            keySetJSON: keySetJSON
+        )
+        guard let data = try? JSONEncoder().encode(persisted) else { return }
+        UserDefaults.standard.set(data, forKey: jwksDefaultsKey)
+    }
+
+    /// The token's verified user id via the local JWKS path, `nil` when this
+    /// token cannot be verified locally (opaque format, or no key set is
+    /// obtainable) so the caller falls back to the network check. Definitive
+    /// verification failures throw.
+    private func verifyLocallyIfPossible(accessToken: String) async throws -> String? {
+        var keys = await loadJWKSIfNeeded(force: false)
+        guard !keys.isEmpty else { return nil }
+        let projectID = AuthEnvironment.stackProjectID
+        // Issuer allow-set derived from the configured Stack base URL (plus
+        // its rebrand alias host); an iss mismatch is a definitive reject.
+        let allowedIssuers = StackAccessTokenJWT.allowedIssuers(
+            stackAPIBaseURL: AuthEnvironment.stackBaseURL,
+            projectID: projectID
+        )
+        for attempt in 0..<2 {
+            do {
+                return try StackAccessTokenJWT.verifiedUserID(
+                    token: accessToken,
+                    keys: keys,
+                    projectID: projectID,
+                    allowedIssuers: allowedIssuers
+                )
+            } catch StackAccessTokenJWT.VerificationError.notAJWT {
+                return nil
+            } catch StackAccessTokenJWT.VerificationError.unknownKeyID {
+                // Key rotation: refetch once (cooldown-limited), then a still
+                // unknown kid is definitive.
+                guard attempt == 0 else { throw MobileHostAuthorizationError.invalidStackUser }
+                let refreshed = await loadJWKSIfNeeded(force: true)
+                guard !refreshed.isEmpty else { return nil }
+                keys = refreshed
+            } catch {
+                throw MobileHostAuthorizationError.invalidStackUser
+            }
+        }
+        return nil
+    }
+
+    private func loadJWKSIfNeeded(force: Bool) async -> [StackAccessTokenJWT.JWK] {
+        let now = Date()
+        let fresh = now.timeIntervalSince(jwksFetchedAt) < Self.jwksTTLSeconds
+        if !jwksKeys.isEmpty, fresh, !force { return jwksKeys }
+        guard now.timeIntervalSince(jwksLastAttemptAt) >= Self.jwksRefetchCooldownSeconds
+                || (jwksKeys.isEmpty && jwksLastAttemptAt == .distantPast) else {
+            return jwksKeys
+        }
+        jwksLastAttemptAt = now
+        let url = Self.jwksURL()
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let decoded = try? JSONDecoder().decode(StackAccessTokenJWT.JWKS.self, from: data),
+              !decoded.keys.isEmpty else {
+            return jwksKeys
+        }
+        jwksKeys = decoded.keys
+        jwksFetchedAt = now
+        Self.persistJWKS(keySetJSON: data, fetchedAt: now, url: url)
+        return jwksKeys
     }
 
     private static func makeStackClient(accessToken: String) -> StackClientApp {

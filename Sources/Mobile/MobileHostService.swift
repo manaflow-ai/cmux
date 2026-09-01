@@ -592,6 +592,7 @@ final class MobileHostService {
             return
         }
         var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
+        var compressedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
         for (anchor, item) in framesByAnchor {
             var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
             envelope.append(item.payloadJSON)
@@ -601,12 +602,22 @@ final class MobileHostService {
                 continue
             }
             encodedByAnchor[anchor] = (frame, item.isFullFrame)
+            // One compression per anchor serves every opted-in subscriber.
+            // Delta and full-frame JSON compress 3-6x, which is most of the
+            // payload cost of a busy terminal on a phone link.
+            if let compressedPayload = MobileEventFrameCompression.compressedPayload(for: envelope),
+               let compressedFrame = try? MobileSyncFrameCodec.encodeFrame(compressedPayload) {
+                compressedByAnchor[anchor] = (compressedFrame, item.isFullFrame)
+            }
         }
         guard !encodedByAnchor.isEmpty else { return }
         deliverEventFrames(topic: topic, coalesceKey: surfaceID, stateSeq: stateSeq) { connection in
-            encodedByAnchor[
-                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
-            ]
+            let anchor = MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
+            if MobileHostEventCompressionRegistry.shared.isDeflateEnabled(connectionID: connection.connectionID),
+               let compressed = compressedByAnchor[anchor] {
+                return compressed
+            }
+            return encodedByAnchor[anchor]
         }
     }
 
@@ -1569,7 +1580,30 @@ final class MobileHostService {
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
-        case .stackBearer, .relaySession(_):
+        case .stackBearer:
+            return await stackStatus(request)
+        case let .relaySession(admission):
+            // An admitted relay session is transport-admitted end to end,
+            // exactly like iroh, so it gets the identity-bearing status the
+            // phone needs to bind the route to the authenticated Mac. The
+            // await IS the hold: without it a credential-free status request
+            // overtakes the session's own in-flight admission, is answered
+            // with the identity-free public status, and the phone abandons
+            // the route for missing identity.
+            if await admission.admittedUserID() != nil {
+                let phonePushStatus = await MainActor.run {
+                    (
+                        PhonePushClient.shared.currentAdmission(),
+                        PhonePushClient.shared.queuePersistenceStatus
+                    )
+                }
+                return MobileHostPublicStatusCache.result(
+                    includeIdentity: true,
+                    additionalCapabilities: Set(),
+                    phonePushAdmission: phonePushStatus.0,
+                    phonePushQueuePersistenceStatus: phonePushStatus.1
+                )
+            }
             return await stackStatus(request)
         case .irohAdmission:
             let phonePushStatus = await MainActor.run {
@@ -2352,6 +2386,7 @@ actor MobileHostConnection {
             )
         }
         MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
+        MobileHostEventCompressionRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -2754,6 +2789,11 @@ actor MobileHostConnection {
                 topics: topics,
                 transport: selectedTransport,
                 clientID: request.params["client_id"] as? String
+            )
+            MobileHostEventCompressionRegistry.shared.set(
+                deflateEnabled: (request.params["event_compression"] as? String)
+                    == MobileEventFrameCompression.deflateParameterValue,
+                connectionID: id
             )
             if topics.contains("terminal.render_grid") {
                 // Anchor negotiation: "screen" clients own their local
