@@ -2,10 +2,11 @@
 //!
 //! The process model is adapted from herdr's `src/platform/{linux,macos}.rs`
 //! and `src/detect/mod.rs` at commit
-//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0). The plugin
-//! keeps this platform code outside cmux core, adds bounded traversal, and
-//! resolves names through the replaceable manifest set instead of a closed
-//! agent enum.
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0). The strict Pi
+//! bundled-launcher suffixes also incorporate herdr commit
+//! `b1ff4582e9688f52ffb943cfa8bee4871ae122e4` (Apache-2.0). The plugin keeps
+//! this platform code outside cmux core, adds bounded traversal, and resolves
+//! names through the replaceable manifest set instead of a closed agent enum.
 
 use cmux::ProcessInfoResult;
 
@@ -461,15 +462,43 @@ fn known_package_agent(effective: &str, argv: &[String]) -> Option<String> {
 }
 
 fn known_package_path_agent(path: &str) -> Option<String> {
-    let components = path
+    let raw_components = path
         .split(['/', '\\'])
         .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>();
+    let ends_with = |suffix: &[&str]| {
+        raw_components.len() >= suffix.len()
+            && raw_components[raw_components.len() - suffix.len()..]
+                .iter()
+                .zip(suffix)
+                .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
+    };
+    // Pi's current Windows package emits either the direct CLI or the
+    // bundled CLI entrypoint. Compare raw components here. Normalizing file
+    // extensions first would turn `cli.exe` into `cli` and accept an invalid
+    // executable as a live agent.
+    if ends_with(&[
+        "node_modules",
+        "@earendil-works",
+        "pi-coding-agent",
+        "dist",
+        "cli.js",
+    ]) || ends_with(&[
+        "node_modules",
+        "@earendil-works",
+        "pi-coding-agent",
+        "dist",
+        "bundle",
+        "cli.js",
+    ]) {
+        return Some("pi".into());
+    }
+
+    let components = raw_components
+        .into_iter()
         .map(normalized_name)
         .collect::<Vec<_>>();
     for window in components.windows(5) {
-        if window == ["node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli"] {
-            return Some("pi".into());
-        }
         if window == ["node_modules", "@qwen-code", "qwen-code", "dist", "index"] {
             return Some("qwen".into());
         }
