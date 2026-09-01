@@ -112,6 +112,11 @@ directory before `sidebar plugin use` writes the runnable command into the cmux-
 The manager inspects at most 256 entries in one install root, including hidden
 transaction leftovers and registry metadata. A larger root fails closed and
 must be cleaned up before `list`, `use`, `update`, or `remove` can continue.
+Git sources are passed to `git` as process arguments. HTTP and HTTPS sources
+with embedded user information, query strings, or fragments are rejected so
+tokens do not enter the process table. Use a Git credential helper or an SSH
+key for private repositories; SSH user names, SCP-like sources, and local paths
+remain supported.
 
 ## Agent Plugins
 

@@ -82,6 +82,12 @@ includes hidden transaction files and registry metadata, so stale install debris
 cannot turn a list or selector operation into an unbounded scan. Remove stale
 entries before retrying an operation that reports this limit.
 
+Git install and update sources are passed to `git` as process arguments. The
+manager rejects HTTP and HTTPS user information, query strings, and fragments
+to keep passwords and tokens out of process listings. Use a Git credential
+helper or an SSH key for private repositories. SSH user names, SCP-like sources,
+and local paths remain supported.
+
 The daemon keeps OSC title and progress as generic terminal metadata and may
 retain them across a process change. The scanner records the output revision at
 each identity edge and ignores those fields until a later revision proves that
