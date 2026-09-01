@@ -126,7 +126,9 @@ extension SessionEntry {
         guard initialInput.utf8.count <= Self.maximumLegacyResumeInputBytes,
               posixInput.utf8.count <= Self.maximumLegacyResumeInputBytes,
               legacyCommand.unicodeScalars.allSatisfy({ scalar in
-                  scalar.value >= 0x20 && scalar.value != 0x7F
+                  scalar.value >= 0x20
+                      && scalar.value != 0x7F
+                      && !(0x80...0x9F).contains(scalar.value)
               }) else {
             return nil
         }
