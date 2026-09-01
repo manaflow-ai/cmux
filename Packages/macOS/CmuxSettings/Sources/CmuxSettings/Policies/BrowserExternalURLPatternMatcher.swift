@@ -216,9 +216,10 @@ struct BrowserExternalURLPatternMatcher: Sendable {
             if character == "\\" {
                 guard nextIndex < expression.endIndex else { return nil }
                 let escaped = expression[nextIndex]
-                // Regex character classes, boundaries, backreferences, and
-                // Unicode properties have no literal glob equivalent.
-                guard !"dDsSwWbBAZzRrpPkKgG0123456789".contains(escaped) else {
+                // Alphabetic/numeric escapes may encode classes, boundaries,
+                // backreferences, or Unicode/hex code points. Leave those on
+                // the ICU path rather than silently changing their meaning.
+                guard !escaped.isLetter, !escaped.isNumber else {
                     return nil
                 }
                 appendWildcardLiteral(escaped, to: &wildcard)
