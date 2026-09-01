@@ -79,7 +79,12 @@ extension MobileShellComposite {
                 selectedByKey[key] = mac
                 continue
             }
-            if mac.sortsBeforeDuplicate(existing) {
+            if mac.sortsBeforeDuplicate(
+                existing,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
+            ) {
                 selectedByKey[key] = mac.mergingCustomization(from: existing)
             } else {
                 selectedByKey[key] = existing.mergingCustomization(from: mac)
@@ -122,7 +127,12 @@ extension MobileShellComposite {
                 selectedByKey[key] = mac
                 continue
             }
-            selectedByKey[key] = mac.sortsBeforeDuplicate(existing) ? mac : existing
+            selectedByKey[key] = mac.sortsBeforeDuplicate(
+                existing,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback,
+                authorizer: authorizer
+            ) ? mac : existing
         }
 
         return selectedByKey
@@ -404,14 +414,30 @@ private extension MobilePairedMac {
         return merged
     }
 
-    func sortsBeforeDuplicate(_ other: MobilePairedMac) -> Bool {
+    @MainActor
+    func sortsBeforeDuplicate(
+        _ other: MobilePairedMac,
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer
+    ) -> Bool {
         // A display-only raw-route fallback can make an ungranted row share a
         // key with an authorized row. Preserve durable route authority before
         // freshness/active ordering, otherwise the representative would lose
         // the grant and later reconnects would fail closed. This affects only
         // representative selection; dial admission still checks exact grants.
-        if hasDurableRouteAuthority != other.hasDurableRouteAuthority {
-            return hasDurableRouteAuthority
+        let hasAuthority = hasDurableRouteAuthority(
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback,
+            authorizer: authorizer
+        )
+        let otherHasAuthority = other.hasDurableRouteAuthority(
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback,
+            authorizer: authorizer
+        )
+        if hasAuthority != otherHasAuthority {
+            return hasAuthority
         }
         if isActive != other.isActive {
             return isActive
@@ -422,10 +448,35 @@ private extension MobilePairedMac {
         return macDeviceID < other.macDeviceID
     }
 
-    private var hasDurableRouteAuthority: Bool {
-        routes.contains { $0.kind == .iroh }
-            || !(legacyTailscaleRoutes ?? []).isEmpty
-            || !(userAuthorizedTailscaleRoutes ?? []).isEmpty
+    @MainActor
+    private func hasDurableRouteAuthority(
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool,
+        authorizer: MobileTailscaleRouteAuthorizer
+    ) -> Bool {
+        // Preserve a row only when its exact grant admits one of its current
+        // routes. A grant for a stale endpoint is not authority for this row.
+        if authorizer.hasAuthorizedTailscaleRoute(
+            in: routes,
+            macDeviceID: macDeviceID,
+            legacyRoutes: legacyTailscaleRoutes ?? [],
+            userRoutes: userAuthorizedTailscaleRoutes ?? []
+        ) {
+            return true
+        }
+        // Tailscale-only Iroh rows are authoritative only when a numeric
+        // Tailscale pin can constrain the encrypted Iroh dial. An Iroh identity
+        // without that pin may be fail-closed while a duplicate carries a
+        // usable MagicDNS/LAN grant, so it must not displace the granted row.
+        if connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue {
+            return !MobileShellComposite.irohTailscaleDialCandidates(for: self).isEmpty
+        }
+        return MobileShellComposite.storedReconnectRoutes(
+            routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback,
+            authorizer: authorizer
+        ).contains { $0.kind == .iroh || $0.kind == .debugLoopback }
     }
 }
 
