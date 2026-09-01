@@ -66,6 +66,13 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(popupContext.focusState.browser)
     }
 
+    @Test("browser capture indexes control and private-use key tokens")
+    func browserCaptureNonPrintableKeyClassification() {
+        #expect(cmuxShortcutKeyIsNonPrintable("\u{1B}"))
+        #expect(cmuxShortcutKeyIsNonPrintable("\u{7F}"))
+        #expect(cmuxShortcutKeyIsNonPrintable("\u{F728}"))
+    }
+
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
     func bulkNotificationShortcutsAreSharedVisibleAndUnbound() throws {
         let actions: [KeyboardShortcutSettings.Action] = [
