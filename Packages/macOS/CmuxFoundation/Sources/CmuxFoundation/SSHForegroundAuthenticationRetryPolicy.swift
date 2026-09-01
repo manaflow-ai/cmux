@@ -347,7 +347,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             done
             if [ "$cmux_ssh_auth_term_event_received" != 1 ]; then
               exec 9>&-
-              exec 10>&-
             fi
           }
 
@@ -356,7 +355,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               printf '%s\n' "$cmux_ssh_auth_tree_root_pid" >&10 2>/dev/null || true
             fi
             exec 9>&-
-            exec 10>&-
           }
 
           cmux_ssh_auth_resume_journal_directly() {
@@ -472,16 +470,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           cmux_ssh_auth_cleanup() {
             trap - EXIT HUP INT TERM
-            exec 9>&- 2>/dev/null || true
-            exec 10>&- 2>/dev/null || true
             if [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
               cmux_ssh_auth_resume_file "$cmux_ssh_auth_pending"
               cmux_ssh_auth_resume_file "$cmux_ssh_auth_owned"
             fi
             if [ "$cmux_ssh_auth_term_event_owned" = 1 ]; then
-              /bin/rm -f "$cmux_ssh_auth_term_event_fifo" 2>/dev/null || true
+              /bin/rm -f "$cmux_ssh_auth_term_event_fifo" "$cmux_ssh_auth_term_event_ack_fifo" 2>/dev/null || true
               /bin/rmdir "$cmux_ssh_auth_term_event_dir" 2>/dev/null || true
             fi
+            # Unlink the FIFOs before closing the helper's descriptors. The
+            # open ACK descriptor keeps a wrapper-side read from blocking when
+            # the event wait times out; unlinking first also wakes a reader
+            # that races with cleanup.
+            exec 9>&- 2>/dev/null || true
+            exec 10>&- 2>/dev/null || true
             /bin/rm -f "$cmux_ssh_auth_snapshot" "$cmux_ssh_auth_members" \
               "$cmux_ssh_auth_pending" "$cmux_ssh_auth_owned" "$cmux_ssh_auth_groups" \
               "$cmux_ssh_auth_live" "$cmux_ssh_auth_term" \
