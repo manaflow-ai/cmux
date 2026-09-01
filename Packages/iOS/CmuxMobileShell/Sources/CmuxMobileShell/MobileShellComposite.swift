@@ -2106,6 +2106,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         composerFieldIsFocused = false
         composerFocusRequestPending = false
         composerFocusRequestTerminalID = nil
+        clearTerminalCreationError()
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -8107,9 +8108,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// different workspace if the selection drifts before the async work runs.
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
-        terminalCreationError = nil
-        terminalCreationErrorWorkspaceID = nil
-        terminalCreationErrorTerminalID = nil
+        clearTerminalCreationError()
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
@@ -11207,9 +11206,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// = nil`) so guidance cannot linger under a cleared headline.
     private func clearPairingError() {
         connectionError = nil
-        terminalCreationError = nil
-        terminalCreationErrorWorkspaceID = nil
-        terminalCreationErrorTerminalID = nil
         connectionErrorGuidance = nil
     }
 
@@ -11222,6 +11218,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               }) else {
             return
         }
+        clearTerminalCreationError()
+    }
+
+    private func clearTerminalCreationError() {
         terminalCreationError = nil
         terminalCreationErrorWorkspaceID = nil
         terminalCreationErrorTerminalID = nil
@@ -11527,7 +11527,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     allowsAnonymousForeground: allowsAnonymousForeground
                 ) {
                     return
-                } else if selectedWorkspace.rpcWorkspaceID == created.remoteWorkspaceID {
+                } else if created.identityMetadataIsIncomplete(in: selectedWorkspace) {
                     // Preserve the pin while identity fields are temporarily
                     // absent during snapshot convergence. The expiry task is
                     // the bounded escape hatch for a genuinely stuck create.

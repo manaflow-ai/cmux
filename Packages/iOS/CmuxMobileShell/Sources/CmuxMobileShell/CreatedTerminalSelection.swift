@@ -80,6 +80,33 @@ struct CreatedTerminalSelection: Equatable {
         return true
     }
 
+    /// Returns true when a snapshot has the same remote workspace but is
+    /// missing one of the pin's owner fields. A known conflicting owner is
+    /// never treated as convergence.
+    func identityMetadataIsIncomplete(in workspace: MobileWorkspacePreview) -> Bool {
+        guard workspace.rpcWorkspaceID == remoteWorkspaceID else { return false }
+        let expectedDevice = normalizedCreatedTerminalIdentity(macDeviceID)
+        let actualDevice = normalizedCreatedTerminalIdentity(workspace.macDeviceID)
+        switch (expectedDevice, actualDevice) {
+        case let (expected?, actual?):
+            guard createdTerminalDeviceIDsMatch(expected, actual) else { return false }
+        case (nil, nil):
+            break
+        default:
+            return true
+        }
+        let expectedTag = normalizedCreatedTerminalIdentity(macInstanceTag)
+        let actualTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
+        switch (expectedTag, actualTag) {
+        case let (expected?, actual?):
+            return expected != actual
+        case (nil, nil):
+            return expectedDevice == nil && actualDevice == nil
+        default:
+            return true
+        }
+    }
+
     /// A legacy/anonymous workspace row can acquire its stable Mac identity
     /// after the create response. Adopt it without retargeting a pin that
     /// already has an owner.
