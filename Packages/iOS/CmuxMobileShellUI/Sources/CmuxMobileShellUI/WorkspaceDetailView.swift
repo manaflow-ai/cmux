@@ -77,6 +77,11 @@ struct WorkspaceDetailView: View {
     @State var isCustomizationPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
+    /// Top safe-area inset captured just OUTSIDE the terminal leaf's
+    /// top-edge safe-area expansion. Once the leaf underlaps the bar its
+    /// UIKit `safeAreaInsets.top` reads 0, so the surface's scroll-edge band
+    /// height must come from SwiftUI geometry captured before the ignore.
+    @State var terminalCapturedTopInset: CGFloat = 0
     // Rendered content width per trailing toolbar item, keyed by item. The
     // title's width cap subtracts the structurally visible items' widths so
     // they always fit and iOS never folds them into the overflow More menu
@@ -178,13 +183,28 @@ struct WorkspaceDetailView: View {
     }
     #endif
     var body: some View {
-        let content = Group { detailSurfaceContent }
+        let content = Group {
+            VStack(spacing: 0) {
+                if let message = store.terminalCreationError,
+                   store.selectedWorkspaceID == workspace.id,
+                   store.terminalCreationErrorWorkspaceID == workspace.rpcWorkspaceID {
+                    terminalCreationRecovery(message: message)
+                }
+                detailSurfaceContent
+            }
+        }
 
         #if os(iOS)
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
-            .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // With the scroll-edge band active (iOS 26, terminal surface),
+            // the bar stays system glass and the terminal's overscan rows
+            // render under it; other surfaces keep the opaque themed bar.
+            .mobileTerminalNavigationChrome(
+                theme: store.activeTerminalTheme,
+                scrollEdgeGlass: terminalScrollEdgeGlassActive
+            )
             // The browser and chat surfaces scroll; without this the system
             // minimizes the whole bar into a floating "…" pill, unlike the
             // terminal surface, which has no system scroll view.
@@ -286,6 +306,31 @@ struct WorkspaceDetailView: View {
             )
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #endif
+    }
+
+    private func terminalCreationRecovery(message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    createTerminal()
+                } label: {
+                    Text(L10n.string("mobile.terminal.creationRetry", defaultValue: "Retry"))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier("MobileTerminalCreationRetry")
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.orange.opacity(0.14))
+        .accessibilityIdentifier("MobileTerminalCreationRecovery")
     }
 
     #if os(iOS)
