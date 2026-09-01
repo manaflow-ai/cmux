@@ -24724,9 +24724,8 @@ mod tests {
             "cmux-roster-aba-repeat-echo-{}",
             crate::workspace_registry::new_uuid_v4()
         ));
-        let mux =
-            Mux::open_persistent("roster-aba-repeat-echo", SurfaceOptions::default(), &root)
-                .unwrap();
+        let mux = Mux::open_persistent("roster-aba-repeat-echo", SurfaceOptions::default(), &root)
+            .unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let states = [
@@ -24748,30 +24747,29 @@ mod tests {
             .unwrap();
         }
 
-        let keys = mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .session_journal_after(0, 1024)
-            .unwrap()
-            .records
-            .into_iter()
-            .filter(|record| {
-                record
-                    .subjects
-                    .iter()
-                    .any(|subject| subject.kind == "terminal" && subject.id == terminal_id.as_str())
-            })
-            .filter_map(|record| {
-                (record
-                    .payload
-                    .get("adapter")
-                    .and_then(|adapter| adapter.get("id"))
-                    .and_then(Value::as_str)
-                    == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER))
-                .then_some(record.event_id)
-            })
-            .collect::<std::collections::HashSet<_>>();
+        let keys =
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record.subjects.iter().any(|subject| {
+                        subject.kind == "terminal" && subject.id == terminal_id.as_str()
+                    })
+                })
+                .filter_map(|record| {
+                    (record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER))
+                    .then_some(record.event_id)
+                })
+                .collect::<std::collections::HashSet<_>>();
         assert_eq!(keys.len(), states.len(), "each ABA transition needs a unique echo");
 
         mux.shutdown();
