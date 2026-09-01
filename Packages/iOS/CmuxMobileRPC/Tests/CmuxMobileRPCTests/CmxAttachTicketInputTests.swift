@@ -293,6 +293,17 @@ import Testing
         }
     }
 
+    @Test func futureTicketRevisionStaysOnTheUpdateGuidancePath() {
+        let payload = """
+        {"v":2,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.0.5","p":8443}}]}
+        """
+        #expect(throws: CmxAttachTicketError.unsupportedVersion(2)) {
+            try CmxAttachTicketInput.decode(
+                attachURL(payload: Data(payload.utf8))
+            )
+        }
+    }
+
     @Test func malformedBundleSchemeStaysGenericInvalidURL() {
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
             try CmxAttachTicketInput.decode(

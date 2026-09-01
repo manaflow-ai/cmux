@@ -4751,6 +4751,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // the shared payload validator rather than the plain-URL
                 // decoder. Keep that stale-code path on the same update copy.
                 applyPairingValidationFailure(.unrecognizedVersion)
+            } else if case let CmxAttachTicketError.unsupportedVersion(version) = error,
+                      version > CmxAttachTicket.currentVersion {
+                // A future ticket revision can still be wrapped in today's
+                // attach URL envelope. Treat that payload as a stale cmux QR,
+                // rather than collapsing it into generic invalid-code copy.
+                applyPairingValidationFailure(.unrecognizedVersion)
             } else {
                 applyPairingValidationFailure(.invalidCode)
             }
