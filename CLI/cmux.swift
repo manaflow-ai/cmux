@@ -26640,6 +26640,25 @@ struct CMUXCLI {
         surfaceId: String,
         client: SocketClient
     ) throws {
+        // Resolve the replacement pane before taking the file lock. The RPC can
+        // block on the app socket; holding the lock across it would stall every
+        // unrelated tmux-compatible writer for the socket timeout.
+        let snapshot = loadTmuxCompatStore()
+        let snapshotLayout = snapshot.mainVerticalLayouts[workspaceId]
+        let replacementWasResolved: Bool
+        let replacementSurfaceId: String?
+        if let snapshotLayout, snapshotLayout.lastColumnSurfaceId == surfaceId {
+            replacementWasResolved = true
+            replacementSurfaceId = tmuxReplacementColumnSurfaceId(
+                workspaceId: workspaceId,
+                layout: snapshotLayout,
+                client: client
+            )
+        } else {
+            replacementWasResolved = false
+            replacementSurfaceId = nil
+        }
+
         try withLockedTmuxCompatStoreIfChanged { store in
             var changed = false
             if store.lastSplitSurface[workspaceId] == surfaceId {
@@ -26652,13 +26671,8 @@ struct CMUXCLI {
                 store.mainVerticalLayouts.removeValue(forKey: workspaceId)
                 store.lastSplitSurface.removeValue(forKey: workspaceId)
                 changed = true
-            } else if layout.lastColumnSurfaceId == surfaceId {
+            } else if layout.lastColumnSurfaceId == surfaceId, replacementWasResolved {
                 var updatedLayout = layout
-                let replacementSurfaceId = tmuxReplacementColumnSurfaceId(
-                    workspaceId: workspaceId,
-                    layout: layout,
-                    client: client
-                )
                 updatedLayout.lastColumnSurfaceId = replacementSurfaceId
                 store.mainVerticalLayouts[workspaceId] = updatedLayout
                 if let replacementSurfaceId {

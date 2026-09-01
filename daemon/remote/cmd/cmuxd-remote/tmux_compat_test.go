@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -213,6 +215,86 @@ func TestTmuxCompatStoreConcurrentMutations(t *testing.T) {
 			t.Errorf("buffer %s = %q, want payload-%d", name, store.Buffers[name], i)
 		}
 	}
+}
+
+func TestTmuxCompatStoreConcurrentProcessMutations(t *testing.T) {
+	if os.Getenv("CMUX_TMUX_STORE_CHILD") == "1" {
+		index, err := strconv.Atoi(os.Getenv("CMUX_TMUX_STORE_INDEX"))
+		if err != nil {
+			t.Fatalf("child index: %v", err)
+		}
+		if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+			name := "process-buf-" + strconv.Itoa(index)
+			store.Buffers[name] = "process-payload-" + strconv.Itoa(index)
+			return nil
+		}); err != nil {
+			t.Fatalf("child mutation: %v", err)
+		}
+		return
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	const writers = 20
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		store.Buffers["seed"] = strings.Repeat("seed", 32_768)
+		return nil
+	}); err != nil {
+		t.Fatalf("seed store: %v", err)
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test executable: %v", err)
+	}
+	commands := make([]*exec.Cmd, 0, writers)
+	for i := 0; i < writers; i++ {
+		command := exec.Command(
+			executable,
+			"-test.run", "^TestTmuxCompatStoreConcurrentProcessMutations$",
+		)
+		command.Env = childEnvironment(home, i)
+		if err := command.Start(); err != nil {
+			t.Fatalf("start child %d: %v", i, err)
+		}
+		commands = append(commands, command)
+	}
+	for i, command := range commands {
+		if err := command.Wait(); err != nil {
+			t.Fatalf("child %d: %v", i, err)
+		}
+	}
+
+	store := loadTmuxCompatStore()
+	if len(store.Buffers) != writers+1 {
+		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers+1)
+	}
+	for i := 0; i < writers; i++ {
+		name := "process-buf-" + strconv.Itoa(i)
+		want := "process-payload-" + strconv.Itoa(i)
+		if store.Buffers[name] != want {
+			t.Errorf("buffer %s = %q, want %q", name, store.Buffers[name], want)
+		}
+	}
+}
+
+func childEnvironment(home string, index int) []string {
+	environment := make([]string, 0, len(os.Environ())+3)
+	for _, value := range os.Environ() {
+		if strings.HasPrefix(value, "HOME=") ||
+			strings.HasPrefix(value, "CMUX_TMUX_STORE_CHILD=") ||
+			strings.HasPrefix(value, "CMUX_TMUX_STORE_INDEX=") {
+			continue
+		}
+		environment = append(environment, value)
+	}
+	environment = append(
+		environment,
+		"HOME="+home,
+		"CMUX_TMUX_STORE_CHILD=1",
+		"CMUX_TMUX_STORE_INDEX="+strconv.Itoa(index),
+	)
+	return environment
 }
 
 func TestTmuxVersion(t *testing.T) {

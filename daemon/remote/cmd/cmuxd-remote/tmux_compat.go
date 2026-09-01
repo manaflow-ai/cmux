@@ -1256,6 +1256,15 @@ func saveTmuxCompatStore(store tmuxCompatStore) error {
 // across independent cmuxd processes. The lock file is separate from the JSON
 // path because writers replace the JSON atomically.
 func withLockedTmuxCompatStore(mutate func(*tmuxCompatStore) error) error {
+	return withLockedTmuxCompatStoreIfChanged(func(store *tmuxCompatStore) (bool, error) {
+		if err := mutate(store); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+}
+
+func withLockedTmuxCompatStoreIfChanged(mutate func(*tmuxCompatStore) (bool, error)) error {
 	path := tmuxCompatStoreURL()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
@@ -1271,8 +1280,12 @@ func withLockedTmuxCompatStore(mutate func(*tmuxCompatStore) error) error {
 	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
 
 	store := loadTmuxCompatStore()
-	if err := mutate(&store); err != nil {
+	changed, err := mutate(&store)
+	if err != nil {
 		return err
+	}
+	if !changed {
+		return nil
 	}
 	return saveTmuxCompatStoreUnlocked(store)
 }
@@ -1320,28 +1333,38 @@ func saveTmuxCompatStoreUnlocked(store tmuxCompatStore) error {
 }
 
 func tmuxPruneCompatWorkspaceState(workspaceId string) error {
-	return withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
-		delete(store.MainVerticalLayouts, workspaceId)
-		delete(store.LastSplitSurface, workspaceId)
-		return nil
+	return withLockedTmuxCompatStoreIfChanged(func(store *tmuxCompatStore) (bool, error) {
+		_, removedLayout := store.MainVerticalLayouts[workspaceId]
+		_, removedSplit := store.LastSplitSurface[workspaceId]
+		if removedLayout {
+			delete(store.MainVerticalLayouts, workspaceId)
+		}
+		if removedSplit {
+			delete(store.LastSplitSurface, workspaceId)
+		}
+		return removedLayout || removedSplit, nil
 	})
 }
 
 func tmuxPruneCompatSurfaceState(workspaceId string, surfaceId string) error {
-	return withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+	return withLockedTmuxCompatStoreIfChanged(func(store *tmuxCompatStore) (bool, error) {
+		changed := false
 		if lastSplit := store.LastSplitSurface[workspaceId]; lastSplit == surfaceId {
 			delete(store.LastSplitSurface, workspaceId)
+			changed = true
 		}
 		if layout, ok := store.MainVerticalLayouts[workspaceId]; ok {
 			if layout.MainSurfaceId == surfaceId {
 				delete(store.MainVerticalLayouts, workspaceId)
 				delete(store.LastSplitSurface, workspaceId)
+				changed = true
 			} else if layout.LastColumnSurfaceId == surfaceId {
 				layout.LastColumnSurfaceId = ""
 				store.MainVerticalLayouts[workspaceId] = layout
+				changed = true
 			}
 		}
-		return nil
+		return changed, nil
 	})
 }
 
