@@ -481,9 +481,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // scroll view.)
             dismissLeadingConstraint,
             dismissButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-            // Sized to the glass circle (the row's shared control height)
-            // so the whole visible circle is tappable.
-            dismissButton.widthAnchor.constraint(equalToConstant: Self.accessoryButtonHeight),
+            // Sized to the glass capsule: the row's shared control height,
+            // widened so the glyph gets breathing room, and the whole
+            // visible capsule is tappable (the glass tracks these anchors).
+            dismissButton.widthAnchor.constraint(equalToConstant: Self.accessoryButtonHeight + 12),
             dismissButton.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight),
 
             nub.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 6),
