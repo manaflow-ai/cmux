@@ -2856,6 +2856,23 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn scoped_cwd_descriptor_remains_pinned_after_path_rebind() {
+        let root = TestDirectory::new("cwd-pinned");
+        let checked = root.path.join("checked");
+        let outside = root.path.join("outside");
+        std::fs::create_dir(&checked).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let resolved = scoped_cwd(Some(checked.to_str().unwrap()), &root.path, None, None).unwrap();
+        let before = resolved.directory.metadata().unwrap();
+        std::fs::rename(&checked, root.path.join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &checked).unwrap();
+        let after = resolved.directory.metadata().unwrap();
+        assert_eq!(before.dev(), after.dev());
+        assert_eq!(before.ino(), after.ino());
+    }
+
     #[test]
     fn malformed_process_info_cwd_is_cleaned_to_empty_picker_component() {
         assert_eq!(shorten_cwd("", "/home/u"), "");
