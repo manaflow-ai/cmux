@@ -616,6 +616,12 @@ fn next_generation(current: u64) -> u64 {
     current.wrapping_add(1).max(1)
 }
 
+/// Compatibility aliases for the initial agent-plugin preview. New hosts
+/// should use the generic journal-plugin names so the core contract is not
+/// tied to one projection or vendor.
+pub type AgentPluginOptions = JournalPluginOptions;
+pub type AgentPluginRuntime = JournalPluginRuntime;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,9 +721,3 @@ mod tests {
         assert_eq!(state.restart_at, Some(started + STABLE_RUNTIME + Duration::from_secs(1)));
     }
 }
-
-/// Compatibility aliases for the initial agent-plugin preview. New hosts
-/// should use the generic journal-plugin names so the core contract is not
-/// tied to one projection or vendor.
-pub type AgentPluginOptions = JournalPluginOptions;
-pub type AgentPluginRuntime = JournalPluginRuntime;

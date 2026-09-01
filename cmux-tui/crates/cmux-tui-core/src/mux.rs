@@ -9254,6 +9254,10 @@ impl Mux {
         )
     }
 
+    // Keep the sequence lock, hook fence, and origin explicit at this
+    // internal transaction boundary. Grouping them into a bag would hide the
+    // lock-order contract that protects journal replay.
+    #[allow(clippy::too_many_arguments)]
     fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,

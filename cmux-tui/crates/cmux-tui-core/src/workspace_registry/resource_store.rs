@@ -575,6 +575,9 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    // These fields mirror the durable retry key and payload columns. Keep the
+    // storage boundary explicit so callers cannot accidentally omit a field.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn enqueue_agent_hook_pending(
         &mut self,
         producer_id: &str,
@@ -693,6 +696,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn pending_agent_hook_projections(
         &self,
     ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
@@ -823,6 +827,7 @@ impl WorkspaceRegistry {
         Ok((pending, next_cursor))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn commit_agent_projection_with_hook_state(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -845,6 +850,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn commit_agent_projection_with_hook_state_and_sequence(
         &mut self,
         mutation: &WorkspaceMutation,
