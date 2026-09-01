@@ -160,7 +160,6 @@ extension AppDelegate {
         return tabManager.tabs.first { !beforeIds.contains($0.id) } ?? tabManager.selectedWorkspace
     }
 
-
     private func ensureAgentChatServerAvailable(
         _ agentChat: CmuxAgentChatConfiguration,
         globalConfigPath: String?,
@@ -308,9 +307,11 @@ extension AppDelegate {
             await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        // Keep the handle even before state discovery: a timeout must clean
-        // up the process that was just launched, not merely its empty file.
-        await gate.updateOwnedServerProcess(process)
+        // Keep the handle until state discovery so timeout cleanup owns the launched process.
+        guard await gate.updateOwnedServerProcess(process) else {
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
 
         guard let discoveredSession = await stateFileStore.waitForSession(
             token: token,
@@ -335,7 +336,10 @@ extension AppDelegate {
             await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        await gate.updateOwnedServer(session: session, process: process)
+        guard await gate.updateOwnedServer(session: session, process: process) else {
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
         let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
         guard isHealthy else {
             // A launch that reported a port but failed health still owns a

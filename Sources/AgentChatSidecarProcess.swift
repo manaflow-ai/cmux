@@ -63,7 +63,7 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
             // A synchronous deinit cannot await the process-source event. A
             // fresh direct-child proof lets this last-resort path kill and
             // reap the exact child without trusting a recyclable PID.
-            Self.scheduleDirectChildTermination(rootIdentity.pid)
+            Self.scheduleDirectChildTermination(rootIdentity)
         }
     }
 
@@ -324,10 +324,11 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
         }
         while true {
             let result = waitpid(processIdentifier, &status, WNOHANG)
-            if result == -1 && errno == EINTR { continue }
+            let waitFailure = errno
+            if result == -1 && waitFailure == EINTR { continue }
             guard result == 0 else {
                 source.cancel()
-                if result == processIdentifier || (result == -1 && errno == ECHILD) {
+                if result == processIdentifier || (result == -1 && waitFailure == ECHILD) {
                     return true
                 }
                 return false
@@ -352,9 +353,12 @@ nonisolated final class AgentChatSidecarProcessHandle: @unchecked Sendable {
     }
 
     /// Schedules the shared async cleanup from the synchronous deinit boundary.
-    private static func scheduleDirectChildTermination(_ processIdentifier: pid_t) {
+    private static func scheduleDirectChildTermination(_ identity: AgentPIDProcessIdentity) {
         Task.detached(priority: .utility) {
-            _ = await AgentChatSidecarProcessHandle.terminateDirectChild(processIdentifier)
+            _ = await AgentChatSidecarProcessHandle.terminateDirectChild(
+                identity.pid,
+                expectedIdentity: identity
+            )
         }
     }
 

@@ -11,6 +11,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     struct State {
         var isRunning = false
         var terminationInProgress = false
+        var terminationFailed = false
         var ownedServerSession: AgentChatOwnedServerSession?
         var ownedServerProcess: AgentChatSidecarProcessHandle?
         var sidecarStateFileStore = AgentChatSidecarStateFileStore.live()
@@ -107,13 +108,15 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     /// Records a discovered session without racing an in-flight termination.
     /// The termination check and ownership replacement share one lock turn;
     /// waiting before the turn alone would leave a gap for a new claimant.
-    func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) async {
+    @discardableResult
+    func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) async -> Bool {
         while true {
             let result = lock.withLock { state -> OwnershipUpdateResult in
-                guard !state.terminationInProgress else {
+                if state.terminationInProgress {
                     guard let completion = state.terminationCompletion else { return .rejected }
                     return .retry(completion)
                 }
+                guard !state.terminationFailed else { return .rejected }
                 let previous = state.ownedServerProcess
                 if previous?.launchId != session.launchId {
                     state.ownedServerProcess = nil
@@ -123,12 +126,12 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
             }
             switch result {
             case .retry(let completion):
-                _ = await completion.wait()
+                guard await completion.wait() else { return false }
             case .rejected:
-                return
+                return false
             case .applied(let previous):
                 if previous?.launchId != session.launchId { previous?.terminate() }
-                return
+                return true
             }
         }
     }
@@ -136,13 +139,15 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     /// Records a newly-launched process without dropping it during cleanup.
     /// The process parameter remains retained while a concurrent termination
     /// publishes its completion, so it cannot deinitialize as an unowned child.
-    func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) async {
+    @discardableResult
+    func updateOwnedServerProcess(_ process: AgentChatSidecarProcessHandle) async -> Bool {
         while true {
             let result = lock.withLock { state -> OwnershipUpdateResult in
-                guard !state.terminationInProgress else {
+                if state.terminationInProgress {
                     guard let completion = state.terminationCompletion else { return .rejected }
                     return .retry(completion)
                 }
+                guard !state.terminationFailed else { return .rejected }
                 let previous = state.ownedServerProcess
                 if let session = state.ownedServerSession,
                    session.launchId != process.launchId {
@@ -153,13 +158,16 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
             }
             switch result {
             case .retry(let completion):
-                _ = await completion.wait()
+                guard await completion.wait() else {
+                    _ = process.terminate()
+                    return false
+                }
             case .rejected:
-                process.terminate()
-                return
+                _ = process.terminate()
+                return false
             case .applied(let previous):
                 if previous !== process { previous?.terminate() }
-                return
+                return true
             }
         }
     }
@@ -168,13 +176,14 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
     func updateOwnedServer(
         session: AgentChatOwnedServerSession,
         process: AgentChatSidecarProcessHandle
-    ) async {
+    ) async -> Bool {
         while true {
             let result = lock.withLock { state -> OwnershipUpdateResult in
-                guard !state.terminationInProgress else {
+                if state.terminationInProgress {
                     guard let completion = state.terminationCompletion else { return .rejected }
                     return .retry(completion)
                 }
+                guard !state.terminationFailed else { return .rejected }
                 let previous = state.ownedServerProcess
                 state.ownedServerSession = session
                 state.ownedServerProcess = process
@@ -182,13 +191,16 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
             }
             switch result {
             case .retry(let completion):
-                _ = await completion.wait()
+                guard await completion.wait() else {
+                    _ = process.terminate()
+                    return false
+                }
             case .rejected:
-                process.terminate()
-                return
+                _ = process.terminate()
+                return false
             case .applied(let previous):
                 if previous !== process { previous?.terminate() }
-                return
+                return true
             }
         }
     }
@@ -228,6 +240,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
             // A replacement action can await the completion signal instead of
             // observing a transiently empty owner.
             state.terminationInProgress = true
+            state.terminationFailed = false
             state.terminationCompletion = AgentChatSidecarProcessExitCompletion()
             return OwnedServerSnapshot(
                 session: state.ownedServerSession,
@@ -244,6 +257,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         let completion = lock.withLock { state -> AgentChatSidecarProcessExitCompletion? in
             guard state.terminationInProgress else { return nil }
             state.terminationInProgress = false
+            state.terminationFailed = !didTerminate
             let completion = state.terminationCompletion
             state.terminationCompletion = nil
             guard didTerminate else {

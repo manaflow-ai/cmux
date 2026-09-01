@@ -16,6 +16,7 @@ private func resetAgentChatActionGateForTest(_ gate: AgentChatActionInFlightGate
         state.ownedServerProcess = nil
         state.isRunning = false
         state.terminationInProgress = false
+        state.terminationFailed = false
         state.terminationCompletion = nil
         return process
     }

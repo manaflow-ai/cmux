@@ -206,6 +206,48 @@ struct AgentChatSidecarProcessTests {
         )
     }
 
+    @Test func ownershipUpdatePreservesSnapshotAfterFailedTermination() async {
+        let completion = AgentChatSidecarProcessExitCompletion()
+        let gate = AgentChatActionInFlightGate(sidecarStateFileStore: nil)
+        let original = AgentChatOwnedServerSession(
+            port: 43123,
+            pid: 9876,
+            token: "original-token",
+            launchId: "original-launch"
+        )
+        let replacement = AgentChatOwnedServerSession(
+            port: 43124,
+            pid: 9877,
+            token: "replacement-token",
+            launchId: "replacement-launch"
+        )
+        #expect(await gate.updateOwnedServerSession(original))
+        gate.lock.withLock { state in
+            state.terminationInProgress = true
+            state.terminationFailed = false
+            state.terminationCompletion = completion
+        }
+        defer {
+            gate.lock.withLock { state in
+                state.terminationInProgress = false
+                state.terminationFailed = false
+                state.terminationCompletion = nil
+            }
+        }
+
+        await completion.finish(false)
+        #expect(!(await gate.updateOwnedServerSession(replacement)))
+        #expect(gate.ownedServerSession() == original)
+
+        gate.lock.withLock { state in
+            state.terminationInProgress = false
+            state.terminationFailed = true
+            state.terminationCompletion = nil
+        }
+        #expect(!(await gate.updateOwnedServerSession(replacement)))
+        #expect(gate.ownedServerSession() == original)
+    }
+
     @Test func setupCleanupSignalsOnlyTheMatchingGeneration() {
         var signals: [(pid_t, Int32)] = []
         let didTerminate = AgentChatSidecarProcessTerminator(
