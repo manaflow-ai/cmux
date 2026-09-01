@@ -388,6 +388,64 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
+
+def expect_fail_closed_timestamped_hook(
+    command: str,
+    context: str,
+    failures: list[str],
+) -> None:
+    expected_fragments = (
+        'hook_captured_at="$(',
+        'if [ -z "$hook_captured_at" ]; then',
+        '/bin/cat >/dev/null 2>/dev/null || true',
+        'printf "{}',
+        'exit 0; fi;',
+        'CMUX_AGENT_HOOK_CAPTURED_AT="$hook_captured_at"',
+        '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}"',
+    )
+    cursor = 0
+    for fragment in expected_fragments:
+        index = command.find(fragment, cursor)
+        expect(
+            index >= cursor,
+            f"{context} hook should contain {fragment!r} after its prior ordering guard, got {command!r}",
+            failures,
+        )
+        if index < cursor:
+            return
+        cursor = index + len(fragment)
+
+
+def expect_exit_preserving_timestamped_hook(
+    command: str,
+    context: str,
+    failures: list[str],
+    expected_command: str | None = None,
+) -> None:
+    """Decision hooks must execute even when the ordering clock is unavailable."""
+    missing_clock = (
+        'if [ -z "$hook_captured_at" ]; then'
+        if 'if [ -z "$hook_captured_at" ]; then' in command
+        else 'if [ -n "$hook_captured_at" ]; then'
+    )
+    expect(
+        missing_clock in command,
+        f"{context} hook should check for an unavailable ordering clock, got {command!r}",
+        failures,
+    )
+    expect(
+        'printf "{}' not in command and "exit 0; fi" not in command,
+        f"{context} hook must not turn a missing clock into an implicit allow, got {command!r}",
+        failures,
+    )
+    expected = expected_command or '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}"'
+    expect(
+        expected in command,
+        f"{context} hook should preserve its decision command on the no-clock path, got {command!r}",
+        failures,
+    )
+
+
 def decode_nul_argv(encoded: str) -> list[str]:
     raw = base64.b64decode(encoded)
     parts = raw.split(b"\0")
@@ -574,6 +632,27 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     hooks = settings.get("hooks", {})
     expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
+    for hook_name, groups in hooks.items():
+        for group_index, group in enumerate(groups):
+            for hook_index, hook in enumerate(group.get("hooks", [])):
+                command = hook.get("command", "")
+                context = f"{hook_name}[{group_index}].hooks[{hook_index}]"
+                if hook_name == "PermissionRequest" or group.get("matcher") == "CronCreate":
+                    expected = (
+                        '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard'
+                        if group.get("matcher") == "CronCreate"
+                        else '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
+                    )
+                    expect_exit_preserving_timestamped_hook(command, context, failures, expected)
+                else:
+                    expect_fail_closed_timestamped_hook(command, context, failures)
+                expect(
+                    '[ "$fraction" -ge 0 ]' not in command
+                    and '[ "$state_fraction" -ge 0 ]' not in command
+                    and "10#" not in command,
+                    f"{context} hook must not parse zero-padded fractions as octal, got {command!r}",
+                    failures,
+                )
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
         "Stop": "stop",
@@ -583,8 +662,8 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
-            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude {expected_subcommand}',
-            f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
+            f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude {expected_subcommand}' in hook_command,
+            f"{hook_name} hook should invoke the bundled cmux command, got {hook_command!r}",
             failures,
         )
     pre_tool_use_groups = hooks.get("PreToolUse", [])
@@ -594,7 +673,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         cron_guard_hooks = cron_guard_groups[0].get("hooks", [])
         expect(
             any(
-                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard'
+                '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard' in h.get("command", "")
                 and h.get("async") is not True
                 for h in cron_guard_hooks
             ),
@@ -616,7 +695,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         push_hooks = push_notification_groups[0].get("hooks", [])
         expect(
             any(
-                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude push-notification'
+                '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude push-notification' in h.get("command", "")
                 and h.get("async") is True
                 for h in push_hooks
             ),
@@ -624,7 +703,9 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
 
-    # General PreToolUse telemetry should remain async to avoid blocking tool execution.
+    # General PreToolUse telemetry reserves its timestamp synchronously and
+    # detaches the socket write itself; Claude therefore does not need to mark
+    # this hook async (and doing so would let it return before stdin is drained).
     pre_tool_use_hooks = [
         hook
         for group in pre_tool_use_groups
@@ -632,20 +713,20 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         if "pre-tool-use" in hook.get("command", "")
     ]
     expect(
-        any(h.get("async") is True for h in pre_tool_use_hooks),
-        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
+        any("nohup" in h.get("command", "") and "hooks claude pre-tool-use" in h.get("command", "") for h in pre_tool_use_hooks),
+        f"PreToolUse hook should detach its bounded socket write, got {pre_tool_use_hooks}",
         failures,
     )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),
+        any('"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' in h.get("command", "") for h in permission_request_hooks),
         f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
         failures,
     )
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
     expect(
         any(
-            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
+            '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' in h.get("command", "")
             and h.get("async") is True
             for h in subagent_stop_hooks
         ),

@@ -78,6 +78,10 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         resumeStrings
     }
 
+    nonisolated func controlSurfaceInvalidAgentEventTimeError() -> String {
+        "Missing or invalid agent_event_time"
+    }
+
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
@@ -97,6 +101,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         expectedCheckpointID: String?,
         expectedSource: String?,
         expectedUpdatedAt: Double?,
+        agentEventTime: TimeInterval?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded

@@ -42,6 +42,35 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.statusClearCall?.panelID == panelID)
     }
 
+    @Test func statusRejectsInvalidAgentEventTimeBeforeScheduling() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "codex Running --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) --agent-event-time=4102444801"
+        )
+
+        #expect(response.hasPrefix("ERROR: Invalid agent event time"))
+        #expect(context.statusClearCall == nil)
+        #expect(context.agentPIDClearCall == nil)
+    }
+
+    @Test func statusRejectsExplicitEmptyAgentEventTimeAsInvalid() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "codex Running --tab=\(UUID().uuidString) --agent-event-time="
+        )
+
+        #expect(response.hasPrefix("ERROR: Invalid agent event time"))
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(
