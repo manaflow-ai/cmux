@@ -76,11 +76,7 @@ impl TextInput {
                 InputEvent::None
             }
             KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
-                if self.delete_word_left() {
-                    InputEvent::Changed
-                } else {
-                    InputEvent::None
-                }
+                if self.delete_word_left() { InputEvent::Changed } else { InputEvent::None }
             }
             KeyCode::Backspace => {
                 if self.delete_left() {
@@ -112,33 +108,7 @@ impl TextInput {
         if width == 0 {
             return (String::new(), 0);
         }
-        // Rendering must not mutate cursor state. Derive the effective viewport locally;
-        // input events still persist the viewport through `ensure_cursor_visible`.
-        let cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
-        let mut scroll = self.grapheme_boundary_at_or_after(self.scroll.min(cursor));
-        if cursor < scroll {
-            scroll = cursor;
-        }
-        // Measure the cursor suffix once, then discard leading graphemes until it fits.
-        // Recomputing widths from `scroll` on every iteration makes long inputs quadratic.
-        let mut suffix_width = 0;
-        for grapheme in self.buffer[scroll..cursor].graphemes(true) {
-            suffix_width += UnicodeWidthStr::width(grapheme);
-        }
-        if suffix_width >= width {
-            for (offset, grapheme) in self.buffer[scroll..cursor].grapheme_indices(true) {
-                let next = scroll + offset + grapheme.len();
-                if next > cursor {
-                    break;
-                }
-                suffix_width = suffix_width.saturating_sub(UnicodeWidthStr::width(grapheme));
-                scroll = next;
-                if suffix_width < width {
-                    break;
-                }
-            }
-        }
-        let cursor_col = suffix_width;
+        let (scroll, _, cursor_col) = self.viewport_for_width(width);
         let mut used = 0;
         let mut end = scroll;
         for (offset, grapheme) in self.buffer[scroll..].grapheme_indices(true) {
@@ -150,6 +120,16 @@ impl TextInput {
             end = scroll + offset + grapheme.len();
         }
         (self.buffer[scroll..end].to_string(), cursor_col.min(width - 1))
+    }
+
+    /// Reconcile the persistent horizontal viewport at a layout or input boundary.
+    pub(crate) fn sync_viewport(&mut self, width: usize) {
+        if width == 0 {
+            return;
+        }
+        let (scroll, cursor, _) = self.viewport_for_width(width);
+        self.scroll = scroll;
+        self.cursor = cursor;
     }
 
     pub fn set_cursor_from_visible_column(&mut self, column: usize, width: usize) {
@@ -351,19 +331,7 @@ impl TextInput {
         if width == 0 {
             return;
         }
-        self.cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
-        self.scroll = self.grapheme_boundary_at_or_after(self.scroll.min(self.cursor));
-        if self.cursor < self.scroll {
-            self.scroll = self.cursor;
-        }
-        while self.display_width(self.scroll, self.cursor) >= width {
-            let next = self.next_boundary(self.scroll);
-            if next <= self.scroll || next > self.cursor {
-                self.scroll = self.cursor;
-                break;
-            }
-            self.scroll = next;
-        }
+        self.sync_viewport(width);
     }
 
     fn grapheme_boundary_at_or_after(&self, byte: usize) -> usize {
@@ -374,8 +342,35 @@ impl TextInput {
             .unwrap_or(self.buffer.len())
     }
 
-    fn display_width(&self, start: usize, end: usize) -> usize {
-        UnicodeWidthStr::width(&self.buffer[start..end])
+    fn viewport_for_width(&self, width: usize) -> (usize, usize, usize) {
+        debug_assert!(width > 0);
+        let cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
+        let mut scroll = self.grapheme_boundary_at_or_after(self.scroll.min(cursor));
+        if cursor < scroll {
+            scroll = cursor;
+        }
+
+        // Measure the cursor suffix once, then discard leading graphemes until it fits.
+        // Recomputing widths from `scroll` on every iteration makes long inputs quadratic.
+        let mut cursor_col = 0;
+        for grapheme in self.buffer[scroll..cursor].graphemes(true) {
+            cursor_col += UnicodeWidthStr::width(grapheme);
+        }
+        if cursor_col >= width {
+            let viewport_start = scroll;
+            for (offset, grapheme) in self.buffer[viewport_start..cursor].grapheme_indices(true) {
+                let next = viewport_start + offset + grapheme.len();
+                if next > cursor {
+                    break;
+                }
+                cursor_col = cursor_col.saturating_sub(UnicodeWidthStr::width(grapheme));
+                scroll = next;
+                if cursor_col < width {
+                    break;
+                }
+            }
+        }
+        (scroll, cursor, cursor_col)
     }
 
     fn is_word_grapheme(grapheme: &str) -> bool {
