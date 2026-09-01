@@ -64,7 +64,6 @@ import {
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
-  measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
@@ -347,7 +346,7 @@ export async function POST(request: Request): Promise<Response> {
         } catch (err) {
           console.error("[VM] Pro plan reconcile failed", err);
         }
-        const account = measureVmSync(timing, "entitlements", () =>
+        const account = await measureVmAsync(timing, "entitlements", () =>
           resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
         );
         if (!account.ok) return account.response;

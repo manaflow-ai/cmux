@@ -35,7 +35,7 @@ import {
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
-import { vmRequestLocale, vmUnsupportedCopy } from "./vmErrorMessages";
+import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -285,15 +285,15 @@ type VmProvisioningScopeOptions = {
  * by construction while management routes can continue to use
  * `resolveVmRouteAccountScope` without a paywall.
  */
-export function resolveVmProvisioningAccountScope(
+export async function resolveVmProvisioningAccountScope(
   user: AuthedUser,
   request: Request,
   options: VmProvisioningScopeOptions = {},
-): VmRouteAccountScope {
+): Promise<VmRouteAccountScope> {
   const scope = resolveVmAccountScope(user, request, options);
   if (!scope.ok) return scope;
   if (isVmProGateBlocked(scope.entitlements)) {
-    return { ok: false, response: vmRequiresProResponse() };
+    return { ok: false, response: await vmRequiresProResponse(vmRequestLocale(request)) };
   }
   return scope;
 }
@@ -346,12 +346,18 @@ export function vmBillingTeamErrorResponse(err: {
 
 const VM_UPGRADE_URL = "https://cmux.com/pricing";
 
-export function vmRequiresProResponse(): Response {
+/**
+ * The paid-plan gate response. Copy comes from the `vmErrors.requiresPro`
+ * catalog so non-English clients get a translated upgrade instruction; the
+ * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
+ */
+export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Response> {
+  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL });
   return vmErrorResponse({
     error: "vm_requires_pro",
     status: 402,
-    message: "Cloud VMs require a cmux Pro plan.",
-    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} to create Cloud VMs.`,
+    message: copy.message,
+    action: copy.action,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
   });
 }

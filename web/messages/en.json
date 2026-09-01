@@ -24,6 +24,10 @@
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }
+    },
+    "requiresPro": {
+      "message": "Cloud VMs require a cmux Pro plan.",
+      "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
     }
   },
   "ios": {

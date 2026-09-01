@@ -60,7 +60,7 @@ export async function POST(
         if (!refreshedUser) return unauthorized();
         user = refreshedUser;
       }
-      const account = resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
+      const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
       if (!account.ok) return account.response;
       const entitlements = account.entitlements;
       const idempotencyKey = idempotencyKeyFromRequest(request);

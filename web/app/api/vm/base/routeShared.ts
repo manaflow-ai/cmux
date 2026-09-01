@@ -50,7 +50,7 @@ export async function runBaseRoute(input: {
   if (!parsed.ok) return parsed.response;
 
   const requestedBillingTeamId = parsed.body.billingTeamId || requestedVmTeamIdFromRequest(input.request);
-  const account = resolveVmProvisioningAccountScope(input.user, input.request, { requestedBillingTeamId });
+  const account = await resolveVmProvisioningAccountScope(input.user, input.request, { requestedBillingTeamId });
   if (!account.ok) return account.response;
   const entitlements = account.entitlements;
 
