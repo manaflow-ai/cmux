@@ -3928,6 +3928,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn output_sink_can_reenter_detach_without_deadlock() {
+        let h = harness(None, None);
+        let mut context = h.context("supervised", h.owner.clone());
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        context.send = TestArc::new(move |frame| {
+            if frame["type"] == "pty_output" {
+                manager.detach_all();
+            }
+        });
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        let (done, completed) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            pty.emit("reentrant");
+            done.send(()).expect("reentrant output completion");
+        });
+        assert!(
+            completed.recv_timeout(Duration::from_secs(1)).is_ok(),
+            "a reentrant output sink must not deadlock on the publication gate"
+        );
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
     async fn input_operation_waits_before_close_can_retire_its_generation() {
         let h = harness(None, None);
         let frame = serde_json::json!({
