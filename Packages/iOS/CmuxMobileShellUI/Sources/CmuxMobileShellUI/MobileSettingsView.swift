@@ -830,13 +830,20 @@ struct MobileSettingsView: View {
     #endif
 }
 
-/// App-wide log sharing. Lives at the settings top level, not the Iroh
-/// screen: the app log covers every feature (simulator, browser, composer,
-/// lifecycle), and the network log covers all connection diagnostics, not
-/// one transport.
+/// App-wide log sharing and transport diagnostics. Lives at the settings top
+/// level, not the Networking screen: the app log covers every feature
+/// (simulator, browser, composer, lifecycle), and the connection diagnostics
+/// cover all connection activity, not one transport.
 private struct MobileSettingsDiagnosticsSection: View {
+    @Environment(\.irohSettingsController) private var irohSettingsController
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @State private var appLogURLs: [URL] = []
     @State private var networkLogURLs: [URL] = []
+    /// Owns the verbose-log toggle and the privacy-scrubbed connection report
+    /// that used to live on the Networking screen. `nil` without a controller
+    /// (previews, hosts without the app root).
+    @State private var irohSettingsModel: MobileIrohSettingsModel?
+    @State private var showsClearConfirmation = false
 
     var body: some View {
         Section {
@@ -868,6 +875,62 @@ private struct MobileSettingsDiagnosticsSection: View {
                 }
                 .accessibilityIdentifier("MobileSettingsShareNetworkLog")
             }
+            if let model = irohSettingsModel {
+                Toggle(isOn: Binding(
+                    get: { model.verboseLogEnabled },
+                    set: { enabled in Task { await model.setVerboseLog(enabled) } }
+                )) {
+                    Text(L10n.string(
+                        "mobile.iroh.diagnostics.verboseLog",
+                        defaultValue: "Verbose Connection Log"
+                    ))
+                }
+                .accessibilityIdentifier("MobileIrohVerboseLogToggle")
+                if model.verboseLogEnabled {
+                    Text(L10n.string(
+                        "mobile.iroh.diagnostics.verboseLog.footer",
+                        defaultValue: "Records detailed connection activity to a file on this device for troubleshooting. Terminal contents and credentials are never written."
+                    ))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                if let verboseLogShareURL = model.verboseLogShareURL {
+                    ShareLink(item: verboseLogShareURL) {
+                        Label(
+                            L10n.string(
+                                "mobile.iroh.diagnostics.shareVerboseLog",
+                                defaultValue: "Share Verbose Log"
+                            ),
+                            systemImage: "doc.text"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileIrohShareVerboseLog")
+                    .simultaneousGesture(TapGesture().onEnded {
+                        diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
+                    })
+                }
+                ShareLink(item: model.diagnosticExportText) {
+                    Label(
+                        L10n.string("mobile.iroh.diagnostics.share", defaultValue: "Share Safe Report"),
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+                .disabled(model.diagnosticExportText.isEmpty)
+                .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
+                .simultaneousGesture(TapGesture().onEnded {
+                    diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
+                })
+                Button(role: .destructive) {
+                    showsClearConfirmation = true
+                } label: {
+                    Label(
+                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"),
+                        systemImage: "trash"
+                    )
+                }
+                .disabled(model.diagnosticReport.events.isEmpty)
+                .accessibilityIdentifier("MobileIrohClearDiagnosticReport")
+            }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
         } footer: {
@@ -876,13 +939,36 @@ private struct MobileSettingsDiagnosticsSection: View {
                 defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
             ))
         }
+        .confirmationDialog(
+            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear this diagnostic report?"),
+            isPresented: $showsClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"), role: .destructive) {
+                Task { await irohSettingsModel?.clearDiagnosticReport() }
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.diagnostics.clear.message",
+                defaultValue: "This permanently removes the connection timeline stored on this device."
+            ))
+        }
         .task {
             let urls = await Task.detached(priority: .utility) {
                 (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
             }.value
             appLogURLs = urls.0
             networkLogURLs = urls.1
+            guard irohSettingsModel == nil, let irohSettingsController else { return }
+            let model = MobileIrohSettingsModel(
+                controller: irohSettingsController,
+                diagnosticLog: diagnosticLog
+            )
+            irohSettingsModel = model
+            await model.observe(recordingScreenEvents: false)
         }
+        .onDisappear { irohSettingsModel?.cancelOperations() }
     }
 }
 #endif

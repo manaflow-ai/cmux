@@ -1106,6 +1106,57 @@
         }
       }
     },
+    "mobile.computers.privateAddresses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Addresses"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートアドレス"
+          }
+        }
+      }
+    },
+    "mobile.computers.privateAddresses.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most people do not need private addresses. Add one only when IT provides a route to this computer that automatic LAN, VPN, and relay discovery cannot find."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートアドレスは通常不要です。LAN・VPN・リレーの自動検出で見つからない経路をIT部門から提供された場合にのみ追加してください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.privateAddresses.use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Private Addresses"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートアドレスを使用"
+          }
+        }
+      }
+    },
     "mobile.settings.allComputers": {
       "extractionState": "manual",
       "localizations": {
