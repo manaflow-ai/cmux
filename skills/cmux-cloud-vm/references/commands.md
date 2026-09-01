@@ -7,7 +7,7 @@
 ```bash
 cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
-cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
+cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt, capabilities: {snapshot, restore, fork, ports, stats}}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}} — a provider without `ports` has no port rows and refuses `vm open <m>:port/<n>`; without `stats`, `vm stats` is unsupported
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace

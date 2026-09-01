@@ -35,7 +35,9 @@ export function defaultProviderId(): ProviderId {
 }
 
 /** The provider's capability set with defaults applied: an absent flag means supported,
- *  and `fork` follows the method's existence unless declared. */
+ *  and `fork` / `ports` / `stats` follow the method's existence unless declared — so a
+ *  client hides port rows and stats on a provider whose gateway would only answer
+ *  "operation unsupported". */
 export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
   const provider = getProvider(id);
   const declared = provider.capabilities ?? {};
@@ -43,5 +45,7 @@ export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
     snapshot: declared.snapshot ?? true,
     restore: declared.restore ?? true,
     fork: declared.fork ?? typeof provider.fork === "function",
+    ports: declared.ports ?? typeof provider.openPort === "function",
+    stats: declared.stats ?? typeof provider.getStats === "function",
   };
 }

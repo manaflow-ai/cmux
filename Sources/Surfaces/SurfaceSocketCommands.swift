@@ -192,6 +192,16 @@ extension TerminalController {
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = await SurfaceCatalog.shared
+            // The same gate the sidebar applies (no port rows): the machine must have a
+            // provider, and that provider must be able to mint port previews — refused up
+            // front, never after a pane opened on a failure page, and never by leaving a
+            // synthetic port resource behind in the catalog.
+            guard let provider = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: vmId) else {
+                throw SurfaceCatalogError.noProvider(.cloud(vmId))
+            }
+            guard await provider.capabilities.ports else {
+                throw SurfaceCatalogError.unsupported(CmuxTuiSurfaceProvider.portPreviewUnavailableMessage(machineID: vmId, desktop: false))
+            }
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
                 // not have been seen yet. Register it now and open it — a port pane is an

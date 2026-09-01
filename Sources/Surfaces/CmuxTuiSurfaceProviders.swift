@@ -194,6 +194,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     var isAwake: Bool { summary.status == "running" }
+    /// What this machine's provider can honor (`vm ls --json` → `capabilities`).
+    var capabilities: VMCapabilities { summary.capabilities }
 
     func update(summary: VMSummary) {
         self.summary = summary
@@ -235,10 +237,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(resources, on: machine, info: info)
         }
-        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image) {
+        // The desktop is served through the same tokened port preview (noVNC on 6901), so
+        // it is prefetched only where the provider can mint one.
+        if CmuxTuiSnapshotParser.machineHasDesktop(image: summary.image), capabilities.ports {
             prefetchDesktopEndpoint()
         }
-        async let stats = try? client.stats(id: machineID)
+        async let stats = sampledStats(client: client)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
@@ -255,8 +259,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             }
-            for port in await ports(client: client, force: force) {
-                resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
+            // Port rows exist only where the provider can mint a preview URL for them
+            // (`capabilities.ports`); otherwise every row would open a pane that fails.
+            if capabilities.ports {
+                for port in await ports(client: client, force: force) {
+                    resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
+                }
             }
         } catch {
             let status = await links.status(machineID: machineID)
@@ -398,6 +406,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let desktop = resource.kind == .display
             guard let port = resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
                 throw SurfaceCatalogError.unsupported("browser \(resource.id) has no port")
+            }
+            // Every URL-backed pane is a tokened port preview; a provider that cannot
+            // mint one is refused here, before a pane opens onto a failure page.
+            guard capabilities.ports else {
+                throw SurfaceCatalogError.unsupported(Self.portPreviewUnavailableMessage(machineID: machineID, desktop: desktop))
             }
             if let url = endpointURL(port: port, desktop: desktop) {
                 created = try SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
@@ -548,6 +561,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
     /// noVNC query the `cmux vm desktop` recipe uses.
+    /// The refusal for a provider without port previews (the same sentence the socket's
+    /// `vm.port_open` gives): no implementation flag, one next action.
+    nonisolated static func portPreviewUnavailableMessage(machineID: String, desktop: Bool) -> String {
+        desktop
+            ? "\(machineID)'s provider cannot show its desktop in a pane (no port previews); use a machine kind with a desktop image."
+            : "\(machineID)'s provider cannot open machine ports as previews; reach the service from inside the machine with `cmux vm exec \(machineID) -- …`."
+    }
+
     /// What the connecting/failure screen calls the pane: "<machine> · Desktop" or "<machine>:<port>".
     static func paneLabel(machineID: String, port: Int, desktop: Bool) -> String {
         desktop
@@ -583,6 +604,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             _ = try? await self.endpoint(port: port, desktop: true)
             self.endpointPrefetch = nil
         }
+    }
+
+    /// The machine's live readings, or nil when its provider reports none
+    /// (`capabilities.stats == false`): asking would only get 501 vm_operation_unsupported
+    /// on every re-sync.
+    private func sampledStats(client: VMClient) async -> VMStats? {
+        guard capabilities.stats else { return nil }
+        return try? await client.stats(id: machineID)
     }
 
     private func ports(client: VMClient, force: Bool) async -> [Int] {
