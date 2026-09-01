@@ -55,10 +55,6 @@ struct CreatedTerminalSelection: Equatable {
             guard createdTerminalDeviceIDsMatch(expected, actual) else {
                 return false
             }
-        case (_, nil):
-            // A converging anonymous foreground row can temporarily omit the
-            // device id, but only the caller can prove that this is that row.
-            guard allowsAnonymousForeground else { return false }
         default:
             return false
         }

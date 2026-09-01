@@ -274,6 +274,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public internal(set) var connectedHostName: String
     public private(set) var connectionError: String?
+    /// User-facing recovery copy for a terminal create that did not become
+    /// ready within the bounded optimistic-selection window.
+    public private(set) var terminalCreationError: String?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
@@ -1847,6 +1850,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
+        self.terminalCreationError = nil
         self.connectionErrorGuidance = nil
         self.pairingVersionWarning = nil
         self.activeTicket = nil
@@ -8098,6 +8102,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// different workspace if the selection drifts before the async work runs.
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
+        terminalCreationError = nil
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
@@ -8179,6 +8184,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             self.clearCreatedTerminalSelection()
+            self.terminalCreationError = L10n.string(
+                "mobile.terminal.creationTimeout",
+                defaultValue: "The new terminal did not finish starting."
+            )
             self.recordAppEvent(
                 .terminalCreateFailed,
                 correlationID: terminalID.rawValue,
@@ -11187,6 +11196,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// = nil`) so guidance cannot linger under a cleared headline.
     private func clearPairingError() {
         connectionError = nil
+        terminalCreationError = nil
         connectionErrorGuidance = nil
     }
 

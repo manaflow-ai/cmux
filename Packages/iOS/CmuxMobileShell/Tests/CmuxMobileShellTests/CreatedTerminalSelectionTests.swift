@@ -33,7 +33,7 @@ import Testing
             fallbackMacDeviceID: "mac-main",
             terminalID: "terminal-new"
         )
-        #expect(anonymousWithFallback.matches(workspace: anonymousWorkspace, allowsAnonymousForeground: true))
+        #expect(!anonymousWithFallback.matches(workspace: anonymousWorkspace, allowsAnonymousForeground: true))
         #expect(!anonymousWithFallback.matches(workspace: anonymousWorkspace, allowsAnonymousForeground: false))
 
         let anonymousSelection = CreatedTerminalSelection(
