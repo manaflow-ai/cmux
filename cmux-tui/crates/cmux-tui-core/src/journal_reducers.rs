@@ -483,19 +483,19 @@ impl AgentRoster {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
                     if existing_source == AgentSource::Hook {
-                        // Hook arbitration is owned by the journal. A plugin
-                        // may report an older observation after transport
-                        // delay, but that must not keep a stale hook alive or
-                        // make reclaim impossible. Keep producer timestamps
-                        // for same-plugin ordering below; use the committed
-                        // journal time for this cross-source freshness rule.
-                        if fresh_hook(existing.updated_at_ms, event.committed_at_ms) {
+                        // The producer observation is the evidence clock. A
+                        // delayed append must not turn an old screen read
+                        // into fresh evidence just because the journal
+                        // accepted it later. The journal commit time orders
+                        // transport, while `observed_at_ms` orders what the
+                        // plugin actually saw.
+                        if fresh_hook(existing.updated_at_ms, updated_at_ms) {
                             return Vec::new();
                         }
                         // An older plugin observation cannot reclaim a hook
                         // row merely because the hook is stale. The next
                         // current observation can do so.
-                        if event.committed_at_ms < existing.updated_at_ms {
+                        if updated_at_ms < existing.updated_at_ms {
                             return Vec::new();
                         }
                     }
@@ -985,57 +985,36 @@ mod tests {
     fn fresh_hook_wins_over_plugin_and_stale_hook_can_be_replaced() {
         let subjects = terminal_subject("term_a");
         let hook_payload = json!({"adapter":{"id":"claude","version":1}});
-        let plugin_payload = json!({
-            "format": AGENT_PLUGIN_FORMAT,
-            "plugin": {"id":"screen_detector","version":1},
-            "adapter": {"id":"claude","version":1},
-            "event":"state.changed",
-            "normalized":{"state":"blocked","source_session":"pid:42","observed_at_ms":"1000"}
-        });
+        let plugin_payload = |observed_at_ms: u64| {
+            json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id":"screen_detector","version":1},
+                "adapter": {"id":"claude","version":1},
+                "event":"state.changed",
+                "normalized":{
+                    "state":"blocked",
+                    "source_session":"pid:42",
+                    "observed_at_ms":observed_at_ms.to_string()
+                }
+            })
+        };
         let mut roster = AgentRoster::default();
         roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
+        let first_plugin_payload = plugin_payload(39_000);
         let plugin = RosterEvent {
             producer_id: "screen_detector",
             kind: "plugin.screen_detector.agent.state.changed",
             subjects: &subjects,
-            payload: &plugin_payload,
+            payload: &first_plugin_payload,
             committed_at_ms: 39_000,
         };
         assert!(roster.apply(&plugin).is_empty());
         assert_eq!(roster.entries["term_a"].source, "hook");
-        let plugin = RosterEvent { committed_at_ms: 40_000, ..plugin };
-        assert_eq!(roster.apply(&plugin).len(), 1);
-        assert_eq!(roster.entries["term_a"].source, "plugin");
-    }
-
-    #[test]
-    fn delayed_plugin_observation_uses_journal_commit_time_for_hook_staleness() {
-        let subjects = terminal_subject("term_a");
-        let hook_payload = json!({"adapter":{"id":"claude","version":1}});
-        let plugin_payload = json!({
-            "format": AGENT_PLUGIN_FORMAT,
-            "plugin": {"id":"screen_detector","version":1},
-            "adapter": {"id":"claude","version":1},
-            "event":"state.changed",
-            "normalized": {
-                "state":"working",
-                "source_session":"pid:42",
-                "observed_at_ms":"1000"
-            }
-        });
-        let mut roster = AgentRoster::default();
-        roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
-
-        // The plugin observed the screen earlier, then its journal append was
-        // delayed. Staleness is a host arbitration rule, so it must use the
-        // commit time rather than allowing the producer clock to keep a hook
-        // entry alive forever.
+        let plugin_payload = plugin_payload(40_000);
         let plugin = RosterEvent {
-            producer_id: "screen_detector",
-            kind: "plugin.screen_detector.agent.state.changed",
-            subjects: &subjects,
             payload: &plugin_payload,
             committed_at_ms: 40_000,
+            ..plugin
         };
         assert_eq!(roster.apply(&plugin).len(), 1);
         assert_eq!(roster.entries["term_a"].source, "plugin");
