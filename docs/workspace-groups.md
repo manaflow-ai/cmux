@@ -6,7 +6,7 @@ Workspace groups let you nest workspaces into collapsible named sections in the 
 
 ### Anchor workspace
 
-Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. On macOS, clicking the header name area opens and focuses a fresh workspace in the group; the existing anchor remains a lifecycle-owned group workspace. Command-clicking or Shift-clicking the header selects the anchor for sidebar multi-selection. Clicking the chevron toggles collapse.
+Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels. Clicking the chevron toggles collapse.
 
 A group's anchor is always a brand new workspace at creation time; grouping a selection or `create` never promotes one of your existing workspaces into the anchor. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
 

@@ -75,8 +75,8 @@ enum SidebarWorkspaceRenderItem {
 
     /// Workspace ids represented by ordinary rows, in their rendered order.
     ///
-    /// Group headers represent their anchor workspace for structural sidebar
-    /// operations, but are containers rather than numbered workspace rows.
+    /// Group headers represent their anchor workspace for interaction, but are
+    /// containers rather than numbered workspace rows.
     static func numberedWorkspaceIds(
         from renderItems: [SidebarWorkspaceRenderItem]
     ) -> [UUID] {
