@@ -146,7 +146,7 @@ final class TerminalNotificationPolicyInFlightStore {
         correlationKey: String,
         through generation: UInt64? = nil
     ) {
-        let idsToDiscard = requests.compactMap { id, entry in
+        let idsToDiscard: [UUID] = requests.compactMap { id, entry -> UUID? in
             guard generation.map({ entry.generation <= $0 }) ?? true,
                   entry.request.correlationKey == correlationKey,
                   Self.matchesSurfaceAlias(entry.request, surfaceId: surfaceId) else {

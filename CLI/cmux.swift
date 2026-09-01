@@ -249,6 +249,18 @@ struct ClaudeHookSessionRecord: Codable {
             createdAt = try container.decodeIfPresent(TimeInterval.self, forKey: .createdAt) ?? 0
             requiresToolUseId = try container.decodeIfPresent(Bool.self, forKey: .requiresToolUseId) ?? false
         }
+
+        /// Encodes the persisted approval fields without emitting the decode-only legacy command.
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(commandFingerprint, forKey: .commandFingerprint)
+            try container.encode(commandLength, forKey: .commandLength)
+            try container.encode(displayCommand, forKey: .displayCommand)
+            try container.encodeIfPresent(toolUseId, forKey: .toolUseId)
+            try container.encodeIfPresent(notificationCorrelationKey, forKey: .notificationCorrelationKey)
+            try container.encode(createdAt, forKey: .createdAt)
+            try container.encode(requiresToolUseId, forKey: .requiresToolUseId)
+        }
     }
 
     var sessionId: String
@@ -33154,14 +33166,14 @@ export default CMUXSessionRestore;
             let cwdURL = URL(fileURLWithPath: rawCwd).standardizedFileURL
             let fileManager = FileManager.default
             var cursor = cwdURL
-            var projectRoot: URL?
+            var discoveredProjectRoot: URL?
             let maximumProjectRootAncestors = 64
             var ancestorDepth = 0
             while ancestorDepth < maximumProjectRootAncestors {
                 if fileManager.fileExists(
                     atPath: cursor.appendingPathComponent(".git", isDirectory: false).path
                 ) {
-                    projectRoot = cursor
+                    discoveredProjectRoot = cursor
                     break
                 }
                 let parent = cursor.deletingLastPathComponent()
@@ -33170,7 +33182,7 @@ export default CMUXSessionRestore;
                 cursor = parent
                 ancestorDepth += 1
             }
-            let projectRoot = projectRoot ?? cwdURL
+            let projectRoot = discoveredProjectRoot ?? cwdURL
             applyConfig(
                 at: projectRoot
                     .appendingPathComponent(".cursor", isDirectory: true)
