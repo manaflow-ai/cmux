@@ -1757,7 +1757,9 @@ impl Inner {
     /// no-op behavior; once an id is reserved or attached, a different
     /// transport may not act on it. A `None` caller owns everything (legacy).
     fn transport_owns(&self, pty_id: &str, context: &FrameContext) -> bool {
-        let Some(transport_id) = context.transport_id.as_deref() else { return true };
+        let Some(transport_id) = context.transport_id.as_deref() else {
+            return context.transport_kind == TransportKind::Legacy;
+        };
         if let Some(owner) =
             self.opening_state.lock().expect("opening state lock").reservations.get(pty_id).cloned()
         {
@@ -1839,6 +1841,7 @@ impl Inner {
         auth: &AuthSnapshot,
         context: &FrameContext,
     ) -> bool {
+        let transport_id = context.transport_id.as_deref();
         let Some(trust) = Self::matching_trust(auth, context) else { return false };
         let owner = auth.owner_user_id.as_deref();
         let trust_allowed = trust != Trust::Observe
@@ -1848,9 +1851,13 @@ impl Inner {
             && self.tunnel_authority_generation_current(context)
             && self.attachment_is_current(pty_id, attachment)
             && self.transport_auth_is_current(context, auth)
-            && (context.transport_id.is_none()
-                || (attachment.owner.id == context.transport_id
-                    && attachment.owner.kind == context.transport_kind))
+            && match context.transport_kind {
+                TransportKind::Legacy => context.transport_id.is_none(),
+                TransportKind::Relay | TransportKind::Tunnel => {
+                    transport_id.is_some_and(|id| attachment.owner.id.as_deref() == Some(id))
+                        && attachment.owner.kind == context.transport_kind
+                }
+            }
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
@@ -1871,8 +1878,13 @@ impl Inner {
             })
         };
         if let Some((owner, active_cancellation)) = opening {
-            let owner_matches = context.transport_id.is_none()
-                || owner.owner == TransportOwner::from_context(context);
+            let owner_matches = match context.transport_kind {
+                TransportKind::Legacy => context.transport_id.is_none(),
+                TransportKind::Relay | TransportKind::Tunnel => {
+                    context.transport_id.is_some()
+                        && owner.owner == TransportOwner::from_context(context)
+                }
+            };
             let authorized = owner_matches
                 && Self::matching_trust(&auth, context).is_some()
                 && self.tunnel_authority_generation_current(context)
@@ -2113,12 +2125,17 @@ impl Inner {
         }
         let snapshot = AuthSnapshot::from_context(context);
         let owner = TransportOwner::from_context(context);
-        if context.transport_id.is_none() {
+        if context.transport_kind == TransportKind::Legacy && context.transport_id.is_none() {
             // Legacy whole-manager callers use `None` and provide the
             // current trust on each frame. Keep that contract for non-
             // transport code.
             self.transport_auth.lock().expect("transport auth lock").insert(owner, snapshot);
             return true;
+        }
+        if context.transport_id.is_none() {
+            // Relay and managed tunnel contexts require an explicit transport
+            // identity. A missing ID is not a legacy capability.
+            return false;
         }
         // Identified transports must publish authority through
         // `update_transport_auth` before their first frame. A frame cannot
@@ -3283,6 +3300,9 @@ impl Inner {
     }
 
     async fn list_surfaces(self: Arc<Self>, frame: &Value, context: &FrameContext) {
+        if context.cancellation.is_cancelled() {
+            return;
+        }
         let request_id =
             frame.get("requestId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if request_id.is_empty() {
@@ -3309,6 +3329,9 @@ impl Inner {
         // Inner terminals per session (W86), best-effort.
         let home = self.home.display().to_string();
         for session in &sessions {
+            if context.cancellation.is_cancelled() {
+                return;
+            }
             if surfaces.len() >= MAX_ENUM_SURFACES {
                 break;
             }
@@ -3319,7 +3342,9 @@ impl Inner {
                 "subtitle": "cmux-tui",
             }));
             let socket_path = socket_dir.join(format!("{session}.sock"));
-            for terminal in self.list_session_terminals(&socket_path, &home).await {
+            for terminal in
+                self.list_session_terminals(&socket_path, &home, context.cancellation.clone()).await
+            {
                 if surfaces.len() >= MAX_ENUM_SURFACES {
                     break;
                 }
@@ -3350,7 +3375,10 @@ impl Inner {
                 }));
             }
         }
-        if !self.tunnel_authority_generation_current(context) {
+        let Some(auth) = self.auth_for_transport(context) else { return };
+        if !self.tunnel_authority_generation_current(context)
+            || !self.transport_auth_is_current(context, &auth)
+        {
             return;
         }
         (context.send)(json!({
@@ -3367,13 +3395,16 @@ impl Inner {
         &self,
         socket_path: &Path,
         home: &str,
+        cancellation: CancellationToken,
     ) -> Vec<(String, String)> {
-        let Ok(control) = self.deps.connect_control(socket_path, CancellationToken::new()).await
-        else {
+        let Ok(control) = self.deps.connect_control(socket_path, cancellation.clone()).await else {
             return Vec::new();
         };
         let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
-        let identify = control.request("identify", json!({})).await;
+        let identify = tokio::select! {
+            _ = cancellation.cancelled() => return Vec::new(),
+            result = control.request("identify", json!({})) => result,
+        };
         let protocol = identify
             .as_ref()
             .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -3385,7 +3416,10 @@ impl Inner {
             control.end();
             return Vec::new();
         }
-        let listed = control.request("list-workspaces", json!({})).await;
+        let listed = tokio::select! {
+            _ = cancellation.cancelled() => return Vec::new(),
+            result = control.request("list-workspaces", json!({})) => result,
+        };
         let tabs: Vec<PtyTab> = listed
             .as_ref()
             .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
@@ -3400,8 +3434,10 @@ impl Inner {
             let mut title =
                 if !tab.title.is_empty() { tab.title.clone() } else { tab.name.clone() };
             if title.is_empty() {
-                let proc =
-                    control.request("process-info", json!({ "surface": tab.surface_id })).await;
+                let proc = tokio::select! {
+                    _ = cancellation.cancelled() => return Vec::new(),
+                    result = control.request("process-info", json!({ "surface": tab.surface_id })) => result,
+                };
                 if let Some(data) = proc
                     .as_ref()
                     .filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
