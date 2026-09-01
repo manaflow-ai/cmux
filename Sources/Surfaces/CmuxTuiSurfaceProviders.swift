@@ -248,7 +248,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             watchChanges(link: link)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                resources += CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
+                resources = CmuxTuiSnapshotParser.mergingDisplays(
+                    pool: resources,
+                    parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
+                )
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             }
@@ -280,22 +283,30 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let tabID = tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
             _ = try await link.run(arguments: CloudTuiCommandLine.closeTabArguments(socketPath: connected.socketPath, tabID: tabID))
         }
+        closeLocalPanes(showing: [id])
         catalog.remove(id)
         scheduleRefresh()
     }
 
-    /// `workspace <id> close`: its tabs go with it. A terminal also viewed from another
-    /// workspace survives (pointer-list model); one viewed only here is removed
-    /// optimistically, and the next snapshot is authoritative.
+    /// A closed terminal has no pane to show any more: every local pane that projected it
+    /// goes too, instead of lingering as a dead attach the person has to close by hand.
+    private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
+        let wanted = Set(ids)
+        for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
+            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        }
+    }
+
+    /// `workspace <id> close`: its tabs go with it, its terminals detach into the pool
+    /// (`spec/cli.md`: only `terminal close` kills) — the protocol contract, and what
+    /// the sidebar's "Close Workspace (Keep Terminals)" promises. Callers wanting the
+    /// full delete (`vm.workspace_delete`, the sidebar's "Delete Workspace and
+    /// Terminals…") go through `CloudTreeNodeActions.deleteWorkspaceAndTerminals`,
+    /// which closes each terminal first.
     func closeRemoteWorkspace(id: String) async throws {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         _ = try await link.run(arguments: CloudTuiCommandLine.closeWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id))
-        for resource in catalog.snapshot.resources(on: machine) {
-            let views = resource.remoteWorkspaces
-            guard !views.isEmpty, views.allSatisfy({ $0.id == id }) else { continue }
-            catalog.remove(resource.id)
-        }
         info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
         catalog.updateMachine(info)
         scheduleRefresh()
