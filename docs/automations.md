@@ -63,7 +63,10 @@ per second. The engine also caps concurrent firings and keeps the most recent
   CMUX_AUTOMATION_EVENT_JSON; CMUX_AUTOMATION_RULE_ID and
   CMUX_AUTOMATION_CHAIN (a JSON string array) identify the firing.
 - webhook sends the event JSON as an HTTP POST to url. Optional string
-  headers are added to the request.
+  headers are added to the request. URLs with credential-bearing headers
+  (including Authorization, token, cookie, or API-key headers) must use
+  HTTPS; those headers are removed before a redirect crosses to another
+  origin, and cleartext redirects are rejected.
 
 Action-generated in-process events carry an automation_origin envelope with
 the rule chain. A rule already present in that chain is skipped, which stops
@@ -83,5 +86,6 @@ cmux automation reload
 
 test is a dry run: it reads the config and evaluates a synthetic event
 without dispatching actions or changing rate-limit state. show and test redact
-credential-like action fields before returning them. logs reports the bounded
-in-memory firing ring from the running cmux process.
+credential-like predicate, action, session, and event fields before returning
+them. logs reports the bounded in-memory firing ring from the running cmux
+process.

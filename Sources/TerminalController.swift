@@ -142,7 +142,7 @@ class TerminalController {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     /// App-lifetime automation engine, attached by the composition root after
     /// the initial TabManager and notification store are ready.
-    @MainActor private var automationEngine: AutomationEngine?
+    @MainActor var automationEngine: AutomationEngine?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     /// Main-actor grants for the file currently displayed by each mobile panel.
     /// The live panel inventory and artifact reads share this owner so a closed
@@ -337,6 +337,28 @@ class TerminalController {
                 || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
         }
         return focusIntentV1Commands.contains(commandKey)
+    }
+
+    /// Returns the encoded error when task-local automation policy suppresses
+    /// a focus-oriented v2 command; otherwise returns `nil`.
+    nonisolated static func focusSuppressionResponse(
+        method: String,
+        id: Any?,
+        params: [String: Any]
+    ) -> String? {
+        guard CmuxAutomationInvocationContext.focusAllowed == false,
+              commandHasFocusIntent(commandKey: method, isV2: true, params: params) else {
+            return nil
+        }
+        guard let idValue = v2WireId(id) else {
+            return ControlResponseEncoder.encodeFailureResponse
+        }
+        return v2Encoder.error(
+            id: idValue,
+            code: "focus_suppressed",
+            message: automationFocusSuppressedMessage(),
+            data: nil
+        )
     }
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
@@ -1832,8 +1854,14 @@ class TerminalController {
                 )
                 return
             }
-            let commandEnvelope = Self.automationCommandEnvelope(from: authorizedCommand)
-            let trimmed = (commandEnvelope?.command ?? authorizedCommand)
+            // Only a process in cmux's own descendant tree may attach the
+            // internal automation envelope. Same-UID clients are authorized
+            // for ordinary automation RPCs, but cannot forge a rule chain.
+            let parsedCommandEnvelope = Self.automationCommandEnvelope(from: authorizedCommand)
+            let commandEnvelope = (pid.map(isDescendant) == true)
+                ? parsedCommandEnvelope
+                : nil
+            let trimmed = (parsedCommandEnvelope?.command ?? authorizedCommand)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let commandOrigin = commandEnvelope?.origin
             lineReader.clearLimits()
@@ -1873,10 +1901,7 @@ class TerminalController {
             passwordAuthorization = result.passwordAuthorization
             if let response = result.response {
                 guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
-                CmuxAutomationInvocationContext.$eventOrigin.withValue(
-                    Self.automationOrigin(from: trimmed)
-                        ?? commandOrigin
-                ) {
+                CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
                     publishSocketEvents(command: trimmed, response: response)
                 }
             }
@@ -2203,21 +2228,13 @@ class TerminalController {
                 return errorResponse
             }
             let request = relayAuthorization.request
-            let automationOrigin = Self.automationOrigin(from: trimmed)
-                ?? CmuxAutomationInvocationContext.eventOrigin
-
-            if CmuxAutomationInvocationContext.focusAllowed == false,
-               Self.commandHasFocusIntent(
-                   commandKey: request.method,
-                   isV2: true,
-                   params: request.params.mapValues(\.foundationObject)
-               ) {
-                return v2Error(
-                    id: request.id.map(\.foundationObject),
-                    code: "focus_suppressed",
-                    message: Self.automationFocusSuppressedMessage(),
-                    data: nil
-                )
+            let automationOrigin = CmuxAutomationInvocationContext.eventOrigin
+            if let focusError = Self.focusSuppressionResponse(
+                method: request.method,
+                id: request.id.map(\.foundationObject),
+                params: request.params.mapValues(\.foundationObject)
+            ) {
+                return focusError
             }
 
             let policy = Self.executionPolicy(forV2Method: request.method)
@@ -2501,8 +2518,7 @@ class TerminalController {
             return Self.v2Encoder.response(for: parseError)
         case .success(let request):
             return CmuxAutomationInvocationContext.$eventOrigin.withValue(
-                Self.automationOrigin(from: jsonLine)
-                    ?? CmuxAutomationInvocationContext.eventOrigin
+                CmuxAutomationInvocationContext.eventOrigin
             ) {
                 processParsedV2Command(request)
             }
@@ -2524,18 +2540,12 @@ class TerminalController {
     /// the calling thread; only the command body crosses to the main actor,
     /// via a single `v2MainSync` hop.
     private nonisolated func processParsedV2Command(_ request: ControlRequest) -> String {
-        if CmuxAutomationInvocationContext.focusAllowed == false,
-           Self.commandHasFocusIntent(
-               commandKey: request.method,
-               isV2: true,
-               params: request.params.mapValues(\.foundationObject)
-           ) {
-            return v2Error(
-                id: request.id.map(\.foundationObject),
-                code: "focus_suppressed",
-                message: Self.automationFocusSuppressedMessage(),
-                data: nil
-            )
+        if let focusError = Self.focusSuppressionResponse(
+            method: request.method,
+            id: request.id.map(\.foundationObject),
+            params: request.params.mapValues(\.foundationObject)
+        ) {
+            return focusError
         }
         let bridged = V2SocketRequest(bridging: request)
         let id: Any? = bridged.id

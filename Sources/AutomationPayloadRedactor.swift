@@ -4,18 +4,20 @@ import Foundation
 /// boundary or is rendered by the CLI.
 nonisolated struct AutomationPayloadRedactor: Sendable {
     private let sensitiveKeyFragments = [
-        "authorization", "token", "secret", "password", "apikey", "credential", "cookie", "privatekey", "headers"
+        "authorization", "token", "secret", "password", "apikey", "credential", "cookie", "privatekey", "headers", "session"
     ]
 
     /// Creates a stateless redactor with the product's sensitive-key policy.
     init() {}
 
-    /// Returns a rule copy whose action parameters are safe to display.
+    /// Returns a rule copy whose predicates and action parameters are safe to display.
     func rule(_ rule: AutomationRule) -> AutomationRule {
         AutomationRule(
             id: rule.id,
             when: rule.when,
-            predicates: rule.predicates,
+            predicates: rule.predicates.reduce(into: [String: AutomationJSONValue]()) { result, entry in
+                result[entry.key] = self.value(entry.value, key: entry.key)
+            },
             actions: rule.actions.map { action in
                 var parameters: [String: AutomationJSONValue] = [:]
                 for (key, value) in action.parameters {

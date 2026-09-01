@@ -3316,7 +3316,7 @@ final class SocketClient {
     }
 
     private static func automationEnvelopeCommand(_ command: String) -> String {
-        guard !command.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"),
+        guard !command.hasPrefix("__cmux_automation_origin "),
               let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
               !ruleID.isEmpty else {
             return command
@@ -4035,10 +4035,6 @@ final class SocketClient {
             "method": method,
             "params": params
         ]
-        if let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
-           !ruleID.isEmpty {
-            request["automation_origin"] = Self.automationOriginPayload(ruleID: ruleID)
-        }
         guard JSONSerialization.isValidJSONObject(request) else {
             throw CLIError(message: "Failed to encode v2 request")
         }

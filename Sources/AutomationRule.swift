@@ -554,7 +554,9 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
         var actualStrings = Set<String>()
         var actualStringBooleanValues = Set<Bool>()
         var actualBooleans = Set<Bool>()
-        var actualNumbers = Set<Double>()
+        var actualIntegers = Set<Int64>()
+        var actualIntegerDoubleValues = Set<Double>()
+        var actualDoubles = Set<Double>()
         var hasActualNull = false
         for value in actualValues {
             switch value {
@@ -567,8 +569,11 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
                 }
             case .bool(let boolean):
                 actualBooleans.insert(boolean)
-            case .integer, .double:
-                if let number = value.doubleValue { actualNumbers.insert(number) }
+            case .integer(let integer):
+                actualIntegers.insert(integer)
+                actualIntegerDoubleValues.insert(Double(integer))
+            case .double(let double):
+                actualDoubles.insert(double)
             case .array, .object:
                 break
             }
@@ -584,8 +589,16 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
             case .bool(let boolean):
                 if actualBooleans.contains(boolean) { return true }
                 if actualStringBooleanValues.contains(boolean) { return true }
-            case .integer, .double:
-                if let number = expected.doubleValue, actualNumbers.contains(number) { return true }
+            case .integer(let integer):
+                // Keep integer-to-integer matching exact; only fall back to
+                // the historical numeric coercion for an actual Double.
+                if actualIntegers.contains(integer) || actualDoubles.contains(Double(integer)) {
+                    return true
+                }
+            case .double(let double):
+                if actualDoubles.contains(double) || actualIntegerDoubleValues.contains(double) {
+                    return true
+                }
             case .array, .object:
                 break
             case .null:

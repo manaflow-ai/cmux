@@ -57,20 +57,13 @@ extension TerminalController {
                 return errorResponse
             }
             let authorizedRequest = relayAuthorization.request
-            let automationOrigin = Self.automationOrigin(from: trimmed)
-                ?? CmuxAutomationInvocationContext.eventOrigin
-            if CmuxAutomationInvocationContext.focusAllowed == false,
-               Self.commandHasFocusIntent(
-                   commandKey: authorizedRequest.method,
-                   isV2: true,
-                   params: authorizedRequest.params.mapValues(\.foundationObject)
-               ) {
-                return v2Error(
-                    id: authorizedRequest.id.map(\.foundationObject),
-                    code: "focus_suppressed",
-                    message: Self.automationFocusSuppressedMessage(),
-                    data: nil
-                )
+            let automationOrigin = CmuxAutomationInvocationContext.eventOrigin
+            if let focusError = Self.focusSuppressionResponse(
+                method: authorizedRequest.method,
+                id: authorizedRequest.id.map(\.foundationObject),
+                params: authorizedRequest.params.mapValues(\.foundationObject)
+            ) {
+                return focusError
             }
             let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
             return await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
@@ -271,18 +264,12 @@ extension TerminalController {
     private nonisolated func processParsedV2CommandAsync(
         _ request: ControlRequest
     ) async -> String {
-        if CmuxAutomationInvocationContext.focusAllowed == false,
-           Self.commandHasFocusIntent(
-               commandKey: request.method,
-               isV2: true,
-               params: request.params.mapValues(\.foundationObject)
-           ) {
-            return v2Error(
-                id: request.id.map(\.foundationObject),
-                code: "focus_suppressed",
-                message: Self.automationFocusSuppressedMessage(),
-                data: nil
-            )
+        if let focusError = Self.focusSuppressionResponse(
+            method: request.method,
+            id: request.id.map(\.foundationObject),
+            params: request.params.mapValues(\.foundationObject)
+        ) {
+            return focusError
         }
         let bridgedParams = request.params.mapValues(\.foundationObject)
         let method = request.method

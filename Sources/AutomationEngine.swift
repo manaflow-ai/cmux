@@ -56,6 +56,7 @@ final class AutomationEngine {
     private var restartTask: Task<Void, Never>?
     private var restartAttempt = 0
     private var reloadTask: Task<Void, Never>?
+    private var reloadRequestedWhileLoading = false
     private var enabledUpdateTasks: [String: (requestID: UUID, task: Task<Void, Never>)] = [:]
     private var enabledUpdateRequestIDs: [String: UUID] = [:]
 
@@ -98,7 +99,9 @@ final class AutomationEngine {
     }
 
     deinit {
-        subscription?.close()
+        if let subscription {
+            eventBus.unsubscribe(subscription)
+        }
         eventTask?.cancel()
         restartTask?.cancel()
         reloadTask?.cancel()
@@ -181,6 +184,7 @@ final class AutomationEngine {
         restartTask = nil
         reloadTask?.cancel()
         reloadTask = nil
+        reloadRequestedWhileLoading = false
         subscription?.close()
         if let subscription {
             eventBus.unsubscribe(subscription)
@@ -198,11 +202,18 @@ final class AutomationEngine {
 
     /// Reloads the file and returns a compact command response.
     func scheduleReload() {
-        guard reloadTask == nil else { return }
+        guard reloadTask == nil else {
+            reloadRequestedWhileLoading = true
+            return
+        }
         reloadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             _ = await self.reloadAsync()
             self.reloadTask = nil
+            if self.reloadRequestedWhileLoading {
+                self.reloadRequestedWhileLoading = false
+                self.scheduleReload()
+            }
         }
     }
 
@@ -656,12 +667,7 @@ final class AutomationEngine {
             ?? nestedFocus
             ?? false
         let origin = CmuxAutomationEventOrigin(ruleID: rule.id, chain: chain)
-        let response = await rpcRunner(
-            method: method,
-            params: params,
-            allowFocus: allowFocus,
-            origin: origin
-        )
+        let response = await rpcRunner(method, params, allowFocus, origin)
         if response.hasPrefix("ERROR:") {
             return .failure(response)
         }
@@ -718,21 +724,20 @@ final class AutomationEngine {
         event: [String: Any],
         chain: [String]
     ) async -> AutomationActionExecutionResult {
+        let configuredHeaders = action.object(for: "headers")?.reduce(into: [String: String]()) { result, entry in
+            if let value = entry.value.stringValue { result[entry.key] = value }
+        } ?? [:]
         guard let rawURL = action.string(for: "url"),
               let url = URL(string: rawURL),
-              let scheme = url.scheme?.lowercased(),
-              url.host != nil,
-              ["http", "https"].contains(scheme) else {
+              AutomationWebhookPolicy().isValid(url: url, headers: configuredHeaders) else {
             return .failure("webhook action requires an http(s) url")
         }
         guard let data = Self.eventJSONData(event) else {
             return .failure("could not serialize automation event")
         }
         var headers: [String: String] = ["Content-Type": "application/json"]
-        for (key, value) in (action.object(for: "headers") ?? [:]).prefix(64) {
-            if let string = value.stringValue {
-                headers[String(key.prefix(256))] = String(string.prefix(8_192))
-            }
+        for (key, value) in configuredHeaders.prefix(64) {
+            headers[String(key.prefix(256))] = String(value.prefix(8_192))
         }
         if let webhookRunner {
             return await webhookRunner(url, headers, data)
@@ -776,15 +781,28 @@ final class AutomationEngine {
         request.httpBody = data
         request.timeoutInterval = 15
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
-        let session = URLSession(configuration: {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 15
-            configuration.timeoutIntervalForResource = 20
-            return configuration
-        }())
-        defer { session.invalidateAndCancel() }
+        let webhookPolicy = AutomationWebhookPolicy()
+        let redirectDelegate = AutomationWebhookRedirectDelegate(
+            originalURL: url,
+            sensitiveHeaderNames: webhookPolicy.credentialHeaderNames(in: headers)
+        )
+        let sessionWithDelegate = URLSession(
+            configuration: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.timeoutIntervalForRequest = 15
+                configuration.timeoutIntervalForResource = 20
+                configuration.httpShouldSetCookies = false
+                configuration.httpCookieStorage = nil
+                configuration.urlCache = nil
+                configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+                return configuration
+            }(),
+            delegate: redirectDelegate,
+            delegateQueue: nil
+        )
+        defer { sessionWithDelegate.invalidateAndCancel() }
         do {
-            let (bytes, response) = try await session.bytes(for: request)
+            let (bytes, response) = try await sessionWithDelegate.bytes(for: request)
             guard let response = response as? HTTPURLResponse else {
                 return .failure("webhook returned a non-HTTP response")
             }
@@ -890,8 +908,10 @@ final class AutomationEngine {
     }
 
     private static func origin(from event: [String: Any]) -> CmuxAutomationEventOrigin? {
+        // The event bus owns the top-level envelope. A payload field is
+        // client-controlled data and must never be treated as an internal
+        // automation chain marker.
         let raw = event["automation_origin"] as? [String: Any]
-            ?? (event["payload"] as? [String: Any])?["automation_origin"] as? [String: Any]
         guard let raw,
               let ruleID = raw["rule_id"] as? String else { return nil }
         let chain = (raw["chain"] as? [String] ?? [ruleID])

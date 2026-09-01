@@ -18,6 +18,7 @@ final class AutomationConfigStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let mutationCoordinator: AutomationConfigMutationCoordinator
+    private let webhookPolicy = AutomationWebhookPolicy()
 
     init(
         fileURL: URL = AutomationConfigStore.defaultFileURL(),
@@ -56,6 +57,7 @@ final class AutomationConfigStore {
         guard data.count <= Self.maximumFileBytes else {
             throw AutomationConfigStoreError.fileTooLarge
         }
+        try validateJSONDepth(in: data)
         let configuration = try decoder.decode(AutomationConfiguration.self, from: data)
         guard configuration.version == AutomationConfiguration.currentVersion else {
             throw AutomationConfigStoreError.unsupportedVersion(configuration.version)
@@ -94,6 +96,9 @@ final class AutomationConfigStore {
         }
         try validate(configuration)
         let data = try encoder.encode(configuration)
+        guard data.count <= Self.maximumFileBytes else {
+            throw AutomationConfigStoreError.fileTooLarge
+        }
         // Resolve a symlink before replacing the file. Replacing `fileURL`
         // directly would unlink a dotfiles-managed configuration and publish
         // a regular file in its place.
@@ -178,6 +183,10 @@ final class AutomationConfigStore {
             guard !rule.when.isEmpty else {
                 throw AutomationConfigStoreError.invalidRule("rule \(rule.id) must define when.event or when.category")
             }
+            guard rule.when.event?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != true,
+                  rule.when.category?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != true else {
+                throw AutomationConfigStoreError.invalidRule("rule \(rule.id) has an empty event or category selector")
+            }
             guard !rule.actions.isEmpty else {
                 throw AutomationConfigStoreError.invalidRule("rule \(rule.id) must define at least one action")
             }
@@ -191,6 +200,9 @@ final class AutomationConfigStore {
                 try validateJSONValue(value, path: "rule \(rule.id) predicate \(key)", depth: 0)
             }
             for action in rule.actions {
+                guard action.parameters.count <= Self.maximumJSONObjectEntries else {
+                    throw AutomationConfigStoreError.invalidRule("rule \(rule.id) action contains too many parameters")
+                }
                 for (key, value) in action.parameters {
                     try validateJSONValue(value, path: "rule \(rule.id) action \(key)", depth: 0)
                 }
@@ -207,11 +219,12 @@ final class AutomationConfigStore {
                         throw AutomationConfigStoreError.invalidRule("rule \(rule.id) has a run action without command")
                     }
                 case "webhook":
+                    let headers = action.object(for: "headers")?.reduce(into: [String: String]()) { result, entry in
+                        if let value = entry.value.stringValue { result[entry.key] = value }
+                    } ?? [:]
                     guard let rawURL = action.string(for: "url"),
                           let url = URL(string: rawURL),
-                          let scheme = url.scheme?.lowercased(),
-                          url.host != nil,
-                          ["http", "https"].contains(scheme) else {
+                          webhookPolicy.isValid(url: url, headers: headers) else {
                         throw AutomationConfigStoreError.invalidRule("rule \(rule.id) has an invalid webhook url")
                     }
                 default:
@@ -246,6 +259,41 @@ final class AutomationConfigStore {
             }
         case .null, .bool, .integer, .double, .string:
             break
+        }
+    }
+
+    /// Rejects excessive JSON container nesting before `JSONDecoder` recurses.
+    /// The scanner is deliberately lexical and ignores braces inside strings;
+    /// structural validation remains the decoder's responsibility.
+    private func validateJSONDepth(in data: Data) throws {
+        let maximumNesting = Self.maximumJSONDepth + 8
+        var nesting = 0
+        var inString = false
+        var escaped = false
+        for byte in data {
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if byte == 92 { // backslash
+                    escaped = true
+                } else if byte == 34 { // quote
+                    inString = false
+                }
+                continue
+            }
+            switch byte {
+            case 34:
+                inString = true
+            case 91, 123: // [ or {
+                nesting += 1
+                guard nesting <= maximumNesting else {
+                    throw AutomationConfigStoreError.invalidRule("configuration is nested too deeply")
+                }
+            case 93, 125: // ] or }
+                nesting = max(0, nesting - 1)
+            default:
+                break
+            }
         }
     }
 }

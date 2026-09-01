@@ -249,12 +249,7 @@ extension CMUXCLI {
     private func automationEventProvidesWorkspaceTags(_ event: [String: Any]) -> Bool {
         let payload = event["payload"] as? [String: Any] ?? [:]
         return payload["workspace_tag"] != nil
-            || payload["workspace_tags"] != nil
             || payload["tag"] != nil
             || payload["tags"] != nil
-            || event["workspace_tag"] != nil
-            || event["workspace_tags"] != nil
-            || event["tag"] != nil
-            || event["tags"] != nil
     }
 }

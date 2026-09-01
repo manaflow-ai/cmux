@@ -276,11 +276,16 @@
 		A10649220000000000000001 /* AutomationPayloadRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649210000000000000001 /* AutomationPayloadRedactor.swift */; };
 		A10649230000000000000001 /* AutomationPayloadRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649210000000000000001 /* AutomationPayloadRedactor.swift */; };
 		A10649200000000000000001 /* AutomationProcessSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649140000000000000001 /* AutomationProcessSession.swift */; };
+		A10649350000000000000001 /* AutomationProcessSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649340000000000000001 /* AutomationProcessSessionTests.swift */; };
 		A10649280000000000000001 /* AutomationProcessTerminationReason.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649270000000000000001 /* AutomationProcessTerminationReason.swift */; };
 		A10649020000000000000001 /* AutomationRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649010000000000000001 /* AutomationRule.swift */; };
 		A10649030000000000000001 /* AutomationRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649010000000000000001 /* AutomationRule.swift */; };
 		A10649110000000000000001 /* AutomationRuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649100000000000000001 /* AutomationRuleTests.swift */; };
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
+		A10649310000000000000001 /* AutomationWebhookPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649300000000000000001 /* AutomationWebhookPolicy.swift */; };
+		A10649330000000000000001 /* AutomationWebhookPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649300000000000000001 /* AutomationWebhookPolicy.swift */; };
+		A10649370000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649360000000000000001 /* AutomationWebhookRedirectDelegate.swift */; };
+		A10649380000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649360000000000000001 /* AutomationWebhookRedirectDelegate.swift */; };
 		AA9457BF0000000000000001 /* AutoNamingClaudeArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA9457FR0000000000000001 /* AutoNamingClaudeArgumentsTests.swift */; };
 		FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */; };
 		7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */; };
@@ -3348,10 +3353,13 @@
 		A10649070000000000000001 /* AutomationInvocationContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationInvocationContext.swift; sourceTree = "<group>"; };
 		A10649210000000000000001 /* AutomationPayloadRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationPayloadRedactor.swift; sourceTree = "<group>"; };
 		A10649140000000000000001 /* AutomationProcessSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationProcessSession.swift; sourceTree = "<group>"; };
+		A10649340000000000000001 /* AutomationProcessSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationProcessSessionTests.swift; sourceTree = "<group>"; };
 		A10649270000000000000001 /* AutomationProcessTerminationReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationProcessTerminationReason.swift; sourceTree = "<group>"; };
 		A10649010000000000000001 /* AutomationRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationRule.swift; sourceTree = "<group>"; };
 		A10649100000000000000001 /* AutomationRuleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationRuleTests.swift; sourceTree = "<group>"; };
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
+		A10649300000000000000001 /* AutomationWebhookPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationWebhookPolicy.swift; sourceTree = "<group>"; };
+		A10649360000000000000001 /* AutomationWebhookRedirectDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationWebhookRedirectDelegate.swift; sourceTree = "<group>"; };
 		AA9457FR0000000000000001 /* AutoNamingClaudeArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingClaudeArgumentsTests.swift; sourceTree = "<group>"; };
 		70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingCodexAdapterTests.swift; sourceTree = "<group>"; };
 		7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingEngineTests.swift; sourceTree = "<group>"; };
@@ -7234,6 +7242,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10649210000000000000001 /* AutomationPayloadRedactor.swift */,
 				A10649070000000000000001 /* AutomationInvocationContext.swift */,
 				A10649090000000000000001 /* AutomationEngine.swift */,
+				A10649300000000000000001 /* AutomationWebhookPolicy.swift */,
+				A10649360000000000000001 /* AutomationWebhookRedirectDelegate.swift */,
 				A106490B0000000000000001 /* TerminalController+Automation.swift */,
 				E7E000000000000000000006 /* CmuxEventBus.swift */,
 				E7E00000000000000000000E /* CmuxEventLogWriter.swift */,
@@ -8350,6 +8360,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10649150000000000000001 /* AutomationConfigStoreError.swift */,
 				A10649240000000000000001 /* AutomationConfigMutationCoordinator.swift */,
 				A10649210000000000000001 /* AutomationPayloadRedactor.swift */,
+				A10649300000000000000001 /* AutomationWebhookPolicy.swift */,
+				A10649360000000000000001 /* AutomationWebhookRedirectDelegate.swift */,
 				B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */,
 				A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */,
 				A10240070000000000000001 /* CodexTeamsAppServerSupervisor.swift */,
@@ -8989,6 +9001,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */,
 				E7E000000000000000000004 /* CmuxEventBusTests.swift */,
 				A10649100000000000000001 /* AutomationRuleTests.swift */,
+				A10649340000000000000001 /* AutomationProcessSessionTests.swift */,
 				7837E0027837E0027837E002 /* CmuxSocketEventMapperTests.swift */,
 				A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */,
 				A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */,
@@ -9807,6 +9820,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10649200000000000000001 /* AutomationProcessSession.swift in Sources */,
 				A10649280000000000000001 /* AutomationProcessTerminationReason.swift in Sources */,
 				A10649020000000000000001 /* AutomationRule.swift in Sources */,
+				A10649310000000000000001 /* AutomationWebhookPolicy.swift in Sources */,
+				A10649370000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */,
 					C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
 				74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */,
@@ -11571,6 +11586,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A10649180000000000000001 /* AutomationConfigStoreError.swift in Sources */,
 				A10649230000000000000001 /* AutomationPayloadRedactor.swift in Sources */,
 				A10649030000000000000001 /* AutomationRule.swift in Sources */,
+				A10649330000000000000001 /* AutomationWebhookPolicy.swift in Sources */,
+				A10649380000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
@@ -11857,6 +11874,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C8046FF15781CC7E4F8EAEA6 /* AppHostWindowReleaseGuardTests.swift in Sources */,
 				A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */,
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
+				A10649350000000000000001 /* AutomationProcessSessionTests.swift in Sources */,
 				A10649110000000000000001 /* AutomationRuleTests.swift in Sources */,
 				AA9457BF0000000000000001 /* AutoNamingClaudeArgumentsTests.swift in Sources */,
 				FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */,

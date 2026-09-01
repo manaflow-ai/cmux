@@ -55,7 +55,7 @@ actor AutomationProcessSession {
         // POSIX_SPAWN_START_SUSPENDED keeps the process from running until the
         // exit source above is armed, so even a command that exits immediately
         // remains inside the owned lifecycle boundary.
-        guard Darwin.kill(spawned.processIdentifier, SIGCONT) == 0 else {
+        if Darwin.kill(spawned.processIdentifier, SIGCONT) != 0 {
             terminate(reason: .cancelled)
         }
         if Task.isCancelled {
@@ -194,8 +194,8 @@ actor AutomationProcessSession {
         guard posix_spawnattr_init(&attributes) == 0 else { return nil }
         defer { posix_spawnattr_destroy(&attributes) }
 
-        let suspendedFlags = Int16(POSIX_SPAWN_START_SUSPENDED)
-        let groupedFlags = Int16(POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_SETPGROUP)
+        let suspendedFlags = Int16(POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_CLOEXEC_DEFAULT)
+        let groupedFlags = Int16(POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
         let groupEnabled: Bool
         if posix_spawnattr_setflags(&attributes, groupedFlags) == 0,
            posix_spawnattr_setpgroup(&attributes, 0) == 0 {

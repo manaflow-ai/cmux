@@ -45,22 +45,6 @@ extension TerminalController {
         )
     }
 
-    nonisolated static func automationOrigin(from command: String) -> CmuxAutomationEventOrigin? {
-        guard command.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let raw = object["automation_origin"] as? [String: Any],
-              let ruleID = raw["rule_id"] as? String,
-              !ruleID.isEmpty else {
-            return nil
-        }
-        let chain = (raw["chain"] as? [String] ?? [ruleID])
-            .filter { !$0.isEmpty }
-            .prefix(16)
-            .map { String($0.prefix(256)) }
-        return CmuxAutomationEventOrigin(ruleID: ruleID, chain: chain.isEmpty ? [ruleID] : chain)
-    }
-
     @MainActor
     func attachAutomationEngine(_ engine: AutomationEngine) {
         automationEngine = engine

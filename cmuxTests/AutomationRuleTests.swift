@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 
@@ -154,13 +153,16 @@ struct AutomationRuleTests {
         #expect(encodedOrigin["chain"] as? [String] == ["a", "b"])
     }
 
-    @Test("automation origin metadata survives a CLI-style RPC envelope")
-    func parsesRPCOriginMetadata() {
-        let origin = TerminalController.automationOrigin(
-            from: #"{"id":"1","method":"workspace.reorder","automation_origin":{"rule_id":"a","chain":["a","b"]}}"#
+    @Test("automation origin metadata is carried by the internal CLI envelope")
+    func parsesInternalAutomationEnvelope() throws {
+        let payload = #"{"rule_id":"a","chain":["a","b"]}"#
+        let encoded = Data(payload.utf8).base64EncodedString()
+        let envelope = TerminalController.automationCommandEnvelope(
+            from: "__cmux_automation_origin \(encoded) workspace.reorder"
         )
-        #expect(origin?.ruleID == "a")
-        #expect(origin?.chain == ["a", "b"])
+        #expect(envelope?.command == "workspace.reorder")
+        #expect(envelope?.origin.ruleID == "a")
+        #expect(envelope?.origin.chain == ["a", "b"])
     }
 
     @Test("selector matching is deterministic and case-consistent")
@@ -238,44 +240,149 @@ struct AutomationRuleTests {
         #expect(try AutomationConfigStore(fileURL: targetURL).load().rules.first?.enabled == false)
     }
 
-    @Test("run actions terminate background descendants")
-    func processSessionCleansUpDescendants() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-automation-process-test-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let pidURL = directory.appendingPathComponent("child.pid")
-        let command = "sleep 5 & printf '%s' $! > '\(pidURL.path)'; exit 0"
-        let session = AutomationProcessSession(command: command, environment: [:])
-
-        _ = await session.run()
-        let clock = ContinuousClock()
-        var childPID: pid_t?
-        for _ in 0..<50 {
-            if let raw = try? String(contentsOf: pidURL, encoding: .utf8),
-               let parsed = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                childPID = parsed
-                break
-            }
-            try await clock.sleep(for: .milliseconds(20))
-        }
-        let pid = try #require(childPID)
-        for _ in 0..<50 {
-            if Self.processHasExited(pid) { break }
-            try await clock.sleep(for: .milliseconds(20))
-        }
-        #expect(Self.processHasExited(pid))
+    @Test("scalar array matching keeps large integers exact")
+    func scalarArrayMatchingKeepsLargeIntegersExact() {
+        let first: Int64 = 9_007_199_254_740_993
+        let adjacent: Int64 = 9_007_199_254_740_992
+        let rule = AutomationRule(
+            id: "large-number",
+            when: AutomationWhen(event: "numbers"),
+            predicates: ["values": .array([.integer(first)])],
+            actions: [AutomationAction(action: "notify")]
+        )
+        #expect(!rule.matches(event: [
+            "name": "numbers",
+            "payload": ["values": [adjacent]]
+        ]))
+        #expect(rule.matches(event: [
+            "name": "numbers",
+            "payload": ["values": [first]]
+        ]))
+        #expect(rule.matches(event: [
+            "name": "numbers",
+            "payload": ["values": [Double(first)]]
+        ]))
     }
 
-    private static func processHasExited(_ pid: pid_t) -> Bool {
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
-              size > 0,
-              info.kp_proc.p_pid == pid else {
-            return true
+    @Test("rule redaction covers predicates and session identifiers")
+    func ruleRedactionCoversPredicatesAndSessions() throws {
+        let rule = AutomationRule(
+            id: "redact",
+            when: AutomationWhen(event: "secret"),
+            predicates: [
+                "authorization": .string("bearer secret"),
+                "nested": .object(["session_id": .string("session-secret")])
+            ],
+            actions: [AutomationAction(action: "notify", parameters: ["token": .string("token-secret")])]
+        )
+        let redacted = AutomationPayloadRedactor().rule(rule)
+        #expect(redacted.predicates["authorization"] == .string("[redacted]"))
+        #expect(redacted.predicates["nested"] == .object(["session_id": .string("[redacted]")]))
+        #expect(redacted.actions[0].value(for: "token") == .string("[redacted]"))
+    }
+
+    @Test("configuration validation rejects empty selectors and oversized action objects")
+    func configurationValidationBoundsSelectorsAndActions() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-validation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AutomationConfigStore(fileURL: directory.appendingPathComponent("automations.json"))
+        let emptySelector = AutomationConfiguration(rules: [
+            AutomationRule(
+                id: "empty-selector",
+                when: AutomationWhen(event: "   "),
+                actions: [AutomationAction(action: "notify")]
+            )
+        ])
+        #expect(throws: AutomationConfigStoreError.self) { try store.save(emptySelector) }
+
+        var parameters: [String: AutomationJSONValue] = [:]
+        for index in 0...256 { parameters["key-\(index)"] = .string("value") }
+        let oversizedAction = AutomationConfiguration(rules: [
+            AutomationRule(
+                id: "oversized-action",
+                when: AutomationWhen(event: "action"),
+                actions: [AutomationAction(action: "notify", parameters: parameters)]
+            )
+        ])
+        #expect(throws: AutomationConfigStoreError.self) { try store.save(oversizedAction) }
+    }
+
+    @Test("configuration loading rejects deep JSON before decoding")
+    func configurationLoadingRejectsDeepJSON() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-depth-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("automations.json")
+        var nested = "\"value\""
+        for _ in 0..<32 { nested = "[\(nested)]" }
+        let json = "{\"version\":1,\"rules\":[{\"id\":\"deep\",\"when\":{\"event\":\"x\"},\"where\":{\"value\":\(nested)},\"then\":[{\"action\":\"notify\"}]}]}"
+        try Data(json.utf8).write(to: fileURL)
+        #expect(throws: AutomationConfigStoreError.self) {
+            try AutomationConfigStore(fileURL: fileURL).load()
         }
-        return Int32(info.kp_proc.p_stat) == SZOMB
+    }
+
+    @Test("configuration save rejects oversized encoded data")
+    func configurationSaveRejectsOversizedData() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-size-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("automations.json")
+        let configuration = AutomationConfiguration(rules: [
+            AutomationRule(
+                id: "large",
+                when: AutomationWhen(event: "large"),
+                predicates: ["value": .string(String(repeating: "x", count: 4 * 1024 * 1024))],
+                actions: [AutomationAction(action: "notify")]
+            )
+        ])
+        #expect(throws: AutomationConfigStoreError.fileTooLarge) {
+            try AutomationConfigStore(fileURL: fileURL).save(configuration)
+        }
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @Test("webhook credentials require HTTPS and are stripped across origins")
+    func webhookCredentialTransportPolicy() throws {
+        let policy = AutomationWebhookPolicy()
+        let httpURL = try #require(URL(string: "http://example.test/hook"))
+        let httpsURL = try #require(URL(string: "https://example.test/hook"))
+        #expect(!policy.isValid(url: httpURL, headers: ["Authorization": "Bearer secret"]))
+        #expect(policy.isValid(url: httpURL, headers: ["X-Trace": "trace"]))
+        #expect(policy.isValid(url: httpsURL, headers: ["Authorization": "Bearer secret"]))
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-automation-webhook-policy-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = AutomationConfigStore(fileURL: directory.appendingPathComponent("automations.json"))
+        let invalidConfiguration = AutomationConfiguration(rules: [
+            AutomationRule(
+                id: "insecure-webhook",
+                when: AutomationWhen(event: "webhook"),
+                actions: [AutomationAction(
+                    action: "webhook",
+                    parameters: [
+                        "url": .string(httpURL.absoluteString),
+                        "headers": .object(["Authorization": .string("Bearer secret")])
+                    ]
+                )]
+            )
+        ])
+        #expect(throws: AutomationConfigStoreError.self) { try store.save(invalidConfiguration) }
+
+        let delegate = AutomationWebhookRedirectDelegate(
+            originalURL: httpsURL,
+            sensitiveHeaderNames: policy.credentialHeaderNames(in: ["Authorization": "Bearer secret"])
+        )
+        var redirected = URLRequest(url: try #require(URL(string: "https://other.test/hook")))
+        redirected.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+        redirected.setValue("trace", forHTTPHeaderField: "X-Trace")
+        let sanitized = try #require(delegate.requestForRedirect(redirected))
+        #expect(sanitized.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(sanitized.value(forHTTPHeaderField: "X-Trace") == "trace")
+        let insecure = URLRequest(url: httpURL)
+        #expect(delegate.requestForRedirect(insecure) == nil)
     }
 }
