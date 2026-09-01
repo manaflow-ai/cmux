@@ -1233,11 +1233,17 @@ func emptyTmuxCompatStore() tmuxCompatStore {
 }
 
 func loadTmuxCompatStore() (tmuxCompatStore, error) {
-	data, err := os.ReadFile(tmuxCompatStoreURL())
+	path := tmuxCompatStoreURL()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return emptyTmuxCompatStore(), nil
 		}
+		return tmuxCompatStore{}, err
+	}
+	// Heal stores created by older versions even when this is a read-only
+	// command, so buffer contents are never left world-readable.
+	if err := os.Chmod(path, 0600); err != nil {
 		return tmuxCompatStore{}, err
 	}
 	var store tmuxCompatStore

@@ -58,6 +58,9 @@ extension CMUXCLI {
             }
             throw error
         }
+        // Heal stores created by older versions before exposing their contents
+        // to read-only commands (including malformed stores).
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
     }
 
