@@ -2932,6 +2932,23 @@ mod tests {
         assert!(!h.manager.has_attachment("p-tunnel"));
     }
 
+    #[tokio::test]
+    async fn stale_viewer_output_cannot_reach_a_replacement_attachment() {
+        let cmux = CmuxTui { file: "/opt/cmux-tui".to_owned(), prefix: Vec::new() };
+        let h = harness(Some(cmux), None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let stale_viewer = h.spawned()[0].clone();
+
+        h.frame(serde_json::json!({ "type": "pty_close", "ptyId": "p1" })).await;
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let before = h.sent().len();
+
+        stale_viewer.emit("stale output");
+
+        assert_eq!(h.sent().len(), before, "a detached viewer must not write to its replacement");
+        assert!(h.manager.has_attachment("p1"), "the replacement attachment must remain live");
+    }
+
     #[test]
     fn pty_env_scrubs_secrets_but_keeps_a_real_term() {
         let home = TestDirectory::new("env");
