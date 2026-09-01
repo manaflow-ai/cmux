@@ -18,13 +18,24 @@ struct AgentContextPressureDetectorTests {
         #expect(detector.snapshot.isUnderPressure)
     }
 
-    @Test("ANSI escapes and ordinary prose do not create a false positive")
+    @Test("ANSI escapes are stripped before pressure markers are matched")
     func ignoresAnsiAndOrdinaryProse() {
         var detector = AgentContextPressureDetector(provider: .claudeCode)
-        let output = "\u{1b}[31mcontext\u{1b}[0m is a variable in this explanation\n"
+        let output = "Auto-\u{1b}[31mcompacting conversation...\u{1b}[0m\n"
 
         #expect(detector.consume(output).isEmpty)
-        #expect(!detector.snapshot.isUnderPressure)
+        #expect(detector.snapshot.occurrences[.repeatedAutoCompaction] == 1)
+        #expect(
+            detector.consume(output)
+                .contains { $0.signal == .repeatedAutoCompaction }
+        )
+
+        var plainDetector = AgentContextPressureDetector(provider: .claudeCode)
+        #expect(plainDetector.consume("Auto-compacting conversation...\n").isEmpty)
+        #expect(
+            plainDetector.consume("Auto-compacting conversation...\n")
+                .contains { $0.signal == .repeatedAutoCompaction }
+        )
     }
 
     @Test("A context low-level phrase is not treated as a provider indicator")
@@ -48,6 +59,18 @@ struct AgentContextPressureDetectorTests {
 
         #expect(events.contains { $0.signal == .repeatedAutoCompaction })
         #expect(events.first?.occurrence == 2)
+        #expect(detector.consume("Auto-compacting conversation...\n").isEmpty)
+    }
+
+    @Test("C1 OSC strings terminate before later pressure markers")
+    func c1OscTerminatorDoesNotDisableDetection() {
+        var detector = AgentContextPressureDetector(provider: .claudeCode)
+        let output = "\u{009d}0;title\u{009c}Context window is almost full\n"
+
+        #expect(
+            detector.consume(output)
+                .contains { $0.signal == .contextLow }
+        )
     }
 
     @Test("Whitespace split across PTY chunks does not break a marker")

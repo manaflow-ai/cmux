@@ -1,5 +1,6 @@
 import CmuxSidebar
 import CmuxWorkspaces
+import Darwin
 import Foundation
 
 @MainActor
@@ -68,6 +69,72 @@ extension AgentContextManagementCoordinator {
             }
         }
 
+        /// Confirms that the PTY's live foreground process is the managed
+        /// agent recorded for this exact panel/session generation. Shell
+        /// `commandRunning` alone is deliberately insufficient because an
+        /// unrelated command can reuse the same terminal after the agent exits.
+        func hasVerifiedForegroundAgentProcess(
+            panelId: UUID,
+            provider: AgentContextProvider
+        ) -> Bool {
+            guard let terminal = terminal(panelId: panelId),
+                  let foregroundPID = terminal.surface.foregroundProcessID(),
+                  foregroundPID > 0,
+                  let binding = binding(panelId: panelId),
+                  binding.launchFlavor == .local else {
+                return false
+            }
+
+            func keyMatchesProvider(_ key: String) -> Bool {
+                let normalized = key
+                    .replacingOccurrences(of: "_", with: "-")
+                    .lowercased()
+                switch provider {
+                case .claudeCode:
+                    return normalized == "claude" || normalized.hasPrefix("claude-")
+                case .codex:
+                    return normalized == "codex" || normalized.hasPrefix("codex-")
+                }
+            }
+
+            func processMatches(
+                key: String,
+                pid: pid_t,
+                identity: AgentPIDProcessIdentity?
+            ) -> Bool {
+                guard keyMatchesProvider(key),
+                      Int(pid) == foregroundPID,
+                      let identity,
+                      identity.pid == pid,
+                      let currentIdentity = Workspace.agentPIDProcessIdentity(pid: pid) else {
+                    return false
+                }
+                return currentIdentity == identity
+            }
+
+            switch self {
+            case .workspace(let workspace):
+                return (workspace.agentPIDKeysByPanelId[panelId] ?? []).contains { key in
+                    guard let pid = workspace.agentPIDs[key] else { return false }
+                    return processMatches(
+                        key: key,
+                        pid: pid,
+                        identity: workspace.agentPIDProcessIdentitiesByKey[key]
+                    )
+                }
+            case .dock(let dock):
+                guard let runtime = dock.agentRuntimeByPanelId[panelId] else { return false }
+                return runtime.agentPIDKeys.contains { key in
+                    guard let pid = runtime.agentPIDs[key] else { return false }
+                    return processMatches(
+                        key: key,
+                        pid: pid,
+                        identity: runtime.agentPIDProcessIdentities[key]
+                    )
+                }
+            }
+        }
+
         func setPressureStatus(_ entry: SidebarStatusEntry, key: String, panelId: UUID) {
             switch self {
             case .workspace(let workspace): workspace.statusEntries[key] = entry
@@ -79,6 +146,13 @@ extension AgentContextManagementCoordinator {
             switch self {
             case .workspace(let workspace): workspace.statusEntries.removeValue(forKey: key)
             case .dock(let dock): dock.clearAgentRuntimeStatusEntry(key: key, panelId: panelId)
+            }
+        }
+
+        func statusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {
+            switch self {
+            case .workspace(let workspace): workspace.statusEntries[key]
+            case .dock(let dock): dock.agentRuntimeStatusEntry(key: key, panelId: panelId)
             }
         }
 

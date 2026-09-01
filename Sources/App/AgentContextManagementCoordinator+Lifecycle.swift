@@ -142,6 +142,7 @@ extension AgentContextManagementCoordinator {
             let resetGeneration = owner.resetContextPressureDetector(panelId: panelId)
             state.detectorGeneration = max(state.detectorGeneration, resetGeneration)
             state.userInputObserved = false
+            state.manualRecoveryRequired = false
             state.unsafeClearNotificationSent = false
             userInputObservedBeforePressure.remove(panelId)
             owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
@@ -228,8 +229,10 @@ extension AgentContextManagementCoordinator {
             state.preservationHandoffPath = nil
             state.preservationRequestedAt = nil
             state.preservationVerificationInFlight = false
-            state.recoveryAwaitingLifecycleBoundary = false
-            state.recoveryObservedRunning = false
+            // Keep the recovery recursion fence until a fresh running-to-idle
+            // boundary (or explicit user-input reset) proves the command's
+            // turn completed. Clearing lifecycle evidence is not completion
+            // evidence; doing so would let a late marker re-enter recovery.
         }
         states[panelId] = state
         if let owner = owner(for: panelId, preferredWorkspaceID: nil) {

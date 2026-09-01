@@ -38828,10 +38828,12 @@ export default CMUXSessionRestore;
             print(compactedFeedOutput)
             return
         }
-        let sessionId = firstString(
+        let reportedSessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
-        ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        )
+        let sessionId = reportedSessionId
+            ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
         var validatedCodexFeedTarget: (workspaceId: String, surfaceId: String)?
 
         // Native Codex child events are committed before their telemetry frame
@@ -38999,13 +39001,6 @@ export default CMUXSessionRestore;
         if let validatedCodexFeedTarget {
             eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
             eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
-        } else if source == "claude" || source == "codex",
-                  let surfaceId = firstString(
-                      in: stdinObj,
-                      keys: ["surface_id", "surfaceId"]
-                  ) ?? env["CMUX_SURFACE_ID"],
-                  !surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            eventDict["surface_id"] = surfaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
@@ -39085,7 +39080,34 @@ export default CMUXSessionRestore;
             request["id"] = UUID().uuidString
         }
 
+        func applyValidatedFeedSurfaceTarget(using activeClient: SocketClient) {
+            guard validatedCodexFeedTarget == nil,
+                  let candidateSurfaceId = firstString(
+                      in: stdinObj,
+                      keys: ["surface_id", "surfaceId"]
+                  ) ?? normalizedHookValue(env["CMUX_SURFACE_ID"]),
+                  let target = validatedFeedSurfaceTarget(
+                      source: source,
+                      sessionId: reportedSessionId,
+                      surfaceId: candidateSurfaceId,
+                      workspaceId: eventDict["workspace_id"] as? String
+                          ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"]),
+                      client: activeClient
+                  ) else {
+                return
+            }
+            eventDict["workspace_id"] = target.workspaceId
+            eventDict["surface_id"] = target.surfaceId
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+            if let client {
+                applyValidatedFeedSurfaceTarget(using: client)
+            }
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this
@@ -39157,6 +39179,8 @@ export default CMUXSessionRestore;
         let activeClient: SocketClient
         if let client {
             activeClient = client
+        } else if let lifecycleProbeClient {
+            activeClient = lifecycleProbeClient
         } else if let socketPath {
             let feedClient = SocketClient(path: socketPath)
             do {
@@ -39182,6 +39206,8 @@ export default CMUXSessionRestore;
             print("{}")
             return
         }
+
+        applyValidatedFeedSurfaceTarget(using: activeClient)
 
         if shouldAwaitTelemetryIngestion {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {

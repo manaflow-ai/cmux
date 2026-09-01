@@ -7551,7 +7551,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // A deferred click is still user intent and must win over a pending
+        // A deferred terminal click is user intent and must win over a pending
         // context-recovery write before the clipboard sequencer queues it.
         terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
@@ -10969,7 +10969,9 @@ final class GhosttySurfaceScrollView: NSView {
                 _ = direction.perform { terminalSurface?.performExplicitInputBindingAction($0) ?? false }
             },
             onSearchTextChanged: { [weak terminalSurface] in
-                terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
+                // Find-field edits never reach the agent PTY, so they must
+                // retain the non-user input boundary for context recovery.
+                terminalSurface?.didReceiveExplicitInput()
             },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
                 self?.searchFocusTarget = .searchField

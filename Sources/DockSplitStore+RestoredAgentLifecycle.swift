@@ -130,8 +130,11 @@ extension DockSplitStore {
             detached.restoredPanelTitleBoundary,
             panelId: detached.panelId
         )
-        let shellActivityState = detached.shellActivityState ?? .unknown
-        (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
+        if let shellActivityState = detached.shellActivityState {
+            // A missing transfer snapshot is not evidence that the live panel
+            // became unknown; keep the state already held by the moved panel.
+            (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
+        }
         restoredAgentLifecycle.seedTransferredState(
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,

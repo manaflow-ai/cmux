@@ -107,7 +107,8 @@ extension AgentContextManagementCoordinator {
                 provider: provider,
                 binding: binding,
                 owner: owner,
-                detectorGeneration: owner.contextPressureDetectorGeneration(panelId: surfaceID)
+                detectorGeneration: owner.contextPressureDetectorGeneration(panelId: surfaceID),
+                userInputObserved: userInputObservedBeforePressure.contains(surfaceID)
             )
         guard state.provider == provider, sameSession(state.binding, binding) else {
             structuredLog(
@@ -152,12 +153,22 @@ extension AgentContextManagementCoordinator {
             resetForUnboundSession(panelId: surfaceID)
             return
         }
+        let liveTerminal = owner.terminal(panelId: surfaceID)
+        let preservationPathAvailable = !settings.preservesState
+            || state.preservationCompleted
+            || owner.contextHandoffFileURL(panelId: surfaceID) != nil
         let input = AgentContextInjectionInput(
             enabled: settings.isEnabled,
             pressureDetected: state.pressure.isUnderPressure,
             pressureConfirmed: state.pressureConfirmation.isConfirmed,
             providerEvidenceConfirmed: state.providerEvidenceConfirmed,
             managedSessionBound: owner.binding(panelId: surfaceID)?.isAgentHookBinding == true,
+            foregroundAgentConfirmed: owner.hasVerifiedForegroundAgentProcess(
+                panelId: surfaceID,
+                provider: state.provider
+            ),
+            surfaceAvailable: liveTerminal != nil,
+            preservationAvailable: preservationPathAvailable,
             provider: state.provider,
             lifecycle: state.lifecycle,
             shellActivity: state.shellActivity,
@@ -186,6 +197,13 @@ extension AgentContextManagementCoordinator {
                 if reason != .pressureUnconfirmed {
                     state.manualRecoveryRequired = true
                 }
+                if reason == .preservationUnavailable {
+                    state.preservationAwaitingAcknowledgement = true
+                    state.preservationCompleted = false
+                    state.preservationHandoffPath = nil
+                    state.preservationRequestedAt = nil
+                    state.preservationVerificationInFlight = false
+                }
                 state.unsafeClearNotificationSent = true
                 states[surfaceID] = state
                 if shouldNotify {
@@ -194,7 +212,7 @@ extension AgentContextManagementCoordinator {
             }
             return
         }
-        guard let terminal = owner.terminal(panelId: surfaceID) else {
+        guard let terminal = liveTerminal else {
             let shouldNotify = settings.action == .clear && !state.unsafeClearNotificationSent
             if settings.action == .clear {
                 state.manualRecoveryRequired = true
@@ -277,40 +295,25 @@ extension AgentContextManagementCoordinator {
                 state.preservationRequestedAt = nil
                 state.preservationVerificationInFlight = false
             }
+            var shouldNotify = false
             if settings.action == .clear {
-                let shouldNotify = !state.unsafeClearNotificationSent
+                shouldNotify = !state.unsafeClearNotificationSent
                 state.manualRecoveryRequired = true
                 state.unsafeClearNotificationSent = true
-                guard shouldNotify else {
-                    states[surfaceID] = state
-                    structuredLog(
-                        "injection.rejected",
-                        workspaceID: owner.workspaceID,
-                        surfaceID: surfaceID,
-                        detail: "step=\(step.rawValue) reason=surface-unavailable"
-                    )
-                    return
-                }
-                states[surfaceID] = state
+            }
+            states[surfaceID] = state
+            if shouldNotify {
                 notifyUnsafeClear(
                     owner: owner,
                     surfaceID: surfaceID,
                     reason: .surfaceUnavailable
                 )
-                structuredLog(
-                    "injection.rejected",
-                    workspaceID: owner.workspaceID,
-                    surfaceID: surfaceID,
-                    detail: "step=\(step.rawValue) reason=surface-unavailable"
-                )
-                return
             }
-            states[surfaceID] = state
             structuredLog(
                 "injection.rejected",
                 workspaceID: owner.workspaceID,
                 surfaceID: surfaceID,
-                detail: "step=\(step.rawValue) reason=surface-unavailable"
+                detail: "step=\(step.rawValue) reason=input-rejected"
             )
             return
         }
@@ -413,7 +416,9 @@ extension AgentContextManagementCoordinator {
             // durable evidence; a later explicit user input starts a fresh
             // pressure episode and clears this gate.
             state.unsafeClearNotificationSent = currentOwner.map { _ in true } ?? false
-            state.manualRecoveryRequired = true
+            if currentOwner != nil {
+                state.manualRecoveryRequired = true
+            }
             if case .none = currentOwner {
                 // A transfer may temporarily remove every owner. Allow the
                 // destination binding callback to request preservation again.

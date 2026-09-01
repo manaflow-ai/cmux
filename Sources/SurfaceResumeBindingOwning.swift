@@ -4,11 +4,45 @@ import Foundation
 @MainActor
 protocol SurfaceResumeBindingOwning: AnyObject {
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] { get set }
+    /// The concrete owner used by shared context-management forwarding.
+    var contextManagementOwner: AgentContextManagementCoordinator.PanelOwner { get }
 
     func contextManagementBindingDidChange(panelId: UUID)
+    func contextManagementBindingsDidChange(panelIds: [UUID])
 }
 
 extension SurfaceResumeBindingOwning {
+    func contextManagementLifecycleDidChange(
+        key: String,
+        panelId: UUID,
+        lifecycle: AgentHibernationLifecycleState
+    ) {
+        AppDelegate.shared?.agentContextManagementCoordinator.lifecycleDidChange(
+            key: key,
+            panelId: panelId,
+            lifecycle: lifecycle
+        )
+    }
+
+    func contextManagementLifecycleDidClear(key: String? = nil, panelId: UUID) {
+        AppDelegate.shared?.agentContextManagementCoordinator.lifecycleDidClear(
+            key: key,
+            panelId: panelId
+        )
+    }
+
+    func contextManagementBindingDidChange(panelId: UUID) {
+        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(panelId: panelId)
+    }
+
+    func contextManagementBindingsDidChange(panelIds: [UUID]) {
+        guard let coordinator = AppDelegate.shared?.agentContextManagementCoordinator else { return }
+        coordinator.bindingDidChange(
+            panelIds: panelIds,
+            owner: contextManagementOwner
+        )
+    }
+
     /// Updates one effective binding and publishes real or explicitly forced
     /// ownership changes to context management.
     func updateSurfaceResumeBinding(
@@ -32,8 +66,8 @@ extension SurfaceResumeBindingOwning {
     func removeAllSurfaceResumeBindings(keepingCapacity: Bool = false) {
         let panelIds = Array(surfaceResumeBindingsByPanelId.keys)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: keepingCapacity)
-        for panelId in panelIds {
-            contextManagementBindingDidChange(panelId: panelId)
+        if !panelIds.isEmpty {
+            contextManagementBindingsDidChange(panelIds: panelIds)
         }
     }
 }

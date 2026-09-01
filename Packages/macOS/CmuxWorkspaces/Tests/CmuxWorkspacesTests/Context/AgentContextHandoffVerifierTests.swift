@@ -41,7 +41,7 @@ struct AgentContextHandoffVerifierTests {
         )
     }
 
-    @Test("Blank and directory handoffs fail closed")
+    @Test("Blank, empty, and directory handoffs fail closed")
     func blankAndDirectoryHandoffsFailClosed() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -50,6 +50,14 @@ struct AgentContextHandoffVerifierTests {
         #expect(
             await AgentContextHandoffVerifier().verify(
                 path: blank,
+                requestedAt: .distantPast
+            ) == .empty
+        )
+        let empty = directory.appendingPathComponent("empty.md")
+        try Data().write(to: empty)
+        #expect(
+            await AgentContextHandoffVerifier().verify(
+                path: empty,
                 requestedAt: .distantPast
             ) == .empty
         )
@@ -64,14 +72,7 @@ struct AgentContextHandoffVerifierTests {
     @Test("Injected filesystem read failures fail closed")
     func injectedReadFailureIsUnreadable() async {
         let fileSystem = StubAgentContextHandoffFileSystem(
-            metadataResult: .success(
-                AgentContextHandoffFileMetadata(
-                    isRegularFile: true,
-                    modificationDate: .distantFuture,
-                    size: 4
-                )
-            ),
-            dataResult: .failure(.readFailed)
+            snapshotResult: .failure(.readFailed)
         )
 
         let result = await AgentContextHandoffVerifier(fileSystem: fileSystem).verify(
@@ -85,14 +86,16 @@ struct AgentContextHandoffVerifierTests {
     @Test("A file that grows beyond the bounded read fails closed")
     func growthDuringReadIsUnreadable() async {
         let fileSystem = StubAgentContextHandoffFileSystem(
-            metadataResult: .success(
-                AgentContextHandoffFileMetadata(
-                    isRegularFile: true,
-                    modificationDate: .distantFuture,
-                    size: 4
+            snapshotResult: .success(
+                AgentContextHandoffFileSnapshot(
+                    metadata: AgentContextHandoffFileMetadata(
+                        isRegularFile: true,
+                        modificationDate: .distantFuture,
+                        size: 4
+                    ),
+                    data: Data(repeating: 0x61, count: 1_048_577)
                 )
-            ),
-            dataResult: .success(Data(repeating: 0x61, count: 1_048_577))
+            )
         )
 
         let result = await AgentContextHandoffVerifier(fileSystem: fileSystem).verify(
@@ -101,6 +104,55 @@ struct AgentContextHandoffVerifierTests {
         )
 
         #expect(result == .unreadable)
+    }
+
+    @Test("A rename between descriptor validation and path replacement cannot retarget the read")
+    func renameBetweenValidationAndReadUsesOriginalDescriptor() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent(".cmux-context-handoff.md")
+        let replacement = directory.appendingPathComponent("replacement.md")
+        try Data("original handoff\n".utf8).write(to: path)
+        let originalData = try Data(contentsOf: path)
+        let originalMetadata = AgentContextHandoffFileMetadata(
+            isRegularFile: true,
+            modificationDate: .distantFuture,
+            size: originalData.count
+        )
+        let fileSystem = RenameBetweenChecksFileSystem(
+            path: path,
+            replacement: replacement,
+            snapshot: AgentContextHandoffFileSnapshot(
+                metadata: originalMetadata,
+                data: originalData
+            )
+        )
+
+        let result = await AgentContextHandoffVerifier(fileSystem: fileSystem).verify(
+            path: path,
+            requestedAt: .distantPast
+        )
+
+        #expect(result == .written)
+        #expect(String(data: try Data(contentsOf: path), encoding: .utf8) == "replacement\n")
+    }
+
+    private struct RenameBetweenChecksFileSystem: AgentContextHandoffFileSystem {
+        let path: URL
+        let replacement: URL
+        let snapshot: AgentContextHandoffFileSnapshot
+
+        func readSnapshot(
+            at requestedPath: URL,
+            maximumBytes _: Int
+        ) async throws -> AgentContextHandoffFileSnapshot? {
+            guard requestedPath == path else { return nil }
+            try FileManager.default.moveItem(at: path, to: replacement)
+            try Data("replacement\n".utf8).write(to: path)
+            // The returned value models bytes captured from the descriptor
+            // opened before the pathname was renamed/replaced.
+            return snapshot
+        }
     }
 
     private func makeTemporaryDirectory() throws -> URL {

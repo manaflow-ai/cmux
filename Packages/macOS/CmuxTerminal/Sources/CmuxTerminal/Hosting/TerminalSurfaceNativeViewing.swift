@@ -74,8 +74,12 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
 }
 
 public extension TerminalSurfaceNativeViewing {
-    /// Hosts without clipboard sequencing can accept recovery input immediately.
-    var canAcceptImmediateContextManagementInput: Bool { true }
+    /// Hosts must explicitly opt in after wiring clipboard sequencing.
+    ///
+    /// The fail-closed default prevents context recovery from overtaking a
+    /// host's deferred clipboard/user-input queue when the host forgets to
+    /// provide its readiness witness.
+    var canAcceptImmediateContextManagementInput: Bool { false }
 
     /// Leaves input synchronous for hosts without clipboard sequencing.
     ///

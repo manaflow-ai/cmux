@@ -386,10 +386,6 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
             || hasRequestAwaitingAdmission(for: epoch)
     }
 
-    func hasDeferredInput(for epoch: UInt64) -> Bool {
-        hasRequestInFlight(for: epoch)
-    }
-
     /// Keeps replay closed until every overflowing request has been cancelled.
     private func withOverflowCancellationBatch(
         for epoch: UInt64,

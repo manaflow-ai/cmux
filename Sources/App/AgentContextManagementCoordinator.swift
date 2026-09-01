@@ -301,7 +301,6 @@ final class AgentContextManagementCoordinator {
             // A provider event from an earlier episode must not authorize a
             // fresh textual marker. A still-fresh hook may have arrived just
             // before the marker; its bounded receipt window is retained.
-            state.manualRecoveryRequired = false
             state.unsafeClearNotificationSent = false
         }
         for event in matchingEvents {
@@ -335,8 +334,13 @@ final class AgentContextManagementCoordinator {
     /// can retain the session state while dropping the source owner's sidebar
     /// entry; the destination reattaches that entry after publishing its
     /// binding.
-    func remove(panelId: UUID, workspace: Workspace?, preserveState: Bool = false) {
-        let currentOwner = owner(
+    func remove(
+        panelId: UUID,
+        workspace: Workspace?,
+        preserveState: Bool = false,
+        ownerOverride: PanelOwner? = nil
+    ) {
+        let currentOwner = ownerOverride ?? owner(
             for: panelId,
             preferredWorkspaceID: workspace?.id
         )
@@ -365,6 +369,18 @@ final class AgentContextManagementCoordinator {
             workspace.statusEntries.removeValue(forKey: Self.statusKey(for: panelId))
         } else if let owner = currentOwner {
             owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
+        }
+    }
+
+    /// Drops coordinator state for several panels already owned by one
+    /// Workspace or Dock, avoiding a global owner lookup for each panel.
+    func remove(panelIds: [UUID], owner: PanelOwner) {
+        for panelId in panelIds {
+            remove(
+                panelId: panelId,
+                workspace: nil,
+                ownerOverride: owner
+            )
         }
     }
 

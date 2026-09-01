@@ -19,6 +19,26 @@ struct AgentContextProviderDefinition: Sendable {
         eventThreshold: 1
     )
 
+    private static let sharedContextLowMarkers = [
+        "context window is almost full",
+        "context window nearly full",
+        "context is almost full",
+        "context is nearly full",
+        "context low (",
+        "context low:",
+        "context low -",
+        "context low —",
+    ]
+
+    private static let sharedContextLowPhrases = [
+        "context left until auto-compact",
+        "context remaining until auto-compact",
+        "context left",
+        "context remaining",
+    ]
+
+    private static let sharedContextLowThreshold = 20
+
     static func definition(for provider: AgentContextProvider) -> Self {
         switch provider {
         case .claudeCode:
@@ -26,28 +46,16 @@ struct AgentContextProviderDefinition: Sendable {
                 longThreadWarning,
                 AgentContextPressurePattern(
                     signal: .contextLow,
-                    markers: [
-                        "context window is almost full",
-                        "context window nearly full",
-                        "context is almost full",
-                        "context is nearly full",
-                        "context low (",
-                        "context low:",
-                        "context low -",
-                        "context low —",
+                    markers: Self.sharedContextLowMarkers + [
                         "autocompact will trigger soon",
                         "autocompact is disabled. use /compact to free space",
                         "without autocompact, you will hit context limits",
                         "autocompact is thrashing",
                     ],
                     eventThreshold: 1,
-                    lowContextPercentageThreshold: 20,
-                    lowContextPercentagePhrases: [
+                    lowContextPercentageThreshold: Self.sharedContextLowThreshold,
+                    lowContextPercentagePhrases: Self.sharedContextLowPhrases + [
                         "until auto-compact",
-                        "context left until auto-compact",
-                        "context remaining until auto-compact",
-                        "context left",
-                        "context remaining",
                     ]
                 ),
                 AgentContextPressurePattern(
@@ -66,24 +74,10 @@ struct AgentContextProviderDefinition: Sendable {
                 longThreadWarning,
                 AgentContextPressurePattern(
                     signal: .contextLow,
-                    markers: [
-                        "context window is almost full",
-                        "context window nearly full",
-                        "context is almost full",
-                        "context is nearly full",
-                        "context low (",
-                        "context low:",
-                        "context low -",
-                        "context low —",
-                    ],
+                    markers: Self.sharedContextLowMarkers,
                     eventThreshold: 1,
-                    lowContextPercentageThreshold: 20,
-                    lowContextPercentagePhrases: [
-                        "context left until auto-compact",
-                        "context remaining until auto-compact",
-                        "context left",
-                        "context remaining",
-                    ]
+                    lowContextPercentageThreshold: Self.sharedContextLowThreshold,
+                    lowContextPercentagePhrases: Self.sharedContextLowPhrases
                 ),
                 AgentContextPressurePattern(
                     signal: .repeatedAutoCompaction,

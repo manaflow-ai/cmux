@@ -128,7 +128,7 @@ extension GhosttyNSView {
     }
 
     var canAcceptImmediateContextManagementInput: Bool {
-        !terminalClipboardInputSequencer.hasDeferredInput(
+        !terminalClipboardInputSequencer.hasInputDeferral(
             for: terminalSurface?.runtimeSurfaceGeneration ?? .max
         )
     }

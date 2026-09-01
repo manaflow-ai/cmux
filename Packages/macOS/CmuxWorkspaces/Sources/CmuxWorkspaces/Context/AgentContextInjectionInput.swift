@@ -13,6 +13,14 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     public let providerEvidenceConfirmed: Bool
     /// Whether the pane still has an authoritative managed-session binding.
     public let managedSessionBound: Bool
+    /// Whether the live foreground process is the agent recorded by that
+    /// binding. A generic shell `commandRunning` report is not sufficient to
+    /// authorize a slash command into an unrelated foreground process.
+    public let foregroundAgentConfirmed: Bool
+    /// Whether the live terminal surface can accept an immediate recovery write.
+    public let surfaceAvailable: Bool
+    /// Whether a durable handoff path is available when clear requires it.
+    public let preservationAvailable: Bool
     /// Provider identity for this pane.
     public let provider: AgentContextProvider
     /// Agent lifecycle evidence.
@@ -48,6 +56,10 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
     ///   - providerEvidenceConfirmed: Whether an accepted provider lifecycle
     ///     event independently confirmed the pressure episode.
     ///   - managedSessionBound: Whether the pane still has a complete managed-session binding.
+    ///   - foregroundAgentConfirmed: Whether a live foreground PID matches the
+    ///     recorded managed-agent process generation.
+    ///   - surfaceAvailable: Whether a live terminal surface can accept a write.
+    ///   - preservationAvailable: Whether a durable handoff path is available.
     ///   - provider: The managed provider that owns the pane.
     ///   - lifecycle: Authoritative provider lifecycle evidence.
     ///   - shellActivity: Current shell-integration activity for the pane.
@@ -65,6 +77,7 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
         pressureConfirmed: Bool = false,
         providerEvidenceConfirmed: Bool = false,
         managedSessionBound: Bool,
+        foregroundAgentConfirmed: Bool,
         provider: AgentContextProvider,
         lifecycle: AgentContextLifecycleState,
         shellActivity: PanelShellActivityState,
@@ -75,13 +88,18 @@ public struct AgentContextInjectionInput: Equatable, Sendable {
         preserveState: Bool,
         preservationCompleted: Bool,
         preservationAwaitingAcknowledgement: Bool = false,
-        manualRecoveryRequired: Bool = false
+        manualRecoveryRequired: Bool = false,
+        surfaceAvailable: Bool = true,
+        preservationAvailable: Bool = true
     ) {
         self.enabled = enabled
         self.pressureDetected = pressureDetected
         self.pressureConfirmed = pressureConfirmed
         self.providerEvidenceConfirmed = providerEvidenceConfirmed
         self.managedSessionBound = managedSessionBound
+        self.foregroundAgentConfirmed = foregroundAgentConfirmed
+        self.surfaceAvailable = surfaceAvailable
+        self.preservationAvailable = preservationAvailable
         self.provider = provider
         self.lifecycle = lifecycle
         self.shellActivity = shellActivity

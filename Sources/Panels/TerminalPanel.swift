@@ -341,7 +341,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func handleTextBoxEscape() {
         if containerAgentLifecycleStateForTextBoxEscape == .running {
-            _ = sendNamedKeyResult(TextBoxTerminalKey.escape.rawValue)
+            _ = sendNamedKeyResult(
+                TextBoxTerminalKey.escape.rawValue,
+                isUserInitiated: true
+            )
         }
         let hadTextBoxView = textBoxInputView != nil
         let didFocusTerminal = focusTerminalSurface(

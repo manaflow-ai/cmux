@@ -54,12 +54,28 @@ extension AgentContextManagementCoordinator {
             ownerReferencesByPanelID.removeValue(forKey: panelId)
             return
         }
+        bindingDidChange(panelId: panelId, owner: owner)
+    }
+
+    /// Reconciles a batch of bindings against one already-known owner.
+    ///
+    /// Resume-binding cleanup runs while its Workspace or Dock is already
+    /// available. Reusing that owner avoids a global container scan for every
+    /// removed panel.
+    func bindingDidChange(panelIds: [UUID], owner: PanelOwner) {
+        for panelId in panelIds {
+            bindingDidChange(panelId: panelId, owner: owner)
+        }
+    }
+
+    private func bindingDidChange(panelId: UUID, owner: PanelOwner) {
+        ownerReferencesByPanelID[panelId] = WeakPanelOwnerReference(owner: owner)
         guard let binding = owner.binding(panelId: panelId),
               let provider = AgentContextProvider(managedAgentKind: binding.kind) else {
             owner.setContextPressureMonitoringEnabled(panelId: panelId, enabled: false)
             owner.setContextPressureProvider(panelId: panelId, provider: nil)
             _ = owner.resetContextPressureDetector(panelId: panelId)
-            resetForUnboundSession(panelId: panelId)
+            resetForUnboundSession(panelId: panelId, ownerOverride: owner)
             return
         }
         let pendingUserInput = userInputObservedBeforePressure.remove(panelId) != nil
@@ -89,7 +105,7 @@ extension AgentContextManagementCoordinator {
         guard existingState.provider == provider, sameSession(existingState.binding, binding) else {
             owner.setContextPressureProvider(panelId: panelId, provider: provider)
             let generation = owner.resetContextPressureDetector(panelId: panelId)
-            resetForUnboundSession(panelId: panelId)
+            resetForUnboundSession(panelId: panelId, ownerOverride: owner)
             states[panelId] = makePanelState(
                 panelId: panelId,
                 provider: provider,
@@ -153,8 +169,8 @@ extension AgentContextManagementCoordinator {
         evaluate(surfaceID: panelId, owner: owner)
     }
 
-    func resetForUnboundSession(panelId: UUID) {
-        let currentOwner = owner(for: panelId, preferredWorkspaceID: nil)
+    func resetForUnboundSession(panelId: UUID, ownerOverride: PanelOwner? = nil) {
+        let currentOwner = ownerOverride ?? owner(for: panelId, preferredWorkspaceID: nil)
         ownerReferencesByPanelID.removeValue(forKey: panelId)
         cancelPreservationVerification(panelId: panelId)
         states.removeValue(forKey: panelId)

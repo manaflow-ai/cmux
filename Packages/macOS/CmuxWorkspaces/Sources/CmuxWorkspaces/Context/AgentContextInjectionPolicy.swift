@@ -22,6 +22,16 @@ public struct AgentContextInjectionPolicy: Sendable {
                 : .wait(.pressureUnconfirmed)
         }
         guard input.managedSessionBound else { return .wait(.unmanagedSession) }
+        guard input.surfaceAvailable else {
+            return input.action == .clear
+                ? .unsafe(.surfaceUnavailable)
+                : .wait(.surfaceUnavailable)
+        }
+        guard input.foregroundAgentConfirmed else {
+            return input.action == .clear
+                ? .unsafe(.foregroundAgentUnconfirmed)
+                : .wait(.foregroundAgentUnconfirmed)
+        }
         guard !input.manualRecoveryRequired else {
             return input.action == .clear
                 ? .unsafe(.manualInterventionRequired)
@@ -50,6 +60,13 @@ public struct AgentContextInjectionPolicy: Sendable {
             return .unsafe(.dialogOpen)
         case .idle:
             break
+        }
+
+        if input.action == .clear,
+           input.preserveState,
+           !input.preservationCompleted,
+           !input.preservationAvailable {
+            return .unsafe(.preservationUnavailable)
         }
 
         guard input.shellActivity != .unknown else {

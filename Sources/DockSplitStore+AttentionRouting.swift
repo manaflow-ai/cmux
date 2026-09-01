@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Foundation
 
 @MainActor
@@ -69,8 +70,18 @@ extension DockSplitStore {
                 surfaceId: terminal.id
             )
         }
-        terminal.surface.onUserExplicitInput = { [weak terminal] in
-            guard let terminal else { return }
+        terminal.surface.onUserExplicitInput = { [weak self, weak terminal] in
+            guard let self,
+                  let terminal,
+                  let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,
+                  mountedTerminal === terminal,
+                  let managedBinding = self.surfaceResumeBindingsByPanelId[terminal.id]
+                      ?? self.managedAgentResumeBindingsByPanelId[terminal.id],
+                  managedBinding.isAgentHookBinding,
+                  managedBinding.hasCompleteManagedSessionIdentity,
+                  AgentContextProvider(managedAgentKind: managedBinding.kind) != nil else {
+                return
+            }
             AppDelegate.shared?.agentContextManagementCoordinator.userDidType(panelId: terminal.id)
         }
         terminal.surface.onStartupRestoreAdmissionCancelled = { [weak self, weak terminal] in

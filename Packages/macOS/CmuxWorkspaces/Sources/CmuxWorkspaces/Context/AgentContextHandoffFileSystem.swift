@@ -2,15 +2,20 @@ import Foundation
 
 /// Reads bounded handoff metadata and contents for context-clear verification.
 protocol AgentContextHandoffFileSystem: Sendable {
-    /// Returns metadata for a path, or `nil` when no path exists.
-    /// - Parameter path: The local handoff path to inspect.
-    /// - Returns: Typed metadata when the path exists.
-    func metadata(for path: URL) async throws -> AgentContextHandoffFileMetadata?
-
-    /// Reads at most the requested number of bytes from a path.
+    /// Opens a path once and returns its descriptor-bound metadata and contents.
+    ///
+    /// Keeping the metadata and bytes in one operation prevents a replacement
+    /// or rename between a pathname metadata lookup and a later reopen from
+    /// authorizing a clear for a different file.
     /// - Parameters:
-    ///   - path: The handoff path to read.
+    ///   - path: The local handoff path to inspect.
     ///   - maximumBytes: The hard read limit enforced by the verifier.
-    /// - Returns: The bytes read, which may be shorter than the limit.
-    func readData(at path: URL, maximumBytes: Int) async throws -> Data
+    /// - Returns: A descriptor-bound snapshot, or `nil` when no path exists.
+    ///   Implementations may read one extra byte beyond `maximumBytes` so the
+    ///   verifier can detect growth; callers must treat a returned count above
+    ///   the limit as unreadable rather than truncating it.
+    func readSnapshot(
+        at path: URL,
+        maximumBytes: Int
+    ) async throws -> AgentContextHandoffFileSnapshot?
 }

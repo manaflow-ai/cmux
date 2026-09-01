@@ -1480,7 +1480,7 @@ extension Workspace {
                     by: detectedBinding,
                     panelId: panelId
                 )
-                updateSurfaceResumeBinding(panelId: panelId, to: detectedBinding, notifyWhenUnchanged: true)
+                updateSurfaceResumeBinding(panelId: panelId, to: detectedBinding)
             } else if storedBinding.isProcessDetected {
                 guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
                     continue
@@ -6409,13 +6409,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if didClearStaleAgentRuntime {
             refreshTrackedAgentPorts()
         }
-        let removedBindingPanelIds = removeSurfaceResumeBindings(except: validSurfaceIds)
-        for panelId in removedBindingPanelIds {
-            AppDelegate.shared?.agentContextManagementCoordinator.remove(
-                panelId: panelId,
-                workspace: self
-            )
-        }
+        _ = removeSurfaceResumeBindings(except: validSurfaceIds)
         surfaceResumeRestoreClaimsByPanelId = surfaceResumeRestoreClaimsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }

@@ -6556,24 +6556,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
     }
 
+    @discardableResult
     func rollbackDetachedSurface(
         _ detached: Workspace.DetachedSurfaceTransfer,
         to workspace: Workspace,
         sourcePane: PaneID?,
         sourceIndex: Int?,
         focus: Bool
-    ) {
+    ) -> Bool {
         let rollbackPane = sourcePane.flatMap { pane in
             workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
         } ?? workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
-        guard let rollbackPane else { return }
-        _ = workspace.attachDetachedSurface(
+        guard let rollbackPane else {
+            agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: workspace
+            )
+            return false
+        }
+        let restored = workspace.attachDetachedSurface(
             detached,
             inPane: rollbackPane,
             atIndex: sourceIndex,
             focus: focus
         )
+        guard restored != nil else {
+            agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: workspace
+            )
+            return false
+        }
+        return true
     }
 
     func cleanupEmptySourceWorkspaceAfterSurfaceMove(
@@ -10805,11 +10820,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         onFailure: (() -> Void)? = nil
     ) {
         let isReactGrabPasteback = preferredPanelId != nil
-#if DEBUG
         let initialTargetPanel = Self.resolveTerminalPanelForTextSend(
             in: tab,
             preferredPanelId: preferredPanelId
         )
+        if isUserInitiated, initialTargetPanel?.surface.surface == nil {
+            // A cold user-targeted paste can wait for runtime creation while
+            // PTY output continues. Cancel pending recovery before that wait
+            // so a pressure callback cannot win the keyboard race; the shared
+            // send path still records the accepted write when it eventually
+            // arrives.
+            initialTargetPanel?.surface.didObserveUserInitiatedInput()
+        }
+#if DEBUG
         if isReactGrabPasteback {
             cmuxDebugLog(
                 "reactGrab.pasteback h2.send.start " +

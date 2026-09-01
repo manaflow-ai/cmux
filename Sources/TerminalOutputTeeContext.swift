@@ -9,6 +9,10 @@ import os
 /// surface's IO read thread. After initialization, only that callback mutates
 /// `detectors` and `contextPressureDetectors`; other threads receive copied
 /// value identifiers after a match.
+///
+/// The forwarding queues are protected by the shared lock. Their task handles
+/// are cleared when a drain ends and cancelled from deinit, so a released
+/// surface cannot retain an unbounded fire-and-forget worker.
 final class TerminalOutputTeeContext: @unchecked Sendable {
     private struct DetectorBinding {
         let agentID: String
@@ -36,13 +40,20 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private struct ForwardQueue {
         var pending: [AgentForward] = []
         var draining = false
+        var agentDrainTask: Task<Void, Never>?
+        var nextAgentDrainID: UInt64 = 0
+        var agentDrainID: UInt64 = 0
         var contextPressurePending: TerminalContextPressureForward?
         var contextPressureDraining = false
+        var contextPressureDrainTask: Task<Void, Never>?
+        var nextContextPressureDrainID: UInt64 = 0
+        var contextPressureDrainID: UInt64 = 0
         var contextPressureResetGeneration: UInt64?
         var contextPressureDetectorResetRequested = false
         var contextPressureMonitoringEnabled = false
         var contextPressureMonitoringGeneration: UInt64 = 0
         var contextPressureProvider: String?
+        var released = false
     }
 
     /// Confirmed turns arrive at most once per confirmation delay, so this
@@ -97,6 +108,22 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }
     }
 
+    deinit {
+        let tasks = forwardQueue.withLock { state in
+            let tasks = (state.agentDrainTask, state.contextPressureDrainTask)
+            state.released = true
+            state.pending.removeAll(keepingCapacity: false)
+            state.contextPressurePending = nil
+            state.draining = false
+            state.contextPressureDraining = false
+            state.agentDrainTask = nil
+            state.contextPressureDrainTask = nil
+            return tasks
+        }
+        tasks.0?.cancel()
+        tasks.1?.cancel()
+    }
+
     /// Publishes a reset edge for the serialized PTY callback to consume.
     ///
     /// The callback may be running on libghostty's IO thread while the
@@ -115,8 +142,8 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     /// Updates the eligibility gate read by the serialized PTY callback.
     func setContextPressureMonitoringEnabled(_ enabled: Bool) {
-        forwardQueue.withLock { state in
-            guard state.contextPressureMonitoringEnabled != enabled else { return }
+        let taskToCancel: Task<Void, Never>? = forwardQueue.withLock { state in
+            guard state.contextPressureMonitoringEnabled != enabled else { return nil }
             state.contextPressureMonitoringEnabled = enabled
             state.contextPressureMonitoringGeneration &+= 1
             // The serialized callback performs the reset before it parses the
@@ -125,7 +152,17 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             // A queued event belongs to the previous eligibility interval and
             // must not cross disable, re-enable, or binding replacement.
             state.contextPressurePending = nil
+            guard !enabled else { return nil }
+            // Stop the delivery worker at the same boundary as the eligibility
+            // flag. This breaks the lock -> task -> lock retention cycle even
+            // when the main actor is busy with a retiring surface.
+            state.contextPressureDrainID &+= 1
+            state.contextPressureDraining = false
+            let task = state.contextPressureDrainTask
+            state.contextPressureDrainTask = nil
+            return task
         }
+        taskToCancel?.cancel()
     }
 
     /// Selects the one provider detector that may inspect this surface's PTY
@@ -237,7 +274,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     /// tasks or queue memory. The single drain task also preserves per-agent
     /// ordering into the notification actor.
     private func enqueue(_ forward: AgentForward) {
-        let startDrain = forwardQueue.withLock { state in
+        let notificationHandler = notificationHandler
+        let forwardQueue = forwardQueue
+        forwardQueue.withLock { state in
+            guard !state.released else { return }
             if let existing = state.pending.firstIndex(where: { $0.agentID == forward.agentID }) {
                 // Coalesce to the latest state but never drop undelivered
                 // local confirmations.
@@ -254,31 +294,39 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             } else {
                 state.pending.append(forward)
             }
-            guard !state.draining else { return false }
+            guard !state.draining else { return }
             state.draining = true
-            return true
-        }
-        guard startDrain else { return }
-        let notificationHandler = notificationHandler
-        let forwardQueue = forwardQueue
-        Task {
-            while true {
-                let next: AgentForward? = forwardQueue.withLock { state in
-                    guard !state.pending.isEmpty else {
+            state.nextAgentDrainID &+= 1
+            let drainID = state.nextAgentDrainID
+            state.agentDrainID = drainID
+            state.agentDrainTask = Task { [forwardQueue, notificationHandler] in
+                defer {
+                    forwardQueue.withLock { state in
+                        guard state.agentDrainID == drainID else { return }
                         state.draining = false
-                        return nil
+                        state.agentDrainTask = nil
                     }
-                    return state.pending.removeFirst()
                 }
-                guard let next else { return }
-                await notificationHandler.update(
-                    agentID: next.agentID,
-                    submissionCount: next.submissionCount,
-                    revision: next.revision,
-                    confirmation: next.confirmation,
-                    deadline: next.deadline,
-                    locallyConfirmed: next.locallyConfirmed
-                )
+                while !Task.isCancelled {
+                    let next: AgentForward? = forwardQueue.withLock { state in
+                        guard !state.pending.isEmpty else {
+                            state.draining = false
+                            state.agentDrainTask = nil
+                            return nil
+                        }
+                        return state.pending.removeFirst()
+                    }
+                    guard let next else { return }
+                    guard !Task.isCancelled else { return }
+                    await notificationHandler.update(
+                        agentID: next.agentID,
+                        submissionCount: next.submissionCount,
+                        revision: next.revision,
+                        confirmation: next.confirmation,
+                        deadline: next.deadline,
+                        locallyConfirmed: next.locallyConfirmed
+                    )
+                }
             }
         }
     }
@@ -305,7 +353,10 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }) else {
             return
         }
-        let startDrain = forwardQueue.withLock { state in
+        let contextPressureHandler = contextPressureHandler
+        let forwardQueue = forwardQueue
+        forwardQueue.withLock { state in
+            guard !state.released else { return }
             if let pending = state.contextPressurePending,
                pending.generation == forward.generation,
                pending.monitoringGeneration == forward.monitoringGeneration {
@@ -324,39 +375,48 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                     events: forward.events
                 )
             }
-            guard !state.contextPressureDraining else { return false }
+            guard !state.contextPressureDraining else { return }
             state.contextPressureDraining = true
-            return true
-        }
-        guard startDrain else { return }
-        let forwardQueue = forwardQueue
-        Task {
-            while true {
-                let next: TerminalContextPressureForward? = forwardQueue.withLock { state in
-                    guard state.contextPressurePending != nil else {
+            state.nextContextPressureDrainID &+= 1
+            let drainID = state.nextContextPressureDrainID
+            state.contextPressureDrainID = drainID
+            state.contextPressureDrainTask = Task { [forwardQueue, contextPressureHandler] in
+                defer {
+                    forwardQueue.withLock { state in
+                        guard state.contextPressureDrainID == drainID else { return }
                         state.contextPressureDraining = false
-                        return nil
+                        state.contextPressureDrainTask = nil
                     }
-                    let next = state.contextPressurePending
-                    state.contextPressurePending = nil
-                    return next
                 }
-                guard let next else { return }
-                await MainActor.run {
-                    // Eligibility updates are MainActor-owned. Validate inside
-                    // the same actor turn as the synchronous coordinator call
-                    // so disable/rebind/re-enable cannot interleave at the hop.
-                    let isCurrent = forwardQueue.withLock { state in
-                        state.contextPressureMonitoringEnabled
-                            && state.contextPressureMonitoringGeneration == next.monitoringGeneration
+                while !Task.isCancelled {
+                    let next: TerminalContextPressureForward? = forwardQueue.withLock { state in
+                        guard state.contextPressurePending != nil else {
+                            state.contextPressureDraining = false
+                            state.contextPressureDrainTask = nil
+                            return nil
+                        }
+                        let next = state.contextPressurePending
+                        state.contextPressurePending = nil
+                        return next
                     }
-                    guard isCurrent else { return }
-                    contextPressureHandler(
-                        workspaceID,
-                        surfaceID,
-                        next.generation,
-                        next.events
-                    )
+                    guard let next else { return }
+                    await MainActor.run {
+                        // Eligibility updates are MainActor-owned. Validate inside
+                        // the same actor turn as the synchronous coordinator call
+                        // so disable/rebind/re-enable cannot interleave at the hop.
+                        let isCurrent = forwardQueue.withLock { state in
+                            !state.released
+                                && state.contextPressureMonitoringEnabled
+                                && state.contextPressureMonitoringGeneration == next.monitoringGeneration
+                        }
+                        guard isCurrent, !Task.isCancelled else { return }
+                        contextPressureHandler(
+                            workspaceID,
+                            surfaceID,
+                            next.generation,
+                            next.events
+                        )
+                    }
                 }
             }
         }

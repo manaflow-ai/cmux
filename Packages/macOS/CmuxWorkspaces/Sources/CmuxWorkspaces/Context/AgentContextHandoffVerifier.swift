@@ -23,9 +23,7 @@ public actor AgentContextHandoffVerifier {
 
     /// Creates a verifier backed by the live local filesystem.
     public init() {
-        self.fileSystem = LiveAgentContextHandoffFileSystem(
-            fileManager: FileManager()
-        )
+        self.fileSystem = LiveAgentContextHandoffFileSystem()
     }
 
     /// Creates a verifier with an injected filesystem boundary.
@@ -48,33 +46,29 @@ public actor AgentContextHandoffVerifier {
     ///   - requestedAt: Main-actor timestamp captured immediately before input.
     /// - Returns: The evidence classification for the requested handoff.
     public func verify(path: URL, requestedAt: Date) async -> Result {
-        let metadata: AgentContextHandoffFileMetadata
+        let snapshot: AgentContextHandoffFileSnapshot
         do {
-            guard let value = try await fileSystem.metadata(for: path) else {
+            guard let value = try await fileSystem.readSnapshot(
+                at: path,
+                maximumBytes: Self.maximumHandoffBytes
+            ) else {
                 return .missing
             }
-            metadata = value
+            snapshot = value
         } catch {
             return .unreadable
         }
+        let metadata = snapshot.metadata
         guard metadata.isRegularFile else { return .notRegularFile }
         guard let modificationDate = metadata.modificationDate else {
             return .unreadable
         }
         guard modificationDate > requestedAt else { return .stale }
-        guard metadata.size > 0,
+        guard metadata.size >= 0,
               metadata.size <= Self.maximumHandoffBytes else {
             return .unreadable
         }
-        let data: Data
-        do {
-            data = try await fileSystem.readData(
-                at: path,
-                maximumBytes: Self.maximumHandoffBytes
-            )
-        } catch {
-            return .unreadable
-        }
+        let data = snapshot.data
         guard data.count <= Self.maximumHandoffBytes else { return .unreadable }
         guard !data.isEmpty else { return .empty }
         guard let text = String(data: data, encoding: .utf8) else {

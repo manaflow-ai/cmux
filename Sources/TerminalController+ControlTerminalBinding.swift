@@ -26,28 +26,34 @@ struct ControlTerminalSocketTarget {
 
     /// Sends socket text through the canonical surface while preserving the
     /// panel-owned hibernation resume path when both owners already agree.
-    func sendInputResult(_ text: String) -> TerminalSurface.InputSendResult {
+    func sendInputResult(
+        _ text: String,
+        isUserInitiated: Bool = false
+    ) -> TerminalSurface.InputSendResult {
         if surface === panel.surface {
-            return panel.sendInputResult(text)
+            return panel.sendInputResult(text, isUserInitiated: isUserInitiated)
         }
-        return surface.sendInputResult(text)
+        return surface.sendInputResult(text, isUserInitiated: isUserInitiated)
     }
 
     /// Sends a bracketed-paste payload through the canonical surface.
-    func sendText(_ text: String) -> Bool {
+    func sendText(_ text: String, isUserInitiated: Bool = false) -> Bool {
         if surface === panel.surface {
-            return panel.sendText(text)
+            return panel.sendText(text, isUserInitiated: isUserInitiated)
         }
-        return surface.sendText(text)
+        return surface.sendText(text, isUserInitiated: isUserInitiated)
     }
 
     /// Sends a named key through the canonical surface, retaining the panel's
     /// explicit-input resume behavior for an ordinary bound target.
-    func sendNamedKeyResult(_ key: String) -> TerminalSurface.NamedKeySendResult {
+    func sendNamedKeyResult(
+        _ key: String,
+        isUserInitiated: Bool = false
+    ) -> TerminalSurface.NamedKeySendResult {
         if surface === panel.surface {
-            return panel.sendNamedKeyResult(key)
+            return panel.sendNamedKeyResult(key, isUserInitiated: isUserInitiated)
         }
-        return surface.sendNamedKey(key)
+        return surface.sendNamedKey(key, isUserInitiated: isUserInitiated)
     }
 
     /// Performs a Ghostty binding action against the canonical surface.

@@ -519,7 +519,12 @@ extension Workspace {
         } else {
             panelShellActivityStates.removeValue(forKey: detached.panelId)
         }
-        (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
+        if detached.shellActivityState != nil {
+            // A missing detached snapshot is not evidence that the live panel
+            // became unknown. Preserve the panel's authoritative shell state
+            // when a transfer did not capture one.
+            (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
+        }
         restoredAgentLifecycle.seedTransferredState(
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,

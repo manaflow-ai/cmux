@@ -167,6 +167,7 @@ extension TerminalSurface {
             let manualIOContext = self.manualIOContext
             self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
+            teeLease?.setContextPressureMonitoringEnabled(false)
             mobileByteTeeLease = nil
             let retiredRemoteOutputLane = retireRemoteOutputLane()
             let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
@@ -308,6 +309,7 @@ extension TerminalSurface {
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
+        teeLease?.setContextPressureMonitoringEnabled(false)
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
         if let surfaceToFree {
@@ -403,6 +405,7 @@ extension TerminalSurface {
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
+        teeLease?.setContextPressureMonitoringEnabled(false)
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
 
@@ -809,6 +812,7 @@ extension TerminalSurface {
         // and feed them into their own libghostty surface, guaranteeing
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
+        mobileByteTeeLease?.setContextPressureMonitoringEnabled(false)
         mobileByteTeeLease?.release()
         contextPressureDetectorGeneration &+= 1
         mobileByteTeeLease = byteTee.installTee(

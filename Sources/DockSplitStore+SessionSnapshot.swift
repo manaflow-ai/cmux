@@ -239,12 +239,17 @@ extension DockSplitStore {
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
-            let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
                 detected: detectedResumeBinding,
                 detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
             )
+            // Read the managed accessor only after effective binding
+            // reconciliation. That accessor promotes a complete effective
+            // binding into the managed map; reading it first would hide that
+            // promotion from `managedBindingChanged` and skip the coordinator
+            // initialization callback.
+            let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let restorableAgent = effectiveSessionRestorableAgent(
                 panelId: panelId,
                 observation: observation,

@@ -9,6 +9,9 @@ public enum AgentContextInjectionBlockReason: String, Codable, Equatable, Sendab
     case pressureUnconfirmed
     /// The pane no longer has a managed provider binding.
     case unmanagedSession
+    /// The live foreground process could not be matched to the bound agent's
+    /// recorded process generation.
+    case foregroundAgentUnconfirmed
     /// The agent lifecycle has not proved idle.
     case lifecycleUnknown
     /// A turn is still in flight.

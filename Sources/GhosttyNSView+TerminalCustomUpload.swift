@@ -42,11 +42,9 @@ extension GhosttyNSView {
             return true
         }
 
-        // The outer clipboard sequencer already owns delivery. Record only the
-        // user-intent edge here; `sendText` publishes the pane-host input once
-        // when the deferred write is actually attempted.
-        surface.didObserveUserInitiatedInput()
-        let accepted = surface.sendText(text)
+        // The shared send path records user intent only when this write is
+        // accepted, including when the outer clipboard sequencer replays it.
+        let accepted = surface.sendText(text, isUserInitiated: true)
         onCompleted()
         return accepted
     }

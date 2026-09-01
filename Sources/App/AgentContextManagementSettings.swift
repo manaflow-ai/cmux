@@ -28,7 +28,11 @@ struct AgentContextManagementSettings {
     var action: AgentContextInjectionAction {
         let rawValue = defaults.string(forKey: catalog.agentContextManagementAction.userDefaultsKey)
             ?? catalog.agentContextManagementAction.defaultValue
-        return AgentContextInjectionAction(rawValue: rawValue) ?? .compact
+        return AgentContextInjectionAction(rawValue: rawValue)
+            ?? AgentContextInjectionAction(
+                rawValue: catalog.agentContextManagementAction.defaultValue
+            )
+            ?? .compact
     }
 
     var preservesState: Bool {

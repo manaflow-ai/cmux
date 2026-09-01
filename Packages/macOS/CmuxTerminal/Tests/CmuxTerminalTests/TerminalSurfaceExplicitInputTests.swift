@@ -130,11 +130,11 @@ struct TerminalSurfaceExplicitInputTests {
         fixture.surface.didReceiveExplicitInput(isUserInitiated: true)
         #expect(userInputCount == 1)
 
-        _ = fixture.surface.sendNamedKey("", isUserInitiated: true)
-        #expect(userInputCount == 1)
+        _ = fixture.surface.sendNamedKey("enter", isUserInitiated: true)
+        #expect(userInputCount == 2)
 
         _ = fixture.surface.sendText("accepted user input", isUserInitiated: true)
-        #expect(userInputCount == 2)
+        #expect(userInputCount == 3)
     }
 
     @Test func nonPromptShortcutInputDoesNotNotifyUserInput() {

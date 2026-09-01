@@ -5,34 +5,40 @@ import Foundation
 extension AgentContextManagementCoordinator {
     /// Marks pending automation as cancelled when the user types.
     func userDidType(panelId: UUID) {
+        // Most keystrokes arrive while no recovery episode is pending. Check
+        // the coordinator state first so those ordinary events do not resolve
+        // an owner, inspect bindings, reset the detector, or emit logs.
+        guard let existingState = states[panelId] else {
+            guard let owner = owner(for: panelId, preferredWorkspaceID: nil),
+                  owner.statusEntry(key: Self.statusKey(for: panelId), panelId: panelId) != nil else {
+                return
+            }
+            _ = owner.resetContextPressureDetector(panelId: panelId)
+            owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
+            return
+        }
+        let hasPendingRecovery = existingState.pressure.isUnderPressure
+            || existingState.preservationAwaitingAcknowledgement
+            || existingState.injectionInFlight
+            || existingState.recoveryAwaitingLifecycleBoundary
+        guard hasPendingRecovery else { return }
+
         // A user event can race a transfer and briefly arrive before the new
         // owner is discoverable. Cancel the old state directly so automation
         // cannot regain the keyboard during that handoff.
         let owner = owner(for: panelId, preferredWorkspaceID: nil)
         let binding = owner?.binding(panelId: panelId)
-        let hasPendingRecovery = states[panelId].map {
-            $0.pressure.isUnderPressure
-                || $0.preservationAwaitingAcknowledgement
-                || $0.injectionInFlight
-        } ?? false
-        if hasPendingRecovery {
-            // Record the edge before any owner/binding lookup can fail during
-            // detach/attach. `bindingDidChange` consumes it at the destination.
-            // Idle clicks and focus/shortcut edges do not need this latch.
-            userInputObservedBeforePressure.insert(panelId)
-        }
+        // Record the edge before any owner/binding lookup can fail during
+        // detach/attach. `bindingDidChange` consumes it at the destination.
+        userInputObservedBeforePressure.insert(panelId)
 
         guard let owner, binding != nil else {
-            guard var state = states[panelId] else { return }
+            var state = existingState
             _ = cancelPendingRecovery(panelId: panelId, state: &state, owner: nil)
             states[panelId] = state
             return
         }
-        guard var state = states[panelId] else {
-            _ = owner.resetContextPressureDetector(panelId: panelId)
-            owner.clearPressureStatus(key: Self.statusKey(for: panelId), panelId: panelId)
-            return
-        }
+        var state = existingState
         let hadPendingRecovery = cancelPendingRecovery(
             panelId: panelId,
             state: &state,
@@ -56,6 +62,7 @@ extension AgentContextManagementCoordinator {
         let hadPendingRecovery = state.pressure.isUnderPressure
             || state.preservationAwaitingAcknowledgement
             || state.injectionInFlight
+            || state.recoveryAwaitingLifecycleBoundary
         let shouldNotifyUnsafeClear = hadPendingRecovery
             && settings.action == .clear
         if shouldNotifyUnsafeClear, let owner {

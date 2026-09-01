@@ -14,6 +14,10 @@ public struct AgentContextPressureDetector: Sendable {
     private var percentageCarry = ""
     private var occurrences: [AgentContextPressureSignal: Int] = [:]
     private var detectedSignals: [AgentContextPressureSignal] = []
+    /// Bounds range storage and sorting for one PTY chunk. Pressure thresholds
+    /// are at most a few occurrences, so additional matches cannot affect the
+    /// decision and are deliberately clipped to keep the hot path bounded.
+    private static let maximumMarkerMatchesPerMarker = 128
 
     /// Creates a detector for one provider.
     ///
@@ -48,7 +52,8 @@ public struct AgentContextPressureDetector: Sendable {
                 Self.newMatchRanges(
                     of: marker,
                     in: combined,
-                    extendingPast: carryBoundary
+                    extendingPast: carryBoundary,
+                    maximumMatches: Self.maximumMarkerMatchesPerMarker
                 )
             }
             // Provider definitions intentionally allow broad and specific
@@ -87,16 +92,17 @@ public struct AgentContextPressureDetector: Sendable {
             occurrences[pattern.signal] = matchCount
 
             if matchCount >= pattern.eventThreshold {
-                if !detectedSignals.contains(pattern.signal) {
+                let newlyDetected = !detectedSignals.contains(pattern.signal)
+                if newlyDetected {
                     detectedSignals.append(pattern.signal)
-                }
-                events.append(
-                    AgentContextPressureEvent(
-                        provider: provider,
-                        signal: pattern.signal,
-                        occurrence: matchCount
+                    events.append(
+                        AgentContextPressureEvent(
+                            provider: provider,
+                            signal: pattern.signal,
+                            occurrence: matchCount
+                        )
                     )
-                )
+                }
             }
         }
         return events
@@ -114,12 +120,14 @@ public struct AgentContextPressureDetector: Sendable {
     private static func newMatchRanges(
         of marker: String,
         in value: String,
-        extendingPast carryBoundary: String.Index
+        extendingPast carryBoundary: String.Index,
+        maximumMatches: Int
     ) -> [Range<Int>] {
         guard !marker.isEmpty else { return [] }
         var ranges: [Range<Int>] = []
         var searchStart = value.startIndex
         while searchStart < value.endIndex,
+              ranges.count < maximumMatches,
               let range = value.range(of: marker, range: searchStart..<value.endIndex) {
             if range.upperBound > carryBoundary {
                 let lowerBound = value.distance(from: value.startIndex, to: range.lowerBound)

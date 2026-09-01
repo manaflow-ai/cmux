@@ -304,6 +304,22 @@ extension DockSplitStore {
             preservedTransfer?.restoredPanelTitleBoundary
                 ?? restoredPanelTitleBoundariesByPanelId[panelId]
 
+        // Resolve and fence the coordinator while this Dock still owns the
+        // panel. The Bonsplit close below intentionally removes the panel from
+        // `panels` before it runs its callbacks, so resolving afterward cannot
+        // find the source owner and would leave stale pressure state behind.
+        let contextCoordinator = AppDelegate.shared?.agentContextManagementCoordinator
+        let contextOwner = contextCoordinator?.owner(
+            for: panelId,
+            preferredWorkspaceID: workspaceId
+        )
+        contextCoordinator?.remove(
+            panelId: panelId,
+            workspace: nil,
+            preserveState: true,
+            ownerOverride: contextOwner
+        )
+
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
         if panel is BrowserPanel {
@@ -329,6 +345,9 @@ extension DockSplitStore {
                 )
             }
             installSubscription(for: panel)
+            // The close was rejected, so restore the coordinator's live owner
+            // and monitoring state that was fenced before the attempted close.
+            contextCoordinator?.bindingDidChange(panelId: panelId)
             return nil
         }
         if let terminalPanel = panel as? TerminalPanel {
@@ -389,14 +408,6 @@ extension DockSplitStore {
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
         adoptManualUnreadState(false, panelId: panelId)
-        // Preserve pressure evidence across the detached-panel handoff; the
-        // destination will rebind the same session after it publishes its
-        // effective resume binding.
-        AppDelegate.shared?.agentContextManagementCoordinator.remove(
-            panelId: panelId,
-            workspace: nil,
-            preserveState: true
-        )
         clearSessionRestoreState(panelId: panelId)
         return detached
     }

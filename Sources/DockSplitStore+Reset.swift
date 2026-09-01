@@ -32,8 +32,11 @@ extension DockSplitStore {
         surfaceResumeRestoreClaimsByPanelId.removeAll()
         managedAgentResumeBindingsByPanelId.removeAll()
         removeAllSurfaceResumeBindings()
-        for panelId in removedBindingPanelIds {
-            AppDelegate.shared?.agentContextManagementCoordinator.remove(panelId: panelId, workspace: nil)
+        if let coordinator = AppDelegate.shared?.agentContextManagementCoordinator {
+            coordinator.remove(
+                panelIds: Array(removedBindingPanelIds),
+                owner: .dock(self)
+            )
         }
         invalidatedCachedTransferAgentSessionPanelIds.removeAll()
         replacedCachedTransferAgentSessionPanelIds.removeAll()

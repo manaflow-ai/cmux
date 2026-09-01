@@ -11,13 +11,16 @@ struct AgentContextInjectionPolicyTests {
         action: AgentContextInjectionAction = .compact,
         pressureConfirmed: Bool = true,
         providerEvidenceConfirmed: Bool = true,
+        foregroundAgentConfirmed: Bool = true,
         preserveState: Bool = false,
         dialogOpen: Bool = false,
         userInputObserved: Bool = false,
         injectionInFlight: Bool = false,
         preservationCompleted: Bool = false,
         preservationAwaitingAcknowledgement: Bool = false,
-        manualRecoveryRequired: Bool = false
+        manualRecoveryRequired: Bool = false,
+        surfaceAvailable: Bool = true,
+        preservationAvailable: Bool = true
     ) -> AgentContextInjectionInput {
         AgentContextInjectionInput(
             enabled: true,
@@ -25,6 +28,7 @@ struct AgentContextInjectionPolicyTests {
             pressureConfirmed: pressureConfirmed,
             providerEvidenceConfirmed: providerEvidenceConfirmed,
             managedSessionBound: true,
+            foregroundAgentConfirmed: foregroundAgentConfirmed,
             provider: .claudeCode,
             lifecycle: lifecycle,
             shellActivity: shell,
@@ -35,7 +39,9 @@ struct AgentContextInjectionPolicyTests {
             preserveState: preserveState,
             preservationCompleted: preservationCompleted,
             preservationAwaitingAcknowledgement: preservationAwaitingAcknowledgement,
-            manualRecoveryRequired: manualRecoveryRequired
+            manualRecoveryRequired: manualRecoveryRequired,
+            surfaceAvailable: surfaceAvailable,
+            preservationAvailable: preservationAvailable
         )
     }
 
@@ -67,6 +73,34 @@ struct AgentContextInjectionPolicyTests {
         #expect(
             policy.decide(input(action: .clear, providerEvidenceConfirmed: false))
                 == .wait(.pressureUnconfirmed)
+        )
+    }
+
+    @Test("A generic running shell cannot stand in for the foreground agent")
+    func foregroundAgentIdentityIsRequired() {
+        #expect(
+            policy.decide(input(foregroundAgentConfirmed: false))
+                == .wait(.foregroundAgentUnconfirmed)
+        )
+        #expect(
+            policy.decide(input(action: .clear, foregroundAgentConfirmed: false))
+                == .unsafe(.foregroundAgentUnconfirmed)
+        )
+    }
+
+    @Test("Unavailable delivery surfaces fail closed")
+    func unavailableSurfaceAndPreservationAreReported() {
+        #expect(
+            policy.decide(input(surfaceAvailable: false))
+                == .wait(.surfaceUnavailable)
+        )
+        #expect(
+            policy.decide(input(action: .clear, surfaceAvailable: false))
+                == .unsafe(.surfaceUnavailable)
+        )
+        #expect(
+            policy.decide(input(action: .clear, preserveState: true, preservationAvailable: false))
+                == .unsafe(.preservationUnavailable)
         )
     }
 

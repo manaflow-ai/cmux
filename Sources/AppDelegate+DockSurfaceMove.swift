@@ -190,8 +190,18 @@ extension AppDelegate {
         ) != nil else {
             // Roll the panel back into the Dock unchanged.
             (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
-            if let rollbackPane = sourcePane ?? sourceDock.bonsplitController.allPaneIds.first {
-                _ = sourceDock.attachDetachedSurface(detached, inPane: rollbackPane, focus: false)
+            guard let rollbackPane = sourcePane ?? sourceDock.bonsplitController.allPaneIds.first else {
+                agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: nil
+                )
+                return false
+            }
+            if sourceDock.attachDetachedSurface(detached, inPane: rollbackPane, focus: false) == nil {
+                agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: nil
+                )
             }
             return false
         }
@@ -240,8 +250,18 @@ extension AppDelegate {
         guard let destinationWorkspace = manager.addWorkspace(fromDetachedSurface: detached, select: focus) else {
             // Creation failed — roll the panel back into the Dock unchanged.
             (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
-            if let rollbackPane = sourcePane ?? sourceDock.bonsplitController.allPaneIds.first {
-                _ = sourceDock.attachDetachedSurface(detached, inPane: rollbackPane, focus: false)
+            guard let rollbackPane = sourcePane ?? sourceDock.bonsplitController.allPaneIds.first else {
+                agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: nil
+                )
+                return false
+            }
+            if sourceDock.attachDetachedSurface(detached, inPane: rollbackPane, focus: false) == nil {
+                agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: nil
+                )
             }
             return false
         }
@@ -324,11 +344,28 @@ extension AppDelegate {
         switch source {
         case .workspace(_, let workspace, _, _):
             (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.workspace)
-            rollbackDetachedSurface(detached, to: workspace, sourcePane: nil, sourceIndex: nil, focus: true)
+            _ = rollbackDetachedSurface(
+                detached,
+                to: workspace,
+                sourcePane: nil,
+                sourceIndex: nil,
+                focus: true
+            )
         case .dock(let dock, _):
             (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
-            if let pane = dock.bonsplitController.focusedPaneId ?? dock.bonsplitController.allPaneIds.first {
-                _ = dock.attachDetachedSurface(detached, inPane: pane, focus: false)
+            guard let pane = dock.bonsplitController.focusedPaneId
+                ?? dock.bonsplitController.allPaneIds.first else {
+                agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: nil
+                )
+                return
+            }
+            if dock.attachDetachedSurface(detached, inPane: pane, focus: false) == nil {
+                agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: nil
+                )
             }
         }
     }
