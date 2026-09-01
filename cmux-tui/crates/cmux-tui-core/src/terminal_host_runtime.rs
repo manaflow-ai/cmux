@@ -3448,16 +3448,14 @@ mod unix {
     /// its daemon, so a raw OSC 7 URL here would become the next surface's
     /// inherited spawn directory after reattachment.
     fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term
+        let path = term
             .pwd()
             .as_deref()
             .and_then(crate::platform::terminal_pwd_to_local_path)
-            .map(|path| path.to_string_lossy().into_owned())
-            .or_else(|| {
-                spawn_cwd
-                    .and_then(crate::platform::spawn_cwd_to_local_path)
-                    .map(|path| path.to_string_lossy().into_owned())
-            })
+            .or_else(|| spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path))?;
+        let mut url = url::Url::from_file_path(path).ok()?;
+        url.set_host(Some("localhost")).ok()?;
+        Some(url.into())
     }
 
     impl HostShared {
