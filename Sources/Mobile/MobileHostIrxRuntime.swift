@@ -488,9 +488,31 @@ final class MobileHostIrxRuntime {
                         peer: admittedPeer
                     )
                 }
-            case .control, .events, .simulatorStream:
-                // control arrives only pre-admission; events is server-opened;
-                // simulator streaming is not served by irx v1.
+            case .simulatorStream:
+                guard let resource = try? CmxIrohResourceID(lane.descriptor.resource ?? "")
+                else {
+                    await lane.writer.reset(errorCode: 2)
+                    await lane.reader.stop(errorCode: 2)
+                    continue
+                }
+                // No lane count here: the v2 stream coordinator enforces
+                // last-writer-wins per panel, so a new attach supersedes and
+                // closes the previous session's lane.
+                Task {
+                    let stream = lane.bidirectional()
+                    let handler = MobileHostIrohSimulatorStreamLaneHandler()
+                    let didTakeOwnership = await handler.handleSimulatorStreamLane(
+                        resourceID: resource,
+                        stream: stream,
+                        peer: admittedPeer
+                    )
+                    if !didTakeOwnership {
+                        await stream.sendStream.reset(errorCode: 2)
+                        await stream.receiveStream.stop(errorCode: 2)
+                    }
+                }
+            case .control, .events:
+                // control arrives only pre-admission; events is server-opened.
                 await lane.writer.reset(errorCode: 2)
                 await lane.reader.stop(errorCode: 2)
             }
@@ -503,8 +525,9 @@ final class MobileHostIrxRuntime {
 /// the per-bundle, per-broker state directory computed at activation so
 /// admission never reads another build's (or another environment's) cache.
 enum IrxDiskCacheTrustReader {
+    /// Reads the trust snapshot from the state directory selected at activation.
     nonisolated static func read(stateDirectory: URL) -> IrxTrustSnapshot? {
-        IrxDiskCache<IrxTrustSnapshot>(
+        return IrxDiskCache<IrxTrustSnapshot>(
             fileURL: stateDirectory.appendingPathComponent("trust.json")
         ).load()
     }

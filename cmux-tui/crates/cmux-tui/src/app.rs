@@ -17,6 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
@@ -99,18 +100,19 @@ use crate::ui::{
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
 ) -> std::io::Result<Option<Event>> {
-    if let Some(timeout) = timeout.map(|timeout| timeout.min(Duration::from_millis(100)))
-        && !poll(timeout)?
-    {
-        return Ok(None);
-    }
-    if timeout.is_none() && !poll(Duration::from_millis(100))? {
+    // Keep the input thread interruptible even when no graphics response is
+    // pending. A single normalized poll avoids separate timed and untimed
+    // branches drifting apart as the reader evolves.
+    let poll_timeout =
+        timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
+    if !poll(poll_timeout)? {
         return Ok(None);
     }
     read().map(Some)
@@ -7848,6 +7850,7 @@ fn sidebar_layout_for_state(
         desired: u16,
         max_width: u16,
         priority: u16,
+        collapsed: bool,
     }
 
     let mut specs = config
@@ -7897,37 +7900,73 @@ fn sidebar_layout_for_state(
                     RailKind::Tabs | RailKind::Projection(_) => view.max_width,
                 }
             };
-            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
+            Some(Spec {
+                kind,
+                view_index,
+                desired,
+                max_width,
+                priority: view.collapse_priority,
+                collapsed: false,
+            })
         })
         .collect::<Vec<_>>();
 
-    while width
-        < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
-    {
-        let Some((index, _)) = specs.iter().enumerate().min_by_key(|(_, spec)| spec.priority)
-        else {
-            break;
-        };
-        specs.remove(index);
+    // Sort only when a collapse decision is needed. The configured index is a
+    // deterministic tie breaker for equal priorities, then a final in-place
+    // sort restores configured order before the layout is built. This keeps
+    // the normal frame path allocation-free beyond the specs vector itself and
+    // bounds collapse selection to O(n log n).
+    let needs_width_collapse =
+        width < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16));
+    let needs_hysteresis_collapse = previous.is_some()
+        && width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        && previous
+            .is_some_and(|previous| specs.iter().any(|spec| previous.rail(spec.kind).is_none()));
+    let mut collapsed_count = 0;
+    let mut retained_count = specs.len();
+    if needs_width_collapse || needs_hysteresis_collapse {
+        specs.sort_unstable_by_key(|spec| (spec.priority, spec.view_index));
+
+        while retained_count > 0
+            && width
+                < MIN_CONTENT_WIDTH
+                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
+        {
+            specs[collapsed_count].collapsed = true;
+            collapsed_count += 1;
+            retained_count -= 1;
+        }
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
-            && width
-                < MIN_CONTENT_WIDTH
-                    .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
-                    .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        let mut candidate_index = collapsed_count;
+        while width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
         {
-            let Some((index, _)) = specs
-                .iter()
-                .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
-                .min_by_key(|(_, spec)| spec.priority)
-            else {
+            while candidate_index < specs.len()
+                && (specs[candidate_index].collapsed
+                    || previous.rail(specs[candidate_index].kind).is_some())
+            {
+                candidate_index += 1;
+            }
+            if candidate_index == specs.len() {
                 break;
-            };
-            specs.remove(index);
+            }
+            specs[candidate_index].collapsed = true;
+            collapsed_count += 1;
+            candidate_index += 1;
+            retained_count -= 1;
         }
+    }
+
+    if collapsed_count > 0 {
+        specs.sort_unstable_by_key(|spec| spec.view_index);
+        specs.retain(|spec| !spec.collapsed);
     }
 
     let mut layout = SidebarLayout::default();
@@ -8841,7 +8880,20 @@ fn run_with_machine_updates_inner(
             let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
         },
         move |error| {
-            let message = localization::catalog().browser.control_failed(&error);
+            crate::client_log::error("browser-control", &error);
+            // The dispatcher exposes only a string. Match the one stable CDP
+            // classification and discard every other internal detail before
+            // creating a user-facing status event.
+            let browser = &localization::catalog().browser;
+            let message = if error == CDP_CONNECTION_UNAVAILABLE_MESSAGE {
+                localization::catalog().browser.control_unavailable()
+            } else if error == browser.attach_unsupported {
+                browser.control_failed(browser.attach_unsupported)
+            } else {
+                // Keep the failure category stable. The raw error is already
+                // in the private diagnostic log and must not cross this UI boundary.
+                browser.control_failed("browser operation failed")
+            };
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
     )?;
@@ -16003,7 +16055,8 @@ impl App {
 
     fn mouse_opens_cmux_context_menu(mouse: &MouseEvent) -> bool {
         mouse.kind == MouseEventKind::Down(MouseButton::Right)
-            && mouse.modifiers.contains(KeyModifiers::SHIFT)
+            && (mouse.modifiers.contains(KeyModifiers::SHIFT)
+                || mouse.modifiers.contains(KeyModifiers::ALT))
     }
 
     fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
@@ -20367,6 +20420,7 @@ impl App {
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> PtyMousePressResult {
         if modifiers.contains(KeyModifiers::SHIFT)
+            || (button == MouseButton::Right && modifiers.contains(KeyModifiers::ALT))
             || self.menu.is_some()
             || self.prompt.is_some()
             || self.drag.is_some()
@@ -23797,6 +23851,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn crossterm_reader_propagates_poll_errors_without_reading() {
+        let mut read_calls = 0;
+        let error = std::io::Error::new(std::io::ErrorKind::Interrupted, "poll interrupted");
+
+        let result = super::read_crossterm_event(
+            None,
+            |_| Err(std::io::Error::new(error.kind(), error.to_string())),
+            || {
+                read_calls += 1;
+                Ok(Event::Resize(80, 24))
+            },
+        );
+
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 0);
+    }
+
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
@@ -26260,6 +26332,38 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_collapse_equal_priorities_keep_first_configured_rail() {
+        let mut config = Config::default();
+        config.sidebar.views_explicit = true;
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 18, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 24, 0),
+        ];
+        for view in &mut config.sidebar.views {
+            view.collapse_priority = 10;
+        }
+
+        // 60 columns cannot fit three minimum rails and the content area,
+        // but can fit the two rails that remain after the first collapse.
+        // Equal priorities must collapse the first configured rail, matching
+        // the previous `min_by_key` plus `remove(index)` behavior.
+        let layout = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (60, 30),
+            SidebarWidthOverrides::default(),
+        );
+        assert_eq!(layout.machine, None);
+        assert_eq!(
+            layout.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
+    }
+
+    #[test]
     fn context_menu_switches_sidebar_profiles_and_keeps_per_profile_visibility() {
         let mux = Mux::new("sidebar-profile-menu-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -26336,6 +26440,21 @@ mod tests {
         );
         assert!(collapsed.machine.is_none());
 
+        let without_previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (70, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            &HashSet::new(),
+            None,
+        );
+        assert!(without_previous.machine.is_some());
+
         let at_boundary = sidebar_layout_for_state(
             &config,
             true,
@@ -26350,6 +26469,10 @@ mod tests {
             Some(&collapsed),
         );
         assert!(at_boundary.machine.is_none());
+        assert_eq!(
+            at_boundary.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
         let revealed = sidebar_layout_for_state(
             &config,
             true,
@@ -29460,6 +29583,14 @@ mod tests {
         assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
         app.menu = None;
 
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::ALT))
+            .unwrap();
+        assert!(app.encode_buf.is_empty(), "Option-right-click must bypass PTY mouse reporting");
+        assert!(app.drag.is_none());
+        assert!(app.menu.is_some(), "Option-right-click must open the cmux context menu");
+        app.menu = None;
+
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
         app.pane_areas[0].content.x += 3;
@@ -29500,6 +29631,66 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn alt_left_and_middle_clicks_preserve_pty_mouse_reporting() {
+        let mux = Mux::new(
+            "alt-mouse-passthrough-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+
+        let event = |kind, modifiers| MouseEvent {
+            kind,
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers,
+        };
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3m");
+        assert!(app.drag.is_none());
+
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Middle, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3m");
+        assert!(app.drag.is_none());
 
         mux.close_surface(surface.id).unwrap();
     }
