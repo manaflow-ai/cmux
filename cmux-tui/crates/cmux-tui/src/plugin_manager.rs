@@ -18,6 +18,7 @@ const MAX_PLUGIN_MANIFEST_BYTES: usize = 256 * 1024;
 const MAX_PLUGIN_NAME_BYTES: usize = 64;
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
+const ARTIFACT_HASH_BUFFER_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PluginKind {
@@ -492,9 +493,13 @@ fn artifact_revision(manifest: &PluginManifest, dir: &Path, command: &[String]) 
         digest.update(b"arg\0");
         digest.update(argument.as_bytes());
     }
-    if let Ok(bytes) = fs::read(&command[0]) {
-        digest.update(b"binary\0");
-        digest.update(&bytes);
+    let mut binary_digest = digest.clone();
+    binary_digest.update(b"binary\0");
+    let binary_hashed = fs::File::open(&command[0])
+        .and_then(|file| update_file_digest(file, &mut binary_digest))
+        .is_ok();
+    if binary_hashed {
+        digest = binary_digest;
     } else if let Ok(metadata) = fs::metadata(&command[0]) {
         digest.update(b"metadata\0");
         digest.update(metadata.len().to_le_bytes());
@@ -505,6 +510,20 @@ fn artifact_revision(manifest: &PluginManifest, dir: &Path, command: &[String]) 
         }
     }
     format!("sha256-{:x}", digest.finalize())
+}
+
+/// Feed a regular file into a digest without allocating an amount of memory
+/// proportional to the executable size. The caller can discard the digest
+/// when a read fails and retain the metadata fallback.
+fn update_file_digest(mut file: fs::File, digest: &mut Sha256) -> std::io::Result<()> {
+    let mut buffer = [0_u8; ARTIFACT_HASH_BUFFER_BYTES];
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(());
+        }
+        digest.update(&buffer[..count]);
+    }
 }
 
 fn persist_plugin_none(kind: PluginKind) -> Result<(), ManagerError> {
@@ -1419,6 +1438,27 @@ mod tests {
         fs::write(&path, vec![b'x'; MAX_PLUGIN_MANIFEST_BYTES + 1]).unwrap();
         let error = read_manifest(&root, PluginKind::Sidebar).unwrap_err().to_string();
         assert!(error.contains("manifest limit"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn artifact_digest_handles_multiple_read_chunks() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-artifact-digest-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("plugin");
+        let bytes = (0..(ARTIFACT_HASH_BUFFER_BYTES * 2 + 17))
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        fs::write(&path, &bytes).unwrap();
+
+        let mut actual = Sha256::new();
+        update_file_digest(fs::File::open(&path).unwrap(), &mut actual).unwrap();
+        assert_eq!(actual.finalize(), Sha256::digest(&bytes));
+
         fs::remove_dir_all(root).unwrap();
     }
 
