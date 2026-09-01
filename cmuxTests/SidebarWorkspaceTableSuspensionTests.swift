@@ -411,7 +411,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         // no longer live.
         controller.setPresentationActive(
             false,
-            workspaceIds: [UUID()],
+            workspaceIds: [Self.groupHeaderReplacementWorkspaceID],
             rowIds: [.group(model.groupId)]
         )
         await flushStagedTableMutations()
@@ -747,9 +747,15 @@ struct SidebarWorkspaceTableSuspensionTests {
         }
     }
 
+    private static let groupHeaderGroupID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+    private static let groupHeaderAnchorWorkspaceID = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
+    private static let groupHeaderReplacementWorkspaceID = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
+
     private func makeGroupHeaderModel(isAnchorActive: Bool = false) -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
-            groupId: UUID(), anchorWorkspaceId: UUID(), name: "Group", iconSymbol: "folder",
+            groupId: Self.groupHeaderGroupID,
+            anchorWorkspaceId: Self.groupHeaderAnchorWorkspaceID,
+            name: "Group", iconSymbol: "folder",
             tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: isAnchorActive,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,
