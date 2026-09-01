@@ -185,21 +185,25 @@ enum OscMetadataState {
     /// before process inspection caught up, so retained evidence stays usable.
     FirstAgent,
     /// A replacement or confirmed exit occurred. A revision is optional for
-    /// older hosts; when absent, the compatibility path remains open because
-    /// the plugin has no evidence on which to compare generations.
+    /// older hosts. A known fence fails closed when the current host omits its
+    /// revision, because the plugin cannot prove that retained OSC data is new.
     Fenced { identity_revision: Option<u64> },
 }
 
 impl OscMetadataState {
     fn is_fresh(self, stream_revision: Option<u64>) -> bool {
-        let Self::Fenced { identity_revision } = self else {
-            return true;
-        };
-        let (Some(identity_revision), Some(stream_revision)) = (identity_revision, stream_revision)
-        else {
-            return true;
-        };
-        stream_revision > identity_revision
+        match self {
+            Self::NeverIdentified | Self::FirstAgent => true,
+            // Old hosts do not expose a revision. Preserve their historical
+            // compatibility behavior because there is no generation anchor
+            // to compare against.
+            Self::Fenced { identity_revision: None } => true,
+            // Once a host has supplied an anchor, missing metadata is not
+            // evidence that the retained OSC fields belong to a new process.
+            Self::Fenced { identity_revision: Some(identity_revision) } => {
+                stream_revision.is_some_and(|current| current > identity_revision)
+            }
+        }
     }
 
     fn fence(&mut self, stream_revision: Option<u64>) {
