@@ -126,6 +126,11 @@ supervision, environment setup, journal admission, and roster reduction. The
 plugin owns process-group discovery, screen sampling, manifest rules, and
 agent-specific interpretation.
 
+Core still accepts the old `detected` source and `ScreenDetect` native event
+only when replaying journals written before this boundary existed. Current core
+code never creates those records. New detection implementations must use the
+generic `plugin.<id>.agent.*` journal envelope.
+
 ### Configuration
 
 The selected plugin is stored in `~/.config/cmux/cmux-tui.json`:

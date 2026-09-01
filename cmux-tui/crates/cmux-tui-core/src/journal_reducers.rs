@@ -36,7 +36,8 @@ pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 5;
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
 /// Legacy native event retained so journals written by the old in-core
-/// detector can still be replayed after the detector moves to userland.
+/// detector can still be replayed after the detector moves to userland. New
+/// detector processes must use the generic plugin event envelope instead.
 pub(crate) const LEGACY_SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
 
 /// A hook-owned roster entry younger than this cannot be overwritten by a

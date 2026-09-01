@@ -1074,6 +1074,9 @@ impl Direction {
 pub enum AgentSource {
     /// An installed userland agent plugin wrote the observation.
     Plugin,
+    /// Legacy source value emitted by pre-userland screen detection. Current
+    /// core code never emits it; the reducer keeps it so old journals replay
+    /// after screen detection moves to a userland plugin.
     Detected,
     Socket,
     Hook,
