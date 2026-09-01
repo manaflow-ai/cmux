@@ -34,12 +34,9 @@ public struct SentryNoiseFilter: Sendable {
         switch normalized {
         case "already_exists",
              "browser_disabled",
-             "busy",
              "invalid_params",
              "invalid_request",
-             "invalid_state",
              "method_not_found",
-             "not_created",
              "not_found",
              "not_supported",
              "protected",

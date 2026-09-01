@@ -510,58 +510,16 @@ private final class CMUXCLISentryTelemetryBundleToken {}
     ) throws -> ProcessRunResult {
         let socketPath = "/tmp/cmux-structured-\(UUID().uuidString.prefix(8)).sock"
         let listenerFD = try bindUnixSocket(at: socketPath)
-        var stopPipe = [Int32](repeating: -1, count: 2)
-        guard pipe(&stopPipe) == 0 else {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
-        let stopReadFD = stopPipe[0]
-        let stopWriteFD = stopPipe[1]
-        let serverDone = DispatchSemaphore(value: 0)
-        let serverThread = Thread {
-            defer { serverDone.signal() }
-            while true {
-                var descriptors = [
-                    pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0),
-                    pollfd(fd: stopReadFD, events: Int16(POLLIN), revents: 0),
-                ]
-                let ready = Darwin.poll(&descriptors, 2, -1)
-                if ready < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                if descriptors[1].revents & Int16(POLLIN) != 0 {
-                    return
-                }
-                guard descriptors[0].revents & Int16(POLLIN) != 0 else {
-                    if descriptors[0].revents & Int16(POLLERR | POLLHUP | POLLNVAL) != 0 {
-                        return
-                    }
-                    continue
-                }
-                var address = sockaddr_un()
-                var addressLength = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &address) { pointer in
-                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
-                        Darwin.accept(listenerFD, socketPointer, &addressLength)
-                    }
-                }
-                guard clientFD >= 0 else { continue }
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
                 defer { Darwin.close(clientFD) }
                 cliMockServeLineFramedConnection(clientFD: clientFD, respond: respond)
-            }
-        }
-        serverThread.start()
+            },
+            onListenerClosed: {}
+        )
         defer {
-            var stopByte: UInt8 = 1
-            _ = Darwin.write(stopWriteFD, &stopByte, 1)
-            if serverDone.wait(timeout: .now() + 5) == .timedOut {
-                Darwin.close(listenerFD)
-                _ = serverDone.wait(timeout: .now() + 1)
-            }
-            Darwin.close(stopReadFD)
-            Darwin.close(stopWriteFD)
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
@@ -574,6 +532,7 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "1"
         environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
         environment.merge(environmentOverrides, uniquingKeysWith: { _, new in new })
         return runProcess(
             executablePath: try bundledCLIPath(),
@@ -625,7 +584,9 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
-        environment["HOME"] = URL(fileURLWithPath: probePath).deletingLastPathComponent().path
+        let home = URL(fileURLWithPath: probePath).deletingLastPathComponent().path
+        environment["HOME"] = home
+        environment["CFFIXED_USER_HOME"] = home
         return environment
     }
 

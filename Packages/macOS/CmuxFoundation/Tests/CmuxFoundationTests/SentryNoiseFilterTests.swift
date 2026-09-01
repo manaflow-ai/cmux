@@ -38,6 +38,7 @@ import Testing
         #expect(filter.isExpectedCLIProtocolOutcomeCode("invalid_params"))
         #expect(filter.isExpectedCLIProtocolOutcomeCode(" not_found "))
         #expect(filter.isExpectedCLIProtocolOutcomeCode("protected"))
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("invalid_state"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("internal_error"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("server_failure"))
         #expect(filter.isExpectedCLISocketTransportFailure(

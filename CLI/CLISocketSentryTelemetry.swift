@@ -222,7 +222,10 @@ final class CLISocketSentryTelemetry {
         pendingBreadcrumbs.removeAll()
         let scrubber = SentryEventScrubber()
         let scrubbedEvent = scrubber.scrub(event)
-        guard !Self.isExpectedCLISocketTransportEvent(scrubbedEvent) else {
+        guard !Self.isExpectedCLISocketTransportEvent(
+            scrubbedEvent,
+            classificationMessage: cliErrorMetadata.legacyMessage
+        ) else {
             return
         }
         let envelopeItem = SentryEnvelopeItem(event: scrubbedEvent)
@@ -276,27 +279,31 @@ final class CLISocketSentryTelemetry {
         let errorDescription = String(describing: error)
         let classificationCandidate = classificationError ?? error
         let cliErrorMetadata = metadata(for: classificationCandidate)
+        let classificationMessage = cliErrorMetadata.legacyMessage
+            ?? String(describing: classificationCandidate)
         let dataKeys = Set(data.keys)
         let isAgentHookStage = stage.hasPrefix("agent-hook-")
+        let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let isExpectedAgentHookCLIError =
             isAgentHookStage &&
             (noiseFilter.isExpectedCLIAppLifecycleError(
                 code: cliErrorMetadata.code,
-                message: cliErrorMetadata.legacyMessage ?? errorDescription
+                message: classificationMessage
             ) ||
+                (!hasStructuredCLIErrorCode &&
+                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage(classificationMessage)) ||
                 cliErrorMetadata.socketPathMissing)
-        let hasStructuredCLIErrorCode = cliErrorMetadata.code?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let isExpectedLegacyCLIError: Bool
-        if !hasStructuredCLIErrorCode, let legacyMessage = cliErrorMetadata.legacyMessage {
+        if !hasStructuredCLIErrorCode {
             isExpectedLegacyCLIError =
                 noiseFilter.isExpectedCLISocketTransportFailure(
                     stage: stage,
-                    message: legacyMessage,
+                    message: classificationMessage,
                     dataKeys: dataKeys,
                     allowSandboxPolicyDenial: sentryPolicy.allowsSandboxPolicyDenial
                 ) ||
                 (isAgentHookStage &&
-                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage(legacyMessage))
+                    noiseFilter.isExpectedLegacyCLIAppLifecycleMessage(classificationMessage))
         } else {
             isExpectedLegacyCLIError = false
         }
@@ -483,7 +490,10 @@ final class CLISocketSentryTelemetry {
         return exception
     }
 
-    private static func isExpectedCLISocketTransportEvent(_ event: Event) -> Bool {
+    private static func isExpectedCLISocketTransportEvent(
+        _ event: Event,
+        classificationMessage: String? = nil
+    ) -> Bool {
         let noiseFilter = SentryNoiseFilter()
         guard let socketContext = event.context?["cli_socket"] else {
             return false
@@ -509,12 +519,7 @@ final class CLISocketSentryTelemetry {
             dataKeys: dataKeys,
             cliErrorCode: cliErrorCode,
             socketPathMissing: socketPathMissing
-        ) ||
-            (isAgentHookStage &&
-                (noiseFilter.isExpectedCLIAppLifecycleError(
-                    code: cliErrorCode,
-                    message: contextMessage
-                ) || socketPathMissing)) {
+        ) {
             return true
         }
 
@@ -523,6 +528,13 @@ final class CLISocketSentryTelemetry {
         guard !hasStructuredCLIErrorCode else { return false }
 
         var legacyMessages = [String]()
+        // Agent-hook originals are intentionally privacy-reduced out of the
+        // event. The explicit classification message is available on the
+        // synchronous capture path; beforeSend still handles any serialized
+        // legacy text without guessing from a wrapper.
+        if let classificationMessage {
+            legacyMessages.append(classificationMessage)
+        }
         if let message = event.message?.formatted {
             legacyMessages.append(message)
         }

@@ -4469,12 +4469,20 @@ struct CMUXCLI {
     }
 
     private func hasStructuredCLIError(_ error: Error) -> Bool {
-        guard let cliError = error as? CLIError else { return false }
-        if cliError.socketFailureKind != nil {
-            return true
+        var current: Error? = error
+        var remaining = 8
+        while let candidate = current, remaining > 0 {
+            if let cliError = candidate as? CLIError {
+                if cliError.socketFailureKind != nil {
+                    return true
+                }
+                guard cliError.isStructuredProtocolResponse else { return false }
+                return !SentryNoiseFilter().isExpectedCLIProtocolOutcomeCode(cliError.v2Code)
+            }
+            current = (candidate as NSError).userInfo[NSUnderlyingErrorKey] as? Error
+            remaining -= 1
         }
-        guard cliError.isStructuredProtocolResponse else { return false }
-        return !SentryNoiseFilter().isExpectedCLIProtocolOutcomeCode(cliError.v2Code)
+        return false
     }
 
     private struct VMCreateIdempotencyStore: Codable {
