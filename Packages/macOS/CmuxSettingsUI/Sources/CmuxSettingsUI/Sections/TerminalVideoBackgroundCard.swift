@@ -3,13 +3,14 @@ import CmuxSettings
 import SwiftUI
 
 /// **Terminal › Video Background** card — the opt-in dynamic video background
-/// played muted behind terminal content: enable toggle, YouTube video/playlist
-/// (or local file) source field, and the dim-opacity slider that keeps text
-/// readable over the video.
+/// played behind terminal content: enable toggle, YouTube video/playlist
+/// (or local file) source field, an audio opt-in (silent by default), and the
+/// dim-opacity slider that keeps text readable over the video.
 @MainActor
 struct TerminalVideoBackgroundCard: View {
     @State private var enabled: DefaultsValueModel<Bool>
     @State private var source: DefaultsValueModel<String>
+    @State private var muted: DefaultsValueModel<Bool>
     @State private var dimOpacity: DefaultsValueModel<Double>
 
     @State private var sourceDraft: String = ""
@@ -19,6 +20,7 @@ struct TerminalVideoBackgroundCard: View {
     init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _enabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.videoBackgroundEnabled))
         _source = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.videoBackgroundSource))
+        _muted = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.videoBackgroundMuted))
         _dimOpacity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.videoBackgroundDimOpacity))
     }
 
@@ -30,7 +32,7 @@ struct TerminalVideoBackgroundCard: View {
                 subtitle: enabled.current
                     ? String(
                         localized: "settings.terminal.videoBackground.subtitleOn",
-                        defaultValue: "A muted video plays behind terminal content in every window. It never takes clicks or keystrokes, and it pauses automatically while the window is hidden."
+                        defaultValue: "A video plays behind terminal content in every window — silent unless Play Audio is on. It never takes clicks or keystrokes, and it pauses automatically while the window is hidden, during sleep, and in Low Power Mode."
                     )
                     : String(
                         localized: "settings.terminal.videoBackground.subtitleOff",
@@ -48,7 +50,7 @@ struct TerminalVideoBackgroundCard: View {
                 String(localized: "settings.terminal.videoBackground.source", defaultValue: "Video Source"),
                 subtitle: String(
                     localized: "settings.terminal.videoBackground.source.subtitle",
-                    defaultValue: "A YouTube video or playlist URL, or a local .mp4/.mov file path. Playlists loop and advance automatically. Press Return to apply."
+                    defaultValue: "A YouTube video or playlist URL or ID, or a local .mp4/.m4v/.mov file path. Playlists loop and advance automatically. Press Return to apply."
                 ),
                 controlWidth: 250
             ) {
@@ -64,6 +66,21 @@ struct TerminalVideoBackgroundCard: View {
                 .disabled(!enabled.current)
                 .onSubmit { commitSourceDraft() }
                 .accessibilityIdentifier("SettingsTerminalVideoBackgroundSourceField")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.videoBackground.muted"),
+                String(localized: "settings.terminal.videoBackground.audio", defaultValue: "Play Audio"),
+                subtitle: String(
+                    localized: "settings.terminal.videoBackground.audio.subtitle",
+                    defaultValue: "Play the video's sound. Only the most recently active window plays audio, and it stops whenever the video pauses."
+                )
+            ) {
+                Toggle("", isOn: Binding(get: { !muted.current }, set: { muted.set(!$0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!enabled.current)
+                    .accessibilityIdentifier("SettingsTerminalVideoBackgroundAudioToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -109,7 +126,7 @@ struct TerminalVideoBackgroundCard: View {
     }
 
     private func startObservingSettings() {
-        let models: [any SettingObservationStarting] = [enabled, source, dimOpacity]
+        let models: [any SettingObservationStarting] = [enabled, source, muted, dimOpacity]
         models.forEach { $0.startObserving() }
     }
 

@@ -140,6 +140,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
             .init(section: .terminal, id: "video-background", title: String(localized: "settings.terminal.videoBackground", defaultValue: "Video Background"), synonyms: "terminal.videoBackground.enabled dynamic video background youtube playlist muted wallpaper animated behind terminal"),
             .init(section: .terminal, id: "video-background-source", title: String(localized: "settings.terminal.videoBackground.source", defaultValue: "Video Source"), synonyms: "terminal.videoBackground.source youtube video playlist url mp4 mov local file loop"),
+            .init(section: .terminal, id: "video-background-audio", title: String(localized: "settings.terminal.videoBackground.audio", defaultValue: "Play Audio"), synonyms: "terminal.videoBackground.muted audio sound mute unmute volume music video background"),
             .init(section: .terminal, id: "video-background-dim", title: String(localized: "settings.terminal.videoBackground.dimOpacity", defaultValue: "Video Dimming"), synonyms: "terminal.videoBackground.dimOpacity dim opacity overlay legible readable darken video background"),
             .init(
                 section: .terminal,

@@ -2627,6 +2627,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */; };
 		C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */; };
 		D1DE0BAC0000000000001101 /* VideoAwareWindowRootBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000101 /* VideoAwareWindowRootBackdrop.swift */; };
+		D1DE0BAC0000000000001C01 /* VideoBackgroundAudioArbiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000C01 /* VideoBackgroundAudioArbiter.swift */; };
+		D1DE0BAC0000000000001D01 /* VideoBackgroundAudioArbiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000D01 /* VideoBackgroundAudioArbiterTests.swift */; };
 		D1DE0BAC0000000000001201 /* VideoBackgroundHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000201 /* VideoBackgroundHostView.swift */; };
 		D1DE0BAC0000000000001301 /* VideoBackgroundLocalPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000301 /* VideoBackgroundLocalPlayerView.swift */; };
 		D1DE0BAC0000000000001401 /* VideoBackgroundPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DE0BAC0000000000000401 /* VideoBackgroundPlayerView.swift */; };
@@ -5458,6 +5460,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+EmptyAreasAndFooter.swift"; sourceTree = "<group>"; };
 		C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000101 /* VideoAwareWindowRootBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoAwareWindowRootBackdrop.swift; sourceTree = "<group>"; };
+		D1DE0BAC0000000000000C01 /* VideoBackgroundAudioArbiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundAudioArbiter.swift; sourceTree = "<group>"; };
+		D1DE0BAC0000000000000D01 /* VideoBackgroundAudioArbiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundAudioArbiterTests.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000201 /* VideoBackgroundHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundHostView.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000301 /* VideoBackgroundLocalPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundLocalPlayerView.swift; sourceTree = "<group>"; };
 		D1DE0BAC0000000000000401 /* VideoBackgroundPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoBackgroundPlayerView.swift; sourceTree = "<group>"; };
@@ -6064,6 +6068,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1DE0BAC0000000000000601 /* VideoBackgroundWebView.swift */,
 				D1DE0BAC0000000000000701 /* VideoBackgroundWebViewBridge.swift */,
 				D1DE0BAC0000000000000801 /* WindowVideoBackgroundController.swift */,
+				D1DE0BAC0000000000000C01 /* VideoBackgroundAudioArbiter.swift */,
 			);
 			path = VideoBackground;
 			sourceTree = "<group>";
@@ -8307,6 +8312,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D1DE0BAC0000000000000901 /* VideoBackgroundSettingsFileStoreTests.swift */,
 				D1DE0BAC0000000000000A01 /* VideoBackgroundWebViewBridgeTests.swift */,
 				D1DE0BAC0000000000000B01 /* WindowVideoBackgroundControllerTests.swift */,
+				D1DE0BAC0000000000000D01 /* VideoBackgroundAudioArbiterTests.swift */,
 				C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */,
 				6042B0036042B0036042B003 /* ShortcutHintDebugSettingsBindingTests.swift */,
 				E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */,
@@ -10844,6 +10850,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */,
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				D1DE0BAC0000000000001101 /* VideoAwareWindowRootBackdrop.swift in Sources */,
+				D1DE0BAC0000000000001C01 /* VideoBackgroundAudioArbiter.swift in Sources */,
 				D1DE0BAC0000000000001201 /* VideoBackgroundHostView.swift in Sources */,
 				D1DE0BAC0000000000001301 /* VideoBackgroundLocalPlayerView.swift in Sources */,
 				D1DE0BAC0000000000001401 /* VideoBackgroundPlayerView.swift in Sources */,
@@ -11896,6 +11903,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				469200044692000146920001 /* VaultPaneTransferLifecycleTests.swift in Sources */,
 				992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */,
 				992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */,
+				D1DE0BAC0000000000001D01 /* VideoBackgroundAudioArbiterTests.swift in Sources */,
 				D1DE0BAC0000000000001901 /* VideoBackgroundSettingsFileStoreTests.swift in Sources */,
 				D1DE0BAC0000000000001A01 /* VideoBackgroundWebViewBridgeTests.swift in Sources */,
 				A3340002A3340002A3340002 /* ViewerNavigationTests.swift in Sources */,

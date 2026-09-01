@@ -123,6 +123,11 @@ extension CmuxSettingsFileStore {
         } else if videoBackground.keys.contains("source") {
             logInvalid("terminal.videoBackground.source", sourcePath: sourcePath)
         }
+        if let value = jsonBool(videoBackground["muted"]) {
+            snapshot.managedUserDefaults[VideoBackgroundSettings.mutedKey] = .bool(value)
+        } else if videoBackground.keys.contains("muted") {
+            logInvalid("terminal.videoBackground.muted", sourcePath: sourcePath)
+        }
         if let value = jsonDouble(videoBackground["dimOpacity"]) {
             if value.isFinite {
                 snapshot.managedUserDefaults[VideoBackgroundSettings.dimOpacityKey] = .double(

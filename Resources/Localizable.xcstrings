@@ -205558,13 +205558,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A muted video plays behind terminal content in every window. It never takes clicks or keystrokes, and it pauses automatically while the window is hidden."
+            "value": "A video plays behind terminal content in every window — silent unless Play Audio is on. It never takes clicks or keystrokes, and it pauses automatically while the window is hidden, during sleep, and in Low Power Mode."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ミュートされたビデオが各ウィンドウのターミナルコンテンツの背後で再生されます。クリックやキー入力を奪うことはなく、ウィンドウが隠れている間は自動的に一時停止します。"
+            "value": "各ウィンドウのターミナルコンテンツの背後でビデオが再生されます（「音声を再生」がオフの間は無音）。クリックやキー入力を奪うことはなく、ウィンドウが隠れている間、スリープ中、低電力モード中は自動的に一時停止します。"
           }
         }
       }
@@ -205633,6 +205633,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "https://www.youtube.com/watch?v=…"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play Audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声を再生"
+          }
+        }
+      }
+    },
+    "settings.terminal.videoBackground.audio.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play the video's sound. Only the most recently active window plays audio, and it stops whenever the video pauses."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオの音声を再生します。音声を再生するのは最後に操作したウィンドウだけで、ビデオが一時停止すると音声も止まります。"
           }
         }
       }

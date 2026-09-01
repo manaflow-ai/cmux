@@ -666,7 +666,7 @@
           "type": "object",
           "additionalProperties": false,
           "descriptionKey": "schemaDescriptions.terminal.videoBackground",
-          "description": "Dynamic video background. A muted, non-interactive video (YouTube video/playlist embed, or a looping local file) plays behind terminal content in every window, dimmed so text stays readable. Playback pauses automatically while the window is occluded or minimized. Off by default.",
+          "description": "Dynamic video background. A non-interactive video (YouTube video/playlist embed, or a looping local file) plays behind terminal content in every window, dimmed so text stays readable and silent unless muted is false. Playback pauses automatically while the window is occluded or minimized, during system sleep, and in Low Power Mode. Off by default.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -679,6 +679,12 @@
               "default": "",
               "descriptionKey": "schemaDescriptions.terminal.videoBackgroundSource",
               "description": "A YouTube video or playlist URL, a raw YouTube video or playlist ID, or a local .mp4/.m4v/.mov file path played with AVFoundation. Playlists loop and advance automatically."
+            },
+            "muted": {
+              "type": "boolean",
+              "default": true,
+              "descriptionKey": "schemaDescriptions.terminal.videoBackgroundMuted",
+              "description": "Keep the video background silent (default). Set false to play the video's audio; only the most recently active cmux window plays sound, and audio stops whenever the video pauses."
             },
             "dimOpacity": {
               "type": "number",

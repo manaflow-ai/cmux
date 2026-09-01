@@ -32,5 +32,30 @@ struct VideoBackgroundEmbedPageTests {
         #expect(VideoBackgroundEmbedPage.pauseScript.contains("cmuxVideoBackgroundSetPaused(true)"))
         #expect(VideoBackgroundEmbedPage.resumeScript.contains("cmuxVideoBackgroundSetPaused(false)"))
         #expect(VideoBackgroundEmbedPage.baseURL.host == "www.youtube.com")
+        #expect(html.contains("window.cmuxVideoBackgroundSetMuted = function"))
+        #expect(VideoBackgroundEmbedPage.mutedScript(true) == "window.cmuxVideoBackgroundSetMuted(true);")
+        #expect(VideoBackgroundEmbedPage.mutedScript(false) == "window.cmuxVideoBackgroundSetMuted(false);")
+    }
+
+    @Test func audioOptInStartsUnmutedButStillSilentByDefault() {
+        let silent = VideoBackgroundEmbedPage(source: .youTubeVideo(id: "dQw4w9WgXcQ")).html
+        #expect(silent.contains("mute: 1"))
+        #expect(silent.contains("var pendingMuted = true;"))
+
+        let audible = VideoBackgroundEmbedPage(source: .youTubeVideo(id: "dQw4w9WgXcQ"), muted: false).html
+        #expect(audible.contains("mute: 0"))
+        #expect(audible.contains("var pendingMuted = false;"))
+        // Unmuting is applied on ready and on every resume, never before the player exists.
+        #expect(audible.contains("applyMuted(event.target)"))
+        #expect(!audible.contains("event.target.mute();"))
+    }
+
+    @Test func playerIsSizeCappedAndScaledToCoverTheWindow() {
+        let html = VideoBackgroundEmbedPage(source: .youTubeVideo(id: "dQw4w9WgXcQ")).html
+        #expect(html.contains("width: \(VideoBackgroundEmbedPage.playerWidth)px;"))
+        #expect(html.contains("height: \(VideoBackgroundEmbedPage.playerHeight)px;"))
+        #expect(html.contains("Math.max(window.innerWidth / playerWidth, window.innerHeight / playerHeight)"))
+        #expect(html.contains("window.addEventListener('resize', fitPlayer)"))
+        #expect(!html.contains("width: '100%'"))
     }
 }

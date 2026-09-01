@@ -23,11 +23,17 @@ public struct VideoBackgroundSettings: Sendable {
     /// UserDefaults key backing the `terminal.videoBackground.dimOpacity` setting.
     public static let dimOpacityKey = "terminal.videoBackground.dimOpacity"
 
+    /// UserDefaults key backing the `terminal.videoBackground.muted` setting.
+    public static let mutedKey = "terminal.videoBackground.muted"
+
     /// The feature ships off; a source must be configured explicitly.
     public static let defaultEnabled = false
 
     /// Default source text (no video configured).
     public static let defaultSource = ""
+
+    /// The video ships silent; audio is an explicit opt-in.
+    public static let defaultMuted = true
 
     /// Default opacity of the terminal background fill drawn over the video.
     ///
@@ -55,6 +61,15 @@ public struct VideoBackgroundSettings: Sendable {
     public func isEnabled(defaults: UserDefaults) -> Bool {
         guard defaults.object(forKey: Self.enabledKey) != nil else { return Self.defaultEnabled }
         return defaults.bool(forKey: Self.enabledKey)
+    }
+
+    /// Reads whether the video background must stay silent from a UserDefaults suite.
+    ///
+    /// Even when `false`, only one window (the most recently active one) plays
+    /// audio, and audio always stops with the video.
+    public func isMuted(defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: Self.mutedKey) != nil else { return Self.defaultMuted }
+        return defaults.bool(forKey: Self.mutedKey)
     }
 
     /// Reads the raw configured source text (URL or ID) from a UserDefaults suite.

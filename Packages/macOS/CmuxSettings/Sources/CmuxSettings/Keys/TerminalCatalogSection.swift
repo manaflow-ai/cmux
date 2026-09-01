@@ -208,6 +208,13 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: VideoBackgroundSettings.sourceKey
     )
 
+    /// Whether the video background stays silent (`false` opts in to audio).
+    public let videoBackgroundMuted = DefaultsKey<Bool>(
+        id: "terminal.videoBackground.muted",
+        defaultValue: VideoBackgroundSettings.defaultMuted,
+        userDefaultsKey: VideoBackgroundSettings.mutedKey
+    )
+
     /// Opacity of the terminal background fill drawn over the video (`1` hides it).
     public let videoBackgroundDimOpacity = DefaultsKey<Double>(
         id: "terminal.videoBackground.dimOpacity",

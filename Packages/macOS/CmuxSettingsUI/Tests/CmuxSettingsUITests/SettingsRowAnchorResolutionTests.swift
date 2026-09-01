@@ -140,6 +140,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.textBoxMaxLines",
         "terminal.videoBackground.enabled",
         "terminal.videoBackground.source",
+        "terminal.videoBackground.muted",
         "terminal.videoBackground.dimOpacity",
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",

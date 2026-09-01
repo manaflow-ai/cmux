@@ -443,6 +443,7 @@ extension CmuxSettingsFileStore {
         "terminal.rendererRealization.maxWarmRenderers",
         "terminal.videoBackground.enabled",
         "terminal.videoBackground.source",
+        "terminal.videoBackground.muted",
         "terminal.videoBackground.dimOpacity",
         SessionContentWidthSettings.settingsPath,
         SessionContentWidthSettings.alignmentSettingsPath,
