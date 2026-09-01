@@ -714,6 +714,73 @@ describe("VM REST auth", () => {
     expect(createVm).not.toHaveBeenCalled();
   });
 
+  test("blocks a team-less free account from provisioning when CMUX_VM_REQUIRE_PRO is enforced", async () => {
+    // The user-scoped billing fallback (#11225) must never widen access: an
+    // account with zero Stack teams and no subscription resolves to the free
+    // plan and hits the same Pro gate as team-based free users.
+    process.env.CMUX_VM_REQUIRE_PRO = "1";
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect((await response.json() as { error: string }).error).toBe("vm_requires_pro");
+    expect(createVm).not.toHaveBeenCalled();
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("a team-less free account gets exactly the free-plan allowance", async () => {
+    // With free provisioning explicitly allowed (the gate is on by default),
+    // the freemium policy still applies unchanged: user-scoped billing carries
+    // the free plan's machine ceiling into the create workflow, where the
+    // active-VM limit is enforced.
+    process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
+    process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS = "1";
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-free-user-billing",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      billingCustomerType: "user",
+      billingTeamId: "user-1",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+    }));
+  });
+
   test("lets a pro plan provision even when CMUX_VM_REQUIRE_PRO is enforced", async () => {
     process.env.CMUX_VM_REQUIRE_PRO = "1";
     getUser.mockResolvedValue(authedStackUser());
