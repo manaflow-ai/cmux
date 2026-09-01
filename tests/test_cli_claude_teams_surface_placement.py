@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import shlex
 import tempfile
 import threading
 from pathlib import Path
@@ -21,6 +22,27 @@ from claude_teams_surface_placement_test_support import (
     run_cli,
 )
 from claude_teams_test_utils import resolve_cmux_cli
+
+
+def shell_export_value(command: object, key: str) -> str | None:
+    """Return an exported value from a shell-wrapped command."""
+    if not isinstance(command, str):
+        return None
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return None
+    if len(argv) < 3 or argv[0] != "/bin/sh" or argv[1] != "-lc":
+        return None
+    for statement in argv[2].split(";"):
+        try:
+            tokens = shlex.split(statement.strip())
+        except ValueError:
+            continue
+        if len(tokens) == 2 and tokens[0] == "export" and tokens[1].startswith(f"{key}="):
+            return tokens[1][len(key) + 1 :]
+    return None
+
 
 def write_alias_store(home: Path, alias: str, workspace_id: str, surface_id: str) -> Path:
     store_directory = home / ".cmuxterm"
@@ -343,7 +365,11 @@ def main() -> int:
             if not respawn_requests or respawn_requests[-1].get("surface_id") != TEAMMATE_SURFACE_ID:
                 print(f"FAIL: alias respawn targeted the wrong surface: {respawn_requests!r}")
                 return 1
-            if "CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT='surface'" not in str(respawn_requests[-1].get("command", "")):
+            placement = shell_export_value(
+                respawn_requests[-1].get("command"),
+                "CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT",
+            )
+            if placement != "surface":
                 print(f"FAIL: alias respawn did not preserve surface placement: {respawn_requests!r}")
                 return 1
 
