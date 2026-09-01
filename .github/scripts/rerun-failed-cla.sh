@@ -813,6 +813,10 @@ validate_run_source_binding "${final_run_json}"
 # Fetch the complete bounded job set for one exact run. The rerun endpoint
 # requires actions:write, so discovery must fail closed if pagination or shape
 # checks cannot prove that every failed job belongs to this CLA workflow.
+# The workflow-run response is authoritative for workflow name, head branch,
+# and source repository. GitHub's jobs endpoint does not document those fields
+# and omits them in production, so job validation uses only its documented
+# identity fields, plus optional source metadata when GitHub supplies it.
 fetch_jobs_for_run() {
   local target_run_id="$1"
   local page_json page_count page2_json page2_count
@@ -865,7 +869,6 @@ validate_failed_job_set() {
       (.run_id | type == "number") and
       .run_id == ($run_id | tonumber) and
       (.name | type == "string") and
-      (.workflow_name | type == "string") and
       (.status == "completed") and
       (.conclusion | type == "string")
     )' <<<"${all_jobs_json}" >/dev/null || fail "The selected CLA run contains a malformed or incomplete job"
@@ -882,16 +885,14 @@ validate_failed_job_set() {
      ! v2_valid_count="$(jq -r \
        --arg run_id "${run_id}" \
        --arg run_sha "${run_execution_sha}" \
-       --arg run_head_branch "${run_head_branch}" \
        --arg head_repo "${head_repo}" \
        --argjson head_repo_id "${head_repo_id}" \
        --arg cla_generation "${CLA_GENERATION}" \
        '[.[] | select(
           .name == "CLA Assistant v2" and
-          .workflow_name == "CLA Assistant v2" and
           .run_id == ($run_id | tonumber) and
+          (.head_sha | type == "string") and
           .head_sha == $run_sha and
-          .head_branch == $run_head_branch and
           ((has("head_repository") | not) or
            (.head_repository == null or
             ((.head_repository | type) == "object" and
@@ -913,15 +914,13 @@ validate_failed_job_set() {
   if ! compatibility_valid_count="$(jq -r \
       --arg run_id "${run_id}" \
       --arg run_sha "${run_execution_sha}" \
-      --arg run_head_branch "${run_head_branch}" \
       --arg head_repo "${head_repo}" \
       --argjson head_repo_id "${head_repo_id}" \
       '[.[] | select(
          .name == "CLA Assistant" and
-         .workflow_name == "CLA Assistant v2" and
          .run_id == ($run_id | tonumber) and
+         (.head_sha | type == "string") and
          .head_sha == $run_sha and
-         .head_branch == $run_head_branch and
          ((has("head_repository") | not) or
           (.head_repository == null or
            ((.head_repository | type) == "object" and
@@ -944,18 +943,16 @@ if ! cla_job_json="$(jq -c \
     --arg run_id "${run_id}" \
     --arg run_sha "${run_execution_sha}" \
     --arg cla_generation "${CLA_GENERATION}" \
-    --arg run_head_branch "${run_head_branch}" \
     --arg head_repo "${head_repo}" \
     --argjson head_repo_id "${head_repo_id}" \
     '[.[] | .jobs[]?
       | select(
           (.run_id | tostring) == $run_id and
           .name == "CLA Assistant v2" and
-          .workflow_name == "CLA Assistant v2" and
           .status == "completed" and
           .conclusion == "failure" and
+          (.head_sha | type == "string") and
           .head_sha == $run_sha and
-          .head_branch == $run_head_branch and
           (
             .head_repository == null or
             (.head_repository.full_name == $head_repo and
@@ -989,17 +986,15 @@ jq -e \
   --arg run_id "${run_id}" \
   --arg run_sha "${run_execution_sha}" \
   --arg cla_generation "${CLA_GENERATION}" \
-  --arg run_head_branch "${run_head_branch}" \
   --arg head_repo "${head_repo}" \
   --argjson head_repo_id "${head_repo_id}" '
     .id == ($job_id | tonumber) and
     .run_id == ($run_id | tonumber) and
     .name == "CLA Assistant v2" and
-    .workflow_name == "CLA Assistant v2" and
     .status == "completed" and
     .conclusion == "failure" and
+    (.head_sha | type == "string") and
     .head_sha == $run_sha and
-    .head_branch == $run_head_branch and
     (
       (has("head_repository") | not) or
       .head_repository == null or
@@ -1036,17 +1031,15 @@ jq -e \
   --arg run_id "${run_id}" \
   --arg run_sha "${run_execution_sha}" \
   --arg cla_generation "${CLA_GENERATION}" \
-  --arg run_head_branch "${run_head_branch}" \
   --arg head_repo "${head_repo}" \
   --argjson head_repo_id "${head_repo_id}" '
     .id == ($job_id | tonumber) and
     .run_id == ($run_id | tonumber) and
     .name == "CLA Assistant v2" and
-    .workflow_name == "CLA Assistant v2" and
     .status == "completed" and
     .conclusion == "failure" and
+    (.head_sha | type == "string") and
     .head_sha == $run_sha and
-    .head_branch == $run_head_branch and
     (
       (has("head_repository") | not) or
       .head_repository == null or
@@ -1069,18 +1062,16 @@ validate_failed_job_set "${final_jobs_json}"
 final_job_id="$(jq -r \
   --arg run_id "${run_id}" \
   --arg run_sha "${run_execution_sha}" \
-  --arg run_head_branch "${run_head_branch}" \
   --arg head_repo "${head_repo}" \
   --argjson head_repo_id "${head_repo_id}" \
   --arg cla_generation "${CLA_GENERATION}" \
   '[.[] | .jobs[]? | select(
       .run_id == ($run_id | tonumber) and
       .name == "CLA Assistant v2" and
-      .workflow_name == "CLA Assistant v2" and
       .status == "completed" and
       .conclusion == "failure" and
+      (.head_sha | type == "string") and
       .head_sha == $run_sha and
-      .head_branch == $run_head_branch and
       ((has("head_repository") | not) or
        (.head_repository == null or
         ((.head_repository | type) == "object" and

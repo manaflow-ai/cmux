@@ -296,7 +296,7 @@ gh() {
         jobs_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       fi
       if [[ "${FAKE_MODE}" == paginated-jobs && "${api_page}" == 1 ]]; then
-        jq -nc --argjson run_id "$run_id" --arg run_sha "$jobs_sha" '{jobs:[range(0; 100) | {id:(1000 + .),run_id:$run_id,name:"unrelated",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"success",head_sha:$run_sha,head_branch:"feature",head_repository:null,steps:[]}]}'
+        jq -nc --argjson run_id "$run_id" --arg run_sha "$jobs_sha" '{jobs:[range(0; 100) | {id:(1000 + .),run_id:$run_id,name:"unrelated",status:"completed",conclusion:"success",head_sha:$run_sha,steps:[]}]}'
       elif [[ "${FAKE_MODE}" == compatibility-failed ]]; then
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$run_sha" \
           '{jobs:[
@@ -317,7 +317,7 @@ gh() {
           ]}'
       else
         jq -nc --argjson run_id "$run_id" --argjson job_id "$job_id" --arg marker "$marker" --arg run_sha "$jobs_sha" --argjson omit "$omit_job_head_repository" \
-          '{jobs:[({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))]}'
+          '{jobs:[({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))]}'
       fi
       ;;
     repos/manaflow-ai/cmux/actions/jobs/500|repos/manaflow-ai/cmux/actions/jobs/501)
@@ -332,7 +332,7 @@ gh() {
         job_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       fi
       jq -nc --argjson job_id "$job_id" --argjson run_id "$run_id" --arg marker "$marker" --arg run_sha "$job_sha" --argjson omit "$omit_job_head_repository" \
-        '({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",workflow_name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,head_branch:"feature",steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))'
+        '({id:$job_id,run_id:$run_id,name:"CLA Assistant v2",status:"completed",conclusion:"failure",head_sha:$run_sha,steps:[{name:$marker,status:"completed",conclusion:"success"}]} + (if $omit then {} else {head_repository:null} end))'
       ;;
     *)
       echo "unexpected API endpoint: $endpoint" >&2
