@@ -281,7 +281,9 @@ jobs:
               'scripts/build-ish-ios.sh',
               'scripts/ensure-ish-build-tools.sh',
               'scripts/verify-ish-ios-artifacts.sh',
+              'scripts/verify-ish-ios-artifacts.py',
               '.gitmodules',
+              '.github/actions/provision-ish-ios/action.yml',
               '.github/workflows/ios-testflight.yml',
             ];
             const touchesIOS = (filename) =>
@@ -407,22 +409,10 @@ jobs:
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
 
-      # CmuxLocalLinux uses a generated local-path IshKernel binary target.
-      # Restore or build it before the upload script resolves the workspace.
-      - name: Resolve iSH kernel revision
-        id: ish-revision
-        run: |
-          set -euo pipefail
-          echo "sha=$(git -C vendor/ish rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache iSH kernel xcframework
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: IshKernel.xcframework
-          key: ish-kernel-device-${{ runner.os }}-${{ steps.ish-revision.outputs.sha }}-${{ hashFiles('scripts/build-ish-ios.sh', 'scripts/ensure-ish-build-tools.sh', 'scripts/verify-ish-ios-artifacts.sh', 'Packages/iOS/CmuxLocalLinux/ShimSource/**', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz') }}
-
       - name: Provision iSH kernel
-        run: ./scripts/verify-ish-ios-artifacts.sh --build --device-only
+        uses: ./.github/actions/provision-ish-ios
+        with:
+          device-only: "true"
 
       - name: Materialize App Store Connect API key
         env:

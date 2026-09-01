@@ -59,12 +59,8 @@ jobs:
         # use); fall back to a local build only if the prebuilt is unavailable.
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
-      # ios/scripts/reload.sh resolves CmuxLocalLinux's local-path binary target
-      # before it starts the simulator build. Provision the iSH framework here,
-      # so this streamed validation does not fail after the Mac build for a
-      # missing artifact on a clean runner.
       - name: Provision iSH kernel
-        run: ./scripts/verify-ish-ios-artifacts.sh --build
+        uses: ./.github/actions/provision-ish-ios
 
       - name: Install tools (bun, idb, postgres)
         run: |

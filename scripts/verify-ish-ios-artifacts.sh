@@ -9,6 +9,7 @@ ROOT="$(dirname "$SCRIPT_DIR")"
 XCFRAMEWORK="$ROOT/IshKernel.xcframework"
 ROOTFS="$ROOT/Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz"
 PROVENANCE="$ROOT/Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json"
+VALIDATOR="$ROOT/scripts/verify-ish-ios-artifacts.py"
 BUILD=0
 DEVICE_ONLY=0
 
@@ -32,6 +33,32 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ ! -f "$VALIDATOR" ]]; then
+  echo "error: missing $VALIDATOR" >&2
+  exit 1
+fi
+
+VALIDATOR_ARGS=(
+  --xcframework "$XCFRAMEWORK"
+  --rootfs "$ROOTFS"
+  --provenance "$PROVENANCE"
+  --ish-dir "$ROOT/vendor/ish"
+  --shim-dir "$ROOT/Packages/iOS/CmuxLocalLinux/ShimSource"
+  --deployment-target "${CMUX_ISH_IOS_DEPLOYMENT_TARGET:-18.0}"
+)
+if [[ "$DEVICE_ONLY" -eq 1 ]]; then
+  VALIDATOR_ARGS+=(--device-only)
+fi
+
+run_validator() {
+  local quiet="$1"
+  if [[ "$quiet" -eq 1 ]]; then
+    python3 "$VALIDATOR" "${VALIDATOR_ARGS[@]}" --quiet
+  else
+    python3 "$VALIDATOR" "${VALIDATOR_ARGS[@]}"
+  fi
+}
+
 NEEDS_BUILD=0
 if [[ ! -d "$XCFRAMEWORK" ]]; then
   NEEDS_BUILD=1
@@ -43,111 +70,7 @@ elif [[ "$BUILD" -eq 1 ]]; then
   # simulator build. Validate the complete library shape here as well, so a
   # stale archive produced by an older builder is rebuilt instead of reaching
   # SwiftPM with a duplicate or misplaced module map.
-  if ! python3 - "$XCFRAMEWORK" "$DEVICE_ONLY" "$ROOTFS" \
-      "$ROOT/vendor/ish" \
-      "$ROOT/Packages/iOS/CmuxLocalLinux/ShimSource" \
-      "${CMUX_ISH_IOS_DEPLOYMENT_TARGET:-18.0}" <<'PY' >/dev/null 2>&1
-import hashlib
-import json
-import plistlib
-import subprocess
-import sys
-from pathlib import Path
-
-xcframework = Path(sys.argv[1])
-device_only = sys.argv[2] == "1"
-rootfs = Path(sys.argv[3])
-ish_dir = Path(sys.argv[4])
-shim_dir = Path(sys.argv[5])
-deployment_target = sys.argv[6]
-try:
-    info = plistlib.loads((xcframework / "Info.plist").read_bytes())
-    rootfs_sha = hashlib.sha256(rootfs.read_bytes()).hexdigest()
-    ish_revision = subprocess.check_output(
-        ["git", "-C", str(ish_dir), "rev-parse", "HEAD"],
-        text=True,
-        stderr=subprocess.DEVNULL,
-    ).strip()
-    shim_paths = sorted(shim_dir.glob("*.c")) + sorted(shim_dir.glob("*.h"))
-    if not shim_paths:
-        raise OSError("no shim sources")
-    shim_lines = "".join(
-        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
-        for path in shim_paths
-    )
-    shim_sha = hashlib.sha256(shim_lines.encode("utf-8")).hexdigest()
-except (OSError, ValueError, TypeError, subprocess.CalledProcessError):
-    raise SystemExit(1)
-
-required = {"ios-arm64"}
-if not device_only:
-    required.add("ios-arm64-simulator")
-entries = {
-    item.get("LibraryIdentifier"): item
-    for item in info.get("AvailableLibraries", [])
-    if isinstance(item, dict)
-}
-if not required.issubset(entries):
-    raise SystemExit(1)
-for identifier in required:
-    entry = entries[identifier]
-    library_path = entry.get("LibraryPath")
-    binary_path = entry.get("BinaryPath")
-    if library_path != "libIshKernel.a":
-        raise SystemExit(1)
-    if binary_path != "libIshKernel.a":
-        raise SystemExit(1)
-    if "HeadersPath" in entry:
-        raise SystemExit(1)
-    slice_dir = xcframework / identifier
-    binary = slice_dir / binary_path
-    sidecar = slice_dir / "cmux-ish-provenance.json"
-    if slice_dir.is_symlink() or any(
-        path.is_symlink() or not path.is_file()
-        for path in (binary, sidecar)
-    ):
-        raise SystemExit(1)
-    try:
-        sidecar_data = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        raise SystemExit(1)
-    expected_sidecar = {
-        "format": "cmux-ish-provenance-v1",
-        "ishCommit": ish_revision,
-        "rootfsSHA256": rootfs_sha,
-        "shimSHA256": shim_sha,
-        "deploymentTarget": deployment_target,
-        "slice": "iphoneos" if identifier == "ios-arm64" else "iphonesimulator",
-        "architecture": "arm64",
-    }
-    if not isinstance(sidecar_data, dict) or any(
-        sidecar_data.get(key) != value for key, value in expected_sidecar.items()
-    ):
-        raise SystemExit(1)
-    if binary.stat().st_size == 0:
-        raise SystemExit(1)
-    try:
-        archs = subprocess.check_output(
-            ["xcrun", "lipo", "-archs", str(binary)],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip().split()
-    except (OSError, subprocess.CalledProcessError):
-        raise SystemExit(1)
-    if archs != ["arm64"]:
-        raise SystemExit(1)
-    try:
-        symbols = subprocess.check_output(
-            ["xcrun", "nm", "-gU", str(binary)],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        raise SystemExit(1)
-    if "_cmux_ish_boot" not in symbols:
-        raise SystemExit(1)
-PY
-  then
+  if ! run_validator 1 >/dev/null 2>&1; then
     NEEDS_BUILD=1
   fi
 fi
@@ -163,10 +86,6 @@ if [[ "$BUILD" -eq 1 && "$NEEDS_BUILD" -eq 1 ]]; then
   }
   echo "==> IshKernel.xcframework is missing or lacks the requested slice; building it"
   tool_bin="$("$ROOT"/scripts/ensure-ish-build-tools.sh --bin-dir)"
-  build_args=()
-  if [[ "$DEVICE_ONLY" -eq 1 ]]; then
-    build_args+=(--device-only)
-  fi
   # The command-line mode is authoritative. A caller can have inherited
   # CMUX_ISH_DEVICE_ONLY=1 from an earlier device archive, but that must not
   # silently turn a full (device + simulator) verification into a device-only
@@ -176,8 +95,15 @@ if [[ "$BUILD" -eq 1 && "$NEEDS_BUILD" -eq 1 ]]; then
   if [[ -n "${CMUX_ISH_DEVICE_ONLY+x}" && "$CMUX_ISH_DEVICE_ONLY" != "$requested_device_only" ]]; then
     echo "warning: ignoring conflicting CMUX_ISH_DEVICE_ONLY=$CMUX_ISH_DEVICE_ONLY; verifier mode requires CMUX_ISH_DEVICE_ONLY=$requested_device_only" >&2
   fi
-  CMUX_ISH_DEVICE_ONLY="$requested_device_only" PATH="$tool_bin:$PATH" \
-    "$ROOT/scripts/build-ish-ios.sh" "${build_args[@]}"
+  if [[ "$DEVICE_ONLY" -eq 1 ]]; then
+    CMUX_ISH_DEVICE_ONLY="$requested_device_only" PATH="$tool_bin:$PATH" \
+      "$ROOT/scripts/build-ish-ios.sh" --device-only
+  else
+    # Keep the no-argument form explicit. Bash 3.2 with `set -u` can treat an
+    # empty `${array[@]}` expansion as an unset value.
+    CMUX_ISH_DEVICE_ONLY="$requested_device_only" PATH="$tool_bin:$PATH" \
+      "$ROOT/scripts/build-ish-ios.sh"
+  fi
 fi
 
 if [[ ! -d "$XCFRAMEWORK" ]]; then
@@ -215,214 +141,4 @@ if [[ ! -f "$ROOTFS" || ! -f "$PROVENANCE" ]]; then
   exit 1
 fi
 
-python3 - "$XCFRAMEWORK" "$ROOTFS" "$PROVENANCE" "$ROOT/vendor/ish" \
-  "$DEVICE_ONLY" "$ROOT/Packages/iOS/CmuxLocalLinux/ShimSource" \
-  "${CMUX_ISH_IOS_DEPLOYMENT_TARGET:-18.0}" <<'PY'
-from __future__ import annotations
-
-import hashlib
-import json
-import plistlib
-import subprocess
-import sys
-import tarfile
-from pathlib import Path
-
-xcframework, rootfs, provenance, ish_dir = map(Path, sys.argv[1:5])
-device_only_flag = sys.argv[5] == "1"
-shim_dir = Path(sys.argv[6])
-deployment_target = sys.argv[7]
-
-try:
-    actual_ish_revision = subprocess.check_output(
-        ["git", "-C", str(ish_dir), "rev-parse", "HEAD"], text=True
-    ).strip()
-except (OSError, subprocess.CalledProcessError) as exc:
-    raise SystemExit(f"error: cannot read vendor/ish revision: {exc}") from exc
-
-shim_paths = sorted(shim_dir.glob("*.c")) + sorted(shim_dir.glob("*.h"))
-if not shim_paths:
-    raise SystemExit(f"error: no cmux iSH shim sources under {shim_dir}")
-shim_lines = "".join(
-    f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
-    for path in shim_paths
-)
-actual_shim_hash = hashlib.sha256(shim_lines.encode("utf-8")).hexdigest()
-
-if not rootfs.is_file():
-    raise SystemExit(f"error: missing rootfs resource: {rootfs}")
-actual_hash = hashlib.sha256(rootfs.read_bytes()).hexdigest()
-
-info_path = xcframework / "Info.plist"
-if not info_path.is_file():
-    raise SystemExit(f"error: missing xcframework metadata: {info_path}")
-try:
-    info = plistlib.loads(info_path.read_bytes())
-except Exception as exc:
-    raise SystemExit(f"error: invalid xcframework Info.plist: {exc}") from exc
-
-libraries = info.get("AvailableLibraries")
-if not isinstance(libraries, list) or not libraries:
-    raise SystemExit("error: IshKernel.xcframework has no AvailableLibraries")
-
-identifiers = {
-    entry.get("LibraryIdentifier")
-    for entry in libraries
-    if isinstance(entry, dict)
-}
-required = {"ios-arm64"}
-if not device_only_flag:
-    required.add("ios-arm64-simulator")
-missing = sorted(required - identifiers)
-if missing:
-    raise SystemExit(
-        "error: IshKernel.xcframework is missing slice(s): "
-        + ", ".join(missing)
-        + ". Rebuild with ./scripts/build-ish-ios.sh"
-    )
-
-for entry in libraries:
-    if not isinstance(entry, dict):
-        raise SystemExit("error: malformed AvailableLibraries entry")
-    identifier = entry.get("LibraryIdentifier")
-    if identifier not in required:
-        continue
-    # Require the library-shaped XCFramework used by GhosttyKit. A static
-    # archive wrapped in a framework can make Xcode embed an inert framework
-    # even though the symbols are linked into the app executable.
-    library_path = entry.get("LibraryPath")
-    binary_path = entry.get("BinaryPath")
-    if library_path != "libIshKernel.a":
-        raise SystemExit(f"error: incomplete metadata for {identifier}")
-    if binary_path != "libIshKernel.a":
-        raise SystemExit(f"error: incomplete metadata for {identifier}")
-    if "HeadersPath" in entry:
-        raise SystemExit(f"error: incomplete metadata for {identifier}")
-    slice_dir = xcframework / identifier
-    binary = slice_dir / binary_path
-    sidecar = slice_dir / "cmux-ish-provenance.json"
-
-    if slice_dir.is_symlink():
-        raise SystemExit(f"error: {identifier} contains symlinked library paths")
-    for path in (binary, sidecar):
-        if path.is_symlink() or not path.is_file():
-            raise SystemExit(f"error: {identifier} is missing {path}")
-    try:
-        sidecar_data = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"error: invalid provenance sidecar for {identifier}: {exc}") from exc
-    expected_sidecar = {
-        "format": "cmux-ish-provenance-v1",
-        "ishCommit": actual_ish_revision,
-        "rootfsSHA256": actual_hash,
-        "shimSHA256": actual_shim_hash,
-        "deploymentTarget": deployment_target,
-        "slice": "iphoneos" if identifier == "ios-arm64" else "iphonesimulator",
-        "architecture": "arm64",
-    }
-    if not isinstance(sidecar_data, dict):
-        raise SystemExit(f"error: provenance sidecar for {identifier} is not an object")
-    for key, expected in expected_sidecar.items():
-        if sidecar_data.get(key) != expected:
-            raise SystemExit(
-                f"error: stale provenance for {identifier}, field {key!r} "
-                f"is {sidecar_data.get(key)!r}, expected {expected!r}; "
-                "rebuild with ./scripts/build-ish-ios.sh"
-            )
-    if binary.stat().st_size == 0:
-        raise SystemExit(f"error: empty IshKernel binary: {binary}")
-    try:
-        archs = subprocess.check_output(
-            ["xcrun", "lipo", "-archs", str(binary)],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip().split()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise SystemExit(f"error: cannot inspect IshKernel architecture {binary}: {exc}") from exc
-    if archs != ["arm64"]:
-        raise SystemExit(
-            f"error: IshKernel binary {binary} must contain only arm64, got {' '.join(archs) or '<none>'}"
-        )
-    try:
-        symbols = subprocess.check_output(
-            ["xcrun", "nm", "-gU", str(binary)],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise SystemExit(f"error: cannot inspect IshKernel binary {binary}: {exc}") from exc
-    if "_cmux_ish_boot" not in symbols:
-        raise SystemExit(f"error: {binary} does not export cmux_ish_boot")
-
-metadata = json.loads(provenance.read_text(encoding="utf-8"))
-if metadata.get("archive") != rootfs.name:
-    raise SystemExit("error: rootfs provenance archive name does not match resource")
-if metadata.get("sha256") != actual_hash:
-    raise SystemExit(
-        "error: Alpine rootfs SHA-256 mismatch: "
-        f"expected {metadata.get('sha256')}, got {actual_hash}"
-    )
-
-expected_packages = metadata.get("packages")
-if not isinstance(expected_packages, list) or not expected_packages:
-    raise SystemExit("error: rootfs provenance has no package manifest")
-try:
-    with tarfile.open(rootfs, "r:gz") as archive:
-        installed_member = next(
-            (
-                member
-                for member in archive.getmembers()
-                if member.name.lstrip("./") == "lib/apk/db/installed"
-            ),
-            None,
-        )
-        if installed_member is None:
-            raise SystemExit("error: rootfs has no Alpine package database")
-        installed_stream = archive.extractfile(installed_member)
-        if installed_stream is None:
-            raise SystemExit("error: cannot read Alpine package database")
-        records: dict[str, dict[str, str]] = {}
-        record: dict[str, str] = {}
-        for line in installed_stream.read().decode("utf-8").splitlines() + [""]:
-            if not line:
-                name = record.get("P")
-                if name:
-                    records[name] = record
-                record = {}
-                continue
-            key, separator, value = line.partition(":")
-            if separator:
-                record[key] = value
-except tarfile.TarError as exc:
-    raise SystemExit(f"error: invalid Alpine rootfs archive: {exc}") from exc
-
-for package in expected_packages:
-    if not isinstance(package, dict):
-        raise SystemExit("error: malformed rootfs package manifest entry")
-    name = package.get("name")
-    actual = records.get(name)
-    if actual is None:
-        raise SystemExit(f"error: rootfs package manifest names missing package {name!r}")
-    for field, key in (("version", "V"), ("license", "L")):
-        if package.get(field) != actual.get(key):
-            raise SystemExit(
-                f"error: rootfs package {name!r} {field} mismatch: "
-                f"expected {package.get(field)!r}, got {actual.get(key)!r}"
-            )
-
-expected_ish_revision = metadata.get("ish_revision")
-if not isinstance(expected_ish_revision, str) or not expected_ish_revision:
-    raise SystemExit("error: rootfs provenance has no iSH revision")
-if actual_ish_revision != expected_ish_revision:
-    raise SystemExit(
-        "error: rootfs was generated with iSH revision "
-        f"{expected_ish_revision}, but vendor/ish is {actual_ish_revision}; "
-        "regenerate the rootfs or update its provenance"
-    )
-
-print(
-    "IshKernel artifacts OK: "
-    + ", ".join(sorted(required))
-    + f"; rootfs sha256={actual_hash}"
-)
-PY
+run_validator 0

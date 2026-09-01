@@ -94,12 +94,9 @@ jobs:
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
-      # The app-backed Iroh modes invoke ios/scripts/reload.sh. CmuxLocalLinux
-      # declares IshKernel.xcframework as a local-path binary target, so
-      # provision and verify it before SwiftPM resolves the app workspace.
       - name: Provision iSH kernel
         if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
-        run: ./scripts/verify-ish-ios-artifacts.sh --build
+        uses: ./.github/actions/provision-ish-ios
 
       - name: Materialize isolated staging account
         if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}

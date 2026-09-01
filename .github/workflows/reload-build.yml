@@ -520,31 +520,9 @@ jobs:
             echo "scripts/ensure-cmux-iroh.sh absent in source ref; skipping iroh FFI provisioning"
           fi
 
-      # CmuxLocalLinux declares IshKernel.xcframework as a local-path binary
-      # target. Restore or build it before either archive/build resolves the
-      # SwiftPM graph. The cache is keyed by the vendored iSH revision and the
-      # shim/build inputs, so a stale binary cannot survive a source change.
-      - name: Resolve iSH kernel revision (iOS)
-        if: ${{ inputs.platform == 'ios' }}
-        id: ish_revision
-        run: |
-          set -euo pipefail
-          echo "sha=$(git -C vendor/ish rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache iSH kernel xcframework (iOS)
-        if: ${{ inputs.platform == 'ios' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: IshKernel.xcframework
-          key: ish-kernel-full-${{ runner.os }}-${{ steps.ish_revision.outputs.sha }}-${{ hashFiles('scripts/build-ish-ios.sh', 'scripts/ensure-ish-build-tools.sh', 'scripts/verify-ish-ios-artifacts.sh', 'Packages/iOS/CmuxLocalLinux/ShimSource/**', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz') }}
-
       - name: Provision iSH kernel (iOS)
         if: ${{ inputs.platform == 'ios' }}
-        run: |
-          set -euo pipefail
-          # The verifier builds a missing artifact and validates both device
-          # and simulator slices plus the checked-in rootfs digest.
-          ./scripts/verify-ish-ios-artifacts.sh --build
+        uses: ./.github/actions/provision-ish-ios
 
       # --- iOS: build an UNSIGNED debug archive (signed locally by the caller) ---
       - name: Build unsigned iOS archive
