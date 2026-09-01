@@ -1318,7 +1318,10 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.ordering_token = host.ordering_token.saturating_add(1);
         }
     }
-    if host.cursor != started_at {
+    // When replay produced deltas, defer the snapshot write until the Mux can
+    // repair durable projections. Persisting the advanced cursor first would
+    // make a crash during that repair skip the retained events forever.
+    if host.cursor != started_at && !host.needs_projection_rebuild {
         registry.put_journal_reducer_state_ordered(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -2813,6 +2816,7 @@ impl Mux {
         // so the normal live fold cannot apply its deltas. Replay the exact
         // reducer outputs now, after materialization, preserving source and
         // sequence metadata for idempotent projection commits.
+        let pending_for_retry = pending.clone();
         for index in 0..pending.len() {
             let current = pending[index].clone();
             if let Err(error) = self.apply_roster_delta(
@@ -2835,6 +2839,27 @@ impl Mux {
                 // retried in journal order after the transient failure.
                 host.pending_projection_deltas.extend(pending.into_iter().skip(index));
                 break;
+            }
+        }
+        let host = self.agent_roster.lock().unwrap();
+        if !host.needs_projection_rebuild {
+            let snapshot = host.roster.snapshot().to_string();
+            let cursor = host.cursor;
+            let ordering_token = host.ordering_token;
+            drop(host);
+            if let Err(error) =
+                self.workspace_registry.lock().unwrap().put_journal_reducer_state_ordered(
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                    crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                    cursor,
+                    ordering_token,
+                    &snapshot,
+                )
+            {
+                eprintln!("cmux-tui: persisting repaired agent roster snapshot failed: {error}");
+                let mut host = self.agent_roster.lock().unwrap();
+                host.needs_projection_rebuild = true;
+                host.pending_projection_deltas = pending_for_retry;
             }
         }
     }
