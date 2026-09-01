@@ -11,15 +11,15 @@ import AppKit
 /// stops recognizing for the rest of the window's life.
 @MainActor
 struct SidebarEmptyAreaWindowDragController {
-    private let dragThreshold: CGFloat
+    /// Pointer travel, in window points, before a press becomes a window drag.
+    private static let dragThreshold: CGFloat = 4
     private let nextEvent: @MainActor (NSWindow) -> SidebarEmptyAreaWindowDragTrackingEvent?
 
-    /// Creates a controller with its pointer threshold and event source.
+    /// Creates a controller with an injected event source.
     ///
     /// The default event source blocks in `.eventTracking` until the press
     /// resolves into either movement or a mouse-up.
     init(
-        dragThreshold: CGFloat = 4,
         nextEvent: @escaping @MainActor (NSWindow) -> SidebarEmptyAreaWindowDragTrackingEvent? = { window in
             var eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
             #if compiler(>=6.2)
@@ -45,11 +45,6 @@ struct SidebarEmptyAreaWindowDragController {
             return .dragged(location: event.locationInWindow)
         }
     ) {
-        precondition(
-            dragThreshold.isFinite && dragThreshold >= 0,
-            "Sidebar drag threshold must be finite and non-negative"
-        )
-        self.dragThreshold = dragThreshold
         self.nextEvent = nextEvent
     }
 
@@ -79,7 +74,7 @@ struct SidebarEmptyAreaWindowDragController {
                 return .cancelled
             case let .dragged(location):
                 let distance = hypot(location.x - start.x, location.y - start.y)
-                guard distance >= dragThreshold else { continue }
+                guard distance >= Self.dragThreshold else { continue }
 
                 withTemporaryWindowMovableEnabled(window: window) {
                     // AppKit requires the original mouse-down event; the
