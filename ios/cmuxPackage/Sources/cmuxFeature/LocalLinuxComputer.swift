@@ -112,6 +112,10 @@ public final class LocalLinuxComputerController {
     /// task instead of each installing a competing ring over one PTY stream.
     @ObservationIgnored private var startTask: Task<Bool, Never>?
     @ObservationIgnored private var startTaskGeneration: UInt64?
+    /// Identity for the startup task retained as a cancellation barrier. The
+    /// generation alone is not enough when a stale task finishes during a
+    /// later retry.
+    @ObservationIgnored private var startTaskID: UUID?
     @ObservationIgnored private var inputWorker: Task<Void, Never>?
     @ObservationIgnored private var inputWorkerID: UUID?
     @ObservationIgnored private var inputQueue: [Data] = []
@@ -154,6 +158,16 @@ public final class LocalLinuxComputerController {
             return false
         }
 
+        // A cancelled startup can still be inside the synchronous C open.
+        // Retain and await that task before creating another one. Awaiting a
+        // task suspends the main actor, so UI event handling remains
+        // responsive while the old worker settles.
+        await waitForCancelledStartup()
+
+        if state == .failed {
+            return false
+        }
+
         if let session {
             // A natural process exit finishes the session's output stream but
             // leaves the actor object retained by the controller. Clear that
@@ -170,6 +184,10 @@ public final class LocalLinuxComputerController {
         let generation = lifecycleGeneration
         if let startTask, startTaskGeneration == generation {
             let ready = await startTask.value
+            // Termination can win while this waiter is suspended. Do not
+            // report a successful startup to the stale coordinator after its
+            // generation has been fenced.
+            guard generation == lifecycleGeneration else { return false }
             // A resize callback may have arrived while the shared startup
             // task was importing the rootfs or opening the pty. The install
             // path applies the latest grid too, and this second application
@@ -185,7 +203,8 @@ public final class LocalLinuxComputerController {
         lastError = nil
         retryableFailure = false
         let runtime = runtime
-        let task = Task { @MainActor [weak self, runtime, generation, columns, rows] in
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self, runtime, generation, columns, rows, taskID] in
             let result = await Self.bootSession(
                 runtime: runtime,
                 columns: columns,
@@ -203,18 +222,48 @@ public final class LocalLinuxComputerController {
                 rows: rows,
                 generation: generation
             )
-            // `terminate()` can clear the property while this task is still
-            // settling. Never clear a replacement startup task from an old
-            // generation.
-            if self.startTaskGeneration == generation {
+            // Keep the cancellation barrier until this exact operation has
+            // settled. The identity check prevents an old task from clearing
+            // a replacement task if lifecycle state changed while this
+            // closure was suspended in `bootSession` or `install`.
+            if self.startTaskID == taskID {
                 self.startTask = nil
                 self.startTaskGeneration = nil
+                self.startTaskID = nil
             }
             return installed
         }
         startTask = task
         startTaskGeneration = generation
+        startTaskID = taskID
         return await task.value
+    }
+
+    /// Waits for a startup task from an older lifecycle generation. The task
+    /// remains stored after cancellation because `bootSession` may be waiting
+    /// for a synchronous C open. Repeated termination calls are handled by the
+    /// loop, and the metadata fallback repairs an incomplete task assignment.
+    private func waitForCancelledStartup() async {
+        while let task = startTask {
+            guard let taskGeneration = startTaskGeneration else {
+                startTask = nil
+                startTaskGeneration = nil
+                startTaskID = nil
+                return
+            }
+            guard taskGeneration != lifecycleGeneration else { return }
+
+            let taskID = startTaskID
+            _ = await task.value
+
+            // The startup task normally clears these fields itself. Keep this
+            // fallback for a cancellation race between install and cleanup.
+            if startTaskID == taskID {
+                startTask = nil
+                startTaskGeneration = nil
+                startTaskID = nil
+            }
+        }
     }
 
     /// Runs the blocking iSH boot and pty creation off the main actor. The
@@ -375,8 +424,6 @@ public final class LocalLinuxComputerController {
         lifecycleGeneration &+= 1
         acceptsInput = false
         startTask?.cancel()
-        startTask = nil
-        startTaskGeneration = nil
         inputWorker?.cancel()
         inputWorker = nil
         inputWorkerID = nil
@@ -408,8 +455,6 @@ public final class LocalLinuxComputerController {
         endedSession.closeSynchronously()
         lifecycleGeneration &+= 1
         startTask?.cancel()
-        startTask = nil
-        startTaskGeneration = nil
         inputWorker?.cancel()
         inputWorker = nil
         inputWorkerID = nil
@@ -664,8 +709,6 @@ public final class LocalLinuxComputerController {
         // behind the error overlay.
         lifecycleGeneration &+= 1
         startTask?.cancel()
-        startTask = nil
-        startTaskGeneration = nil
         inputWorker?.cancel()
         inputWorker = nil
         inputWorkerID = nil
