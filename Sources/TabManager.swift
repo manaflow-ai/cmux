@@ -545,7 +545,10 @@ class TabManager: ObservableObject {
         let declarativeTerminalConfigurationSource =
             declarativeTerminalConfigurationSource
                 ?? DeclarativeTerminalConfigurationSnapshotSource(
-                    fileURL: declarativeTerminalConfigurationFileURL
+                    fileURL: declarativeTerminalConfigurationFileURL,
+                    legacyInheritanceEnabled: settings.value(
+                        for: SettingCatalog().app.workspaceInheritWorkingDirectory
+                    )
                 )
         self.declarativeTerminalConfigurationSource = declarativeTerminalConfigurationSource
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider

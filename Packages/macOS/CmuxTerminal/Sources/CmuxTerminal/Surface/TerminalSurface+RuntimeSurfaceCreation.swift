@@ -11,6 +11,23 @@ internal import CMUXDebugLog
 // MARK: - Native runtime-surface creation/config assembly
 
 extension TerminalSurface {
+    /// Reports whether any caller-owned input must take precedence over
+    /// declarative shell-startup defaults for the next runtime.
+    ///
+    /// Queued socket input is included because a cold surface flushes it only
+    /// after Ghostty creates the runtime; treating that queue as empty would
+    /// prepend the declarative startup command to the user's input.
+    @MainActor
+    func hasExplicitRuntimeInput(
+        runtimeInitialInput: String?,
+        baseConfigInput: String?
+    ) -> Bool {
+        runtimeInitialInput?.isEmpty == false
+            || initialInput?.isEmpty == false
+            || baseConfigInput?.isEmpty == false
+            || pendingSocketInputBytes > 0
+    }
+
     @MainActor
     func createNativeRuntimeSurface(
         app: ghostty_app_t,
@@ -30,9 +47,10 @@ extension TerminalSurface {
         let hasExplicitSurfaceCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || baseConfig.command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             || tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        let hasExplicitSurfaceInput = runtimeInitialInput?.isEmpty == false
-            || initialInput?.isEmpty == false
-            || baseConfig.initialInput?.isEmpty == false
+        let hasExplicitSurfaceInput = hasExplicitRuntimeInput(
+            runtimeInitialInput: runtimeInitialInput,
+            baseConfigInput: baseConfig.initialInput
+        )
         let isRestoreSurface = source == .scheduledRestore
             || !allowsDeclarativeStartupDefaults
             || requiresRestoreSpawnPacing

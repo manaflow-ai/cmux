@@ -346,7 +346,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.declarativeTerminalConfigurationSource =
             declarativeTerminalConfigurationSource
                 ?? DeclarativeTerminalConfigurationSnapshotSource(
-                    fileURL: declarativeTerminalConfigurationFileURL
+                    fileURL: declarativeTerminalConfigurationFileURL,
+                    legacyInheritanceEnabled: settings.value(
+                        for: SettingCatalog().app.workspaceInheritWorkingDirectory
+                    )
                 )
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.restorableAgentIndexProvider = restorableAgentIndexProvider ?? {

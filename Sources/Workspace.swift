@@ -3838,7 +3838,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.declarativeTerminalConfigurationSource =
             declarativeTerminalConfigurationSource
                 ?? DeclarativeTerminalConfigurationSnapshotSource(
-                    fileURL: declarativeTerminalConfigurationFileURL
+                    fileURL: declarativeTerminalConfigurationFileURL,
+                    legacyInheritanceEnabled: settings.value(
+                        for: SettingCatalog().app.workspaceInheritWorkingDirectory
+                    )
                 )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults

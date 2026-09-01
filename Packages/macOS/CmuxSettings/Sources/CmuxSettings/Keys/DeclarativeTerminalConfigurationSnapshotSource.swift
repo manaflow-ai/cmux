@@ -28,6 +28,25 @@ public final class DeclarativeTerminalConfigurationSnapshotSource:
         self.fileURL = fileURL.standardizedFileURL
     }
 
+    /// Creates a ready source whose compatibility fallback mirrors the legacy
+    /// UserDefaults inheritance setting.
+    ///
+    /// - Parameters:
+    ///   - fileURL: File identity associated with the source.
+    ///   - legacyInheritanceEnabled: Value used when the declarative policy
+    ///     key is absent or invalid.
+    public convenience init(
+        fileURL: URL = CmuxConfigLocation().userConfigFile,
+        legacyInheritanceEnabled: Bool
+    ) {
+        self.init(
+            snapshot: DeclarativeTerminalConfiguration.Snapshot(
+                legacyInheritanceEnabled: legacyInheritanceEnabled
+            ),
+            fileURL: fileURL
+        )
+    }
+
     /// This source is ready as soon as it is constructed.
     public func waitForInitialSnapshot() async {}
 }

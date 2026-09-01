@@ -118,6 +118,19 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(acceptedInputCount == 1)
     }
 
+    @Test func queuedSocketInputOwnsRuntimeStartupInput() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(fixture.surface.sendInputResult("echo user") == .queued)
+        #expect(
+            fixture.surface.hasExplicitRuntimeInput(
+                runtimeInitialInput: nil,
+                baseConfigInput: nil
+            )
+        )
+    }
+
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
