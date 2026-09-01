@@ -52,6 +52,11 @@ const paidCheckoutSession = {
 };
 let retrievedCheckoutSession: Record<string, unknown> = paidCheckoutSession;
 const retrieveSession = mock(async () => retrievedCheckoutSession);
+let retrievedCustomer: Record<string, unknown> = {
+  id: "cus_1",
+  preferred_locales: [],
+};
+const retrieveCustomer = mock(async () => retrievedCustomer);
 let retrievedSubscription: Record<string, unknown> = {
   id: "sub_1",
   customer: "cus_1",
@@ -82,6 +87,9 @@ const POST = makeStripeWebhookHandler({
         sessions: {
           retrieve: retrieveSession,
         },
+      },
+      customers: {
+        retrieve: retrieveCustomer,
       },
       subscriptions: {
         retrieve: retrieveSubscription,
@@ -158,6 +166,10 @@ describe("Stripe billing webhook route", () => {
       isActive: true,
     };
     retrievedCheckoutSession = paidCheckoutSession;
+    retrievedCustomer = {
+      id: "cus_1",
+      preferred_locales: [],
+    };
     retrievedSubscription = {
       id: "sub_1",
       customer: "cus_1",
@@ -183,6 +195,7 @@ describe("Stripe billing webhook route", () => {
     sendDunningEmail.mockClear();
     dunningResult = "sent";
     retrieveSession.mockClear();
+    retrieveCustomer.mockClear();
     retrieveSubscription.mockClear();
     retrieveInvoice.mockClear();
   });
@@ -755,12 +768,44 @@ describe("Stripe billing webhook route", () => {
           email: "buyer@example.com",
           portalUrl: "https://billing.cmux.test/api/billing/portal",
           scope: { scope: "user", stackUserId: "user_1" },
+          locale: "en",
         }),
       );
     } finally {
       if (previousAppOrigin === undefined) delete process.env.CMUX_APP_ORIGIN;
       else process.env.CMUX_APP_ORIGIN = previousAppOrigin;
     }
+  });
+
+  test("passes the Stripe customer's preferred Japanese locale to dunning email", async () => {
+    currentEvent = {
+      id: "evt_invoice_dunning_ja",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_dunning_ja",
+          subscription: "sub_1",
+          customer: "cus_1",
+          customer_email: "buyer@example.com",
+        },
+      },
+    };
+    retrievedCustomer = {
+      id: "cus_1",
+      preferred_locales: ["ja"],
+    };
+    retrievedSubscription = {
+      ...retrievedSubscription,
+      status: "past_due",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(retrieveCustomer).toHaveBeenCalledWith("cus_1");
+    expect(sendDunningEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ locale: "ja" }),
+    );
   });
 
   test("returns 500 while an ambiguous dunning delivery is in progress", async () => {
