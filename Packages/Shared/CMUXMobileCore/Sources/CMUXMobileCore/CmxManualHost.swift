@@ -9,10 +9,12 @@ import Foundation
 /// evidence and never treats this type as authorization.
 public struct CmxManualHost: Equatable, Sendable {
     /// The normalized bare host, with IPv6 brackets and a DNS root dot removed.
+    /// Scoped IPv6 literals retain their validated `%interface` zone suffix.
     public let rawValue: String
 
     /// Creates a normalized host from user input.
-    /// - Parameter rawHost: A DNS name or IP literal. IPv6 input may be bracketed.
+    /// - Parameter rawHost: A DNS name or IP literal. IPv6 input may be bracketed
+    ///   and may carry a scoped-interface suffix such as `%en0`.
     public init?(_ rawHost: String) {
         guard let normalized = cmxManualHostNormalize(rawHost) else {
             return nil
@@ -40,15 +42,27 @@ private func cmxManualHostNormalize(_ rawHost: String) -> String? {
           host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
           host.rangeOfCharacter(from: .controlCharacters) == nil,
           host.range(of: "://") == nil,
-          host.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@%")) == nil else {
+          host.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@")) == nil else {
         return nil
     }
 
     if isBracketed && !host.contains(":") { return nil }
-    if host.contains(":"), let canonicalIPv6 = cmxManualHostCanonicalIPv6(host) {
+    if host.contains(":") {
+        let components = host.split(separator: "%", omittingEmptySubsequences: false)
+        guard components.count <= 2,
+              !components.contains(where: { $0.isEmpty }) else {
+            return nil
+        }
+        let literal = String(components[0])
+        guard let canonicalIPv6 = cmxManualHostCanonicalIPv6(literal) else {
+            return nil
+        }
+        if components.count == 2 {
+            let zone = String(components[1])
+            guard cmxManualHostValidIPv6Zone(zone) else { return nil }
+            return "\(canonicalIPv6)%\(zone)"
+        }
         return canonicalIPv6
-    } else if host.contains(":") {
-        return nil
     }
 
     // A dotted, all-numeric value is intended to be an IPv4 literal. Do
@@ -71,7 +85,6 @@ private func cmxManualHostNormalize(_ rawHost: String) -> String? {
             || byte == UInt8(ascii: ".")
             || byte == UInt8(ascii: "-")
             || byte == UInt8(ascii: "_")
-            || byte == UInt8(ascii: ":")
     }) else {
         return nil
     }
@@ -123,4 +136,16 @@ private func cmxManualHostCanonicalIPv6(_ host: String) -> String? {
         decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
         as: UTF8.self
     ).lowercased()
+}
+
+private func cmxManualHostValidIPv6Zone(_ zone: String) -> Bool {
+    guard !zone.isEmpty, zone.utf8.count <= 63 else { return false }
+    return zone.utf8.allSatisfy { byte in
+        (48...57).contains(byte)
+            || (65...90).contains(byte)
+            || (97...122).contains(byte)
+            || byte == UInt8(ascii: ".")
+            || byte == UInt8(ascii: "-")
+            || byte == UInt8(ascii: "_")
+    }
 }

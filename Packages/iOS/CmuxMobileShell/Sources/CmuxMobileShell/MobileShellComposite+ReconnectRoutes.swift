@@ -267,6 +267,22 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
+        orderedReconnectRoutes(
+            for: mac,
+            routes: mac.routes,
+            supportedKinds: supportedKinds
+        )
+    }
+
+    /// Applies the selected method and route authority to either persisted
+    /// routes or a freshly resolved registry snapshot. Keeping this decision
+    /// in one helper prevents a registry refresh from filtering an Iroh route
+    /// that Tailscale-only has explicitly pinned.
+    private func orderedReconnectRoutes(
+        for mac: MobilePairedMac,
+        routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> [CmxAttachRoute] {
         let method = connectionMethod(for: mac)
         // Tailscale Only on an Iroh-identified pairing rides the Iroh lane when
         // a numeric Tailscale pin exists. A MagicDNS/LAN-only user grant has no
@@ -274,8 +290,8 @@ extension MobileShellComposite {
         let tailscaleRidesPinnedIroh = method == .tailscale
             && mac.routes.contains { $0.kind == .iroh }
             && !Self.irohTailscaleDialCandidates(for: mac).isEmpty
-        let routes = Self.storedReconnectRoutes(
-            mac.routes,
+        let selectedRoutes = Self.storedReconnectRoutes(
+            routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
             tailscaleRequirement: tailscaleRidesPinnedIroh
@@ -286,8 +302,8 @@ extension MobileShellComposite {
         // dials only the method's allowlisted addresses, and no dev-loopback
         // or host/port lane may substitute when they are unreachable.
         return method == .direct || tailscaleRidesPinnedIroh
-            ? routes.filter { $0.kind == .iroh }
-            : routes
+            ? selectedRoutes.filter { $0.kind == .iroh }
+            : selectedRoutes
     }
 
     /// Refresh the active row only while its account, device, and authenticated
@@ -589,11 +605,10 @@ extension MobileShellComposite {
                 ? .confirmedMissingIroh
                 : .inconclusive
         }
-        let reconnectRoutes = Self.storedReconnectRoutes(
-            updatedRoutes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: tailscaleRouteRequirement(for: currentMac)
+        let reconnectRoutes = orderedReconnectRoutes(
+            for: currentMac,
+            routes: updatedRoutes,
+            supportedKinds: supportedKinds
         )
         // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
         // stale or downgraded input. Keep the local Iroh capability pin instead

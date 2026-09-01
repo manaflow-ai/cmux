@@ -3,7 +3,7 @@ internal import CmuxMobilePairedMac
 internal import Foundation
 
 /// Applies one build-compatibility policy to every paired-Mac store operation.
-struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
+struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring, MobilePairedMacAtomicPairingStoring {
     private let inner: any MobilePairedMacStoring
     private let policy: MobileMacBuildCompatibilityPolicy
 
@@ -339,6 +339,42 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             routes: routes
         )
+    }
+
+    func authorizeUserTailscaleRoutesAndSetConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute],
+        rawValue: String
+    ) async throws {
+        guard isCompatible(instanceTag: instanceTag) else { return }
+        if let atomicInner = inner as? any MobilePairedMacAtomicPairingStoring {
+            try await atomicInner.authorizeUserTailscaleRoutesAndSetConnectionMethod(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: teamID,
+                routes: routes,
+                rawValue: rawValue
+            )
+        } else {
+            try await inner.authorizeUserTailscaleRoutes(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: teamID,
+                routes: routes
+            )
+            try await inner.setConnectionMethod(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                rawValue: rawValue,
+                stackUserID: stackUserID,
+                teamID: teamID
+            )
+        }
     }
 
     /// Legacy rows remain visible long enough to be claimed by an

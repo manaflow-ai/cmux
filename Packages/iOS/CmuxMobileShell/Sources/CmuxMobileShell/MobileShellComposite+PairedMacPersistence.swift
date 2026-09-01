@@ -175,54 +175,51 @@ extension MobileShellComposite {
                 }
                 if !userAuthorizedTailscaleRoutes.isEmpty {
                     // The user just proved control of this Mac by entering its
-                    // pairing code; record the device-local grant so later
-                    // preference-ordered dials use the evidence path.
+                    // pairing code. Persist the exact grant and Tailscale-only
+                    // method as one store operation so a failed method write
+                    // can never leave a bearer-capable grant behind.
                     do {
-                        try await pairedMacStore.authorizeUserTailscaleRoutes(
-                            macDeviceID: ticket.macDeviceID,
-                            instanceTag: instanceTag,
-                            stackUserID: stackUserID,
-                            teamID: scope?.teamID,
-                            routes: userAuthorizedTailscaleRoutes
-                        )
+                        if let atomicStore = pairedMacStore
+                            as? any MobilePairedMacAtomicPairingStoring {
+                            try await atomicStore
+                                .authorizeUserTailscaleRoutesAndSetConnectionMethod(
+                                    macDeviceID: ticket.macDeviceID,
+                                    instanceTag: instanceTag,
+                                    stackUserID: stackUserID,
+                                    teamID: scope?.teamID,
+                                    routes: userAuthorizedTailscaleRoutes,
+                                    rawValue: MobileConnectionMethod.tailscale.rawValue
+                                )
+                        } else {
+                            // Older test/preview stores do not expose the
+                            // transaction capability; retain their compatibility
+                            // behavior while production stores use the atomic path.
+                            try await pairedMacStore.authorizeUserTailscaleRoutes(
+                                macDeviceID: ticket.macDeviceID,
+                                instanceTag: instanceTag,
+                                stackUserID: stackUserID,
+                                teamID: scope?.teamID,
+                                routes: userAuthorizedTailscaleRoutes
+                            )
+                            try await pairedMacStore.setConnectionMethod(
+                                macDeviceID: ticket.macDeviceID,
+                                instanceTag: instanceTag,
+                                rawValue: MobileConnectionMethod.tailscale.rawValue,
+                                stackUserID: stackUserID,
+                                teamID: scope?.teamID
+                            )
+                        }
                     } catch {
                         accepted = false
                         pairedMacPersistenceLog.error(
-                            "user tailscale grant persist failed: \(String(describing: error), privacy: .private)"
-                        )
-                        self.recordAppEvent(
-                            .computerRoutesUpdated,
-                            correlationID: ticket.macDeviceID,
-                            startedAt: startedAt,
-                            failure: DiagnosticFailureKind.classify(error),
-                            count: userAuthorizedTailscaleRoutes.count
-                        )
-                        return
-                    }
-                }
-                if !userAuthorizedTailscaleRoutes.isEmpty {
-                    // A Tailscale QR or explicit host entry is a deliberate
-                    // transport choice for this exact (device, build) row.
-                    // Persist it beside the user-origin grant so a later
-                    // launch cannot fall back to Iroh/automatic routing.
-                    do {
-                        try await pairedMacStore.setConnectionMethod(
-                            macDeviceID: ticket.macDeviceID,
-                            instanceTag: instanceTag,
-                            rawValue: MobileConnectionMethod.tailscale.rawValue,
-                            stackUserID: stackUserID,
-                            teamID: scope?.teamID
-                        )
-                    } catch {
-                        accepted = false
-                        pairedMacPersistenceLog.error(
-                            "tailscale connection method persist failed: \(String(describing: error), privacy: .private)"
+                            "user tailscale grant/method persist failed: \(String(describing: error), privacy: .private)"
                         )
                         self.recordAppEvent(
                             .pairedMacStoreWriteFailed,
                             correlationID: ticket.macDeviceID,
                             startedAt: startedAt,
-                            failure: DiagnosticFailureKind.classify(error)
+                            failure: DiagnosticFailureKind.classify(error),
+                            count: userAuthorizedTailscaleRoutes.count
                         )
                         return
                     }

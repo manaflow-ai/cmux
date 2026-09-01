@@ -28,6 +28,17 @@ import Testing
         #expect(ipv6.authorizes(host: "fe80::1", port: 58_465))
     }
 
+    @Test func preservesValidatedIPv6ZoneForLanPairing() throws {
+        let authorization = try CmxUserTailscalePairingAuthorization(
+            host: "[fe80:0:0:0:0:0:0:1%en0]",
+            port: 58_465
+        )
+
+        #expect(authorization.host == "fe80::1%en0")
+        #expect(authorization.authorizes(host: "fe80::1%en0", port: 58_465))
+        #expect(!authorization.authorizes(host: "fe80::1%pdp_ip0", port: 58_465))
+    }
+
     @Test(arguments: [
         "work-mac.tailnet.ts.net",
         "work-mac",
@@ -60,6 +71,12 @@ import Testing
         #expect(throws: CmxUserTailscalePairingAuthorizationError.invalidHost) {
             _ = try CmxUserTailscalePairingAuthorization(
                 host: "[work-mac]",
+                port: 58_465
+            )
+        }
+        #expect(throws: CmxUserTailscalePairingAuthorizationError.invalidHost) {
+            _ = try CmxUserTailscalePairingAuthorization(
+                host: "fe80::1%en0/extra",
                 port: 58_465
             )
         }

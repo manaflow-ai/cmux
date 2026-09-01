@@ -12,7 +12,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// SQLite connection, so it is genuinely `Sendable` without opting out of
 /// concurrency checking. Construct it once at the app composition root and
 /// inject it as `any MobilePairedMacStoring`.
-public actor MobilePairedMacStore: MobilePairedMacStoring {
+public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacAtomicPairingStoring {
     /// The schema version this build creates and migrates to.
     public static let currentSchemaVersion: Int32 = 11
 
@@ -88,7 +88,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     private var didMigrate = false
 
     /// Run schema migrations exactly once, on first store access (actor-isolated).
-    private func ensureReady() throws {
+    func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
         didMigrate = true
@@ -644,57 +644,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         )
     }
 
-    /// Persist `'user'`-origin Tailscale compatibility grants for routes the
-    /// user entered explicitly. Upgrades an existing `'migration'` grant
-    /// for the same destination to `'user'`, so a deliberate re-scan is not
-    /// silently revoked when Iroh is later persisted.
-    public func authorizeUserTailscaleRoutes(
-        macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        routes: [CmxAttachRoute]
-    ) throws {
-        try ensureReady()
-        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let ownerKey = Self.ownerKey(
-            stackUserID: stackUserID,
-            teamID: teamID,
-            instanceTag: instanceTag
-        )
-        let grantRoutes = routes.filter { route in
-            guard route.kind == .tailscale,
-                  case let .hostPort(host, port) = route.endpoint else { return false }
-            return (try? CmxUserTailscalePairingAuthorization(host: host, port: port)) != nil
-        }
-        guard !grantRoutes.isEmpty else { return }
-        try transaction {
-            guard try fetchMacRow(
-                macDeviceID: macDeviceID,
-                ownerKey: ownerKey
-            ) != nil else {
-                // The grant table references the scoped row; authorizing an
-                // unknown row would strand an unowned bearer capability.
-                return
-            }
-            for route in grantRoutes {
-                let encoded = try Self.encodeRoute(route)
-                try exec("""
-                    INSERT INTO legacy_tailscale_route_grants (
-                        mac_device_id, owner_key, endpoint_json, origin
-                    )
-                    VALUES (?, ?, ?, 'user')
-                    ON CONFLICT (mac_device_id, owner_key, endpoint_json)
-                    DO UPDATE SET origin = 'user';
-                """, binding: [
-                    .text(macDeviceID),
-                    .text(ownerKey),
-                    .text(encoded),
-                ])
-            }
-        }
-    }
-
     private func upsertRecord(
         macDeviceID: String,
         displayName: String?,
@@ -1174,7 +1123,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("PRAGMA user_version = \(version);")
     }
 
-    private nonisolated static func ownerKey(
+    nonisolated static func ownerKey(
         stackUserID: String?,
         teamID: String?,
         instanceTag: String?

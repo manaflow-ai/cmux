@@ -55,8 +55,7 @@ extension MobileShellComposite {
     }
 
     func tailscaleRouteRequirement(for mac: MobilePairedMac) -> TailscaleRouteRequirement? {
-        guard connectionMethod(for: mac) == .tailscale,
-              !mac.routes.contains(where: { $0.kind == .iroh }) else { return nil }
+        guard connectionMethod(for: mac) == .tailscale else { return nil }
         return TailscaleRouteRequirement(
             macDeviceID: mac.macDeviceID,
             grantRoutes: mac.legacyTailscaleRoutes ?? [],
