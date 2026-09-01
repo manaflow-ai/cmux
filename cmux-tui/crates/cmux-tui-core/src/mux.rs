@@ -6309,20 +6309,18 @@ impl Mux {
         .with_context(|| format!("agent projection update for {terminal_id} ({kind}) failed"))
     }
 
-    /// Record a direct socket/SDK agent report in the journal so the roster
-    /// reducer (and any future reducer) sees every agent intent in one log.
-    /// The event wears the agent-hook payload shape with a dedicated
-    /// adapter, and the fold recognizes that adapter as an echo whose
-    /// projection commit already happened.
-    fn append_agent_report_echo(
+    /// Build the direct socket/SDK agent report journal intent. The caller
+    /// stages this intent before committing the public projection, then admits
+    /// it after the projection commit so crash recovery can converge both
+    /// durable views.
+    fn prepare_agent_report_echo(
         &self,
         terminal_id: &TerminalPublicId,
         state: AgentState,
         source: AgentSource,
         session: Option<&str>,
         updated_at_ms: u64,
-    ) -> anyhow::Result<()> {
-        const ECHO_ORIGIN: &str = "agent-report-echo";
+    ) -> (String, crate::JournalIngress) {
         use crate::journal_reducers::{
             DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT, SOCKET_REPORT_ADAPTER,
             SOCKET_REPORT_NATIVE_EVENT,
@@ -6365,30 +6363,7 @@ impl Mux {
         };
         let idempotency_key =
             format!("agent-report-echo-{}", crate::workspace_registry::new_uuid_v4());
-        match self.append_journal_ingress(&ingress, ECHO_ORIGIN, &idempotency_key) {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                // Keep the direct projection visible until its journal echo
-                // is durably admitted. The pending row retries the exact
-                // ingress, so a restart can converge the reducer instead of
-                // silently retiring state that still exists in the public
-                // projection.
-                let queue_result =
-                    self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
-                        &ingress.producer_id,
-                        ECHO_ORIGIN,
-                        &idempotency_key,
-                        0,
-                        &ingress,
-                        AGENT_HOOK_RETRY_ERROR,
-                        AgentHookRetryClass::Transient,
-                    );
-                if let Err(queue_error) = queue_result {
-                    eprintln!("cmux-tui: staging the failed agent echo failed: {queue_error}");
-                }
-                Err(error)
-            }
-        }
+        (idempotency_key, ingress)
     }
 
     /// Snapshot of live terminals for the screen-detection scanner.
@@ -10156,7 +10131,32 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = match journal_sequence {
+        // Record the direct report's journal intent before committing its
+        // public projection. The pending row is the crash fence: a restart
+        // can admit the exact echo and fold the roster even if the process
+        // dies between these two durable writes.
+        let echo_intent = if origin == AgentReportOrigin::Direct && !socket_report_ignored {
+            let (idempotency_key, ingress) = self.prepare_agent_report_echo(
+                &terminal_id,
+                record.state,
+                record.source,
+                record.session.as_deref(),
+                record.updated_at_ms,
+            );
+            registry.enqueue_agent_hook_pending(
+                &ingress.producer_id,
+                "agent-report-echo",
+                &idempotency_key,
+                0,
+                &ingress,
+                AGENT_HOOK_RETRY_ERROR,
+                AgentHookRetryClass::Transient,
+            )?;
+            Some((idempotency_key, ingress))
+        } else {
+            None
+        };
+        let commit_result = match journal_sequence {
             Some(sequence) => registry.commit_agent_projection_with_hook_state_and_sequence(
                 mutation,
                 fingerprint,
@@ -10166,7 +10166,7 @@ impl Mux {
                 &deltas,
                 effective_hook_state,
                 sequence,
-            )?,
+            ),
             None => registry.commit_agent_projection_with_hook_state(
                 mutation,
                 fingerprint,
@@ -10175,7 +10175,20 @@ impl Mux {
                 &value,
                 &deltas,
                 effective_hook_state,
-            )?,
+            ),
+        };
+        let commit = match commit_result {
+            Ok(commit) => commit,
+            Err(error) => {
+                if let Some((idempotency_key, _)) = echo_intent.as_ref() {
+                    let _ = registry.clear_agent_hook_pending(
+                        crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                        "agent-report-echo",
+                        idempotency_key,
+                    );
+                }
+                return Err(error);
+            }
         };
         if !commit.replayed {
             if let (Some(direct_state), Some(sequence_guard)) =
@@ -10226,17 +10239,14 @@ impl Mux {
                     updated_at_ms: agent.updated_at_ms,
                 });
             }
-            if origin == AgentReportOrigin::Direct && !socket_report_ignored {
-                // The roster only folds journal events, so a direct report
-                // records its intent in the log; the fold recognizes the
-                // echo adapter and applies it roster-only.
-                if let Err(error) = self.append_agent_report_echo(
-                    &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                    agent.updated_at_ms,
-                ) {
+            if let Some((idempotency_key, ingress)) = echo_intent {
+                // The intent row was staged before the public projection.
+                // Admit the exact journal event now; if this fails, the
+                // durable row retries it and the fallback keeps this process
+                // visible until the roster catches up.
+                if let Err(error) =
+                    self.append_journal_ingress(&ingress, "agent-report-echo", &idempotency_key)
+                {
                     eprintln!(
                         "cmux-tui: journaling an agent report for {} failed: {error}",
                         agent.terminal_id
