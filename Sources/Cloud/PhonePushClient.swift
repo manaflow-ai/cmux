@@ -258,6 +258,53 @@ final class PhonePushClient {
         return enqueue(payload)
     }
 
+    /// Enqueues a phone alert that has no corresponding Mac notification-store
+    /// entry. Feed blocking decisions already own an actionable native banner;
+    /// this lane mirrors that prompt to an away phone without creating a
+    /// duplicate Mac unread entry or a dismiss-sync tombstone.
+    func forwardEphemeral(
+        title: String,
+        subtitle: String,
+        body: String,
+        notificationId: String?,
+        workspaceId: UUID?,
+        surfaceId: UUID?,
+        badgeCount: Int,
+        retargetsToLiveSurfaceOwner: Bool = true,
+        replyShape: String = "none"
+    ) -> PhonePushForwardAdmission {
+        let gate = forwardingAdmission()
+        guard gate == .queued else { return gate }
+        let payload = PhonePushPayload(
+            kind: .notify,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            replyShape: replyShape,
+            workspaceId: workspaceId?.uuidString,
+            surfaceId: surfaceId?.uuidString,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            macDeviceId: MobileHostIdentity.deviceID(),
+            macInstanceTag: MobileHostIdentity.instanceTag(),
+            notificationId: notificationId,
+            notificationIds: [],
+            badgeCount: badgeCount,
+            hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
+        )
+        return enqueue(payload)
+    }
+
+    /// Retracts a Feed-owned phone prompt after its blocking decision resolves.
+    /// The queue cancellation handles an envelope that has not started yet;
+    /// the dismiss event covers an envelope already handed to the network or
+    /// delivered to the paired phone.
+    func cancelEphemeral(notificationId: String, badgeCount: Int) {
+        let trimmed = notificationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        _ = deliveryQueue.cancel(coalescingID: trimmed)
+        forwardDismissed(ids: [trimmed], badgeCount: badgeCount)
+    }
+
     /// Enqueues a user-requested diagnostic alert through the production path.
     /// The response confirms queue admission only; backend and APNs outcomes
     /// remain asynchronous and are correlated by the envelope UUID.

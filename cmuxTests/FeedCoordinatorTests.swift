@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxNotifications
+@preconcurrency import UserNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -724,6 +726,138 @@ struct FeedCoordinatorTests {
         #expect(attention.events.first?.hookEventName == .permissionRequest)
     }
 
+    @Test func blockingIngestForwardsPhonePromptWhileAwaiting() async {
+        let requestId = "phone-needs-input-request"
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let (phoneForwarder, notificationCenter) = await MainActor.run {
+            (
+                RecordingFeedPhonePushForwarder(),
+                AllowingFeedNotificationCenter()
+            )
+        }
+
+        defer {
+            Self.resetFeedCoordinatorTestHooks()
+        }
+
+        await MainActor.run {
+            FeedCoordinator.shared.install(
+                store: WorkstreamStore(ringCapacity: 10),
+                userNotificationCenter: notificationCenter,
+                phonePushForwarder: phoneForwarder
+            )
+            FeedCoordinatorTestHooks.isAppActiveOverride = { false }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "claude-phone-needs-input-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: workspaceId.uuidString,
+            surfaceId: surfaceId.uuidString,
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestId
+        )
+
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 2
+            )
+            done.signal()
+        }
+
+        #expect(
+            waitForFeedTestSignal(phoneForwarder.forwarded, timeout: .now() + 2) == .success,
+            "an unresolved blocking Feed decision must mirror its prompt to the phone"
+        )
+
+        let request = await MainActor.run { phoneForwarder.requests.first }
+        #expect(request?.notificationId == "feed.\(requestId)")
+        #expect(request?.workspaceId == workspaceId)
+        #expect(request?.surfaceId == surfaceId)
+        #expect(request?.body == "Bash needs approval")
+
+        await MainActor.run {
+            FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                decision: .permission(.once)
+            )
+        }
+        #expect(
+            waitForFeedTestSignal(phoneForwarder.cancelled, timeout: .now() + 2) == .success,
+            "resolving a Feed decision must retract its queued phone prompt"
+        )
+        let cancelledNotificationId = await MainActor.run {
+            phoneForwarder.cancelledNotificationIds.first
+        }
+        #expect(cancelledNotificationId == "feed.\(requestId)")
+        #expect(
+            waitForFeedTestSignal(done, timeout: .now() + 2) == .success
+        )
+    }
+
+    @Test func blockingIngestForwardsPhonePromptWhenAppIsActive() async {
+        let requestId = "phone-needs-input-active-request"
+        let (phoneForwarder, notificationCenter) = await MainActor.run {
+            (
+                RecordingFeedPhonePushForwarder(),
+                AllowingFeedNotificationCenter()
+            )
+        }
+
+        defer {
+            Self.resetFeedCoordinatorTestHooks()
+        }
+
+        await MainActor.run {
+            FeedCoordinator.shared.install(
+                store: WorkstreamStore(ringCapacity: 10),
+                userNotificationCenter: notificationCenter,
+                phonePushForwarder: phoneForwarder
+            )
+            FeedCoordinatorTestHooks.isAppActiveOverride = { true }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "claude-phone-needs-input-active-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestId
+        )
+
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 2
+            )
+            done.signal()
+        }
+
+        #expect(
+            waitForFeedTestSignal(phoneForwarder.forwarded, timeout: .now() + 2) == .success,
+            "always-mode phone forwarding must not depend on the desktop banner"
+        )
+
+        await MainActor.run {
+            FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                decision: .permission(.once)
+            )
+        }
+        #expect(
+            waitForFeedTestSignal(done, timeout: .now() + 2) == .success
+        )
+    }
+
     @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
         // The three blocking-decision kinds must all surface attention…
         #expect(FeedCoordinator.isBlockingDecisionEvent(.permissionRequest))
@@ -929,5 +1063,75 @@ private final class NotificationRequestRecorder: @unchecked Sendable {
         lock.lock()
         recordedRequestIds.append(requestId)
         lock.unlock()
+    }
+}
+
+@MainActor
+private final class RecordingFeedPhonePushForwarder: FeedPhonePushForwarding {
+    var requests: [FeedPhonePushRequest] = []
+    nonisolated let forwarded = DispatchSemaphore(value: 0)
+    var cancelledNotificationIds: [String] = []
+    nonisolated let cancelled = DispatchSemaphore(value: 0)
+
+    func forward(_ request: FeedPhonePushRequest) -> PhonePushForwardAdmission {
+        requests.append(request)
+        forwarded.signal()
+        return .queued
+    }
+
+    func cancel(notificationId: String) {
+        cancelledNotificationIds.append(notificationId)
+        cancelled.signal()
+    }
+}
+
+@MainActor
+private final class AllowingFeedNotificationCenter: UserNotificationCenterServing,
+    @unchecked Sendable
+{
+    func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?) {}
+
+    func setNotificationCategories(
+        _ categories: Set<UNNotificationCategory>
+    ) async -> Result<Void, UserNotificationCenterFailure> {
+        .success(())
+    }
+
+    func notificationCategories() async -> Result<
+        Set<UNNotificationCategory>,
+        UserNotificationCenterFailure
+    > {
+        .success([])
+    }
+
+    func authorizationStatus() async -> Result<
+        UserNotificationAuthorizationStatus,
+        UserNotificationCenterFailure
+    > {
+        .success(.authorized)
+    }
+
+    func requestAuthorization(
+        options: UNAuthorizationOptions
+    ) async -> Result<Bool, UserNotificationCenterFailure> {
+        .success(true)
+    }
+
+    func add(
+        _ request: UNNotificationRequest
+    ) async -> Result<Void, UserNotificationCenterFailure> {
+        .success(())
+    }
+
+    func removeDeliveredNotifications(
+        withIdentifiers identifiers: [String]
+    ) async -> Result<Void, UserNotificationCenterFailure> {
+        .success(())
+    }
+
+    func removePendingNotificationRequests(
+        withIdentifiers identifiers: [String]
+    ) async -> Result<Void, UserNotificationCenterFailure> {
+        .success(())
     }
 }

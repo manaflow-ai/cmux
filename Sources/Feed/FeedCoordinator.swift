@@ -37,6 +37,12 @@ final class FeedCoordinator: @unchecked Sendable {
         userNotificationCenter ?? TerminalNotificationStore.shared.userNotificationCenter
     }
 
+    /// Phone forwarding is kept separate from Feed's native actionable banner:
+    /// the former is an ephemeral mirror, while the latter owns the desktop
+    /// request and its inline actions.
+    @MainActor private var phonePushForwarder: any FeedPhonePushForwarding =
+        DefaultFeedPhonePushForwarder()
+
     /// Pending blocking-hook waiters keyed by request id. The waiter owns
     /// a semaphore plus a slot for the resolved decision; the reply
     /// handler signals the semaphore after filling the slot.
@@ -80,13 +86,16 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func install(
         store: WorkstreamStore,
-        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil,
+        phonePushForwarder: (any FeedPhonePushForwarding)? = nil
     ) {
         self.store = store
         // Resolved here rather than as a default argument: default-argument
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
+        self.phonePushForwarder = phonePushForwarder
+            ?? DefaultFeedPhonePushForwarder()
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
@@ -336,8 +345,13 @@ final class FeedCoordinator: @unchecked Sendable {
         }
         guard let acceptance else {
             waiterLock.lock()
-            let attentionTarget = waiters.removeValue(forKey: requestId)?.attentionTarget
+            let waiter = waiters.removeValue(forKey: requestId)
+            let attentionTarget = waiter?.attentionTarget
+            let phoneNotificationId = takePhoneNotificationId(from: waiter)
             waiterLock.unlock()
+            if let phoneNotificationId {
+                cancelPhonePush(notificationId: phoneNotificationId)
+            }
             concludeAttentionOnMain(attentionTarget)
             cancelNotification(requestId: requestId)
             return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
@@ -349,13 +363,21 @@ final class FeedCoordinator: @unchecked Sendable {
             accepted = (event, itemId)
         case .notFound:
             waiterLock.lock()
-            waiters.removeValue(forKey: requestId)
+            let waiter = waiters.removeValue(forKey: requestId)
+            let phoneNotificationId = takePhoneNotificationId(from: waiter)
             waiterLock.unlock()
+            if let phoneNotificationId {
+                cancelPhonePush(notificationId: phoneNotificationId)
+            }
             return IngestBlockingOutcome(result: .notFound, authoritativeEvent: nil)
         case .unavailable:
             waiterLock.lock()
-            waiters.removeValue(forKey: requestId)
+            let waiter = waiters.removeValue(forKey: requestId)
+            let phoneNotificationId = takePhoneNotificationId(from: waiter)
             waiterLock.unlock()
+            if let phoneNotificationId {
+                cancelPhonePush(notificationId: phoneNotificationId)
+            }
             return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
         }
         // If this is a blocking actionable event and the app window isn't
@@ -369,7 +391,11 @@ final class FeedCoordinator: @unchecked Sendable {
 
         waiterLock.lock()
         let w = waiters.removeValue(forKey: requestId)
+        let phoneNotificationId = takePhoneNotificationId(from: w)
         waiterLock.unlock()
+        if let phoneNotificationId {
+            cancelPhonePush(notificationId: phoneNotificationId)
+        }
 
         switch waitResult {
         case .success:
@@ -481,11 +507,18 @@ final class FeedCoordinator: @unchecked Sendable {
     func deliverReply(requestId: String, decision: WorkstreamDecision) {
         waiterLock.lock()
         let attentionTarget = waiters[requestId]?.attentionTarget
+        let phoneNotificationId: String?
         if let waiter = waiters[requestId] {
             waiter.decision = decision
+            phoneNotificationId = takePhoneNotificationId(from: waiter)
             waiter.semaphore.signal()
+        } else {
+            phoneNotificationId = nil
         }
         waiterLock.unlock()
+        if let phoneNotificationId {
+            cancelPhonePush(notificationId: phoneNotificationId)
+        }
 
         // The user decided: conclude the needs-input overlay so the agent's
         // running/idle state shows through (refcounted so an overlapping
@@ -508,6 +541,24 @@ final class FeedCoordinator: @unchecked Sendable {
         }
 
         cancelNotification(requestId: requestId)
+    }
+
+    /// Takes the phone prompt identity while ``waiterLock`` is held. A single
+    /// caller (reply or timeout) owns the corresponding dismiss event.
+    private func takePhoneNotificationId(from waiter: PendingWaiter?) -> String? {
+        guard let waiter, let notificationId = waiter.phoneNotificationId else {
+            return nil
+        }
+        waiter.phoneNotificationId = nil
+        return notificationId
+    }
+
+    /// Dispatches phone-prompt cancellation onto the main actor because the
+    /// production forwarder owns the main-actor phone queue.
+    private func cancelPhonePush(notificationId: String) {
+        Task { @MainActor [weak self] in
+            self?.phonePushForwarder.cancel(notificationId: notificationId)
+        }
     }
 
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
@@ -892,6 +943,9 @@ private final class AttentionOverlayState {
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
+    /// Stable phone notification identity, guarded by the coordinator's
+    /// ``waiterLock`` alongside ``decision``.
+    var phoneNotificationId: String?
     /// The attention overlay target for this decision, if one was surfaced.
     /// Set inside the ingest `main.sync` (before the card can render and a
     /// reply can fire) and read when the decision concludes, so the
@@ -1093,11 +1147,6 @@ private extension FeedCoordinator {
             let isAppActive = NSApp.isActive
             #endif
 
-            // Don't pester users while the app is already up front.
-            if isAppActive {
-                return
-            }
-
             #if DEBUG
             if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
                 observer(event, requestId)
@@ -1163,7 +1212,8 @@ private extension FeedCoordinator {
                     title: title,
                     subtitle: "",
                     body: body,
-                    effects: policyContext.envelope.effects
+                    effects: policyContext.envelope.effects,
+                    allowLocalEffects: !isAppActive
                 )
             }
 
@@ -1197,7 +1247,8 @@ private extension FeedCoordinator {
                     title: payload.title,
                     subtitle: payload.subtitle,
                     body: payload.body,
-                    effects: envelope.effects
+                    effects: envelope.effects,
+                    allowLocalEffects: !isAppActive
                 )
             case .failure(let failure):
                 deliverDefault()
@@ -1246,11 +1297,43 @@ private extension FeedCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        allowLocalEffects: Bool
     ) {
-        guard isAwaitingDecision(requestId: requestId),
-              effects.desktop || effects.sound || effects.command
-        else { return }
+        guard isAwaitingDecision(requestId: requestId) else { return }
+
+        // Feed owns the actionable desktop banner, so mirror the same
+        // unresolved decision directly into the phone queue instead of adding
+        // a second Mac TerminalNotification entry. Local policy effects only
+        // control desktop/sound/command feedback; an explicit phone opt-in is
+        // handled by PhonePushClient's own forwarding gate.
+        if !title.isEmpty || !body.isEmpty {
+            let phoneRequest = FeedPhonePushRequest(
+                notificationId: Self.feedNotificationIdentifier(for: requestId),
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                workspaceId: event.workspaceId.flatMap {
+                    UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                },
+                surfaceId: event.surfaceId.flatMap {
+                    UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+                },
+                retargetsToLiveSurfaceOwner: true,
+                replyShape: TerminalNotificationReplyShape.none.rawValue
+            )
+            forwardPhonePushIfStillAwaiting(
+                phoneRequest,
+                requestId: requestId
+            )
+        }
+
+        // The phone mirror has its own `.always`/`.onlyWhenAway` admission
+        // gate. Keep desktop, sound, and command effects suppressed while the
+        // app is frontmost, as before.
+        guard allowLocalEffects else { return }
+
+        guard effects.desktop || effects.sound || effects.command else { return }
 
         if !effects.desktop {
             runFallbackEffectsIfStillAwaiting(
@@ -1363,6 +1446,23 @@ private extension FeedCoordinator {
                 )
             }
         }
+    }
+
+    /// Serializes the unresolved check, phone admission, and identity record
+    /// with ``deliverReply``. This prevents a reply from resolving the waiter
+    /// in the gap between checking it and queuing the phone envelope.
+    @MainActor
+    private func forwardPhonePushIfStillAwaiting(
+        _ request: FeedPhonePushRequest,
+        requestId: String
+    ) {
+        waiterLock.lock()
+        defer { waiterLock.unlock() }
+        guard let waiter = waiters[requestId], waiter.decision == nil else {
+            return
+        }
+        guard phonePushForwarder.forward(request) == .queued else { return }
+        waiter.phoneNotificationId = request.notificationId
     }
 
     @MainActor
@@ -1520,8 +1620,12 @@ private extension FeedCoordinator {
         )
     }
 
+    private static func feedNotificationIdentifier(for requestId: String) -> String {
+        "feed.\(requestId)"
+    }
+
     func cancelNotification(requestId: String) {
-        let identifier = "feed.\(requestId)"
+        let identifier = Self.feedNotificationIdentifier(for: requestId)
         Task { @MainActor [weak self] in
             guard let self else { return }
             let center = self.resolvedUserNotificationCenter
