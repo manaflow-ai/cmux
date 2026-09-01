@@ -911,7 +911,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
 @MainActor
 @Suite(.serialized)
-struct TabManagerWorkspaceOwnershipTests {
+struct TabManagerSplitZoomCleanupTests {
     /// Verifies that leaving a workspace clears its transient split-zoom state.
     @Test
     func testSwitchingWorkspacesClearsSplitZoomFromOutgoingWorkspace() throws {
@@ -935,11 +935,13 @@ struct TabManagerWorkspaceOwnershipTests {
             "Switching workspaces should clear zoom from the workspace being left"
         )
     }
+}
 
-    @Test
-    func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() throws {
+@MainActor
+final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()
-        _ = try #require(manager.addWorkspaceIfActive(select: false))
+        _ = manager.addWorkspace()
         let initialTabIds = manager.tabs.map(\.id)
         let initialSelectedTabId = manager.selectedTabId
 
@@ -949,29 +951,28 @@ struct TabManagerWorkspaceOwnershipTests {
 
         manager.closeWorkspace(externalWorkspace)
 
-        #expect(manager.tabs.map(\.id) == initialTabIds)
-        #expect(manager.selectedTabId == initialSelectedTabId)
-        #expect(externalWorkspace.panels.count == externalPanelCountBefore)
-        #expect(externalWorkspace.panelTitles == externalPanelTitlesBefore)
+        XCTAssertEqual(manager.tabs.map(\.id), initialTabIds)
+        XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
+        XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
+        XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
     }
 
-    @Test
     func testFocusedPanelTitleRefreshesAutoWorkspaceTitleInSplitWorkspace() throws {
         let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        let focusedPanelId = try #require(workspace.focusedPanelId)
-        let focusedSurface = try #require(
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let focusedSurface = try XCTUnwrap(
             workspace.terminalPanel(for: focusedPanelId)?.surface
         )
 
-        #expect(workspace.updatePanelTitle(panelId: focusedPanelId, title: "Waiting - grok"))
-        #expect(workspace.title == "Waiting - grok")
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: focusedPanelId, title: "Waiting - grok"))
+        XCTAssertEqual(workspace.title, "Waiting - grok")
 
-        let splitPanel = try #require(
+        let splitPanel = try XCTUnwrap(
             workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false)
         )
-        #expect(workspace.focusedPanelId == focusedPanelId)
-        #expect(workspace.panels.count == 2)
+        XCTAssertEqual(workspace.focusedPanelId, focusedPanelId)
+        XCTAssertEqual(workspace.panels.count, 2)
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
@@ -983,14 +984,14 @@ struct TabManagerWorkspaceOwnershipTests {
             ]
         )
 
-        #expect(
+        XCTAssertTrue(
             waitForCondition(timeout: 1.0) {
                 workspace.panelTitles[focusedPanelId] == "Processing Simple Addition Query - grok" &&
                     workspace.title == "Processing Simple Addition Query - grok"
             }
         )
-        #expect(workspace.customTitle == nil)
-        #expect(workspace.panelTitles[splitPanel.id] != Optional(workspace.title))
+        XCTAssertNil(workspace.customTitle)
+        XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
 }
 
