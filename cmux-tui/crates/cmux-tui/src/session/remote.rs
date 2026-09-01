@@ -979,7 +979,7 @@ impl RequestDeadline {
     fn remaining(&self) -> Result<Duration, RemoteRequestError> {
         match self {
             Self::Standard => Ok(REMOTE_REQUEST_TIMEOUT),
-            Self::Fixed(timeout) => Ok(timeout),
+            Self::Fixed(timeout) => Ok(*timeout),
             Self::Until(deadline) => {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() { Err(RemoteRequestError::Timeout) } else { Ok(remaining) }

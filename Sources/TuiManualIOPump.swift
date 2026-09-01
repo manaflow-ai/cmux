@@ -54,7 +54,10 @@ enum TuiManualIOPumpPolicy {
         // binary without --pipe-io support also exits 2 (usage error), and
         // that must not read as an endlessly-retryable daemon outage.
         case (2, "daemon-lost"): return .daemonLost
-        case (0, _): return .terminalEnded
+        // A clean exit without a recognized reason is still unexplained.
+        // Retry it under the bounded failure streak instead of treating an
+        // unexpected protocol shutdown as a completed terminal.
+        case (0, _): return .failure
         default: return .failure
         }
     }
@@ -301,6 +304,7 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     private var handle: FileHandle?
     private var lastGeometryClaim: TimeInterval = 0
     private var needsGeometryClaim = false
+    private var writeFailureHandler: (@Sendable () -> Void)?
     private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
     private var generation: UInt64 = 0
     private var queuedWrites = 0
@@ -325,6 +329,12 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         }
         lock.unlock()
         writeLock.unlock()
+    }
+
+    func setWriteFailureHandler(_ handler: @escaping @Sendable () -> Void) {
+        lock.lock()
+        writeFailureHandler = handler
+        lock.unlock()
     }
 
     private func makeNonBlocking(_ handle: FileHandle) {
@@ -353,7 +363,7 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
             self.writeIfCurrent(target, generation: writeGeneration) {
                 // A failed write means the relay just died; the pump's
                 // termination handler owns that transition.
-                try? target.write(contentsOf: line)
+                try target.write(contentsOf: line)
             }
         }
     }
@@ -386,9 +396,9 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         queue.async {
             self.writeIfCurrent(target, generation: writeGeneration) {
                 if sendClaim {
-                    try? target.write(contentsOf: TuiManualIOPumpPolicy.claimGeometryLine)
+                    try target.write(contentsOf: TuiManualIOPumpPolicy.claimGeometryLine)
                 }
-                try? target.write(contentsOf: line)
+                try target.write(contentsOf: line)
             }
         }
     }
@@ -399,19 +409,28 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
     private func writeIfCurrent(
         _ target: FileHandle,
         generation writeGeneration: UInt64,
-        _ write: () -> Void
+        _ write: () throws -> Void
     ) {
         writeLock.lock()
         lock.lock()
         let current = handle != nil && generation == writeGeneration
+        let failureHandler = writeFailureHandler
         lock.unlock()
+        var failed = false
         if current {
-            write()
+            do {
+                try write()
+            } catch {
+                failed = true
+            }
         }
         writeLock.unlock()
         lock.lock()
         queuedWrites = max(0, queuedWrites - 1)
         lock.unlock()
+        if failed {
+            failureHandler?()
+        }
     }
 
     /// Closes and detaches the current handle (relay stdin EOF = clean
@@ -486,6 +505,7 @@ final class TuiManualIOPump {
     private var stderrStream: TuiManualIOStderrStream?
     private var retryTask: Task<Void, Never>?
     private var liveStabilityTask: Task<Void, Never>?
+    private var startupTimeoutTask: Task<Void, Never>?
     /// Process termination and stderr EOF race (termination is not EOF);
     /// classification needs the relay's final stderr line, so it runs only
     /// once BOTH have arrived for the current generation.
@@ -507,6 +527,7 @@ final class TuiManualIOPump {
     /// a generation that stays live through this interval clears a failure
     /// streak, so replay-then-crash loops remain bounded.
     static let liveStabilityInterval: Duration = .seconds(2)
+    static let startupTimeout: Duration = .seconds(5)
 
     init(
         binaryPath: String,
@@ -520,6 +541,11 @@ final class TuiManualIOPump {
         self.terminalID = terminalID
         self.environment = environment
         self.sleep = sleep
+        inputChannel.setWriteFailureHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleInputWriteFailure()
+            }
+        }
     }
 
     /// The surface's `manualInputHandler`: runs on Ghostty's IO thread, so
@@ -590,6 +616,8 @@ final class TuiManualIOPump {
         retryTask = nil
         liveStabilityTask?.cancel()
         liveStabilityTask = nil
+        startupTimeoutTask?.cancel()
+        startupTimeoutTask = nil
         resizeAckTimeoutTask?.cancel()
         resizeAckTimeoutTask = nil
         stdoutTask?.cancel()
@@ -670,6 +698,8 @@ final class TuiManualIOPump {
         }
         generation += 1
         let spawnGeneration = generation
+        startupTimeoutTask?.cancel()
+        startupTimeoutTask = nil
         let grid = lastKnownGrid ?? TuiManualIOGrid(cols: 80, rows: 24)
         resizeScheduler.seed(delivered: grid)
         resizeAckTimeoutTask?.cancel()
@@ -744,6 +774,8 @@ final class TuiManualIOPump {
                 self.everRenderedAttach = true
                 if self.state != .live {
                     self.state = .live
+                    self.startupTimeoutTask?.cancel()
+                    self.startupTimeoutTask = nil
                     self.scheduleLiveStabilityReset(generation: spawnGeneration)
                 }
             }
@@ -767,6 +799,18 @@ final class TuiManualIOPump {
         self.process = process
         inputChannel.setHandle(stdinPipe.fileHandleForWriting)
         reader.attach(to: stdoutPipe.fileHandleForReading)
+        let startupSleep = sleep
+        startupTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await startupSleep(Self.startupTimeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self,
+                  self.generation == spawnGeneration, self.state != .live else { return }
+            self.log("relay startup timeout generation=\(spawnGeneration)")
+            self.handleRelayExit(generation: spawnGeneration, forcedExit: .failure)
+        }
         log("relay spawned generation=\(spawnGeneration) grid=\(grid.cols)x\(grid.rows)")
     }
 
@@ -786,6 +830,11 @@ final class TuiManualIOPump {
             return
         }
         handleRelayExit(generation: exitedGeneration, status: status)
+    }
+
+    private func handleInputWriteFailure() {
+        guard !stopped, process != nil else { return }
+        handleRelayExit(generation: generation, forcedExit: .failure)
     }
 
     private func handleRelayExit(
@@ -819,6 +868,8 @@ final class TuiManualIOPump {
         resizeAckTimeoutTask = nil
         liveStabilityTask?.cancel()
         liveStabilityTask = nil
+        startupTimeoutTask?.cancel()
+        startupTimeoutTask = nil
         resizeScheduler.reset()
 #if DEBUG
         let stderrTail = (stderrBox.text() ?? "").suffix(300).replacingOccurrences(of: "\n", with: " | ")

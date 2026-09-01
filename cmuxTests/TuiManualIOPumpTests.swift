@@ -48,7 +48,7 @@ struct TuiManualIOPumpTests {
     func relayExitTreatsUnknownStatusAsFailureAndBareZeroAsEnded() {
         // Exit 0 with no reason line: the relay contract says 0 means "do
         // not respawn", so a missing line must not turn into a retry loop.
-        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: nil) == .terminalEnded)
+        #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: nil) == .failure)
         #expect(TuiManualIOPumpPolicy.relayExit(status: 0, stderrText: "garbage") == .terminalEnded)
         #expect(TuiManualIOPumpPolicy.relayExit(status: 1, stderrText: "usage: ...") == .failure)
         #expect(TuiManualIOPumpPolicy.relayExit(status: -1, stderrText: nil) == .failure)
@@ -288,6 +288,11 @@ struct TuiManualIOPumpTests {
         #expect(
             TuiManualIOStderrStream.resizeDiagSucceeded(
                 Data(#"{"diag":{"resize":{"cols":80,"rows":24,"error":"stale"}}}"#.utf8)
+            ) == false
+        )
+        #expect(
+            TuiManualIOStderrStream.resizeDiagSucceeded(
+                Data(#"{"diag":{"resize":{"cols":80,"rows":24,"accepted":false}}}"#.utf8)
             ) == false
         )
         // Human-readable diagnostics can contain both words without being an
