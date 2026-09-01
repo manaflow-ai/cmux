@@ -13,7 +13,7 @@ permissions: {}
 # gives the rerun worker a stable generation that is independent of unrelated
 # commits on main.
 env:
-  CLA_GENERATION: "v2.2-action-482864f7296623ba4e8ddb7d6bc1836635306eb1"
+  CLA_GENERATION: "v2.2-action-537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a"
 
 jobs:
   # This job has read-only permissions. It performs the exact event check and
@@ -106,7 +106,7 @@ jobs:
           success() &&
           github.event_name == 'issue_comment' &&
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
-        uses: manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1
+        uses: manaflow-ai/cla-github-action@537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -177,7 +177,7 @@ jobs:
     steps:
       - name: "Write CLA result"
         id: cla_action
-        uses: manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1
+        uses: manaflow-ai/cla-github-action@537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -232,7 +232,7 @@ jobs:
       # marker must remain visible when this result fails because the writer
       # failed in the original pull_request_target run. The immutable rerun
       # helper uses the rendered step name to reject older workflow runs.
-      - name: "CLA generation v2.2-action-482864f7296623ba4e8ddb7d6bc1836635306eb1"
+      - name: "CLA generation v2.2-action-537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a"
         env:
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
@@ -380,7 +380,7 @@ jobs:
       pull-requests: read
     steps:
       - name: "Lock merged pull request"
-        uses: manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1
+        uses: manaflow-ai/cla-github-action@537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

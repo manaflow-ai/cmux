@@ -68,7 +68,7 @@ export COMMENT_AUTHOR_ASSOCIATION=NONE
 export WORKFLOW_PATH=.github/workflows/cla.yml
 WORKFLOW_SHA="$(git rev-parse HEAD)"
 export WORKFLOW_SHA
-export CLA_GENERATION=v2.2-action-482864f7296623ba4e8ddb7d6bc1836635306eb1
+export CLA_GENERATION=v2.2-action-537cbad33cd5e55bd3ef9bcf33d26a965da4fe4a
 export TARGET_EVENT=pull_request_target
 export TARGET_BASE_REF=main
 export SIGNATURE_RECORDED=false
