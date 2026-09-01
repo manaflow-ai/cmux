@@ -35,6 +35,7 @@ const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
 const PIPE_READ_POLL_MS: i32 = 100;
+const PTY_WRITE_QUEUE_ITEMS: usize = 256;
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -504,7 +505,7 @@ impl ChildLifecycle {
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer_tx: mpsc::SyncSender<Vec<u8>>,
     killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
     lifecycle: Arc<ChildLifecycle>,
 }
@@ -524,10 +525,7 @@ impl Drop for MasterControl {
 
 impl PtyControl for MasterControl {
     fn write(&self, data: &[u8]) {
-        if let Ok(mut writer) = self.writer.lock() {
-            let _ = writer.write_all(data);
-            let _ = writer.flush();
-        }
+        let _ = self.writer_tx.try_send(data.to_vec());
     }
     fn resize(&self, cols: u16, rows: u16) {
         if let Ok(master) = self.master.lock() {
@@ -560,12 +558,17 @@ enum PipeChildCommand {
 /// commands to that owner and retains the child's stdin for input.
 struct PipeControl {
     stdin: Mutex<Option<std::process::ChildStdin>>,
+    stdin_tx: Option<mpsc::SyncSender<Vec<u8>>>,
     command_tx: mpsc::Sender<PipeChildCommand>,
     kill_requested: AtomicBool,
 }
 
 impl PtyControl for PipeControl {
     fn write(&self, data: &[u8]) {
+        if let Some(stdin_tx) = &self.stdin_tx {
+            let _ = stdin_tx.try_send(data.to_vec());
+            return;
+        }
         if let Ok(mut guard) = self.stdin.lock()
             && let Some(stdin) = guard.as_mut()
         {
@@ -643,11 +646,20 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let cmux_pty::SpawnedPty { mut master, child } = spawned;
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
+    let (writer_tx, writer_rx) = mpsc::sync_channel(PTY_WRITE_QUEUE_ITEMS);
+    std::thread::spawn(move || {
+        let mut writer = writer;
+        while let Ok(data) = writer_rx.recv() {
+            if writer.write_all(&data).is_err() || writer.flush().is_err() {
+                break;
+            }
+        }
+    });
     let killer = child_cleanup.child().clone_killer();
     let lifecycle = ChildLifecycle::new();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
-        writer: Mutex::new(writer),
+        writer_tx,
         killer: Mutex::new(killer),
         lifecycle: Arc::clone(&lifecycle),
     });
@@ -747,10 +759,25 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     match command.spawn() {
         Ok(mut child) => {
             let stdin = child.stdin.take();
+            let (stdin_tx, stdin_for_control) = match stdin {
+                Some(mut stdin) => {
+                    let (tx, rx) = mpsc::sync_channel(PTY_WRITE_QUEUE_ITEMS);
+                    std::thread::spawn(move || {
+                        while let Ok(data) = rx.recv() {
+                            if stdin.write_all(&data).is_err() || stdin.flush().is_err() {
+                                break;
+                            }
+                        }
+                    });
+                    (Some(tx), None)
+                }
+                None => (None, None),
+            };
             let pid = child.id() as libc::pid_t;
             let (command_tx, command_rx) = mpsc::channel();
             let control = Arc::new(PipeControl {
-                stdin: Mutex::new(stdin),
+                stdin: Mutex::new(stdin_for_control),
+                stdin_tx,
                 command_tx: command_tx.clone(),
                 kill_requested: AtomicBool::new(false),
             });
@@ -1252,6 +1279,7 @@ mod tests {
         let (command_tx, command_rx) = mpsc::channel();
         let control = PipeControl {
             stdin: Mutex::new(None),
+            stdin_tx: None,
             command_tx,
             kill_requested: AtomicBool::new(false),
         };
@@ -1280,6 +1308,7 @@ mod tests {
         {
             let control = PipeControl {
                 stdin: Mutex::new(None),
+                stdin_tx: None,
                 command_tx,
                 kill_requested: AtomicBool::new(false),
             };

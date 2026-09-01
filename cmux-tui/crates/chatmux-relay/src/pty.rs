@@ -272,6 +272,9 @@ pub struct FrameContext {
     pub trust: String,
     pub local_roots: Option<Vec<String>>,
     pub owner_user_id: Option<String>,
+    /// Read current trust and owner for an attachment. Session transports
+    /// update this closure's backing state after trust acknowledgements.
+    pub live_auth: Arc<dyn Fn() -> (String, Option<String>) + Send + Sync>,
     /// Identity of the transport this frame arrived on. The PtyManager is
     /// shared between the relay WebSocket and the managed tunnel listener;
     /// an attachment may only be written to, resized, flow-controlled, or
@@ -575,9 +578,10 @@ fn send_typed_pty_error(
 
 impl Inner {
     fn auth_snapshot(context: &FrameContext) -> AuthSnapshot {
+        let (trust, owner_user_id) = (context.live_auth)();
         AuthSnapshot {
-            trust: context.trust.clone(),
-            owner_user_id: context.owner_user_id.clone(),
+            trust,
+            owner_user_id,
             send: Arc::clone(&context.send),
             buffered_amount: Arc::clone(&context.buffered_amount),
         }
@@ -2294,12 +2298,15 @@ mod tests {
         fn context(&self, trust: &str, owner: Option<String>) -> FrameContext {
             let sent = Arc::clone(&self.sent);
             let buffered = Arc::clone(&self.buffered);
+            let live_trust = trust.to_owned();
+            let live_owner = owner.clone();
             FrameContext {
                 send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
                 buffered_amount: Arc::new(move || buffered.load(Ordering::SeqCst)),
                 trust: trust.to_owned(),
                 local_roots: None,
                 owner_user_id: owner,
+                live_auth: Arc::new(move || (live_trust.clone(), live_owner.clone())),
                 transport_id: None,
                 cancellation: CancellationToken::new(),
             }
@@ -2522,6 +2529,31 @@ mod tests {
             h.owner.clone(),
         )
         .await;
+        pty.emit("secret");
+        assert!(!h.sent().iter().any(|f| f["type"] == "pty_output"));
+    }
+
+    #[tokio::test]
+    async fn output_after_live_trust_downgrade_is_not_forwarded() {
+        let h = harness(None, None);
+        let live_auth = Arc::new(StdMutex::new(("supervised".to_owned(), h.owner.clone())));
+        let mut context = h.context("supervised", h.owner.clone());
+        let live_auth_for_context = Arc::clone(&live_auth);
+        context.live_auth = Arc::new(move || live_auth_for_context.lock().unwrap().clone());
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_other",
+            "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        live_auth.lock().unwrap().0 = "observe".to_owned();
         pty.emit("secret");
         assert!(!h.sent().iter().any(|f| f["type"] == "pty_output"));
     }
