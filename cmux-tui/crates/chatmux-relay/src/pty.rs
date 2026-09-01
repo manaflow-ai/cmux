@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -448,6 +448,9 @@ struct PausedBacklog {
 #[derive(Clone)]
 struct Attachment {
     closing: Arc<AtomicBool>,
+    /// Number of control operations admitted before retirement. Admission
+    /// uses a closing double-check so revocation cannot race a new operation.
+    active_operations: Arc<AtomicUsize>,
     /// Serializes operations for this attachment only. The relay state lock
     /// must never be held while a PTY control method runs.
     operation_gate: Arc<Mutex<()>>,
@@ -1060,6 +1063,7 @@ impl PtyManager {
             let publication =
                 candidate.publication_gate.lock().expect("attachment publication lock");
             let operation = candidate.operation_gate.lock().expect("attachment operation lock");
+            candidate.closing.store(true, Ordering::Release);
             let removed = {
                 let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
                 let mut attachments = self.inner.attachments.lock().expect("attach lock");
@@ -1069,7 +1073,6 @@ impl PtyManager {
                 if same { attachments.remove(&id) } else { None }
             };
             if let Some(removed) = removed {
-                removed.closing.store(true, Ordering::SeqCst);
                 retired.push(removed);
             }
             drop(operation);
@@ -1530,6 +1533,7 @@ impl Inner {
                 pty_id.clone(),
                 Attachment {
                     closing,
+                    active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::clone(&publication_gate),
                     control,
@@ -1564,10 +1568,12 @@ impl Inner {
             let removed = {
                 let _state = self.tunnel_state.lock().expect("tunnel state lock");
                 let mut attachments = self.attachments.lock().expect("attach lock");
+                if let Some(current) = attachments.get(&pty_id) {
+                    current.closing.store(true, Ordering::Release);
+                }
                 attachments.remove(&pty_id)
             };
             if let Some(removed) = removed {
-                removed.closing.store(true, Ordering::SeqCst);
                 self.retire_attachment(removed);
             }
             return;
@@ -1696,6 +1702,7 @@ impl Inner {
             return;
         }
         let removed = {
+            attachment.closing.store(true, Ordering::Release);
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
             let same = attachments.get(pty_id).is_some_and(|current| {
@@ -1706,7 +1713,6 @@ impl Inner {
         if !removed {
             return;
         }
-        attachment.closing.store(true, Ordering::SeqCst);
         // Exit publication crosses the transport boundary. Release the
         // lifecycle state before invoking the callback.
         drop(_operation);
@@ -1812,16 +1818,39 @@ impl Inner {
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, action);
             return false;
         }
-        // A close may have won immediately after the state snapshot. Avoid
-        // starting a new control call once the attachment is retired.
+        // Couple admission to retirement with a closing double-check. A
+        // detach that stores `closing` before removal wins the race and the
+        // operation is rejected. An operation that increments first is
+        // already admitted and may finish without blocking retirement.
+        if !Self::try_admit_operation(&attachment) {
+            return false;
+        }
         if !self.attachment_snapshot_is_current(pty_id, &attachment) {
+            Self::release_operation(&attachment);
             return false;
         }
         operation(&attachment);
+        Self::release_operation(&attachment);
         // The operation was admitted at the snapshot boundary and may finish
         // concurrently with retirement. Re-read the attachment identity so
         // callers never treat a replaced or closed generation as current.
         self.attachment_snapshot_is_current(pty_id, &attachment)
+    }
+
+    fn try_admit_operation(attachment: &Attachment) -> bool {
+        if attachment.closing.load(Ordering::Acquire) {
+            return false;
+        }
+        attachment.active_operations.fetch_add(1, Ordering::AcqRel);
+        if attachment.closing.load(Ordering::Acquire) {
+            attachment.active_operations.fetch_sub(1, Ordering::AcqRel);
+            return false;
+        }
+        true
+    }
+
+    fn release_operation(attachment: &Attachment) {
+        attachment.active_operations.fetch_sub(1, Ordering::AcqRel);
     }
 
     fn auth_for_transport(&self, context: &FrameContext) -> Option<AuthSnapshot> {
@@ -1936,6 +1965,7 @@ impl Inner {
             return;
         }
         let removed = {
+            attachment.closing.store(true, Ordering::Release);
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
             let same = attachments.get(pty_id).is_some_and(|current| {
@@ -1944,7 +1974,6 @@ impl Inner {
             if same { attachments.remove(pty_id).is_some() } else { false }
         };
         if removed {
-            attachment.closing.store(true, Ordering::SeqCst);
             // Killing a PTY can acquire a platform mutex. Keep it outside the
             // lifecycle barrier and the per-attachment operation gate.
             drop(_operation);
@@ -2017,6 +2046,7 @@ impl Inner {
         // Callers must release any prior guard before entering this helper.
         let publication = attachment.publication_gate.lock().expect("attachment publication lock");
         let operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        attachment.closing.store(true, Ordering::Release);
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
@@ -2025,9 +2055,6 @@ impl Inner {
             });
             if same { attachments.remove(pty_id) } else { None }
         };
-        if let Some(ref removed) = removed {
-            removed.closing.store(true, Ordering::SeqCst);
-        }
         drop(operation);
         drop(publication);
         if let Some(removed) = removed {
@@ -4757,6 +4784,7 @@ mod tests {
                 "p1".to_owned(),
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
+                    active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     control: slow,
@@ -4768,6 +4796,7 @@ mod tests {
                 "p2".to_owned(),
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
+                    active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     control: Arc::new(fast),
@@ -4822,6 +4851,7 @@ mod tests {
                 "p1".to_owned(),
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
+                    active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     control: Arc::new(BlockingControl {
@@ -4875,6 +4905,7 @@ mod tests {
                 "p1".to_owned(),
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
+                    active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
                     control: Arc::new(BlockingControl {
@@ -4949,6 +4980,7 @@ mod tests {
         };
         let attachment = Attachment {
             closing: Arc::new(AtomicBool::new(false)),
+            active_operations: Arc::new(AtomicUsize::new(0)),
             operation_gate: Arc::new(Mutex::new(())),
             publication_gate: Arc::new(Mutex::new(())),
             control: Arc::new(pty),
