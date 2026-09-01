@@ -41,11 +41,9 @@ renderer recovery and publishing a matching artifact.
   - `c1d6d8769` (fix: recover incomplete renderer state updates)
   - `d01bf5f6f` (merge Ghostty `main`, preserving renderer recovery)
 - GhosttyKit artifact:
-  - The `d01bf5f6` artifact is published under the current `noi18n-v2` build
-    flavor; its release URL and checksum are recorded below once the remote
-    GhosttyKit build completes.
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d01bf5f6f5cf6394dee0f03caa0f56f1964f5c7d-crashsubdir-cmux-crash-sentry-off-noi18n-v2
   - `GhosttyKit.xcframework.tar.gz` SHA-256:
-    pending remote build
+    `a0f1e8fadab5314746287ec2e700fe354416bf7de1e2b89062594b086c16e36c`
 - Files:
   - `src/terminal/render.zig`
   - `src/renderer/generic.zig`
