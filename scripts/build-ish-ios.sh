@@ -267,7 +267,18 @@ acquire_lock() {
             # A killed process can leave the mkdir lock behind. Remove it
             # only when its recorded owner is absent or no longer alive.
             rm -f "$LOCK_DIR/pid"
-            rmdir "$LOCK_DIR" 2>/dev/null || true
+            if ! rmdir "$LOCK_DIR" 2>/dev/null; then
+                # Do not spin if an interrupted writer left another entry in
+                # the lock directory, or if a concurrent owner is finishing
+                # its PID write. Apply the same bounded wait as the live-owner
+                # path and fail with a useful error when the lock cannot be
+                # removed.
+                if (( waited >= LOCK_WAIT_SECONDS )); then
+                    die "cannot clear stale iSH build lock: $LOCK_DIR"
+                fi
+                waited=$((waited + 1))
+                sleep 1
+            fi
         fi
     done
     printf '%s\n' "$$" >"$LOCK_DIR/pid"
