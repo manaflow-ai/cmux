@@ -1442,10 +1442,8 @@ fn reserve_outbound_bytes(inner: &Inner, bytes: usize) -> anyhow::Result<()> {
 }
 
 fn outbound_byte_budget_error() -> anyhow::Error {
-    anyhow::Context::context(
-        anyhow::anyhow!(CDP_OUTBOUND_QUEUE_BYTE_BUDGET_DETAIL),
-        CDP_CONNECTION_UNAVAILABLE_MESSAGE,
-    )
+    anyhow::anyhow!(CDP_OUTBOUND_QUEUE_BYTE_BUDGET_DETAIL)
+        .context(CDP_CONNECTION_UNAVAILABLE_MESSAGE)
 }
 
 pub fn is_connection_unavailable(error: &anyhow::Error) -> bool {
