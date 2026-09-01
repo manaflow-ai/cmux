@@ -77,9 +77,9 @@ extension MobileShellComposite {
         macAppVersion: String?
     ) -> MobileMacCompatPolicy.Channel? {
         switch buildCompatibilityPolicy {
-        case .official:
+        case .official?:
             return MobileMacCompatPolicy.constrainedChannel(instanceTag: instanceTag)
-        case .development:
+        case .development?:
             #if DEBUG
             guard MobileMacCompatDebugOverride.forceEvaluation else { return nil }
             return macAppVersion?.contains("-nightly.") == true ? .nightly : .stable
