@@ -735,6 +735,13 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
+        // A registry reconnect often supplies only a freshly-filtered route list
+        // and the persisted row as `knownPairing`. Resolve both grant stores from
+        // that row when the caller has no explicit override; otherwise the
+        // Tailscale requirement would discard a valid legacy grant before dialing.
+        let resolvedLegacyTailscaleRoutes = legacyTailscaleRoutes.isEmpty
+            ? (knownPairing?.legacyTailscaleRoutes ?? [])
+            : legacyTailscaleRoutes
         let resolvedUserAuthorizedTailscaleRoutes = userAuthorizedTailscaleRoutes.isEmpty
             ? (knownPairing?.userAuthorizedTailscaleRoutes ?? [])
             : userAuthorizedTailscaleRoutes
@@ -760,7 +767,7 @@ extension MobileShellComposite {
                 && methodPinnedCandidates == nil
                 ? MobileTailscaleRouteAuthorizer.Requirement(
                     macDeviceID: pairedMacDeviceID,
-                    grantRoutes: legacyTailscaleRoutes,
+                    grantRoutes: resolvedLegacyTailscaleRoutes,
                     userGrantRoutes: resolvedUserAuthorizedTailscaleRoutes
                 )
                 : nil,
@@ -779,7 +786,7 @@ extension MobileShellComposite {
         let hasAuthorizedTailscaleRoute = tailscaleRouteAuthorizer.hasAuthorizedTailscaleRoute(
             in: pinnedRoutes,
             macDeviceID: pairedMacDeviceID,
-            legacyRoutes: legacyTailscaleRoutes,
+            legacyRoutes: resolvedLegacyTailscaleRoutes,
             userRoutes: resolvedUserAuthorizedTailscaleRoutes
         )
         if firstRoute.kind == .iroh || hasAuthorizedTailscaleRoute {
@@ -791,7 +798,7 @@ extension MobileShellComposite {
                 )
                 let connectResult = try await connect(
                     ticket: ticket,
-                    legacyTailscaleRoutes: legacyTailscaleRoutes,
+                    legacyTailscaleRoutes: resolvedLegacyTailscaleRoutes,
                     userTailscalePairingAuthorizations: tailscaleRouteAuthorizer.userPairingAuthorizations(from: resolvedUserAuthorizedTailscaleRoutes),
                     directOnlyDialCandidates: methodPinnedCandidates,
                     pairedMacDeviceID: pairedMacDeviceID,
@@ -1052,6 +1059,8 @@ extension MobileShellComposite {
             routes: candidateRoutes,
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
+            legacyTailscaleRoutes: pairedMac?.legacyTailscaleRoutes ?? [],
+            userAuthorizedTailscaleRoutes: pairedMac?.userAuthorizedTailscaleRoutes ?? [],
             recordsPairingAttempt: true,
             knownPairing: pairedMac
         )).didConnect

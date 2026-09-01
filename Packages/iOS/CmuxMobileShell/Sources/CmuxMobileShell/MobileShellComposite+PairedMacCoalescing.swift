@@ -405,6 +405,14 @@ private extension MobilePairedMac {
     }
 
     func sortsBeforeDuplicate(_ other: MobilePairedMac) -> Bool {
+        // A display-only raw-route fallback can make an ungranted row share a
+        // key with an authorized row. Preserve durable route authority before
+        // freshness/active ordering, otherwise the representative would lose
+        // the grant and later reconnects would fail closed. This affects only
+        // representative selection; dial admission still checks exact grants.
+        if hasDurableRouteAuthority != other.hasDurableRouteAuthority {
+            return hasDurableRouteAuthority
+        }
         if isActive != other.isActive {
             return isActive
         }
@@ -412,6 +420,12 @@ private extension MobilePairedMac {
             return lastSeenAt > other.lastSeenAt
         }
         return macDeviceID < other.macDeviceID
+    }
+
+    private var hasDurableRouteAuthority: Bool {
+        routes.contains { $0.kind == .iroh }
+            || !(legacyTailscaleRoutes ?? []).isEmpty
+            || !(userAuthorizedTailscaleRoutes ?? []).isEmpty
     }
 }
 
