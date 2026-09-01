@@ -28,6 +28,9 @@ would drop the renderer-state recovery in this PR. The `466f85867` artifact
 remains checksum-pinned for the mainline pin. After Ghostty PR #208 lands,
 rebase this branch onto the fork-main merge and publish a new artifact before
 changing the parent pointer.
+The Fish SSH feature-condition fix (`fd13a3fc2`) is included in that
+mainline-compatible pin, but is not yet in `c1d6d8769`; keep the distinction
+until the combined fork-main artifact is rebuilt.
 
 ### Renderer state recovery after interrupted updates
 
@@ -1221,9 +1224,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   `ssh`.
 - `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
   shell-integration feature; it is no longer used to reconstruct a CLI filename.
-- The Fish integration uses a nested feature check so Fish's `and`/`or`
-  command-list precedence cannot suppress the wrapper when only one SSH feature
-  is enabled.
+- The mainline-compatible `466f85867` pin's Fish integration uses a nested
+  feature check so Fish's `and`/`or` command-list precedence cannot suppress
+  the wrapper when only one SSH feature is enabled.
 - Conflict note: future upstream merges must preserve the distinction between
   the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
   (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration,
