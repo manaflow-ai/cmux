@@ -271943,7 +271943,7 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Open Pair Mobile" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "モバイルをペアリングを開く" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "モバイルペアリングを開く" } }
       }
     },
     "debug.mobilePairingDesign.previewState": {
