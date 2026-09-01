@@ -93,38 +93,46 @@ pub(crate) fn scan(
     now: Instant,
     resolver: &ProcessNameResolver,
 ) {
-    let terminals = mux.screen_detect_terminals();
-    // Build an index once. The tracker can contain thousands of retired
-    // terminals, so scanning the live list for every tracked entry creates
-    // an avoidable O(tracked × live) pass on every tick.
-    let live_ids: HashSet<&str> = terminals.iter().map(|(id, _)| id.as_str()).collect();
-    tracker.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
-    for (terminal_public_id, surface) in terminals {
+    let (catalog_revision, terminals) = mux.screen_detect_terminals();
+    // Terminal membership changes are infrequent relative to output ticks.
+    // Rebuild the live index only when the catalog revision changes, so the
+    // steady-state scanner does not perform an O(terminals) retention sweep.
+    if tracker.catalog_revision_changed(catalog_revision) {
+        let live_ids: HashSet<&str> = terminals.iter().map(|(id, _)| id.as_str()).collect();
+        tracker.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
+        tracker.note_catalog_revision(catalog_revision);
+    }
+    for (terminal_public_id, surface) in terminals.iter() {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_public_id.as_str();
         let quiesced = tracker.observe_revision(terminal_id, revision, now);
         let lookup_due = tracker.should_lookup_foreground_agent(terminal_id, now);
+        if !lookup_due {
+            // Cached process identity is only a hint. Do not make roster or
+            // presence decisions while it can be stale after a process swap.
+            // The next identity refresh owns the decision and also drains any
+            // durable hook rows, including roster-fold side effects.
+            continue;
+        }
         let mut exited = false;
         let mut unknown = false;
         let mut identity_edge = false;
-        if lookup_due {
-            // Identity refreshes are bounded independently from output
-            // sampling. A launch or swap is observed within the lookup
-            // interval and still evaluates the screen immediately.
-            match resolver(&surface) {
-                ProcessLookup::Name(name) => {
-                    let manifest = manifests.identify(&name);
-                    identity_edge = tracker
-                        .note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
-                }
-                ProcessLookup::Exited => {
-                    identity_edge = tracker.note_foreground_agent(terminal_id, None);
-                    exited = true;
-                }
-                ProcessLookup::Unknown => {
-                    tracker.invalidate_foreground_identity(terminal_id);
-                    unknown = true;
-                }
+        // Identity refreshes are bounded independently from output sampling.
+        // A launch or swap is observed within the lookup interval and still
+        // evaluates the screen immediately.
+        match resolver(&surface) {
+            ProcessLookup::Name(name) => {
+                let manifest = manifests.identify(&name);
+                identity_edge = tracker
+                    .note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
+            }
+            ProcessLookup::Exited => {
+                identity_edge = tracker.note_foreground_agent(terminal_id, None);
+                exited = true;
+            }
+            ProcessLookup::Unknown => {
+                tracker.invalidate_foreground_identity(terminal_id);
+                unknown = true;
             }
         }
         if identity_edge {
@@ -144,11 +152,11 @@ pub(crate) fn scan(
             if tracker.pending_emission(terminal_id).is_some() {
                 continue;
             }
-        } else if mux.screen_detect_pending_for_terminal(&terminal_public_id) {
+        } else if mux.agent_hook_pending_for_terminal(&terminal_public_id) {
             // Actively retry the durable row. The registry row owns its
             // original idempotency key, so retries cannot duplicate events.
             let _ = mux.retry_pending_agent_hooks_for_terminal(&terminal_public_id);
-            if mux.screen_detect_pending_for_terminal(&terminal_public_id) {
+            if mux.agent_hook_pending_for_terminal(&terminal_public_id) {
                 // A queued emission must be admitted before newer screen
                 // states, otherwise retry order can invert the roster.
                 continue;

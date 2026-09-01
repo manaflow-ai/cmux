@@ -84,6 +84,7 @@ struct TrackedTerminal {
 pub(crate) struct ScreenDetectTracker {
     terminals: HashMap<String, TrackedTerminal>,
     pending_emissions: HashMap<String, ScreenDetectEmission>,
+    catalog_revision: Option<u64>,
 }
 
 impl ScreenDetectTracker {
@@ -193,6 +194,10 @@ impl ScreenDetectTracker {
             return false;
         }
         entry.emitted = None;
+        // Advance the pacer anchor with the re-arm. Otherwise every 100 ms
+        // scan after the first 30-second interval would re-open the same
+        // emission and repeatedly read the viewport.
+        entry.last_evaluated_at = Some(now);
         true
     }
 
@@ -272,6 +277,14 @@ impl ScreenDetectTracker {
     pub(crate) fn retain_terminals(&mut self, live: impl Fn(&str) -> bool) {
         self.terminals.retain(|terminal_id, _| live(terminal_id));
         self.pending_emissions.retain(|terminal_id, _| live(terminal_id));
+    }
+
+    pub(crate) fn catalog_revision_changed(&self, revision: u64) -> bool {
+        self.catalog_revision != Some(revision)
+    }
+
+    pub(crate) fn note_catalog_revision(&mut self, revision: u64) {
+        self.catalog_revision = Some(revision);
     }
 }
 
@@ -471,6 +484,29 @@ mod tests {
             "term_a",
             1,
             t0 + Duration::from_millis(VIEWPORT_RETRY_INTERVAL_MS),
+        ));
+    }
+
+    #[test]
+    fn screen_detect_tracker_rearms_stale_emission_once_per_interval() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        tracker.observe_revision("term_a", 1, t0);
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+
+        assert!(
+            tracker.rearm_stale_emission(
+                "term_a",
+                t0 + Duration::from_millis(SCREEN_REEMIT_INTERVAL_MS),
+            )
+        );
+        assert!(!tracker.rearm_stale_emission(
+            "term_a",
+            t0 + Duration::from_millis(SCREEN_REEMIT_INTERVAL_MS + 100),
+        ));
+        assert!(tracker.rearm_stale_emission(
+            "term_a",
+            t0 + Duration::from_millis(2 * SCREEN_REEMIT_INTERVAL_MS),
         ));
     }
 

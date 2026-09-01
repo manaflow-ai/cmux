@@ -186,6 +186,7 @@ mod tests {
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_revision: 0,
             split_screens: HashMap::new(),
             resource_indexes: PublicSlotIndexes::default(),
         }

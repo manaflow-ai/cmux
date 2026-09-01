@@ -2210,6 +2210,10 @@ pub struct Mux {
     workspace_registry: SignaledMutex<WorkspaceRegistry>,
     session_public_id: SessionPublicId,
     state: Mutex<State>,
+    /// Cached terminal snapshot keyed by the catalog topology revision. Arc
+    /// sharing keeps the scanner hot path from cloning every terminal and
+    /// public ID on each 100 ms tick.
+    screen_detect_snapshot: Mutex<Option<(u64, Arc<Vec<(TerminalPublicId, Arc<Surface>)>>)>>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
     config_reload_changed: Condvar,
@@ -2595,6 +2599,7 @@ impl Mux {
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             state: Mutex::new(state),
+            screen_detect_snapshot: Mutex::new(None),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -2849,6 +2854,19 @@ impl Mux {
                             .any(|subject| subject.kind == "terminal" && subject.id == terminal_id)
                 })
             })
+            .unwrap_or(false)
+    }
+
+    /// Return whether any durable agent projection is waiting for this
+    /// terminal. Screen detection is one producer, but roster-fold retries
+    /// also need a terminal availability signal so a scanner pass can drain
+    /// their side effects instead of leaving them stranded until restart.
+    pub(crate) fn agent_hook_pending_for_terminal(&self, terminal_id: &TerminalPublicId) -> bool {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections_for_terminal(terminal_id)
+            .map(|rows| !rows.is_empty())
             .unwrap_or(false)
     }
 
@@ -6273,14 +6291,30 @@ impl Mux {
     }
 
     /// Snapshot of live terminals for the screen-detection scanner.
-    pub(crate) fn screen_detect_terminals(&self) -> Vec<(TerminalPublicId, Arc<Surface>)> {
-        self.state
-            .lock()
-            .unwrap()
-            .terminal_catalog
-            .iter()
-            .map(|(terminal_id, surface)| (terminal_id.clone(), surface.clone()))
-            .collect()
+    pub(crate) fn screen_detect_terminals(
+        &self,
+    ) -> (u64, Arc<Vec<(TerminalPublicId, Arc<Surface>)>>) {
+        let revision = self.state.lock().unwrap().terminal_catalog_revision;
+        {
+            let snapshot = self.screen_detect_snapshot.lock().unwrap();
+            if let Some((cached_revision, terminals)) = snapshot.as_ref()
+                && *cached_revision == revision
+            {
+                return (revision, terminals.clone());
+            }
+        }
+        // Only clone the catalog when its topology revision changed. The
+        // steady state takes one scalar state read and one Arc clone.
+        let catalog = self.state.lock().unwrap().terminal_catalog.clone();
+        let mut snapshot = self.screen_detect_snapshot.lock().unwrap();
+        if let Some((cached_revision, terminals)) = snapshot.as_ref()
+            && *cached_revision == revision
+        {
+            return (revision, terminals.clone());
+        }
+        let terminals = Arc::new(catalog.into_iter().collect());
+        *snapshot = Some((revision, terminals.clone()));
+        (revision, terminals)
     }
 
     /// Journal one screen-detected agent state transition. The payload
@@ -9194,6 +9228,7 @@ impl Mux {
     ) -> Option<Arc<Surface>> {
         let mut state = self.state.lock().unwrap();
         let removed = state.terminal_catalog.remove(terminal_id)?;
+        state.terminal_catalog_revision = state.terminal_catalog_revision.saturating_add(1);
         if let Some(runtime_id) = removed.terminal_runtime_id() {
             state.terminal_catalog_by_runtime.remove(&runtime_id);
         }
@@ -17150,6 +17185,7 @@ fn register_terminal_runtime_checked(
             }
         }
         state.terminal_catalog.insert(terminal_id.clone(), surface.clone());
+        state.terminal_catalog_revision = state.terminal_catalog_revision.saturating_add(1);
     }
     state.terminal_catalog_by_runtime.insert(runtime_id, terminal_id.clone());
     Ok(())
@@ -17165,6 +17201,9 @@ fn remove_terminal_content_from_state(
     terminal_id: &TerminalPublicId,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let runtime = state.terminal_catalog.remove(terminal_id);
+    if runtime.is_some() {
+        state.terminal_catalog_revision = state.terminal_catalog_revision.saturating_add(1);
+    }
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
         state.terminal_catalog_by_runtime.remove(&runtime_id);
     }
@@ -17625,6 +17664,7 @@ fn restore_resource_state(
             surfaces: HashMap::new(),
             terminal_catalog: HashMap::new(),
             terminal_catalog_by_runtime: HashMap::new(),
+            terminal_catalog_revision: 0,
             split_screens: HashMap::new(),
             resource_indexes: indexes,
         },
@@ -23308,6 +23348,45 @@ mod tests {
     }
 
     #[test]
+    fn terminal_pending_signal_includes_roster_fold_rows() {
+        use crate::screen_detect::manifest::ManifestSet;
+        use crate::screen_detect::scanner::ProcessLookup;
+        use crate::screen_detect::{ScreenDetectTracker, scanner};
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .enqueue_agent_hook_pending(
+                crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                "agent-roster-fold",
+                "agent-roster-fold-test",
+                1,
+                &ingress,
+                AGENT_HOOK_RETRY_ERROR,
+                AgentHookRetryClass::Transient,
+            )
+            .unwrap();
+
+        // Scanner wake admission must include roster-fold rows, not only
+        // screen-detect rows, so failed roster side effects converge.
+        assert!(mux.agent_hook_pending_for_terminal(&terminal_id));
+        let mut tracker = ScreenDetectTracker::default();
+        let shell = |_: &Surface| ProcessLookup::Name("zsh".to_string());
+        scanner::scan(&mux, &mut tracker, ManifestSet::bundled(), Instant::now(), &shell);
+        assert!(!mux.agent_hook_pending_for_terminal(&terminal_id));
+    }
+
+    #[test]
     fn unavailable_terminal_hook_is_retained_for_projection_retry() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -24253,6 +24332,14 @@ mod tests {
         assert_eq!(records[0].state, AgentState::Idle);
         assert_eq!(records[0].source, AgentSource::Detected);
         assert_eq!(records[0].agent.as_deref(), Some("codex"));
+
+        // A changed screen must not be evaluated with a cached identity. The
+        // process can swap during the 500 ms metadata interval; decisions
+        // wait for the next successful lookup instead of attributing the
+        // screen to the old codex process.
+        surface.apply_stream_output_for_test(b"$ rm -rf build\r\nAllow command?\r\n").unwrap();
+        scanner::scan(&mux, &mut tracker, manifests, step(900), &gone);
+        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // A transient process lookup miss must not close the detected entry.
         // The lookup interval expires at 1,000 ms, so this exercises the

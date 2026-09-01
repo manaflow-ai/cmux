@@ -31,12 +31,6 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// added screen-detected events and hook/screen/socket arbitration.
 pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 3;
 
-/// A hook-owned roster entry younger than this cannot be overwritten by a
-/// screen-detected state: live hooks are stronger evidence than screen
-/// scraping. An agent whose hooks stopped reporting for this long (dead
-/// helper, uninstalled hooks) falls back to screen detection.
-pub(crate) const STALE_HOOK_MS: u64 = 30_000;
-
 /// The adapter id and native event the socket report path uses for its echo
 /// journal events. The echo carries the explicit state in `normalized`, so
 /// the fold never has to guess a semantic mapping for it.
@@ -211,9 +205,9 @@ impl AgentRoster {
             (state, AgentSource::Hook, session, agent, event.committed_at_ms)
         };
         // Source arbitration: hook > screen > socket per terminal. Hook
-        // events always win. Screen detection may not overwrite an entry a
-        // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
-        // only applies to entries screen detection itself established.
+        // events always win. Screen detection never overwrites a hook-owned
+        // lifecycle because screen evidence cannot prove that the hook
+        // session ended. Its exit removal only applies to detected entries.
         // Socket reports lose to both stronger sources.
         if source == AgentSource::Hook
             && let Some(existing) = self.entries.get(terminal_id)
@@ -234,9 +228,7 @@ impl AgentRoster {
             AgentSource::Detected => {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
-                    if existing_source == AgentSource::Hook
-                        && updated_at_ms.saturating_sub(existing.updated_at_ms) < STALE_HOOK_MS
-                    {
+                    if existing_source == AgentSource::Hook {
                         return Vec::new();
                     }
                     if state == AgentState::Done && existing_source != AgentSource::Detected {
@@ -461,25 +453,25 @@ mod tests {
     }
 
     #[test]
-    fn screen_detect_loses_to_fresh_hooks_and_claims_stale_ones() {
+    fn screen_detect_never_overwrites_hook_lifecycle() {
         let subjects = terminal_subject("term_a");
         let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
         let screen = screen_payload("claude", "blocked");
         let mut roster = AgentRoster::default();
 
         roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
-        // A fresh hook entry (29s old) is live agent truth.
+        // A hook entry is live lifecycle truth.
         let deltas =
             roster.apply(&stamped_event(39_000, "agent.state.changed", &subjects, &screen));
         assert!(deltas.is_empty());
         assert_eq!(roster.entries["term_a"].source, "hook");
 
-        // At 30s the hook is stale and screen detection takes over.
+        // Even after a long quiet interval, screen evidence cannot prove
+        // that the hook session ended, so it cannot take ownership.
         let deltas =
             roster.apply(&stamped_event(40_000, "agent.state.changed", &subjects, &screen));
-        assert_eq!(deltas.len(), 1);
-        assert_eq!(roster.entries["term_a"].source, "detected");
-        assert_eq!(roster.entries["term_a"].state, "blocked");
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
 
         // A hook event always reclaims the terminal.
         let deltas =
