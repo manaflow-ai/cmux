@@ -300,7 +300,9 @@ import Testing
         #expect(failed.contains("Couldn’t open &lt;m&gt;:3000"))
         #expect(failed.contains("HTTP 503 &lt;vm_image_unavailable&gt; &amp; more"))
         #expect(!failed.contains("<vm_image_unavailable>"))
-        #expect(!failed.contains("spinner"))
+        // No spinner ELEMENT in the failed state; the shared stylesheet still declares
+        // `.spinner`, so a bare substring check would always fail.
+        #expect(!failed.contains("class=\"spinner\""))
         #expect(failed.contains("open it again from the sidebar"))
         #expect(SurfaceBrowserPlaceholder.escape("a\"b'c") == "a&quot;b&#39;c")
     }
