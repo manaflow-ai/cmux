@@ -425,6 +425,48 @@ struct LocalLinuxRuntimeTests {
         }
     }
 
+    @Test("renderer failure fences an already-running local session")
+    @MainActor
+    func rendererFailureAfterSessionStartIsRetryable() async throws {
+        let fixture = try RuntimeFixture()
+        defer { fixture.remove() }
+        try fixture.seedValidRootfs()
+
+        let hangupCount = LocalLinuxHangupCounter()
+        var hangupIterator = hangupCount.events.makeAsyncIterator()
+        let bridge = LocalLinuxTestKernelBridge(
+            boot: { _, _ in },
+            openSessionWithTermination: { _, _, _, _, output, _ in
+                output(Data("ready\n".utf8))
+                return LocalLinuxTestKernelSession(
+                    processID: 57,
+                    hangup: { hangupCount.increment() }
+                )
+            }
+        )
+        let runtime = LocalLinuxRuntime(
+            kernel: bridge,
+            fileSystem: LocalLinuxFileSystemClient(),
+            rootURL: fixture.rootURL,
+            rootfsArchiveURL: nil
+        )
+        let controller = LocalLinuxComputerController(runtime: runtime)
+
+        #expect(await controller.startIfNeeded(columns: 80, rows: 24))
+        #expect(controller.state == .running)
+
+        // A controller survives a terminal view remount. A renderer failure on
+        // that later mount must close the old pty and expose an explicit retry,
+        // rather than leaving the state as running behind a black view.
+        controller.markRendererFailure()
+
+        #expect(controller.state == .failed)
+        #expect(controller.canRetry)
+        #expect(controller.lastError == .operationFailed("terminal renderer unavailable"))
+        #expect(await hangupIterator.next() != nil)
+        #expect(hangupCount.value == 1)
+    }
+
     private static func bridge(
         importCountURL: URL,
         bootCountURL: URL
@@ -519,11 +561,22 @@ struct LocalLinuxRuntimeTests {
 private final class LocalLinuxHangupCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
+    let events: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let stream = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        events = stream.stream
+        continuation = stream.continuation
+    }
 
     func increment() {
         lock.withLock {
             count += 1
         }
+        continuation.yield(())
     }
 
     var value: Int {
