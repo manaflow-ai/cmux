@@ -1419,23 +1419,35 @@ void cmux_ish_session_hangup(int handle) {
     }
     if (session != NULL) {
         generation = session->generation;
-        tty = atomic_load_explicit(&session->tty, memory_order_acquire);
     }
     pthread_mutex_unlock(&cmux_lock);
 
-    if (session != NULL && tty != NULL) {
-        // ttys_lock prevents the final tty_release from freeing this object
-        // while we pin it. The session may be retired concurrently, so the
-        // later side-table phase revalidates generation and ownership.
+    if (session != NULL) {
+        // Re-read the tty only after taking ttys_lock. Reading it before this
+        // lock would leave a use-after-free window: natural cleanup can clear
+        // the session pointer and free the tty between the two locks.
         lock(&ttys_lock);
-        struct tty *candidate = tty;
-        lock(&candidate->lock);
-        bool can_use = candidate->refcount != 0;
-        if (can_use)
-            candidate->refcount++;
-        unlock(&candidate->lock);
-        if (!can_use)
-            tty = NULL;
+        pthread_mutex_lock(&cmux_lock);
+        struct tty *candidate = NULL;
+        if (session->generation == generation &&
+            atomic_load_explicit(&session->state, memory_order_acquire) ==
+                CMUX_SESSION_CLOSING) {
+            candidate = atomic_load_explicit(&session->tty, memory_order_acquire);
+        }
+        pthread_mutex_unlock(&cmux_lock);
+
+        if (candidate != NULL) {
+            // ttys_lock now prevents the final tty_release from freeing this
+            // object while we pin it. The later side-table phase revalidates
+            // generation and ownership before retiring the binding.
+            lock(&candidate->lock);
+            bool can_use = candidate->refcount != 0;
+            if (can_use)
+                candidate->refcount++;
+            unlock(&candidate->lock);
+            if (can_use)
+                tty = candidate;
+        }
         unlock(&ttys_lock);
     }
 
