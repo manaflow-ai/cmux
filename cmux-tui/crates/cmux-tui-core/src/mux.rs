@@ -2684,8 +2684,8 @@ impl Mux {
 
     /// Startup replay can rebuild the roster before resource projections are
     /// available. Re-fold the journal after materialization when that occurs,
-    /// so screen and hook deltas repair durable projections before exposing
-    /// the restored session.
+    /// so screen-detection deltas repair durable projections before exposing
+    /// the restored session. Hook projections are restored separately.
     fn rebuild_agent_roster_projections(&self) {
         let needs_rebuild = self.agent_roster.lock().unwrap().needs_projection_rebuild;
         if !needs_rebuild {
@@ -2715,7 +2715,7 @@ impl Mux {
             event_id: "roster-rebuild".into(),
             replayed: true,
         };
-        self.fold_agent_roster(&ingress, &commit, true);
+        self.fold_agent_roster(&ingress, &commit);
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
@@ -2826,7 +2826,7 @@ impl Mux {
                                 event_id: key.clone(),
                                 replayed: true,
                             };
-                            self.fold_agent_roster(&ingress, &commit, false);
+                            self.fold_agent_roster(&ingress, &commit);
                             applied += 1;
                         } else {
                             self.report_internal_diagnostic("agent roster retry cleanup deferred");
@@ -5742,7 +5742,7 @@ impl Mux {
             );
         }
         if !commit.replayed {
-            self.fold_agent_roster(ingress, &commit, false);
+            self.fold_agent_roster(ingress, &commit);
         }
         Ok(commit)
     }
@@ -5903,7 +5903,6 @@ impl Mux {
         &self,
         ingress: &crate::JournalIngress,
         _commit: &crate::JournalAppendCommit,
-        repair_projections: bool,
     ) {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
@@ -5949,7 +5948,7 @@ impl Mux {
                         let screen_detect =
                             record.payload.get("native_event").and_then(Value::as_str)
                                 == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
-                        if !echo && (screen_detect || repair_projections) && !deltas.is_empty() {
+                        if !echo && screen_detect && !deltas.is_empty() {
                             deltas_to_apply.push((
                                 deltas,
                                 record.kind.clone(),
