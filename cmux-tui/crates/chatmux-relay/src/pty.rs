@@ -177,24 +177,60 @@ fn scoped_cwd(
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-        let expected =
-            std::fs::metadata(&canonical).map_err(|_| "cwd is not accessible".to_owned())?;
-        let directory = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(&canonical)
-            .map_err(|_| "cwd is not accessible".to_owned())?;
-        let observed = directory.metadata().map_err(|_| "cwd is not accessible".to_owned())?;
-        if expected.dev() != observed.dev() || expected.ino() != observed.ino() {
-            return Err("cwd changed while resolving".to_owned());
-        }
+        let directory = open_pinned_directory(&canonical)?;
         Ok(ResolvedCwd { path: canonical, directory: Arc::new(directory) })
     }
     #[cfg(not(unix))]
     {
         Ok(ResolvedCwd { path: canonical })
     }
+}
+
+#[cfg(unix)]
+fn open_pinned_directory(path: &Path) -> Result<File, String> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::unix::io::FromRawFd;
+
+    // O_PATH (Linux) and O_SEARCH (macOS) keep execute-only directories
+    // usable as cwd values. O_RDONLY is the portable fallback for other Unix
+    // targets, where it preserves the previous behavior when readable.
+    #[cfg(target_os = "linux")]
+    const ACCESS_MODE: libc::c_int = libc::O_PATH;
+    #[cfg(target_os = "macos")]
+    const ACCESS_MODE: libc::c_int = libc::O_SEARCH;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
+    let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let mut parent = std::fs::OpenOptions::new()
+        .custom_flags(flags)
+        .open("/")
+        .map_err(|_| "cwd is not accessible".to_owned())?;
+    let mut expected_path = PathBuf::from("/");
+    for component in path.components() {
+        let std::path::Component::Normal(name) = component else {
+            continue;
+        };
+        expected_path.push(name);
+        let expected =
+            std::fs::metadata(&expected_path).map_err(|_| "cwd is not accessible".to_owned())?;
+        let name = CString::new(name.as_os_str().as_bytes())
+            .map_err(|_| "cwd is not accessible".to_owned())?;
+        // SAFETY: `parent` is an open directory and `name` is NUL-free.
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err("cwd is not accessible".to_owned());
+        }
+        // SAFETY: `fd` is a newly-owned descriptor from openat.
+        let child = unsafe { File::from_raw_fd(fd) };
+        let observed = child.metadata().map_err(|_| "cwd is not accessible".to_owned())?;
+        if expected.dev() != observed.dev() || expected.ino() != observed.ino() {
+            return Err("cwd changed while resolving".to_owned());
+        }
+        parent = child;
+    }
+    Ok(parent)
 }
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
@@ -2892,14 +2928,16 @@ mod tests {
     #[test]
     fn scoped_cwd_descriptor_remains_pinned_after_path_rebind() {
         let root = TestDirectory::new("cwd-pinned");
-        let checked = root.path.join("checked");
+        let scope = root.path.join("scope");
+        let checked = scope.join("checked");
         let outside = root.path.join("outside");
+        std::fs::create_dir(&scope).unwrap();
         std::fs::create_dir(&checked).unwrap();
-        std::fs::create_dir(&outside).unwrap();
+        std::fs::create_dir_all(outside.join("checked")).unwrap();
         let resolved = scoped_cwd(Some(checked.to_str().unwrap()), &root.path, None, None).unwrap();
         let before = resolved.directory.metadata().unwrap();
-        std::fs::rename(&checked, root.path.join("moved")).unwrap();
-        std::os::unix::fs::symlink(&outside, &checked).unwrap();
+        std::fs::rename(&scope, root.path.join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &scope).unwrap();
         let after = resolved.directory.metadata().unwrap();
         assert_eq!(before.dev(), after.dev());
         assert_eq!(before.ino(), after.ino());
