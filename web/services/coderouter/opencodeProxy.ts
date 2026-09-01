@@ -152,7 +152,7 @@ export async function proxyOpenCodeRequest(
     });
     return apiError(
       "no_usable_account",
-      "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
+      "No OpenCode Go account is connected for your team right now. Add one with `cr add opencode`, or connect a Claude or Codex account on your Mac (`cmux ai-accounts upload claude|codex`) and opencode routes over it.",
       503,
       true,
     );

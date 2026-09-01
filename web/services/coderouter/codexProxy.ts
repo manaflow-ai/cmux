@@ -278,7 +278,7 @@ async function proxyCodexRequestWith(
       "no_usable_account",
       503,
       { "retry-after": "15" },
-      "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+      "No Codex account is connected for your team right now. On your Mac, run `cmux ai-accounts upload codex` (a ChatGPT login) or `cmux ai-accounts upload openai-key`, then retry. (`cr add codex` also works.)",
       true,
     );
   }
@@ -429,7 +429,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         "no_usable_account",
         503,
         { "retry-after": "15" },
-        "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+        "No Codex account is connected for your team right now. On your Mac, run `cmux ai-accounts upload codex` (a ChatGPT login) or `cmux ai-accounts upload openai-key`, then retry. (`cr add codex` also works.)",
         true,
       );
     }

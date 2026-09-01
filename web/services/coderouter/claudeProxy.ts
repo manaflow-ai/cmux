@@ -347,7 +347,7 @@ async function proxyClaudeRequestWith(
       "no_usable_account",
       503,
       { "retry-after": "15" },
-      "No healthy Claude subscription is currently available for this team. Add one in cmux or retry shortly.",
+      "No Claude account is connected for your team right now. On your Mac, run `cmux ai-accounts upload claude` (a Claude login) or `cmux ai-accounts upload anthropic-key`, then retry.",
       true,
     );
   }
