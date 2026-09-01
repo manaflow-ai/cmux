@@ -462,7 +462,6 @@ struct Inner {
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
-    auth: Mutex<Option<AuthSnapshot>>,
 }
 
 struct ShellStartReservation {
@@ -513,7 +512,6 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
             }),
         }
     }
@@ -539,19 +537,18 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
             }),
         }
     }
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        *self.inner.auth.lock().expect("auth lock") = Some(AuthSnapshot {
+        let auth = AuthSnapshot {
             trust: context.trust.clone(),
             owner_user_id: context.owner_user_id.clone(),
             send: Arc::clone(&context.send),
             buffered_amount: Arc::clone(&context.buffered_amount),
-        });
+        };
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
@@ -568,7 +565,7 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) = self.inner.authorize(pty_id, context, "input") {
+                if let Some(attachment) = self.inner.authorize_snapshot(pty_id, &auth, context, "input") {
                     attachment.control.write(&data);
                 }
             }
@@ -582,7 +579,7 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
+                if let Some(attachment) = self.inner.authorize_snapshot(pty_id, &auth, context, "resize") {
                     attachment.control.resize(cols, rows);
                 }
             }
@@ -592,7 +589,7 @@ impl PtyManager {
                     return;
                 }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
-                if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
+                if let Some(attachment) = self.inner.authorize_snapshot(pty_id, &auth, context, "flow") {
                     if pause {
                         attachment.control.pause();
                     } else {
@@ -605,7 +602,8 @@ impl PtyManager {
                 if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
                     return;
                 }
-                self.inner.close_authorized(pty_id, context);
+                let _ = self.inner.authorize_snapshot(pty_id, &auth, context, "close");
+                self.inner.close(pty_id);
             }
             "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
             _ => {}
@@ -916,22 +914,23 @@ impl Inner {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context))
+            let auth = AuthSnapshot { trust: context.trust.clone(), owner_user_id: context.owner_user_id.clone(), send: Arc::clone(&context.send), buffered_amount: Arc::clone(&context.buffered_amount) };
+            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context, &auth))
                 as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context))
+            let auth = AuthSnapshot { trust: context.trust.clone(), owner_user_id: context.owner_user_id.clone(), send: Arc::clone(&context.send), buffered_amount: Arc::clone(&context.buffered_amount) };
+            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context, &auth))
                 as Arc<dyn Fn(i64) + Send + Sync>
         };
         (on_data, on_exit)
     }
 
-    fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
+    fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext, auth: &AuthSnapshot) {
+        if self.authorize_snapshot(pty_id, auth, context, "output").is_none() {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -964,9 +963,8 @@ impl Inner {
         }));
     }
 
-    fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
+    fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext, auth: &AuthSnapshot) {
+        if self.authorize_snapshot(pty_id, auth, context, "exit").is_none() {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
@@ -1018,11 +1016,6 @@ impl Inner {
         true
     }
 
-    fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
-        let auth = self.auth.lock().expect("auth lock").clone()?;
-        self.authorize_snapshot(pty_id, &auth, context, action)
-    }
-
     fn authorize_snapshot(
         &self,
         pty_id: &str,
@@ -1050,7 +1043,6 @@ impl Inner {
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
-        let _ = self.authorize(pty_id, context, "close");
         self.close(pty_id);
     }
 }
