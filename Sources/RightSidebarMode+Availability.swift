@@ -50,6 +50,9 @@ extension RightSidebarMode {
             return dockEnabled
         case RightSidebarMode.machines.rawValue:
             return machinesEnabled
+        case RightSidebarMode.customSidebar.rawValue:
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+                && FileExplorerState.persistedCustomSidebarName() != nil
         default:
             return false
         }

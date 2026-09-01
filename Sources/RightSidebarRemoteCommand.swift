@@ -22,6 +22,8 @@ enum RightSidebarRemoteCommand: Equatable, Sendable {
     case hide
     case focus
     case setMode(RightSidebarMode, focus: Bool)
+    /// Switch to the Custom mode, optionally selecting a sidebar file.
+    case setCustomSidebar(name: String?, focus: Bool)
     case getState
 }
 
@@ -135,7 +137,7 @@ extension RightSidebarRemoteRequest {
             }
             return .success(.init(command: .getState, target: target))
         case "set", "set-mode":
-            guard positional.count == 2 else {
+            guard positional.count == 2 || (action == "set" && positional.count == 3) else {
                 return .failure(.init(message: String.localizedStringWithFormat(
                     String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"),
                     RightSidebarPanelRegistry().cliArgumentsDescription
@@ -143,10 +145,22 @@ extension RightSidebarRemoteRequest {
             }
             let rawMode = positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             if let mode = RightSidebarMode.from(cliArgument: rawMode) {
-                guard mode != .customSidebar else {
+                if mode == .customSidebar {
+                    guard action == "set" else {
+                        return .failure(.init(message: String.localizedStringWithFormat(
+                            String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"),
+                            RightSidebarPanelRegistry().cliArgumentsDescription
+                        )))
+                    }
+                    let name = positional.count == 3
+                        ? positional[2].trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                        : nil
+                    return .success(.init(command: .setCustomSidebar(name: name, focus: !noFocus), target: target))
+                }
+                guard positional.count == 2 else {
                     return .failure(.init(message: String.localizedStringWithFormat(
-                        String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '%@'"),
-                        rawMode
+                        String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"),
+                        RightSidebarPanelRegistry().cliArgumentsDescription
                     )))
                 }
                 if !mode.isAvailable(defaults: defaults) {
@@ -163,11 +177,8 @@ extension RightSidebarRemoteRequest {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
             }
             if let mode = RightSidebarMode.from(cliArgument: action) {
-                guard mode != .customSidebar else {
-                    return .failure(.init(message: String.localizedStringWithFormat(
-                        String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '%@'"),
-                        action
-                    )))
+                if mode == .customSidebar {
+                    return .success(.init(command: .setCustomSidebar(name: nil, focus: true), target: target))
                 }
                 if !mode.isAvailable(defaults: defaults) {
                     return .failure(unavailableModeError(mode))

@@ -19944,6 +19944,7 @@ struct CMUXCLI {
             Examples:
               cmux right-sidebar toggle
               cmux right-sidebar set find
+              cmux right-sidebar set custom panel-info
               cmux right-sidebar mode
             """)
             return String(format: usage, locale: Locale.current, modeList, modeList)
@@ -20670,7 +20671,7 @@ struct CMUXCLI {
             return [action]
 
         case "set", "set-mode":
-            guard parsed.positional.count == 2 else {
+            guard parsed.positional.count == 2 || (action == "set" && parsed.positional.count == 3) else {
                 throw CLIError(message: localizedFormat(
                     "cli.rightSidebar.error.setRequiresMode",
                     defaultValue: "right-sidebar set requires a mode: %@",
@@ -20685,7 +20686,14 @@ struct CMUXCLI {
                     parsed.positional[1]
                 ))
             }
+            let isCustom = canonical == "custom"
+            guard parsed.positional.count == 2 || isCustom else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
+            }
             var args = ["set", canonical]
+            if parsed.positional.count == 3 {
+                args.append(parsed.positional[2])
+            }
             if parsed.noFocus {
                 args.append("--no-focus")
             }

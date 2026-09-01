@@ -976,6 +976,38 @@ struct RestorableAgentSessionIndex: Sendable {
         let terminationProcessIDs: Set<Int>
         let terminationProcessIdentities: [Int: AgentPIDProcessIdentity]
         let containsUnrelatedProcess: Bool
+
+        /// Keeps older in-process fixtures source-compatible while callers that
+        /// have persisted PID evidence can opt in explicitly.
+        init(
+            snapshot: SessionRestorableAgentSnapshot,
+            lifecycle: AgentHibernationLifecycleState?,
+            updatedAt: TimeInterval,
+            processLiveness: RestorableAgentProcessLiveness,
+            hasRecordedProcessID: Bool = false,
+            processIDs: Set<Int>,
+            processIdentities: [Int: AgentPIDProcessIdentity],
+            agentProcessIDs: Set<Int>,
+            agentProcessIdentities: [Int: AgentPIDProcessIdentity],
+            hibernationPanelProcessIDs: Set<Int>,
+            terminationProcessIDs: Set<Int>,
+            terminationProcessIdentities: [Int: AgentPIDProcessIdentity],
+            containsUnrelatedProcess: Bool
+        ) {
+            self.snapshot = snapshot
+            self.lifecycle = lifecycle
+            self.updatedAt = updatedAt
+            self.processLiveness = processLiveness
+            self.hasRecordedProcessID = hasRecordedProcessID
+            self.processIDs = processIDs
+            self.processIdentities = processIdentities
+            self.agentProcessIDs = agentProcessIDs
+            self.agentProcessIdentities = agentProcessIdentities
+            self.hibernationPanelProcessIDs = hibernationPanelProcessIDs
+            self.terminationProcessIDs = terminationProcessIDs
+            self.terminationProcessIdentities = terminationProcessIdentities
+            self.containsUnrelatedProcess = containsUnrelatedProcess
+        }
     }
 
     enum ProcessDetectedSessionIDSource: Equatable, Sendable {
@@ -1058,15 +1090,7 @@ struct RestorableAgentSessionIndex: Sendable {
     ///
     /// Security-sensitive callers use this instead of the compatibility lookup
     /// below so a stale workspace cannot adopt a same-panel entry from another
-    /// restored workspace.
-    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
-    }
-
-    /// Returns only the process entry keyed by this exact workspace/panel pair.
-    ///
-    /// Unlike ``entry(workspaceId:panelId:)``, this does not use the panel-ID
-    /// compatibility fallback. Process teardown safety must never borrow a
+    /// restored workspace. Process teardown safety likewise must never borrow a
     /// live scope from a panel's previous workspace after the surface moves.
     func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]

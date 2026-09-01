@@ -11,6 +11,10 @@ type TestStackAuthSession = {
   getTokens: () => Promise<{ refreshToken?: string; accessToken?: string }>;
 };
 type TestStackAuthUser = {
+  id?: string;
+  primaryEmail?: string | null;
+  primaryEmailVerified?: boolean;
+  isAnonymous?: boolean;
   createSession: (options: { expiresInMillis: number }) => Promise<TestStackAuthSession>;
 };
 
@@ -18,10 +22,15 @@ let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
 let getUserResponses: Array<TestStackAuthUser | null> = [];
+let promotionShouldFail = false;
+const claimVerifiedBilling = mock(async () => undefined);
 const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
 const signOut = mock((options?: unknown) => {
   void options;
   return Promise.resolve();
+});
+const promoteVerifiedAnonymousUser = mock(async () => {
+  if (promotionShouldFail) throw new Error("Stack promotion unavailable");
 });
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
@@ -32,6 +41,8 @@ const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-an
 const GET = makeAfterSignInHandler({
   projectId: "test-project",
   stackServerApp: { getUser },
+  promoteVerifiedAnonymousUser,
+  claimVerifiedBilling,
   getCookieStore: async () => ({
     get: (name: string) => {
       if (name === HANDOFF_COOKIE && handoffCookie) return { value: handoffCookie };
@@ -82,8 +93,11 @@ describe("after sign-in native handoff", () => {
     rawRefreshCookie = "refresh-token";
     rawAccessCookie = "access-token";
     getUserResponses = [];
+    promotionShouldFail = false;
     getUser.mockClear();
     signOut.mockClear();
+    promoteVerifiedAnonymousUser.mockClear();
+    claimVerifiedBilling.mockClear();
   });
 
   test("issues and clears the handoff nonce with one cookie contract", async () => {
@@ -252,6 +266,104 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.searchParams.get("stack_refresh")).toBe("anon-refresh");
     expect(callbackURL.searchParams.get("stack_access")).toBe(
       JSON.stringify(["anon-refresh", "anon-access"]),
+    );
+  });
+
+  test("promotes a verified anonymous account before minting handoff tokens", async () => {
+    rawRefreshCookie = "";
+    rawAccessCookie = "";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "promoted-refresh",
+        accessToken: "promoted-access",
+      }),
+    }));
+    const user = {
+      id: "anonymous-verified",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: true,
+      createSession,
+    };
+    getUserResponses = [null, user];
+
+    const response = await GET(
+      signInRequest("cmux://auth-callback", "unused"),
+    );
+
+    expect(promoteVerifiedAnonymousUser).toHaveBeenCalledWith(
+      "anonymous-verified",
+      "buyer@example.com",
+    );
+    expect(claimVerifiedBilling).toHaveBeenCalledWith(
+      "anonymous-verified",
+      "buyer@example.com",
+    );
+    expect(createSession).toHaveBeenCalledWith({
+      expiresInMillis: 30 * 24 * 60 * 60 * 1000,
+    });
+    expect(response.status).toBe(200);
+    const callbackURL = new URL(returnHref(await response.text()));
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("promoted-refresh");
+  });
+
+  test("resolves pending billing claims for a verified existing account", async () => {
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "verified-refresh",
+        accessToken: "verified-access",
+      }),
+    }));
+    const user = {
+      id: "verified-account",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      createSession,
+    };
+    getUserResponses = [user];
+
+    const response = await GET(
+      signInRequest("cmux://auth-callback", "unused"),
+    );
+
+    expect(claimVerifiedBilling).toHaveBeenCalledWith(
+      "verified-account",
+      "buyer@example.com",
+    );
+    expect(response.status).toBe(200);
+    expect(createSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not mint a session when anonymous promotion fails", async () => {
+    rawRefreshCookie = "";
+    rawAccessCookie = "";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "must-not-be-issued",
+        accessToken: "must-not-be-issued",
+      }),
+    }));
+    const user = {
+      id: "anonymous-promotion-failed",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: true,
+      createSession,
+    };
+    getUserResponses = [null, user];
+    promotionShouldFail = true;
+
+    const response = await GET(
+      signInRequest("cmux://auth-callback", "unused"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("retry-after")).toBe("0");
+    expect(createSession).not.toHaveBeenCalled();
+    expect(await response.text()).toContain(
+      "If we found an account, check your email for next steps",
     );
   });
 

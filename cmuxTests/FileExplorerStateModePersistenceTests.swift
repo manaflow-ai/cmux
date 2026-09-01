@@ -14,6 +14,7 @@ struct FileExplorerStateModePersistenceTests {
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
     private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
     private let sourceControlEnabledKey = RightSidebarBetaFeatureSettings.sourceControlEnabledKey
+    private let customSidebarsEnabledKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
 
     @Test
     func disabledFeedStoredModeFallsBackToFiles() {
@@ -68,9 +69,10 @@ struct FileExplorerStateModePersistenceTests {
     }
 
     @Test
-    func storedCustomSidebarModeFallsBackToFiles() {
+    func storedCustomSidebarModeFallsBackToFilesWhenBetaDisabled() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
+            defaults.set(false, forKey: customSidebarsEnabledKey)
             defaults.set("custom-sidebar", forKey: modeKey)
             defaults.set("status-board", forKey: customSidebarNameKey)
 
@@ -78,6 +80,21 @@ struct FileExplorerStateModePersistenceTests {
 
             #expect(state.mode == .files)
             #expect(defaults.string(forKey: modeKey) == RightSidebarMode.files.rawValue)
+        }
+    }
+
+    @Test
+    func storedCustomSidebarModePersistsWhenAvailable() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(true, forKey: customSidebarsEnabledKey)
+            defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
+            defaults.set("status-board", forKey: customSidebarNameKey)
+
+            let state = FileExplorerState()
+
+            #expect(state.mode == .customSidebar)
+            #expect(defaults.string(forKey: modeKey) == RightSidebarMode.customSidebar.rawValue)
         }
     }
 
@@ -132,8 +149,8 @@ struct FileExplorerStateModePersistenceTests {
         #expect(RightSidebarMode.from(cliArgument: "feed") == .feed)
         #expect(RightSidebarMode.from(cliArgument: "dock") == .dock)
         #expect(RightSidebarMode.from(cliArgument: " Vault ") == .sessions)
-        #expect(RightSidebarMode.from(cliArgument: "custom-sidebar") == nil)
-        #expect(RightSidebarMode.from(cliArgument: "custom") == nil)
+        #expect(RightSidebarMode.from(cliArgument: "custom-sidebar") == .customSidebar)
+        #expect(RightSidebarMode.from(cliArgument: "custom") == .customSidebar)
         #expect(RightSidebarMode.from(cliArgument: "unknown") == nil)
     }
 
@@ -144,12 +161,14 @@ struct FileExplorerStateModePersistenceTests {
         let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
         let previousSourceControlEnabled = defaults.object(forKey: sourceControlEnabledKey)
+        let previousCustomSidebarsEnabled = defaults.object(forKey: customSidebarsEnabledKey)
         defer {
             restore(previousMode, forKey: modeKey)
             restore(previousCustomSidebarName, forKey: customSidebarNameKey)
             restore(previousFeedEnabled, forKey: feedEnabledKey)
             restore(previousDockEnabled, forKey: dockEnabledKey)
             restore(previousSourceControlEnabled, forKey: sourceControlEnabledKey)
+            restore(previousCustomSidebarsEnabled, forKey: customSidebarsEnabledKey)
         }
         body()
     }
