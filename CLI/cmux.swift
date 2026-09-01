@@ -22972,6 +22972,18 @@ struct CMUXCLI {
             }
             return (alias.workspaceId, alias.surfaceId)
         }
+        if normalizedTmuxTarget(raw) == nil {
+            let workspaceId = try tmuxResolveWorkspaceTarget(nil, client: client)
+            guard let callerSurface = tmuxCallerSurfaceHandle(),
+                  let surfaceId = try? tmuxCanonicalSurfaceId(
+                    callerSurface,
+                    workspaceId: workspaceId,
+                    client: client
+                  ) else {
+                throw CLIError(message: "Surface target not found")
+            }
+            return (workspaceId, surfaceId)
+        }
         return (try tmuxResolveWorkspaceTarget(raw, client: client), nil)
     }
 
