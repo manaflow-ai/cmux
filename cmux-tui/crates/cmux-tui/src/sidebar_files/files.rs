@@ -68,24 +68,35 @@ fn compare_entries(left: &FileEntry, right: &FileEntry) -> Ordering {
 
 pub fn filtered_indices(entries: &[FileEntry], query: &str) -> Vec<usize> {
     let normalized_query = query.to_lowercase();
+    let mut normalized_ascii_name = String::new();
     entries
         .iter()
         .enumerate()
         .filter_map(|(index, entry)| {
-            contains_case_insensitive(&entry.name, query, &normalized_query).then_some(index)
+            contains_case_insensitive(
+                &entry.name,
+                query,
+                &normalized_query,
+                &mut normalized_ascii_name,
+            )
+            .then_some(index)
         })
         .collect()
 }
 
-fn contains_case_insensitive(name: &str, query: &str, normalized_query: &str) -> bool {
+fn contains_case_insensitive(
+    name: &str,
+    query: &str,
+    normalized_query: &str,
+    normalized_ascii_name: &mut String,
+) -> bool {
     if query.is_empty() {
         return true;
     }
     if name.is_ascii() && query.is_ascii() {
-        return name
-            .as_bytes()
-            .windows(query.len())
-            .any(|window| window.eq_ignore_ascii_case(query.as_bytes()));
+        normalized_ascii_name.clear();
+        normalized_ascii_name.extend(name.bytes().map(|byte| byte.to_ascii_lowercase() as char));
+        return normalized_ascii_name.contains(normalized_query);
     }
     name.to_lowercase().contains(normalized_query)
 }
@@ -167,5 +178,14 @@ mod tests {
         }];
         assert_eq!(filtered_indices(&entries, "RÉSUMÉ"), vec![0]);
         assert_eq!(entries[0].name, "Résumé.txt");
+    }
+
+    #[test]
+    fn filtering_handles_long_ascii_near_matches() {
+        let name = "A".repeat(4096);
+        let query = format!("{}B", "a".repeat(2048));
+        let entries = vec![FileEntry { name, path: "long-name".into(), kind: EntryKind::File }];
+
+        assert!(filtered_indices(&entries, &query).is_empty());
     }
 }
