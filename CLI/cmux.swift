@@ -4196,12 +4196,14 @@ final class SocketClient {
                 case .accessDenied:
                     throw CLIError(message: String(
                         localized: "cli.events.error.connectionDenied",
-                        defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
+                        defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                     ))
                 case .server:
                     throw CLIError(message: String(
                         localized: "cli.events.error.server",
-                        defaultValue: "cmux returned an error while starting the event stream. Check the command and try again."
+                        defaultValue: "cmux returned an error while starting the event stream. Check the command and try again.",
+                        bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
                     ))
                 }
             }
