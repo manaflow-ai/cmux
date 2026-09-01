@@ -297,15 +297,22 @@ struct SurfaceCatalogTests {
         let old = Task { try await catalog.project(term.id, into: destination, reuseInWorkspace: ws) }
         await gate.waitUntilEntered()
 
+        let (discarded, discardedContinuation) = AsyncStream<SurfaceProjection>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        oldProvider.onDiscard = { projection in
+            discardedContinuation.yield(projection)
+            discardedContinuation.finish()
+        }
         let replacement = FakeProvider(machine: .cloud("vivid-newt"))
         catalog.register(replacement)
+        // The stale caller is told right away, not when the old provider finally answers.
+        await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) { try await old.value }
         // A scoped open after the swap must not join the stale call: the new provider materializes.
         let new = try await catalog.project(term.id, into: destination, reuseInWorkspace: ws)
         #expect(!new.reused)
         #expect(replacement.materialized.count == 1)
 
         gate.release()
-        await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) { try await old.value }
+        _ = try await awaitFirst(discarded)
         #expect(oldProvider.discarded.count == 1, "the stale provider's late pane is handed back, not recorded")
         #expect(catalog.projections(of: term.id) == [new.projection])
     }
@@ -334,6 +341,8 @@ struct SurfaceCatalogTests {
         }
 
         stuck.cancel()
+        // The cancelled caller stops waiting at once; the provider call keeps going.
+        await #expect(throws: CancellationError.self) { try await stuck.value }
         _ = try await awaitFirst(retired)
         await Task.yield()
         // The caller gave up: the slot retires on the bounded window, so a provider that
@@ -344,7 +353,6 @@ struct SurfaceCatalogTests {
         #expect(provider.materialized.count == 2)
 
         gate.release()
-        _ = try? await stuck.value
     }
 
     @Test func `Concurrent reuse waits for the in-flight materialization`() async throws {

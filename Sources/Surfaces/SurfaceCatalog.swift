@@ -96,6 +96,9 @@ final class SurfaceCatalog {
     /// Workspace-scoped opens (`project(reuseInWorkspace:)`) single-flight per
     /// (resource, local workspace); see `projectScoped`.
     private var scopedInFlightProjects: [ScopedMaterializationKey: ScopedMaterialization] = [:]
+    /// Callers waiting on a scoped call, by its token: resumed when the call settles, when
+    /// it is retired, or — individually, at once — when the caller itself is cancelled.
+    private var scopedWaiters: [UUID: [UUID: CheckedContinuation<SurfaceProjection, any Error>]] = [:]
     /// Tokens for operations that can still report after the catalog moved on. The provider is
     /// held by the provider task itself and passed to the late-result callback, so these sets do
     /// not keep disconnected providers alive. Every token has one bounded eviction task.
@@ -284,7 +287,7 @@ final class SurfaceCatalog {
     private struct ScopedMaterialization {
         let provider: any SurfaceProvider
         let token: UUID
-        let task: Task<SurfaceProjection, any Error>
+        let task: Task<Void, Never>
     }
 
     /// One provider call per (resource, local workspace) for workspace-scoped opens: a
@@ -325,39 +328,65 @@ final class SurfaceCatalog {
         }
         let token = UUID()
         trackMaterialization(token, for: provider)
-        let task = Task { @MainActor [weak self] () throws -> SurfaceProjection in
-            defer { self?.settleScopedMaterialization(key, token: token) }
-            let projection = try await provider.materialize(resource, at: destination, focus: focus)
-            guard let self, self.resources[id] != nil, self.providers[id.machine] === provider else {
-                _ = provider.discardMaterialization(projection)
-                throw SurfaceCatalogError.unknownResource(id)
+        let task = Task { @MainActor [weak self] in
+            let result: Result<SurfaceProjection, any Error>
+            do {
+                let projection = try await provider.materialize(resource, at: destination, focus: focus)
+                if let self, self.resources[id] != nil, self.providers[id.machine] === provider {
+                    self.record(projection)
+                    result = .success(projection)
+                } else {
+                    _ = provider.discardMaterialization(projection)
+                    result = .failure(SurfaceCatalogError.unknownResource(id))
+                }
+            } catch {
+                result = .failure(error)
             }
-            self.record(projection)
-            return projection
+            self?.settleScopedMaterialization(key, token: token, result: result)
         }
         let entry = ScopedMaterialization(provider: provider, token: token, task: task)
         scopedInFlightProjects[key] = entry
         return (try await awaitScopedMaterialization(entry, key: key), false)
     }
 
-    /// Waits on a scoped call. A caller that stops waiting retires the call's capacity
-    /// slot (bounded, like an abandoned global materialization); the provider operation
-    /// itself stays in flight because provider cancellation is cooperative.
+    /// Waits on a scoped call. A cancelled caller resumes at once with `CancellationError`
+    /// (see `cancelScopedWaiter`); everyone else resumes when the call settles or is retired.
     private func awaitScopedMaterialization(_ entry: ScopedMaterialization, key: ScopedMaterializationKey) async throws -> SurfaceProjection {
-        try await withTaskCancellationHandler {
-            try await entry.task.value
+        let waiterID = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                scopedWaiters[entry.token, default: [:]][waiterID] = continuation
+            }
         } onCancel: { [weak self] in
             Task { @MainActor in
-                self?.retireScopedMaterializationCapacity(key, token: entry.token)
+                self?.cancelScopedWaiter(key: key, token: entry.token, waiterID: waiterID)
             }
         }
     }
 
-    private func retireScopedMaterializationCapacity(_ key: ScopedMaterializationKey, token: UUID) {
+    /// A caller stopped waiting: it throws `CancellationError` now, and the call's capacity
+    /// slot retires on the bounded window (like an abandoned global materialization). The
+    /// provider operation itself stays in flight because provider cancellation is
+    /// cooperative; its pane still lands in the workspace that asked for it.
+    private func cancelScopedWaiter(key: ScopedMaterializationKey, token: UUID, waiterID: UUID) {
+        guard let continuation = scopedWaiters[token]?.removeValue(forKey: waiterID) else { return }
+        if scopedWaiters[token]?.isEmpty == true { scopedWaiters[token] = nil }
+        continuation.resume(throwing: CancellationError())
         guard scopedInFlightProjects[key]?.token == token,
               trackedMaterializationTokens.contains(token),
               !retiredMaterializationTokens.contains(token) else { return }
         retireMaterialization(token)
+    }
+
+    private func resumeScopedWaiters(_ token: UUID, with result: Result<SurfaceProjection, any Error>) {
+        guard let waiters = scopedWaiters.removeValue(forKey: token) else { return }
+        for continuation in waiters.values {
+            continuation.resume(with: result)
+        }
     }
 
     /// Drops a pending scoped call from the table and retires its capacity slot. The
@@ -369,6 +398,7 @@ final class SurfaceCatalog {
             retireMaterialization(pending.token)
         }
         pending.task.cancel()
+        resumeScopedWaiters(pending.token, with: .failure(SurfaceCatalogError.unknownResource(key.resource)))
     }
 
     private func retireScopedMaterializations(on machine: SurfaceMachineID) {
@@ -378,8 +408,9 @@ final class SurfaceCatalog {
     }
 
     /// The scoped call finished (either way): its token stops counting — idempotent with
-    /// an earlier retirement — and its table entry clears unless a newer call replaced it.
-    private func settleScopedMaterialization(_ key: ScopedMaterializationKey, token: UUID) {
+    /// an earlier retirement — its table entry clears unless a newer call replaced it, and
+    /// every caller still waiting gets the result.
+    private func settleScopedMaterialization(_ key: ScopedMaterializationKey, token: UUID, result: Result<SurfaceProjection, any Error>) {
         if retiredMaterializationTokens.remove(token) != nil {
             retiredMaterializationEvictionTasks.removeValue(forKey: token)?.cancel()
         }
@@ -387,6 +418,7 @@ final class SurfaceCatalog {
         if scopedInFlightProjects[key]?.token == token {
             scopedInFlightProjects[key] = nil
         }
+        resumeScopedWaiters(token, with: result)
     }
 
     private func awaitMaterialization(
