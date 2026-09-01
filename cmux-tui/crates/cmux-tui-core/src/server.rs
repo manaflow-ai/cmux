@@ -4866,7 +4866,47 @@ impl SocketStartLock {
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK).mode(0o600);
+        }
+        let file = options.open(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+            let metadata = file.metadata()?;
+            if !metadata.is_file() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock is not a regular file",
+                ));
+            }
+            if metadata.nlink() != 1 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session-server start lock has unexpected hard links",
+                ));
+            }
+            if metadata.uid() != unsafe { libc::geteuid() } {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock owner changed",
+                ));
+            }
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o600);
+            file.set_permissions(permissions)?;
+            let mode = file.metadata()?.permissions().mode();
+            if mode & 0o077 != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock is not private",
+                ));
+            }
+        }
         loop {
             match fs4::FileExt::try_lock(&file) {
                 Ok(()) => return Ok(Self { _file: file }),
@@ -13201,6 +13241,107 @@ mod tests {
             default_socket_path_in_runtime_dir("main", runtime_dir.clone()),
             runtime_dir.join("main.sock")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_symlinked_lock_path() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TestSocketDir::create("start-lock-symlink");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let target = dir.path().join("target");
+        std::fs::write(&target, b"not the lock").unwrap();
+        symlink(&target, &lock).unwrap();
+
+        let error = match SocketStartLock::acquire(&socket, Instant::now()) {
+            Ok(_) => panic!("symlinked start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let dir = TestSocketDir::create("start-lock-fifo");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let lock_path = CString::new(lock.as_os_str().as_bytes()).unwrap();
+        let result = unsafe { libc::mkfifo(lock_path.as_ptr(), 0o600) };
+        assert_eq!(result, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let acquire_socket = socket.clone();
+        let acquire = std::thread::spawn(move || {
+            sender.send(SocketStartLock::acquire(&acquire_socket, Instant::now())).unwrap();
+        });
+
+        let outcome = receiver.recv_timeout(Duration::from_secs(1));
+        if outcome.is_err() {
+            // Release a writer that used blocking open in an unfixed build so
+            // this regression test fails promptly instead of leaking a thread.
+            let reader = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&lock)
+                .unwrap();
+            let _ = receiver.recv_timeout(Duration::from_secs(1));
+            drop(reader);
+            acquire.join().unwrap();
+            panic!("opening a start-lock FIFO blocked before type validation");
+        }
+        acquire.join().unwrap();
+        let error = match outcome.unwrap() {
+            Ok(_) => panic!("FIFO start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.raw_os_error(), Some(libc::ENXIO));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_migrates_existing_lock_to_owner_only_mode() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = TestSocketDir::create("start-lock-mode");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        std::fs::write(&lock, b"").unwrap();
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
+        let metadata = std::fs::metadata(&lock).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_hard_linked_lock_without_chmod() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = TestSocketDir::create("start-lock-hard-link");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let alias = dir.path().join("lock-alias");
+        std::fs::write(&lock, b"").unwrap();
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::hard_link(&lock, &alias).unwrap();
+
+        let error = match SocketStartLock::acquire(&socket, Instant::now()) {
+            Ok(_) => panic!("hard-linked start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        let metadata = std::fs::metadata(&lock).unwrap();
+        assert_eq!(metadata.nlink(), 2);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o644);
     }
 
     #[test]
