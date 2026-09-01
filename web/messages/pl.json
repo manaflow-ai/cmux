@@ -15,6 +15,11 @@
         "fork": "Nie ponawiaj próby. Utwórz nową VM za pomocą `cmux vm new`.",
         "default": "Nie ponawiaj próby. Uruchom `cmux vm ls` lub skontaktuj się z pomocą, jeśli uważasz, że to błąd."
       }
+    },
+    "requiresPro": {
+      "title": "Wymagany cmux Pro",
+      "message": "Cloud VM wymagają planu cmux Pro.",
+      "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
     }
   },
   "billingRecovery": {

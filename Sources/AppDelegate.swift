@@ -9842,7 +9842,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let cascadeOffset: CGFloat = 24
-        let minimumWindowSize = NSSize(width: 460, height: 360)
+        let minimumWindowSize = NSSize(width: 460, height: CmuxMainWindow.minimumContentSize.height)
         var frame = window.frame
         frame.origin = NSPoint(
             x: sourceFrame.minX + cascadeOffset,
