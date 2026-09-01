@@ -1180,16 +1180,22 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 // than exposing a partial state at a nonzero cursor.
                 eprintln!("cmux-tui: agent roster snapshot cannot be replayed: {error}");
                 let empty_snapshot = AgentRoster::default().snapshot().to_string();
-                if let Err(reset_error) = registry.clear_journal_reducer_state(
+                let ordering_token = match registry.clear_journal_reducer_state(
                     AGENT_ROSTER_REDUCER_ID,
                     AGENT_ROSTER_REDUCER_VERSION,
                     &empty_snapshot,
                 ) {
-                    eprintln!(
-                        "cmux-tui: clearing the unreplayable agent roster snapshot failed: {reset_error}"
-                    );
-                }
-                return Ok(AgentRosterHost::default());
+                    Ok(ordering_token) => ordering_token,
+                    Err(reset_error) => {
+                        eprintln!(
+                            "cmux-tui: clearing the unreplayable agent roster snapshot failed: {reset_error}"
+                        );
+                        // Keep the loaded token when the reset write fails, so
+                        // a future live write can still advance past it.
+                        host.ordering_token
+                    }
+                };
+                return Ok(AgentRosterHost { ordering_token, ..AgentRosterHost::default() });
             }
         };
         if page.records.is_empty() {
@@ -23922,6 +23928,7 @@ mod tests {
 
         let host = restore_agent_roster(&registry).unwrap();
         assert_eq!(host.cursor, 0, "an unreplayable cursor must fail closed");
+        assert_eq!(host.ordering_token, 43, "the reset token must carry into the host");
         assert!(host.roster.entries.is_empty());
         let persisted = registry
             .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
