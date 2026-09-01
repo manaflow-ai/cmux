@@ -30,10 +30,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    # Pull requests can contain untrusted skill examples; keep this contract
-    # on immutable GitHub-hosted infrastructure rather than a configurable
-    # runner with private-network access.
-    runs-on: ubuntu-24.04 # github-hosted-required: skill PRs run untrusted code
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
