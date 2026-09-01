@@ -87,6 +87,7 @@ struct PendingIdle {
 #[derive(Debug, Clone)]
 struct TrackerSnapshot {
     emitted: Option<(String, AgentState)>,
+    identity_presence_needed: bool,
     visible_idle: bool,
     visible_blocker: bool,
     visible_working: bool,
@@ -98,6 +99,7 @@ impl TrackerSnapshot {
     fn capture(entry: &TrackedTerminal) -> Self {
         Self {
             emitted: entry.emitted.clone(),
+            identity_presence_needed: entry.identity_presence_needed,
             visible_idle: entry.visible_idle,
             visible_blocker: entry.visible_blocker,
             visible_working: entry.visible_working,
@@ -128,6 +130,7 @@ impl PendingEmission {
 impl TrackerSnapshot {
     fn restore(self, entry: &mut TrackedTerminal) {
         entry.emitted = self.emitted;
+        entry.identity_presence_needed = self.identity_presence_needed;
         entry.visible_idle = self.visible_idle;
         entry.visible_blocker = self.visible_blocker;
         entry.visible_working = self.visible_working;
@@ -220,6 +223,10 @@ struct TrackedTerminal {
     /// The pre-emission state until the scanner confirms journal admission.
     /// Only one emission is in flight because appends are synchronous.
     pending_emission: Option<PendingEmission>,
+    /// A process identity edge remains unsatisfied until its presence event
+    /// is admitted. This is separate from the last screen state because an
+    /// agent can replace another agent while both report `idle`.
+    identity_presence_needed: bool,
     /// A failed transport keeps the exact edge available for idempotent
     /// replay. The scanner retries this before evaluating a newer screen.
     retry_emission: Option<PendingEmission>,
@@ -306,10 +313,10 @@ impl ScreenDetectTracker {
     /// edge. This stays true after a failed append, including when the
     /// foreground agent changed while an older agent row was live.
     pub(crate) fn needs_identity_presence(&self, terminal_id: &str, agent: &str) -> bool {
-        self.terminals
-            .get(terminal_id)
-            .and_then(|entry| entry.emitted.as_ref())
-            .is_none_or(|(current_agent, _)| current_agent != agent)
+        self.terminals.get(terminal_id).is_none_or(|entry| {
+            entry.identity_presence_needed
+                || entry.emitted.as_ref().is_none_or(|(current_agent, _)| current_agent != agent)
+        })
     }
 
     /// Record which agent the foreground process currently matches. Returns
@@ -378,6 +385,7 @@ impl ScreenDetectTracker {
         }
         entry.foreground_agent = agent.map(str::to_string);
         entry.foreground_process_group = agent.and(process_group_id);
+        entry.identity_presence_needed = agent.is_some();
         entry.startup_grace_until =
             agent.map(|_| now + Duration::from_millis(AGENT_STARTUP_GRACE_MS));
         // A process identity edge invalidates the prior screen evaluation.
@@ -449,6 +457,7 @@ impl ScreenDetectTracker {
         entry.last_visible_blocker_refresh = None;
         let next = (agent.to_string(), AgentState::Idle);
         if entry.emitted.as_ref() == Some(&next) {
+            entry.identity_presence_needed = false;
             return None;
         }
         entry.emitted = Some(next);
@@ -461,6 +470,7 @@ impl ScreenDetectTracker {
             visible_blocker: false,
             visible_working: false,
         };
+        entry.identity_presence_needed = false;
         PendingEmission::arm(entry, before, emission.clone());
         Some(emission)
     }
@@ -500,6 +510,7 @@ impl ScreenDetectTracker {
             entry.foreground_process_group = None;
             entry.foreground_misses = 0;
             entry.startup_grace_until = None;
+            entry.identity_presence_needed = false;
         }
         entry.evaluated_revision = Some(entry.revision);
         let Some((agent, detection)) = detection else {
