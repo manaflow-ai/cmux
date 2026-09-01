@@ -29,7 +29,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "518d54e5d7bec1978dbfaf6a164e51853f93898761f868b70709801f90e847be"
+EXPECTED_GUARD_SCRIPT_DIGEST = "579790b38d6e34a08354cee77be1504749fbd9185e871ca4754081bad8347a82"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -99,7 +99,10 @@ RERUN_ENV = {
   "TARGET_BASE_REF" => "main",
   "SIGNATURE_RECORDED" => "${{ needs.CLALedgerWriter.outputs.signature_recorded || '' }}"
 }.freeze
-GITHUB_CONTEXT_IN_RUN = /\$\{\{[^}]*\bgithub\b[^}]*\}\}/im
+# Run blocks are shell text, not an expression surface. Reject every GitHub
+# expression here, including bracket notation and nested format/toJSON calls
+# that a token-specific regular expression cannot parse safely.
+GITHUB_CONTEXT_IN_RUN = /\$\{\{/m
 TOKEN_ENV_IN_RUN = /(?:\A|[^A-Za-z0-9_])(?:GITHUB_TOKEN|GH_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|RUNNER_TOKEN)(?:\z|[^A-Za-z0-9_])/i
 
 # The guard workflow is itself a privileged control-plane input. Keep its
@@ -741,7 +744,7 @@ end
 
 def assert_safe_run_text(run, name)
   fail!("#{name} must be a shell string") unless run.is_a?(String)
-  fail!("#{name} may not interpolate the GitHub context") if run.match?(GITHUB_CONTEXT_IN_RUN)
+  fail!("#{name} may not interpolate GitHub expressions") if run.match?(GITHUB_CONTEXT_IN_RUN)
   fail!("#{name} may not access a token environment variable") if run.match?(TOKEN_ENV_IN_RUN)
 end
 
@@ -1065,6 +1068,9 @@ def run_environment_regression_matrix!
   end
   expect_failure.call("serialized GitHub context") do
     assert_safe_run_text("echo '${{ toJSON(github) }}'", "regression run")
+  end
+  expect_failure.call("nested expression") do
+    assert_safe_run_text("echo '${{ format('{0}', 'value') }}'", "regression run")
   end
   expect_failure.call("token environment variable") do
     assert_safe_run_text("echo \"$ACTIONS_RUNTIME_TOKEN\"", "regression run")
