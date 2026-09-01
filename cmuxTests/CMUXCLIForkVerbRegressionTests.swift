@@ -248,7 +248,7 @@ struct CMUXCLIForkVerbRegressionTests {
             let socketPath = "/tmp/cmux-continuation-selector-\(UUID().uuidString.prefix(8)).sock"
             let responder = try UnixSocketResponder(path: socketPath, response: "{\"ok\":true,\"result\":{}}")
             defer { responder.stop() }
-            var environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
+            let environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
             let restore = try runCLI(arguments: ["restore"] + form, environment: environment)
             let fork = try runCLI(arguments: ["fork"] + form, environment: environment)
             #expect(restore.status != 0)

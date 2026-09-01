@@ -38,7 +38,6 @@ extension CMUXCLI {
             processEnvironment: processEnvironment,
             verb: .fork
         )
-        let params: [String: Any] = ["surface_id": surfaceID]
         let payload = try continuationSurfaceResumePayload(
             surfaceID: surfaceID,
             client: client,
