@@ -13,7 +13,7 @@ permissions: {}
 # gives the rerun worker a stable generation that is independent of unrelated
 # commits on main.
 env:
-  CLA_GENERATION: "v2.2-action-0502e16018c7c71dc7647e0d41d056a11903941a"
+  CLA_GENERATION: "v2.2-action-482864f7296623ba4e8ddb7d6bc1836635306eb1"
 
 jobs:
   # This job has read-only permissions. It performs the exact event check and
@@ -54,6 +54,7 @@ jobs:
       admitted: ${{ steps.admission.outputs.admitted }}
       signer_authorized: ${{ steps.signer_preflight.outputs.signer_authorized }}
       head_sha: ${{ steps.signer_preflight.outputs.head_sha }}
+      base_sha: ${{ steps.signer_preflight.outputs.base_sha }}
     steps:
       - name: "Validate exact CLA trigger"
         id: admission
@@ -105,7 +106,7 @@ jobs:
           success() &&
           github.event_name == 'issue_comment' &&
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
-        uses: manaflow-ai/cla-github-action@0502e16018c7c71dc7647e0d41d056a11903941a
+        uses: manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -153,10 +154,11 @@ jobs:
                 github.event.comment.author_association == 'COLLABORATOR'
               )
             ) ||
-            (
-              github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
-              needs.CLACommentGate.outputs.signer_authorized == 'true' &&
-              needs.CLACommentGate.outputs.head_sha != ''
+              (
+                github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
+                needs.CLACommentGate.outputs.signer_authorized == 'true' &&
+                needs.CLACommentGate.outputs.head_sha != '' &&
+                needs.CLACommentGate.outputs.base_sha != ''
             )
           )
         )
@@ -175,7 +177,7 @@ jobs:
     steps:
       - name: "Write CLA result"
         id: cla_action
-        uses: manaflow-ai/cla-github-action@0502e16018c7c71dc7647e0d41d056a11903941a
+        uses: manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -188,6 +190,7 @@ jobs:
           require-opener-as-author: "true"
           lock-pullrequest-aftermerge: "false"
           expected-head-sha: "${{ needs.CLACommentGate.outputs.head_sha }}"
+          expected-base-sha: "${{ needs.CLACommentGate.outputs.base_sha }}"
 
   # This no-permission job owns the required v3 check context. A gate or writer
   # failure is visible as a failed check instead of being hidden as a skipped
@@ -372,7 +375,7 @@ jobs:
       pull-requests: read
     steps:
       - name: "Lock merged pull request"
-        uses: manaflow-ai/cla-github-action@0502e16018c7c71dc7647e0d41d056a11903941a
+        uses: manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
