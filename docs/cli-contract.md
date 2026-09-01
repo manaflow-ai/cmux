@@ -593,12 +593,12 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|tree|workspace|terminal|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|tree|workspace|terminal|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|24g|32g>] [--timeout <seconds>] -- <command...>`
-- `cmux vm run -h` -> `Usage: cmux vm run [--sync]`
-- `cmux cloud run --help` -> `Usage: cmux vm run [--sync]`
+- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|24g|32g>] [--timeout <seconds>] -- <command...>`
+- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|24g|32g>] [--timeout <seconds>] -- <command...>`
 - `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <2g|4g|8g|16g|24g|32g>] [--json]`
 - `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>`
 - `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
-- `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path]`
+- `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
 - `cmux vm pull --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
 - `cmux vm download --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
 - `cmux vm wait --help` -> `Usage: cmux vm wait <id> [--timeout <seconds>] [--wake]`

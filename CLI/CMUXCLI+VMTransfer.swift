@@ -932,13 +932,16 @@ extension CMUXCLI {
             // store cannot grow stale or accidentally match a recycled id later.
             let liveIDs = Set(vms.compactMap { $0["id"] as? String })
             let staleIDs = poolIDs.subtracting(liveIDs)
-            let prunedPoolIDs = poolIDs.subtracting(staleIDs)
             if !staleIDs.isEmpty {
                 // Subtract only the ids this snapshot saw as gone. Intersecting the
                 // locked set with `liveIDs` would also drop a machine another `vm run`
                 // recorded after the list was taken but before this lock was held.
                 try Self.updateVMRunPool { machines in machines.subtract(staleIDs) }
             }
+            // Re-read after the prune so a machine another `vm run` recorded between
+            // the first load and `vm.list` (and that the list carries) is eligible now
+            // instead of pushing this run toward a needless provision.
+            let prunedPoolIDs = Self.loadVMRunPool().intersection(liveIDs)
             let pool = vms.filter { vm in
                 guard let id = vm["id"] as? String else { return false }
                 let status = ((vm["status"] as? String) ?? "").lowercased()
