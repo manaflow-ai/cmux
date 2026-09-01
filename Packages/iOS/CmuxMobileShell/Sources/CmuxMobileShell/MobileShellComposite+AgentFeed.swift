@@ -129,8 +129,24 @@ extension MobileShellComposite {
         agentFeedSnapshotsByMac = [:]
         agentFeedPendingReplyRequestIDs = []
         agentFeedLocalRepliesByItemID = [:]
+        agentFeedTriageOverridesByItemID = [:]
         agentFeedItems = []
         agentFeedStatus = .idle
+    }
+
+    /// Sets the local needs-input triage state of one row — the Feed's
+    /// mark-read/unread analogue. Matching the row's own state clears the
+    /// override so a later authoritative change shows through.
+    public func setAgentFeedItemNeedsInput(
+        _ item: MobileAgentFeedItem,
+        _ needsInput: Bool
+    ) {
+        if needsInput == item.needsInput {
+            agentFeedTriageOverridesByItemID[item.id] = nil
+        } else {
+            agentFeedTriageOverridesByItemID[item.id] = needsInput
+        }
+        recomputeAgentFeedItems()
     }
 
     /// Removes one hidden Mac's rows and cancels work that could restore them.
@@ -282,6 +298,10 @@ extension MobileShellComposite {
                 if let reply = agentFeedLocalRepliesByItemID[projected.id],
                    projected.userReply != reply {
                     projected = projected.updating(userReply: reply)
+                }
+                if let triaged = agentFeedTriageOverridesByItemID[projected.id],
+                   projected.triagedNeedsInput != triaged {
+                    projected = projected.updating(triagedNeedsInput: triaged)
                 }
                 merged.append(projected)
             }

@@ -204,10 +204,21 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
     /// The free-text reply this device sent to the row's terminal, recorded
     /// locally so the row shows what was said in response to it.
     public let userReply: String?
+    /// The user's local triage override: `false` clears a pending row from
+    /// Needs Input without answering it; `true` re-flags a row. `nil` defers
+    /// to the row's own state — the mark-read/unread analogue for the Feed.
+    public let triagedNeedsInput: Bool?
 
     /// Whether the row is awaiting a decision the user can take from the Feed.
     public var needsInput: Bool {
         status.isPending && kind.isActionable && requestID != nil
+    }
+
+    /// `needsInput` with the user's local triage override applied. The badge,
+    /// filter, and unread dot read this; the inline controls follow the row's
+    /// real pending state so a triaged-away row can still be answered.
+    public var effectiveNeedsInput: Bool {
+        triagedNeedsInput ?? needsInput
     }
 
     /// Whether the row supports a free-text reply routed to its terminal.
@@ -245,7 +256,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         surfaceTitle: String? = nil,
         context: MobileAgentFeedContext? = nil,
         connectionStatus: MobileMacConnectionStatus,
-        userReply: String? = nil
+        userReply: String? = nil,
+        triagedNeedsInput: Bool? = nil
     ) {
         self.id = MobileAgentFeedItemID(
             macDeviceID: macDeviceID,
@@ -282,6 +294,7 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         self.context = context
         self.connectionStatus = connectionStatus
         self.userReply = userReply
+        self.triagedNeedsInput = triagedNeedsInput
     }
 
     /// Returns the same row with updated lifecycle and reachability state.
@@ -289,7 +302,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         status: MobileAgentFeedItemStatus? = nil,
         updatedAt: Date? = nil,
         connectionStatus: MobileMacConnectionStatus? = nil,
-        userReply: String? = nil
+        userReply: String? = nil,
+        triagedNeedsInput: Bool? = nil
     ) -> MobileAgentFeedItem {
         MobileAgentFeedItem(
             macDeviceID: macDeviceID,
@@ -321,7 +335,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
             surfaceTitle: surfaceTitle,
             context: context,
             connectionStatus: connectionStatus ?? self.connectionStatus,
-            userReply: userReply ?? self.userReply
+            userReply: userReply ?? self.userReply,
+            triagedNeedsInput: triagedNeedsInput ?? self.triagedNeedsInput
         )
     }
 }

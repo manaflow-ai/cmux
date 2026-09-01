@@ -12,7 +12,67 @@ struct AgentFeedActions {
     var terminalReply: @MainActor (MobileAgentFeedItem, _ text: String) -> Void = { _, _ in }
     /// Opens the X-style reply composer sheet; rows never host a keyboard.
     var beginCompose: @MainActor (MobileAgentFeedItem, AgentFeedComposeContext.Kind) -> Void = { _, _ in }
+    /// Local needs-input triage — the Feed's mark-read/unread analogue.
+    var setNeedsInput: @MainActor (MobileAgentFeedItem, Bool) -> Void = { _, _ in }
     var refresh: @MainActor () async -> Void = {}
+}
+
+/// The one visual family every Feed action shares: option-bar-shaped
+/// rounded rects. Primary fills with the accent, neutral with a quiet
+/// fill, destructive with a red tint — no stock bordered styles, no
+/// bare red-on-gray labels.
+enum AgentFeedActionRole {
+    case primary
+    case neutral
+    case destructive
+
+    var fill: Color {
+        switch self {
+        case .primary: return Color.accentColor
+        case .neutral: return Color.secondary.opacity(0.15)
+        case .destructive: return Color.red.opacity(0.16)
+        }
+    }
+
+    var label: Color {
+        switch self {
+        case .primary: return .white
+        case .neutral: return .primary
+        case .destructive: return .red
+        }
+    }
+}
+
+struct AgentFeedActionButton: View {
+    let title: String
+    let role: AgentFeedActionRole
+    let action: @MainActor () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 10).fill(role.fill))
+                .foregroundStyle(role.label)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The overflow menu chip, matching the action buttons' height and fill at
+/// full label strength (never dimmed).
+struct AgentFeedOverflowMenuLabel: View {
+    var body: some View {
+        Image(systemName: "ellipsis")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .frame(width: 44)
+            .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.15)))
+    }
 }
 
 /// One X-style full-width Feed row: avatar gutter, author line, inline agent
@@ -88,7 +148,7 @@ struct AgentFeedRow: View, Equatable {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if model.item.needsInput {
+            if model.item.effectiveNeedsInput {
                 Circle()
                     .fill(Color.accentColor)
                     .frame(width: 10, height: 10)
@@ -129,23 +189,29 @@ struct AgentFeedRow: View, Equatable {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The X-style reply affordance: a quiet bubble button under the post
-    /// that opens the composer sheet.
+    /// The reply affordance under a finished turn: accent-tinted so it reads
+    /// as the row's obvious action, opening the composer sheet.
     private var replyButton: some View {
         Button {
             actions.beginCompose(model.item, .terminalReply)
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "bubble.left")
-                    .font(.caption)
+            HStack(spacing: 6) {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(.footnote)
                 Text(String(
                     localized: "mobile.agentFeed.compose.reply",
                     defaultValue: "Reply",
                     bundle: .module
                 ))
-                .font(.footnote.weight(.medium))
+                .font(.subheadline.weight(.semibold))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.accentColor.opacity(0.12))
+            )
         }
         .buttonStyle(.plain)
         .disabled(isReplyPending)
@@ -290,44 +356,38 @@ private struct AgentFeedDecisionControls: View {
 
     private var permissionControls: some View {
         HStack(spacing: 8) {
-            Button {
-                actions.permissionReply(item, "once")
-            } label: {
-                Text(String(
+            AgentFeedActionButton(
+                title: String(
                     localized: "mobile.agentFeed.permission.allow",
                     defaultValue: "Allow",
                     bundle: .module
-                ))
-                .frame(maxWidth: .infinity)
+                ),
+                role: .primary
+            ) {
+                actions.permissionReply(item, "once")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
 
-            Button {
-                actions.permissionReply(item, "always")
-            } label: {
-                Text(String(
+            AgentFeedActionButton(
+                title: String(
                     localized: "mobile.agentFeed.permission.always",
                     defaultValue: "Always",
                     bundle: .module
-                ))
-                .frame(maxWidth: .infinity)
+                ),
+                role: .neutral
+            ) {
+                actions.permissionReply(item, "always")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
 
-            Button(role: .destructive) {
-                actions.permissionReply(item, "deny")
-            } label: {
-                Text(String(
+            AgentFeedActionButton(
+                title: String(
                     localized: "mobile.agentFeed.permission.deny",
                     defaultValue: "Deny",
                     bundle: .module
-                ))
-                .frame(maxWidth: .infinity)
+                ),
+                role: .destructive
+            ) {
+                actions.permissionReply(item, "deny")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
 
             Menu {
                 Button {
@@ -355,9 +415,7 @@ private struct AgentFeedDecisionControls: View {
                     )
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                AgentFeedOverflowMenuLabel()
             }
             .accessibilityLabel(String(
                 localized: "mobile.agentFeed.permission.moreOptions",
@@ -381,44 +439,38 @@ private struct AgentFeedExitPlanControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Button {
-                    actions.exitPlanReply(item, approveMode, nil)
-                } label: {
-                    Text(String(
+                AgentFeedActionButton(
+                    title: String(
                         localized: "mobile.agentFeed.exitPlan.approve",
                         defaultValue: "Approve",
                         bundle: .module
-                    ))
-                    .frame(maxWidth: .infinity)
+                    ),
+                    role: .primary
+                ) {
+                    actions.exitPlanReply(item, approveMode, nil)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
 
-                Button {
-                    actions.beginCompose(item, .planRevise)
-                } label: {
-                    Text(String(
+                AgentFeedActionButton(
+                    title: String(
                         localized: "mobile.agentFeed.exitPlan.revise",
                         defaultValue: "Revise…",
                         bundle: .module
-                    ))
-                    .frame(maxWidth: .infinity)
+                    ),
+                    role: .neutral
+                ) {
+                    actions.beginCompose(item, .planRevise)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
 
-                Button(role: .destructive) {
-                    actions.exitPlanReply(item, "deny", nil)
-                } label: {
-                    Text(String(
+                AgentFeedActionButton(
+                    title: String(
                         localized: "mobile.agentFeed.permission.deny",
                         defaultValue: "Deny",
                         bundle: .module
-                    ))
-                    .frame(maxWidth: .infinity)
+                    ),
+                    role: .destructive
+                ) {
+                    actions.exitPlanReply(item, "deny", nil)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
 
                 Menu {
                     ForEach(AgentFeedExitPlanControls.approveModes, id: \.mode) { entry in
@@ -429,9 +481,7 @@ private struct AgentFeedExitPlanControls: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
+                    AgentFeedOverflowMenuLabel()
                 }
                 .accessibilityLabel(String(
                     localized: "mobile.agentFeed.exitPlan.moreModes",

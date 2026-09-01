@@ -50,12 +50,12 @@ struct AgentFeedView: View {
         case .all:
             return notable
         case .needsInput:
-            return notable.filter(\.needsInput)
+            return notable.filter(\.effectiveNeedsInput)
         }
     }
 
     private var needsInputCount: Int {
-        items.lazy.filter(\.needsInput).count
+        items.lazy.filter(\.effectiveNeedsInput).count
     }
 
     var body: some View {
@@ -115,6 +115,38 @@ struct AgentFeedView: View {
                         .listRowSeparator(.hidden, edges: .top)
                         .listRowSeparator(.visible, edges: .bottom)
                         .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                        // Needs-input triage in the mark-read swipe style.
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            if item.effectiveNeedsInput {
+                                Button {
+                                    actions.setNeedsInput(item, false)
+                                } label: {
+                                    Label(
+                                        String(
+                                            localized: "mobile.agentFeed.triage.done",
+                                            defaultValue: "Done",
+                                            bundle: .module
+                                        ),
+                                        systemImage: "checkmark.circle.fill"
+                                    )
+                                }
+                                .tint(.accentColor)
+                            } else {
+                                Button {
+                                    actions.setNeedsInput(item, true)
+                                } label: {
+                                    Label(
+                                        String(
+                                            localized: "mobile.agentFeed.triage.needsInput",
+                                            defaultValue: "Needs Input",
+                                            bundle: .module
+                                        ),
+                                        systemImage: "exclamationmark.circle.fill"
+                                    )
+                                }
+                                .tint(.orange)
+                            }
+                        }
                     }
                 }
             }

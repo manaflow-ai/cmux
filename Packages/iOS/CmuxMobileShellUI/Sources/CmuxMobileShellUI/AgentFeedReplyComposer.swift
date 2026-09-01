@@ -60,22 +60,15 @@ struct AgentFeedReplyComposer: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    // The toolbar supplies the pill chrome; a custom capsule
+                    // here would double-background the button.
                     Button {
                         send()
                     } label: {
                         Text(sendLabel)
-                            .font(.subheadline.weight(.bold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule().fill(
-                                    trimmedDraft.isEmpty
-                                        ? Color.accentColor.opacity(0.4)
-                                        : Color.accentColor
-                                )
-                            )
-                            .foregroundStyle(.white)
+                            .fontWeight(.bold)
                     }
+                    .tint(Color.accentColor)
                     .disabled(trimmedDraft.isEmpty)
                     .accessibilityIdentifier("MobileAgentFeedComposeSend")
                 }

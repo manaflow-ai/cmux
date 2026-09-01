@@ -433,7 +433,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across Macs (the Feed tab's rows).
     public internal(set) var agentFeedItems: [MobileAgentFeedItem] = [] {
         didSet {
-            agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.needsInput).count
+            agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.effectiveNeedsInput).count
         }
     }
     /// The agent feed's current loading and capability state. Shares the
@@ -448,6 +448,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Free-text terminal replies this device sent, keyed by the replied row,
     /// so the row keeps showing what was said across snapshot refreshes.
     var agentFeedLocalRepliesByItemID: [MobileAgentFeedItemID: String] = [:]
+    /// Local needs-input triage overrides (the Feed's mark-read analogue),
+    /// keyed by row: `false` clears a pending row from the badge and filter
+    /// without answering it; `true` re-flags a row.
+    var agentFeedTriageOverridesByItemID: [MobileAgentFeedItemID: Bool] = [:]
     var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
     var agentFeedRefreshPendingMacIDs: Set<String> = []
     var agentFeedSuccessfulMacIDs: Set<String> = []

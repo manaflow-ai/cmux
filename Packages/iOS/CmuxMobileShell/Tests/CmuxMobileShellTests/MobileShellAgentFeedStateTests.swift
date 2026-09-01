@@ -194,6 +194,38 @@ struct MobileShellAgentFeedStateTests {
         #expect(store.agentFeedLocalRepliesByItemID.isEmpty)
     }
 
+    @Test("Needs-input triage overrides the badge and survives refreshes")
+    func triageOverride() throws {
+        let store = MobileShellComposite()
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 1, rows: [row(id: "p", requestID: "req-9")]),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+        #expect(store.agentFeedNeedsInputCount == 1)
+
+        let item = try #require(store.agentFeedItems.first)
+        store.setAgentFeedItemNeedsInput(item, false)
+        #expect(store.agentFeedNeedsInputCount == 0)
+        #expect(store.agentFeedItems.first?.effectiveNeedsInput == false)
+        // The row's real pending state is untouched, so controls stay live.
+        #expect(store.agentFeedItems.first?.needsInput == true)
+
+        // Overrides survive a newer snapshot rebuilding the row.
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 2, rows: [row(id: "p", requestID: "req-9")]),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+        #expect(store.agentFeedNeedsInputCount == 0)
+
+        // Re-flagging back to the row's own state clears the override.
+        let cleared = try #require(store.agentFeedItems.first)
+        store.setAgentFeedItemNeedsInput(cleared, true)
+        #expect(store.agentFeedTriageOverridesByItemID.isEmpty)
+        #expect(store.agentFeedNeedsInputCount == 1)
+    }
+
     @Test("Reset clears rows, revisions, and pending replies")
     func reset() throws {
         let store = MobileShellComposite()
