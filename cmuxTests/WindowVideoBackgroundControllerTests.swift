@@ -40,7 +40,10 @@ struct WindowVideoBackgroundControllerTests {
         defaults.set("/tmp/cmux-video-background-test.mp4", forKey: VideoBackgroundSettings.sourceKey)
         let window = makeWindow()
         defer { window.close() }
-        let runtime = VideoBackgroundRuntime()
+        let runtime = VideoBackgroundRuntime(
+            audioArbiter: VideoBackgroundAudioArbiter(),
+            playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+        )
 
         let controller = WindowVideoBackgroundController.ensure(
             on: window,
@@ -60,7 +63,10 @@ struct WindowVideoBackgroundControllerTests {
         defaults.set("/tmp/cmux-video-background-test.mp4", forKey: VideoBackgroundSettings.sourceKey)
         let window = makeWindow()
         defer { window.close() }
-        let runtime = VideoBackgroundRuntime()
+        let runtime = VideoBackgroundRuntime(
+            audioArbiter: VideoBackgroundAudioArbiter(),
+            playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+        )
 
         let controller = WindowVideoBackgroundController.ensure(
             on: window,
@@ -94,7 +100,10 @@ struct WindowVideoBackgroundControllerTests {
         defaults.set("/tmp/cmux-video-background-broken.mp4", forKey: VideoBackgroundSettings.sourceKey)
         let window = makeWindow()
         defer { window.close() }
-        let runtime = VideoBackgroundRuntime()
+        let runtime = VideoBackgroundRuntime(
+            audioArbiter: VideoBackgroundAudioArbiter(),
+            playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+        )
         let controller = WindowVideoBackgroundController.ensure(
             on: window,
             audioArbiter: runtime.audioArbiter,

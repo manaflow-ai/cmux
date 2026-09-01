@@ -911,7 +911,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let focusLog = FocusLogStore()
     /// Composition-root owner for video-background audio and shared playback
     /// state; each main-window ContentView receives these collaborators.
-    let videoBackgroundRuntime = VideoBackgroundRuntime()
+    let videoBackgroundRuntime = VideoBackgroundRuntime(
+        audioArbiter: VideoBackgroundAudioArbiter(),
+        playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+    )
     /// Process-wide identity of the workspace currently being sidebar-dragged in
     /// any window. Owned here (the composition root) and injected into every
     /// window's `SidebarDragState` so cross-window drops resolve a single drag.
