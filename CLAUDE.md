@@ -78,6 +78,27 @@ scripts/verify-remote.sh capacity             # all-purpose slots
 
 Boot a local simulator only when all-purpose `capacity` reports no free slot, and keep at most 3 local sims booted. Scripted XCUITests go through the hosted `test-e2e.yml` lane when appropriate. The physical-iPhone signing/install leg stays local via the install queue; its archive build may use any healthy fleet slot. Verify leases carry a description and TTL, so a crashed agent frees its slot automatically; see `skills/infra/macfleet/references/verify-remote.md` in cmuxterm-hq for the shared-pool contract and host onboarding.
 
+## Cross-tag Mac access for DEV iPhone builds
+
+A DEV iPhone build pairs only with the Mac DEV build sharing its tag. When a task needs
+the phone to also see other Mac dev builds (multi-Mac verification, dogfooding another
+task's Mac from an existing phone build), grant those tags at runtime through the
+same-tag Mac's debug socket instead of rebuilding or re-pairing the phone:
+
+```bash
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags add <mac-tag> [more-tags]
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags list
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags remove <mac-tag>
+CMUX_TAG=<phone-tag> scripts/cmux-debug-cli.sh mobile compatible-tags clear
+```
+
+The grant set persists on that Mac and on the phone (per phone build tag), pushes live
+to a connected phone, and otherwise applies on the phone's next connect. Removing a tag
+disconnects and hides that Mac on the phone. Release lanes (`default`, `nightly`, `rc`,
+`staging`) are never grantable, and only the phone's exact-tag Mac can change its grant
+set. Use this whenever the user asks to let another Mac dev build connect to their
+iPhone build; do not mint a shared tag or rebuild the phone for that.
+
 ## iOS dev auth
 
 `~/.secrets/cmuxterm-dev.env` is the only mobile dev credential file. `CMUX_DOGFOOD_STACK_*` is the `personal` profile for physical iPhone dogfood. `CMUX_UITEST_STACK_*` is the `agent` profile for isolated Simulators. Run `scripts/setup-team-dev.sh` once to verify and merge the personal pair without deleting the agent pair. Use `scripts/mobile-dev-launch.sh --check-auth-contract --auth-profile personal` or `--auth-profile agent` for a mutation-free preflight. Never substitute one profile when the requested profile is incomplete.
@@ -130,6 +151,7 @@ Detailed contributor rules live in `skills/`. Use the task-specific skill before
 - `cmux-architecture`: package boundaries, file/API discipline, testability, Swift concurrency.
 - `cmux-backend`: backend TypeScript, Effect, Cloud VM control plane, provider secrets, Postgres and migrations.
 - `cmux-billing`: Stripe checkout, entitlements, webhooks, pricing dev stack, live provisioning.
+- `cmux-cloud-vm`: driving cmux Cloud machines from the CLI (`cmux vm` exec/push/pull/wait, ports, checkpoints, forks) and the agent etiquette around them.
 - `cmux-debugging`: debug event log, Debug menu, runtime pitfalls, typing-sensitive paths, SwiftUI list boundaries.
 - `cmux-localization`: user-facing strings, localization files, shortcut text, localization audit.
 - `cmux-testing`: regression policy, Swift Testing, test quality, test wiring, local vs CI validation.

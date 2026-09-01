@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import stat
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -13,7 +14,12 @@ from package_contract import PackageContractError, npm_executable_files, validat
 
 PACKAGE_ROOT = "npm-packages"
 MAX_MEMBERS = 1_024
-MAX_EXPANDED_BYTES = 512 * 1024 * 1024
+# Tar-bomb guard on the AGGREGATE four-platform archive, not a product
+# size budget (each install downloads exactly one platform package via
+# optionalDependencies). 512 MiB became too small once the Rust relay
+# binaries (chatmux-relay, cmux-relay) started riding every platform
+# package.
+MAX_EXPANDED_BYTES = 768 * 1024 * 1024
 
 
 def verify_executables(packages_dir: Path) -> None:
@@ -45,8 +51,45 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
     archive.parent.mkdir(parents=True, exist_ok=True)
     if archive.exists():
         archive.unlink()
-    with tarfile.open(archive, "w:gz") as output:
-        output.add(packages_dir, arcname=PACKAGE_ROOT, recursive=True)
+    # The archive is an internal transfer artifact, but deterministic bytes
+    # make retries and provenance checks reproducible.  tarfile's default
+    # gzip header contains the current time and directory traversal follows
+    # filesystem order, so normalize both.
+    with archive.open("wb") as raw:
+        # Do not let the destination path become a gzip header field.  The
+        # transfer artifact must have the same bytes when callers choose
+        # different temporary output names.
+        with gzip.GzipFile(
+            filename="", fileobj=raw, mode="wb", compresslevel=9, mtime=0
+        ) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w") as output:
+                members = [packages_dir, *sorted(packages_dir.rglob("*"))]
+                for path in members:
+                    output.add(
+                        path,
+                        arcname=PurePosixPath(
+                            PACKAGE_ROOT, path.relative_to(packages_dir).as_posix()
+                        ),
+                        recursive=False,
+                        filter=_normalize_member,
+                    )
+
+
+def _normalize_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
+    # Package generation normally creates these modes, but the source tree
+    # can cross an artifact boundary with a different umask.  Preserve only
+    # the executable intent that npm needs and use stable modes for all other
+    # bits.
+    if member.isdir():
+        member.mode = 0o755
+    elif member.isfile():
+        member.mode = 0o755 if member.mode & 0o111 else 0o644
+    member.mtime = 0
+    member.uid = 0
+    member.gid = 0
+    member.uname = ""
+    member.gname = ""
+    return member
 
 
 def validated_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:

@@ -62,7 +62,17 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
 
     /// Matches a clear without letting live-owner expansion cross a confined notification's workspace boundary.
     func matchesClear(tabId targetTabId: UUID, liveTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        let matchesWorkspace = tabId == targetTabId || (retargetsToLiveSurfaceOwner && tabId == liveTabId)
-        return matchesWorkspace && matches(tabId: tabId, surfaceId: targetSurfaceId)
+        guard let targetSurfaceId else {
+            let matchesWorkspace = tabId == targetTabId || (retargetsToLiveSurfaceOwner && tabId == liveTabId)
+            return matchesWorkspace && surfaceId == nil && panelId == nil
+        }
+        guard surfaceId == targetSurfaceId || panelId == targetSurfaceId else {
+            return false
+        }
+        // A retargetable notification is owned by the globally unique surface,
+        // not by the workspace in which it happened to be stored when it was
+        // delivered. This lets a completion clear a banner that was recorded
+        // under the pane's previous workspace after a move.
+        return retargetsToLiveSurfaceOwner || tabId == targetTabId
     }
 }
