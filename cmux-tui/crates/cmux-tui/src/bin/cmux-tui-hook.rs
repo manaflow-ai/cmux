@@ -27,11 +27,15 @@ const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
-/// Safety bound on the provider-facing wait for the child's "request written"
+/// Bound on the provider-facing wait for the child's "request written"
 /// signal. The child itself gives up at `SOCKET_TIMEOUT` and closes the pipe,
 /// so this only fires if the child is stuck; the margin keeps the child's own
 /// deadline authoritative.
-const HANDOFF_SAFETY_WAIT: Duration = Duration::from_secs(5);
+const HANDOFF_WAIT: Duration = Duration::from_secs(5);
+/// codex kills SessionEnd hooks at 3s (its hard cap). The provider-facing
+/// process must report an unconfirmed handoff before that instead of being
+/// killed; the detached child keeps trying to deliver the event regardless.
+const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -88,7 +92,42 @@ fn run(args: Args) -> anyhow::Result<()> {
     )?;
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
-    detach::append_detached(&socket, &request_id, &encoded)
+    let handoff = handoff_wait(&args.source, &args.native_event);
+    match detach::append_detached(&socket, &request_id, &encoded, handoff)? {
+        Handoff::Sent => Ok(()),
+        Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
+        Handoff::TimedOut => {
+            bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
+        }
+    }
+}
+
+/// Outcome of the provider-facing wait for the detached child.
+#[derive(Debug, PartialEq, Eq)]
+enum Handoff {
+    /// The child wrote the full request to the server socket.
+    Sent,
+    /// The child exited without writing the request (no listener, or it gave
+    /// up at `SOCKET_TIMEOUT`).
+    ChildExited,
+    /// The bound elapsed first; the child is still trying on its own.
+    TimedOut,
+}
+
+fn handoff_wait(source: &str, native_event: &str) -> Duration {
+    if source == "codex" && native_event == "SessionEnd" {
+        CODEX_SESSION_END_HANDOFF_WAIT
+    } else {
+        HANDOFF_WAIT
+    }
+}
+
+/// Detached-child confirmation on platforms that respawn instead of forking:
+/// one byte on stdout once the request is written.
+fn confirm_handoff_on_stdout() {
+    let mut stdout = io::stdout().lock();
+    let _ = std::io::Write::write_all(&mut stdout, b"1");
+    let _ = std::io::Write::flush(&mut stdout);
 }
 
 /// Entry point of the detached child spawned by `DETACHED_MODE_ARG`.
@@ -108,7 +147,7 @@ fn detached_child_from_stdin() -> anyhow::Result<()> {
         .read_to_end(&mut encoded)
         .context("read detached request")?;
     anyhow::ensure!(encoded.len() <= MAX_MESSAGE_BYTES, "detached request exceeds 4 MiB");
-    append_with_receipt(&socket, &request_id, &encoded, &|| {})
+    append_with_receipt(&socket, &request_id, &encoded, &confirm_handoff_on_stdout)
 }
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
@@ -393,12 +432,12 @@ fn read_before(
 #[cfg(unix)]
 mod detach {
     use std::io;
-    use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::path::Path;
 
     use anyhow::Context;
 
-    use super::{HANDOFF_SAFETY_WAIT, append_with_receipt};
+    use super::{Handoff, append_with_receipt};
 
     /// Forks a detached child that performs the append, then returns once the
     /// child has written the request (normally milliseconds) or has given up
@@ -410,7 +449,8 @@ mod detach {
         socket: &Path,
         request_id: &str,
         encoded: &[u8],
-    ) -> anyhow::Result<()> {
+        handoff_wait: std::time::Duration,
+    ) -> anyhow::Result<Handoff> {
         let mut fds = [0_i32; 2];
         // SAFETY: `fds` is a valid two-element array for pipe(2) to fill.
         if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
@@ -434,8 +474,7 @@ mod detach {
             unsafe { libc::_exit(code) };
         }
         drop(write_end);
-        wait_for_handoff(&read_end);
-        Ok(())
+        Ok(wait_for_handoff(&read_end, handoff_wait))
     }
 
     fn child_main(socket: &Path, request_id: &str, encoded: &[u8], handoff: OwnedFd) -> i32 {
@@ -445,12 +484,18 @@ mod detach {
         if redirect_stdio_to_null().is_err() {
             return 1;
         }
-        let handoff = handoff.into_raw_fd();
+        // Signal once, then close the pipe: retries after a parent timeout must
+        // not write into a pipe nobody reads (Rust ignores SIGPIPE, so a
+        // second write would only fail, but closing keeps the contract exact).
+        let handoff = std::cell::Cell::new(Some(handoff));
         let signal_sent = move || {
-            let byte = [1_u8];
-            // SAFETY: `handoff` stays open for the child's lifetime and the
-            // buffer is one valid byte. A failed write only delays the parent.
-            let _ = unsafe { libc::write(handoff, byte.as_ptr().cast(), 1) };
+            if let Some(handoff) = handoff.take() {
+                let byte = [1_u8];
+                // SAFETY: `handoff` is open until dropped below and the buffer
+                // is one valid byte. A failed write only delays the parent.
+                let _ = unsafe { libc::write(handoff.as_raw_fd(), byte.as_ptr().cast(), 1) };
+                drop(handoff);
+            }
         };
         match append_with_receipt(socket, request_id, encoded, &signal_sent) {
             Ok(()) => 0,
@@ -472,47 +517,59 @@ mod detach {
     }
 
     /// Returns when the child reports the request was written (one byte) or
-    /// exits (EOF). `HANDOFF_SAFETY_WAIT` is an absolute deadline, so a signal
-    /// storm cannot extend it through repeated `EINTR`.
-    fn wait_for_handoff(read_end: &OwnedFd) {
-        let deadline = std::time::Instant::now() + HANDOFF_SAFETY_WAIT;
+    /// exits (EOF). `handoff_wait` is an absolute deadline, so a signal storm
+    /// cannot extend it through repeated `EINTR`.
+    fn wait_for_handoff(read_end: &OwnedFd, handoff_wait: std::time::Duration) -> Handoff {
+        let deadline = std::time::Instant::now() + handoff_wait;
         let mut descriptor =
             libc::pollfd { fd: read_end.as_raw_fd(), events: libc::POLLIN, revents: 0 };
         loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
-                return;
+                return Handoff::TimedOut;
             }
             let timeout_ms = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
             // SAFETY: `descriptor` is one valid pollfd for the poll duration.
             let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
-            if ready >= 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
-                return;
+            if ready == 0 {
+                return Handoff::TimedOut;
             }
+            if ready < 0 {
+                if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Handoff::TimedOut;
+            }
+            let mut byte = [0_u8; 1];
+            // SAFETY: `read_end` is open and `byte` is a valid one-byte buffer.
+            let read = unsafe { libc::read(read_end.as_raw_fd(), byte.as_mut_ptr().cast(), 1) };
+            return if read == 1 { Handoff::Sent } else { Handoff::ChildExited };
         }
     }
 }
 
 #[cfg(not(unix))]
 mod detach {
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::path::Path;
     use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Duration;
 
     use anyhow::Context;
 
-    use super::DETACHED_MODE_ARG;
+    use super::{DETACHED_MODE_ARG, Handoff};
 
     /// Respawns this helper detached from the provider's console and process
-    /// group with the request on its stdin. The request is written to the
-    /// child's pipe before returning; unlike the unix path this does not wait
-    /// for the child's socket write, so ordering and backpressure on Windows
-    /// follow spawn order only.
+    /// group with the request on its stdin, then waits (bounded) for the
+    /// child's one-byte confirmation that the request reached the server
+    /// socket, giving the same ordering and backpressure as the fork path.
     pub(super) fn append_detached(
         socket: &Path,
         request_id: &str,
         encoded: &[u8],
-    ) -> anyhow::Result<()> {
+        handoff_wait: Duration,
+    ) -> anyhow::Result<Handoff> {
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
@@ -521,18 +578,30 @@ mod detach {
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
             .spawn()
             .context("spawn detached hook child")?;
         let mut stdin = child.stdin.take().context("detached hook child has no stdin")?;
+        let mut stdout = child.stdout.take().context("detached hook child has no stdout")?;
         stdin.write_all(request_id.as_bytes())?;
         stdin.write_all(b"\n")?;
         stdin.write_all(encoded)?;
         stdin.flush()?;
         drop(stdin);
-        Ok(())
+        // Pipe reads have no timeout on Windows; a reader thread plus a
+        // bounded channel wait gives the same absolute deadline as poll(2).
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut byte = [0_u8; 1];
+            let outcome = match stdout.read(&mut byte) {
+                Ok(1) => Handoff::Sent,
+                _ => Handoff::ChildExited,
+            };
+            let _ = sender.send(outcome);
+        });
+        Ok(receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut))
     }
 }
 
@@ -551,6 +620,13 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
+        assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
+        assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
+        assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
+    }
 
     #[test]
     fn parses_short_positional_source_and_event() {
