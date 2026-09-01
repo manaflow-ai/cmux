@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 # The package contains manaflow code under MIT and detector material adapted
-# from herdr under Apache-2.0. Keep both obligations visible to packagers.
+# from herdr under Apache-2.0. Keep both obligations visible to packagers;
+# license texts are LICENSE-MIT and manifests/LICENSE.
 license = "MIT AND Apache-2.0"
 publish = false
 
 [dependencies]
-cmux-sdk = { path = "../../rust" }
+cmux-sdk = { version = "=1.0.0", path = "../../rust" }
 libc = "0.2"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
@@ -17,5 +18,6 @@ serde_json = "1"
 toml = "0.8"
 
 # This reference package is intentionally independent from the cmux-tui
-# workspace. A published copy must depend on a released cmux-sdk version.
+# workspace. The version constraint keeps a copied package on the matching
+# released SDK, while the path keeps this in-tree example buildable.
 [workspace]

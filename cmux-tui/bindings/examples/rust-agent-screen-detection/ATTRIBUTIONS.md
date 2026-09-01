@@ -10,6 +10,10 @@ The files under `manifests/` are derived from the herdr project:
 * Changes: cmux pins the files locally and validates them with its own
   bounded manifest engine. It does not use herdr's network update path.
 
+The original cmux portions of this package are licensed under MIT. The full
+text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is
+in `manifests/LICENSE`.
+
 The detector engine in `src/manifest.rs` is adapted from herdr's
 `src/detect/manifest.rs` semantics. It keeps the attribution above and adds
 bounded recursion, case-normalized process aliases, and a public plugin
