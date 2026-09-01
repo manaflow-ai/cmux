@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operacija Cloud VM-a nije dostupna",
+      "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
+      "message": {
+        "snapshot": "Ovaj Cloud VM ne podržava sačuvano stanje VM-a.",
+        "restore": "Ova vrsta Cloud VM-a ne podržava vraćanje sačuvanog stanja VM-a.",
+        "fork": "Ovaj Cloud VM ne podržava kopiranje u novi VM.",
+        "default": "Ovaj Cloud VM ne podržava traženu operaciju."
+      },
+      "action": {
+        "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
+        "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
+        "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },
@@ -29,6 +47,13 @@
     "title": "cmux — Terminal napravljen za multitasking",
     "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
     "ogDescription": "Besplatan i otvorenog koda macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Potvrdite e-poštu za nastavak",
+    "emailUnverifiedBody": "Prijavite se metodom koji ste prvobitno koristili, a zatim potvrdite e-poštu prije korištenja ovog načina prijave.",
+    "genericTitle": "Prijava nije dovršena",
+    "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
+    "backToSignIn": "Nazad na prijavu"
   },
   "common": {
     "downloadForMac": "Preuzmi za Mac",

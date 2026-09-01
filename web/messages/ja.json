@@ -8,6 +8,24 @@
     "expiredTitle": "このデスクトップセッションは期限切れです",
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM 操作を利用できません",
+      "reason": "このマシン種別ではこの操作を利用できません。",
+      "message": {
+        "snapshot": "この Cloud VM は保存済み状態に対応していません。",
+        "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
+        "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "default": "この Cloud VM は要求された操作に対応していません。"
+      },
+      "action": {
+        "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
+      }
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -92,6 +110,13 @@
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
     "ogDescription": "無料・オープンソースのAIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
+  "authError": {
+    "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
+    "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "genericTitle": "サインインを完了できませんでした",
+    "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
+    "backToSignIn": "サインインに戻る"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -154,7 +179,8 @@
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
         "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
-        "error": "請求を更新できませんでした。しばらくしてから再試行してください。"
+        "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
+        "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。"
       },
       "free": {
         "name": "Free",

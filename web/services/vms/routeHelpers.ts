@@ -25,13 +25,17 @@ import {
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
   isVmNotFoundError,
+  isVmOperationUnsupportedError,
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
   vmWorkflowErrorCause,
+  type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
+import { vmRequestLocale, vmUnsupportedCopy } from "./vmErrorMessages";
+import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -94,7 +98,7 @@ export async function withAuthedVmApiRoute(
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);
-        const workflowError = vmWorkflowErrorResponse(err);
+        const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
         if (workflowError) return finalize(workflowError);
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
@@ -270,7 +274,6 @@ export type VmRouteAccountScope =
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
-  options: { readonly requireTeam?: boolean } = {},
 ): VmRouteAccountScope {
   const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
   try {
@@ -279,7 +282,6 @@ export function resolveVmRouteAccountScope(
       requestedBillingTeamId,
       entitlements: resolveVmEntitlements(user, process.env, {
         requestedBillingTeamId,
-        requireTeam: options.requireTeam ?? false,
       }),
     };
   } catch (err) {
@@ -432,8 +434,21 @@ export function vmCreateLikeErrorResponse(
   return null;
 }
 
-export function vmWorkflowErrorResponse(err: unknown): Response | null {
+/** Translate a normalized workflow failure into the public VM error contract. */
+export async function vmWorkflowErrorResponse(
+  err: unknown,
+  options: { readonly locale?: Locale } = {},
+): Promise<Response | null> {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  const operationUnsupported = isVmOperationUnsupportedError(workflowError)
+    ? workflowError
+    : isVmProviderOperationError(workflowError)
+      ? vmWorkflowErrorCause(workflowError.cause)
+      : null;
+  if (isVmOperationUnsupportedError(operationUnsupported)) {
+    return vmUnsupportedOperationResponse(operationUnsupported, options.locale ?? "en");
+  }
+
   if (isVmAccountDeletionInProgressError(workflowError)) {
     return vmErrorResponse({
       error: "account_deletion_in_progress",
@@ -508,18 +523,31 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
         },
       });
     }
+    const retryExhausted = providerRetryExhausted(workflowError.cause);
+    if (retryExhausted) {
+      // Keep the provider and operation in operator logs only. The response
+      // below deliberately contains no URL, status, or upstream body.
+      console.error("[vm-provider-retry-exhausted]", {
+        provider: workflowError.provider,
+        operation: workflowError.operation,
+      });
+    }
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
-    const providerMessage = providerCause?.message
+    const providerMessage = !retryExhausted && providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)
       : null;
-    const providerCode = providerCause?.code
-      ? sanitizedProviderCode(providerCause.code)
-      : inferredProviderCode(providerMessage);
+    const providerCode = retryExhausted
+      ? "provider_retry_exhausted"
+      : providerCause?.code
+        ? sanitizedProviderCode(providerCause.code)
+        : inferredProviderCode(providerMessage);
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",
       status: 502,
       message: vmUnavailableMessage(phase),
-      reason: providerMessage
+      reason: retryExhausted
+        ? "The Cloud VM service is temporarily unavailable."
+        : providerMessage
         ? `Cloud VM service is temporarily unavailable: ${providerMessage}`
         : "Cloud VM service is temporarily unavailable.",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
@@ -568,6 +596,46 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   }
 
   return null;
+}
+
+async function vmUnsupportedOperationResponse(
+  error: VmOperationUnsupportedError,
+  locale: Locale,
+): Promise<Response> {
+  const phase = vmPhaseForOperation(error.operation);
+  const copy = await vmUnsupportedCopy(
+    phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
+    locale,
+  );
+  return vmErrorResponse({
+    error: "vm_operation_unsupported",
+    status: 501,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase,
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    severity: "error",
+    diagnostics: { provider: error.provider },
+    details: {
+      operation: error.operation,
+      retryable: false,
+      providerCode: "provider_operation_unsupported",
+    },
+  });
+}
+
+/** Identify a retry wrapper whose provider details must stay in operator logs. */
+function providerRetryExhausted(cause: unknown): boolean {
+  let current: unknown = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    const record = current as { name?: unknown; cause?: unknown };
+    if (record.name === "BlaxelRetryExhaustedError") return true;
+    current = record.cause;
+  }
+  return false;
 }
 
 /** True when the provider reported that the requested image/template does not exist. */
@@ -631,6 +699,12 @@ function cloudServiceAction(operation: string, retryAfterSeconds: number | undef
 }
 
 function defaultVmDisplayTitle(input: VmErrorResponseInput): string {
+  // Billing-team resolution shares the 409/403 statuses with unrelated
+  // failures; title it as the team problem it is instead of the generic
+  // "operation already running" that pure-status mapping would produce.
+  if (input.error === "vm_billing_team_required" || input.error === "vm_billing_team_not_found") {
+    return "Cloud VM team required";
+  }
   if (input.status === 409) return "Cloud VM operation already running";
   if (input.status === 404) return "Cloud VM not found";
   if (input.status === 401 || input.status === 403) return "Cloud VM authentication required";

@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud-VM-Vorgang nicht verfügbar",
+      "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",
+      "message": {
+        "snapshot": "Diese Cloud-VM unterstützt keinen gespeicherten VM-Zustand.",
+        "restore": "Dieser Cloud-VM-Typ unterstützt das Wiederherstellen eines gespeicherten VM-Zustands nicht.",
+        "fork": "Diese Cloud-VM unterstützt das Kopieren auf eine neue VM nicht.",
+        "default": "Diese Cloud-VM unterstützt den angeforderten Vorgang nicht."
+      },
+      "action": {
+        "snapshot": "Nicht erneut versuchen. Die Arbeit auf diesem Maschinentyp bleibt auf dem dauerhaften Home-Volume erhalten.",
+        "restore": "Nicht erneut versuchen. Die Arbeit auf diesem Maschinentyp bleibt auf dem dauerhaften Home-Volume erhalten.",
+        "fork": "Nicht erneut versuchen. Erstellen Sie mit `cmux vm new` eine neue VM.",
+        "default": "Nicht erneut versuchen. Führen Sie `cmux vm ls` aus oder wenden Sie sich an den Support, wenn dies nicht stimmt."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Wenn wir ein Konto gefunden haben, prüfe deine E-Mail auf die nächsten Schritte"
   },
@@ -29,6 +47,13 @@
     "title": "cmux — Das Terminal für Multitasking",
     "description": "Kostenloser, quelloffener nativer macOS-Terminal auf Basis von Ghostty. Funktioniert mit Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider und jedem CLI-Tool. Vertikale Tabs, Benachrichtigungsringe, geteilte Bereiche und eine socket API.",
     "ogDescription": "Kostenloser, quelloffener macOS-Terminal für KI-Coding-Agenten. Funktioniert mit Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider und jedem CLI-Tool."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Bestätige deine E-Mail-Adresse, um fortzufahren",
+    "emailUnverifiedBody": "Melde dich mit der ursprünglich verwendeten Methode an und bestätige deine E-Mail-Adresse, bevor du diese Anmeldemethode nutzt.",
+    "genericTitle": "Anmeldung konnte nicht abgeschlossen werden",
+    "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
+    "backToSignIn": "Zur Anmeldung"
   },
   "common": {
     "downloadForMac": "Für Mac herunterladen",

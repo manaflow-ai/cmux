@@ -25,6 +25,15 @@ export const projects = {
 export const requiredRuntimeEnvKeys = [
   "AWS_REGION",
   "AWS_ROLE_ARN",
+  // Blaxel is the production default provider (CMUX_VM_DEFAULT_PROVIDER):
+  // without credentials and an image selector every create 503s.
+  "BLAXEL_SANDBOX_IMAGE",
+  "BL_API_KEY",
+  "BL_WORKSPACE",
+  // Without the Slack sink every triggered VM alert drops silently while the
+  // alert cron keeps returning 200, so an unset webhook is an observability
+  // outage, not a tuning choice.
+  "CMUX_ALERTS_SLACK_WEBHOOK_URL",
   // The application can build without APNs credentials, but a promoted
   // runtime cannot deliver the Push Alerts feature without the complete set.
   "CMUX_APNS_KEY_ID",
@@ -35,6 +44,8 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_VM_DEFAULT_PROVIDER",
   "CMUX_VM_E2B_ENABLED",
   "CMUX_VM_FREESTYLE_ENABLED",
+  // Every Vercel cron (VM alerts included) refuses to run without it.
+  "CRON_SECRET",
   "E2B_API_KEY",
   "E2B_CMUXD_WS_TEMPLATE",
   "FREESTYLE_API_KEY",
@@ -49,7 +60,14 @@ export const requiredRuntimeEnvKeys = [
 ];
 
 export const recommendedRuntimeEnvKeys = [
+  // Optional by design: when unset, desktop creates fall back to the generic
+  // BLAXEL_SANDBOX_IMAGE selector (services/vms/images/resolver.ts).
+  "BLAXEL_SANDBOX_DESKTOP_IMAGE",
   "CMUX_DB_POOL_MAX",
+  // Kill switches are off-only: unset means enabled, so requiring presence
+  // would fail a healthy deployment. Recommended for explicitness (the other
+  // provider flags are set in prod).
+  "CMUX_VM_BLAXEL_ENABLED",
   "CMUX_DB_SSL_REJECT_UNAUTHORIZED",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",

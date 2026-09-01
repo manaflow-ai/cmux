@@ -61,6 +61,14 @@ struct MacComputerDetailView: View {
     /// Keep-awake status read failed for THIS Mac; drives the inline Retry.
     @State private var caffeineStatusLoadFailed = false
     @State private var caffeineStatusRetryID = 0
+    /// Iroh-scoped per-Mac networking (private addresses + connection check),
+    /// moved here from the app-wide Networking screen. `nil` until the
+    /// environment controller exists and the model loads.
+    @Environment(\.irohSettingsController) private var irohSettingsController
+    @Environment(\.mobileDiagnosticLog) private var mobileDiagnosticLog
+    @State private var irohSettingsModel: MobileIrohSettingsModel?
+    @State private var showsPrivatePathEditor = false
+    @State private var showsPrivatePathRemoveConfirmation = false
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -119,6 +127,17 @@ struct MacComputerDetailView: View {
             macPowerSection
             presenceSection
             routesSection
+            // Iroh-scoped per-Mac networking. Hidden for Tailscale/Direct
+            // Computers, whose methods never dial Iroh paths.
+            if selectedMethod == .automatic, let irohSettingsModel {
+                privateAddressesSection(irohSettingsModel)
+                MobileIrohConnectionCheckSection(
+                    report: irohSettingsModel.connectionCheck,
+                    relayURLs: irohSettingsModel.connectionCheckRelayURLs,
+                    isRunning: irohSettingsModel.isRunningConnectionCheck,
+                    run: irohSettingsModel.runConnectionCheck
+                )
+            }
             identitySection
             actionsSection
         }
@@ -264,7 +283,7 @@ struct MacComputerDetailView: View {
                 connectionErrorGuidance: store.connectionErrorGuidance,
                 versionWarning: store.pairingVersionWarning,
                 connectPairingCode: { await store.connectPairingInput() },
-                acceptVersionWarning: { await store.acceptPairingVersionWarning() },
+                acceptVersionWarning: { _ = await store.acceptPairingVersionWarning() },
                 connectManualHost: { name, host, port in
                     await store.connectManualHost(name: name, host: host, port: port)
                 },
@@ -272,6 +291,190 @@ struct MacComputerDetailView: View {
                 cancel: { showsAddTailscaleConnection = false },
                 onPairingSucceeded: { showsAddTailscaleConnection = false }
             )
+        }
+        .onChange(of: computerHasUsableTailscaleAuthorization) { _, authorized in
+            // Pairing landed a grant for this Computer: the sheet's job is done.
+            if authorized { showsAddTailscaleConnection = false }
+        }
+        .task {
+            guard let irohSettingsController else { return }
+            // Reuse the model but restart observation on every appearance;
+            // the previous observe loop died with the previous task.
+            let model = irohSettingsModel ?? MobileIrohSettingsModel(
+                controller: irohSettingsController,
+                diagnosticLog: mobileDiagnosticLog
+            )
+            irohSettingsModel = model
+            await model.observe(recordingScreenEvents: false)
+        }
+        .onDisappear { irohSettingsModel?.cancelOperations() }
+        .sheet(isPresented: $showsPrivatePathEditor) {
+            if let irohSettingsModel {
+                MobileIrohCustomPrivatePathEditor(
+                    path: thisMacPrivateNetwork,
+                    availableMacs: privatePathEditorMacs
+                ) { draft in
+                    await irohSettingsModel.upsertCustomPrivatePath(draft)
+                }
+            }
+        }
+        .confirmationDialog(
+            L10n.string(
+                "mobile.iroh.private.custom.remove.confirm",
+                defaultValue: "Remove these private addresses?"
+            ),
+            isPresented: $showsPrivatePathRemoveConfirmation
+        ) {
+            Button(
+                L10n.string("mobile.common.remove", defaultValue: "Remove"),
+                role: .destructive
+            ) {
+                irohSettingsModel?.removeCustomPrivatePath(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            }
+        }
+        .alert(
+            L10n.string("mobile.iroh.saveFailed", defaultValue: "Could Not Save Networking Settings"),
+            isPresented: Binding(
+                get: { irohSettingsModel?.showsSaveError == true },
+                set: { if !$0 { irohSettingsModel?.clearSaveError() } }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.saveFailed.message",
+                defaultValue: "Your previous networking configuration is still active. Check the values, then try again."
+            ))
+        }
+    }
+
+    // MARK: - Iroh per-Mac networking
+
+    /// The identity the iroh settings snapshot keys its per-Mac entries by.
+    private var macAppInstanceIdentityID: String {
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
+    }
+
+    private var thisMacPrivateNetwork: CmxIrohSettingsSnapshot.CustomPrivateNetwork? {
+        irohSettingsModel?.snapshot.customPrivateNetworks.first {
+            $0.id == macAppInstanceIdentityID
+        }
+    }
+
+    private var thisMacPrivateNetworkRegistryEntry: CmxIrohSettingsSnapshot.PrivateNetworkMac? {
+        irohSettingsModel?.snapshot.privateNetworkMacs.first {
+            $0.id == macAppInstanceIdentityID
+        }
+    }
+
+    /// The editor is pinned to THIS Computer: editing carries the existing
+    /// configuration's identity, adding offers only this Mac.
+    private var privatePathEditorMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac] {
+        if let existing = thisMacPrivateNetwork {
+            return [.init(
+                macDeviceID: existing.macDeviceID,
+                instanceTag: existing.instanceTag,
+                displayName: existing.macDisplayName,
+                supportsPrivatePaths:
+                    thisMacPrivateNetworkRegistryEntry?.supportsPrivatePaths ?? false
+            )]
+        }
+        if let registryEntry = thisMacPrivateNetworkRegistryEntry {
+            return [registryEntry]
+        }
+        return []
+    }
+
+    @ViewBuilder
+    private func privateAddressesSection(
+        _ model: MobileIrohSettingsModel
+    ) -> some View {
+        Section {
+            if let configuration = thisMacPrivateNetwork {
+                Toggle(isOn: Binding(
+                    get: { configuration.isEnabled },
+                    set: { isEnabled in
+                        let draft = CmxIrohCustomPrivatePathDraft(
+                            macDeviceID: configuration.macDeviceID,
+                            instanceTag: configuration.instanceTag,
+                            macDisplayName: configuration.macDisplayName,
+                            addresses: configuration.addresses,
+                            isEnabled: isEnabled
+                        )
+                        Task { _ = await model.upsertCustomPrivatePath(draft) }
+                    }
+                )) {
+                    VStack(alignment: .leading) {
+                        Text(L10n.string(
+                            "mobile.computers.privateAddresses.use",
+                            defaultValue: "Use Private Addresses"
+                        ))
+                        Text(configuration.addresses.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                // Disabled while a save is in flight: a second change during
+                // the guarded mutation would be dropped silently, leaving the
+                // switch out of sync with the persisted value.
+                .disabled(model.isMutating)
+                .accessibilityIdentifier("MobileComputerPrivateAddressesToggle")
+                Button(L10n.string("mobile.common.edit", defaultValue: "Edit")) {
+                    showsPrivatePathEditor = true
+                }
+                .accessibilityIdentifier("MobileComputerPrivateAddressesEdit")
+                Button(
+                    L10n.string("mobile.common.remove", defaultValue: "Remove"),
+                    role: .destructive
+                ) {
+                    showsPrivatePathRemoveConfirmation = true
+                }
+                .disabled(model.isMutating)
+                .accessibilityIdentifier("MobileComputerPrivateAddressesRemove")
+            } else {
+                if thisMacPrivateNetworkRegistryEntry?.supportsPrivatePaths != true {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.private.macUpdateRequired",
+                            defaultValue: "Update cmux on the Mac before configuring private addresses"
+                        ),
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .foregroundStyle(.orange)
+                }
+                Button {
+                    showsPrivatePathEditor = true
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.private.custom.add",
+                            defaultValue: "Add Private Addresses"
+                        ),
+                        systemImage: "plus"
+                    )
+                }
+                .disabled(
+                    thisMacPrivateNetworkRegistryEntry?.supportsPrivatePaths != true
+                )
+                .accessibilityIdentifier("MobileComputerAddPrivateAddresses")
+            }
+        } header: {
+            Text(L10n.string(
+                "mobile.computers.privateAddresses",
+                defaultValue: "Private Addresses"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.computers.privateAddresses.footer",
+                defaultValue: "Most people do not need private addresses. Add one only when IT provides a route to this computer that automatic LAN, VPN, and relay discovery cannot find."
+            ))
         }
     }
 
@@ -603,9 +806,9 @@ struct MacComputerDetailView: View {
             return L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
                 defaultValue: """
-                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, then scan the \
-                Mac's pairing code or enter its Tailscale IP, MagicDNS name, or local-network host. cmux stays \
-                disconnected until that explicit local authorization exists.
+                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
+                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
+                authorization exists.
                 """
             )
         }
