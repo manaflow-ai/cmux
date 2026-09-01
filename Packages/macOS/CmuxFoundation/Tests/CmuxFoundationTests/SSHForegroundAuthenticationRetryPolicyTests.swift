@@ -347,7 +347,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
-    @Test func processTreeTerminationUsesOneOverallDeadline() throws {
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func processTreeTerminationUsesOneOverallDeadline(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
@@ -394,7 +395,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         """
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
@@ -426,7 +427,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             elapsed < 3,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
-        #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
+        let survivingProcessIDs = processIDs.filter { Darwin.kill($0, 0) == 0 }
+        #expect(
+            survivingProcessIDs.isEmpty,
+            "Foreground authentication cleanup left descendants alive: \(survivingProcessIDs)"
+        )
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
