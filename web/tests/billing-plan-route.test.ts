@@ -111,6 +111,9 @@ describe("billing plan route", () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
+    // The personal snapshot consumes its subscription and active-row queries
+    // before the team resolver reads the team subscription. Keep the fixture
+    // results aligned with those query boundaries.
     stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
 
     const response = await planResponse();
