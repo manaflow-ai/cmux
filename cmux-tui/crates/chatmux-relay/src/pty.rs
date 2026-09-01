@@ -22,7 +22,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::ThreadId;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -327,6 +328,56 @@ struct ShellInner {
     viewers: Vec<ViewerSink>,
 }
 
+/// A reentrant publication gate for one attachment generation. The gate
+/// serializes route publication and control operations across threads while
+/// allowing an outbound/control callback to synchronously re-enter the same
+/// route (for example, a test sink that closes the PTY).
+struct RouteGate {
+    state: Mutex<RouteGateState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct RouteGateState {
+    owner: Option<ThreadId>,
+    depth: usize,
+}
+
+struct RouteGuard<'a> {
+    gate: &'a RouteGate,
+    owner: ThreadId,
+}
+
+impl RouteGate {
+    fn new() -> Self {
+        Self { state: Mutex::new(RouteGateState::default()), changed: Condvar::new() }
+    }
+
+    fn lock(&self) -> RouteGuard<'_> {
+        let owner = std::thread::current().id();
+        let mut state = self.state.lock().expect("route gate lock");
+        while state.owner.is_some_and(|current| current != owner) {
+            state = self.changed.wait(state).expect("route gate wait");
+        }
+        state.owner = Some(owner);
+        state.depth += 1;
+        drop(state);
+        RouteGuard { gate: self, owner }
+    }
+}
+
+impl Drop for RouteGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().expect("route gate lock");
+        debug_assert_eq!(state.owner, Some(self.owner));
+        state.depth = state.depth.saturating_sub(1);
+        if state.depth == 0 {
+            state.owner = None;
+            self.gate.changed.notify_all();
+        }
+    }
+}
+
 #[derive(Clone)]
 struct Attachment {
     closing: Arc<AtomicBool>,
@@ -337,7 +388,7 @@ struct Attachment {
     /// Transport that opened this attachment (see FrameContext::transport_id).
     transport_id: Option<String>,
     generation: u64,
-    publication_gate: Arc<Mutex<()>>,
+    publication_gate: Arc<RouteGate>,
 }
 
 struct Inner {
@@ -836,21 +887,6 @@ impl Inner {
             }
         };
 
-        // Re-read authority after slow daemon/PTY work. A trust downgrade can
-        // arrive while OPEN is pending, so the original frame context is not
-        // sufficient to admit the attachment.
-        let live_auth = Self::auth_snapshot(context);
-        if live_auth.trust.is_empty()
-            || (live_auth.trust == "observe"
-                && (live_auth.owner_user_id.is_none()
-                    || Some(actor) != live_auth.owner_user_id.as_deref()))
-        {
-            opened.closing.store(true, Ordering::SeqCst);
-            opened.control.kill();
-            fail("trust_revoked", "terminal trust changed while opening");
-            return;
-        }
-
         // Keep both locks held until the attachment is installed. `close`
         // takes opening_state first, so it cannot observe a gap between
         // removing the opening marker and inserting the attachment.
@@ -875,7 +911,7 @@ impl Inner {
         {
             drop(attachments);
             drop(opening);
-            let _previous_publication = previous_gate.lock().expect("attachment publication lock");
+            let _previous_publication = previous_gate.lock();
             opening = self.opening_state.lock().expect("opening state lock");
             attachments = self.attachments.lock().expect("attach lock");
             if opening.cancelled.get(&pty_id) == Some(&opening_generation) {
@@ -888,6 +924,25 @@ impl Inner {
                 opened.control.kill();
                 return;
             }
+        }
+        // This is the publication linearization point. Read the live
+        // authority only after waiting for any prior generation's publication
+        // gate, while the opening and attachment state are still held. A
+        // downgrade that races the slow OPEN path therefore cannot publish a
+        // newly attached PTY.
+        let live_auth = Self::auth_snapshot(context);
+        if live_auth.trust.is_empty()
+            || (live_auth.trust == "observe"
+                && (live_auth.owner_user_id.is_none()
+                    || Some(actor) != live_auth.owner_user_id.as_deref()))
+        {
+            drop(opening);
+            drop(attachments);
+            reservation.active = false;
+            opened.closing.store(true, Ordering::SeqCst);
+            opened.control.kill();
+            fail("trust_revoked", "terminal trust changed while opening");
+            return;
         }
         let previous = attachments.insert(
             pty_id.clone(),
@@ -932,7 +987,7 @@ impl Inner {
         pty_id: &str,
         context: &FrameContext,
         generation: u64,
-        publication_gate: Arc<Mutex<()>>,
+        publication_gate: Arc<RouteGate>,
     ) -> (DataSink, ExitSink) {
         let output_gate = Arc::clone(&publication_gate);
         let on_data = {
@@ -967,7 +1022,7 @@ impl Inner {
         chunk: &Bytes,
         context: &FrameContext,
         generation: u64,
-        publication_gate: &Arc<Mutex<()>>,
+        publication_gate: &Arc<RouteGate>,
     ) {
         let mut auth = Self::auth_snapshot(context);
         if self
@@ -986,7 +1041,7 @@ impl Inner {
             }
             Arc::clone(&current.publication_gate)
         };
-        let _publication = gate.lock().expect("attachment publication lock");
+        let _publication = gate.lock();
         {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
@@ -1063,23 +1118,82 @@ impl Inner {
         code: i64,
         context: &FrameContext,
         generation: u64,
-        publication_gate: &Arc<Mutex<()>>,
+        publication_gate: &Arc<RouteGate>,
     ) {
-        let auth = Self::auth_snapshot(context);
+        let initial_auth = Self::auth_snapshot(context);
         if self
-            .authorize_snapshot_for_generation(pty_id, &auth, context, "exit", generation)
+            .authorize_snapshot_for_generation(pty_id, &initial_auth, context, "exit", generation)
             .is_none()
         {
             return;
         }
-        self.emit_terminal_for_generation(pty_id, generation, publication_gate, || {
-            (auth.send)(json!({
+        let gate = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            Arc::clone(&current.publication_gate)
+        };
+        let _publication = gate.lock();
+        let attachment = {
+            let attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            current.clone()
+        };
+        // A trust downgrade can race the first route check. Re-read authority
+        // after acquiring the generation gate, then publish using this live
+        // snapshot. The trust read is the exit frame's linearization point.
+        let live_auth = Self::auth_snapshot(context);
+        if !Self::auth_allows(&live_auth, &attachment) {
+            drop(_publication);
+            self.emit_error_for_generation(
+                context,
+                pty_id,
+                generation,
+                publication_gate,
+                "trust_revoked",
+                "PTY exit refused after trust change",
+            );
+            return;
+        }
+        let attachment = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let Some(current) = attachments.get(pty_id) else { return };
+            if current.generation != generation
+                || !Arc::ptr_eq(&current.publication_gate, publication_gate)
+                || current.closing.load(Ordering::SeqCst)
+            {
+                return;
+            }
+            current.closing.store(true, Ordering::SeqCst);
+            current.clone()
+        };
+        (live_auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
             "code": code,
-            }));
-        });
+        }));
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        if attachments.get(pty_id).is_some_and(|current| {
+            current.generation == generation
+                && Arc::ptr_eq(&current.publication_gate, publication_gate)
+        }) {
+            attachments.remove(pty_id);
+        }
+        drop(attachments);
+        drop(_publication);
+        attachment.control.kill();
     }
 
     fn emit_error_for_generation(
@@ -1087,7 +1201,7 @@ impl Inner {
         context: &FrameContext,
         pty_id: &str,
         generation: u64,
-        publication_gate: &Arc<Mutex<()>>,
+        publication_gate: &Arc<RouteGate>,
         code: &str,
         message: &str,
     ) {
@@ -1100,7 +1214,7 @@ impl Inner {
         &self,
         pty_id: &str,
         generation: u64,
-        publication_gate: &Arc<Mutex<()>>,
+        publication_gate: &Arc<RouteGate>,
         publish: impl FnOnce(),
     ) {
         let gate = {
@@ -1113,7 +1227,7 @@ impl Inner {
             }
             Arc::clone(&current.publication_gate)
         };
-        let _publication = gate.lock().expect("attachment publication lock");
+        let _publication = gate.lock();
         let attachment = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
@@ -1239,7 +1353,7 @@ impl Inner {
         action: &str,
         operation: impl FnOnce(&dyn PtyControl),
     ) {
-        let _publication = attachment.publication_gate.lock().expect("attachment publication lock");
+        let _publication = attachment.publication_gate.lock();
         {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
@@ -1329,7 +1443,7 @@ impl Inner {
             }
             Arc::clone(&current.publication_gate)
         };
-        let _publication = gate.lock().expect("attachment publication lock");
+        let _publication = gate.lock();
         let current = {
             let attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
@@ -1385,7 +1499,7 @@ impl Inner {
         &self,
         pty_id: &str,
         generation: Option<u64>,
-        publication_gate: Option<&Arc<Mutex<()>>>,
+        publication_gate: Option<&Arc<RouteGate>>,
     ) {
         let gate = {
             let attachments = self.attachments.lock().expect("attach lock");
@@ -1398,7 +1512,7 @@ impl Inner {
             }
             Arc::clone(&current.publication_gate)
         };
-        let _publication = gate.lock().expect("attachment publication lock");
+        let _publication = gate.lock();
         let attachment = {
             let mut attachments = self.attachments.lock().expect("attach lock");
             let Some(current) = attachments.get(pty_id) else { return };
@@ -1422,7 +1536,7 @@ struct Opened {
     control: Arc<dyn PtyControl>,
     closing: Arc<AtomicBool>,
     generation: u64,
-    publication_gate: Arc<Mutex<()>>,
+    publication_gate: Arc<RouteGate>,
     start: Box<dyn FnOnce() + Send>,
 }
 
@@ -1602,7 +1716,7 @@ impl Inner {
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let publication_gate = Arc::new(Mutex::new(()));
+        let publication_gate = Arc::new(RouteGate::new());
         let (on_data, on_exit) =
             self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
         Ok(Opened {
@@ -1752,7 +1866,7 @@ impl Inner {
         let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let publication_gate = Arc::new(Mutex::new(()));
+        let publication_gate = Arc::new(RouteGate::new());
         let (on_data, on_exit) =
             self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
 
@@ -2343,7 +2457,7 @@ impl Inner {
         let proxy =
             Arc::new(ControlTerminalControl { control: control_guard.disarm(), surface_id });
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let publication_gate = Arc::new(Mutex::new(()));
+        let publication_gate = Arc::new(RouteGate::new());
         let (on_data, _) = self.sinks(pty_id, context, generation, Arc::clone(&publication_gate));
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
@@ -2549,6 +2663,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
+    use std::time::Duration;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
