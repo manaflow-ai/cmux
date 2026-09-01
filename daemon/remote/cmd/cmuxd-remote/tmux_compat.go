@@ -1220,8 +1220,28 @@ func ensureTmuxCompatStoreDirectory() error {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return err
 	}
+	if err := validateTmuxCompatStoreDirectory(directory); err != nil {
+		return err
+	}
 	// Tighten directories created by older versions (or a permissive umask).
 	return os.Chmod(directory, 0700)
+}
+
+func validateTmuxCompatStoreDirectory(directory string) error {
+	info, err := os.Lstat(directory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("tmux compatibility store directory is a symlink: %s", directory)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("tmux compatibility store path is not a directory: %s", directory)
+	}
+	return nil
 }
 
 func emptyTmuxCompatStore() tmuxCompatStore {
@@ -1235,6 +1255,9 @@ func emptyTmuxCompatStore() tmuxCompatStore {
 
 func loadTmuxCompatStore() (tmuxCompatStore, error) {
 	path := tmuxCompatStoreURL()
+	if err := validateTmuxCompatStoreDirectory(filepath.Dir(path)); err != nil {
+		return tmuxCompatStore{}, err
+	}
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1243,6 +1266,13 @@ func loadTmuxCompatStore() (tmuxCompatStore, error) {
 		return tmuxCompatStore{}, err
 	}
 	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return tmuxCompatStore{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return tmuxCompatStore{}, fmt.Errorf("tmux compatibility store is not a regular file")
+	}
 	// Heal stores created by older versions even when this is a read-only
 	// command, so buffer contents are never left world-readable.
 	if err := file.Chmod(0600); err != nil {

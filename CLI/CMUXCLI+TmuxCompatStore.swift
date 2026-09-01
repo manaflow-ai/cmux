@@ -51,6 +51,7 @@ extension CMUXCLI {
     }
 
     private func readTmuxCompatStoreData(at url: URL) throws -> Data? {
+        try validateTmuxCompatStoreDirectory(at: url.deletingLastPathComponent())
         let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         guard descriptor >= 0 else {
             if errno == ENOENT {
@@ -59,6 +60,13 @@ extension CMUXCLI {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         defer { Darwin.close(descriptor) }
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG else {
+            throw POSIXError(.EINVAL)
+        }
         guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
@@ -120,8 +128,22 @@ extension CMUXCLI {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        try validateTmuxCompatStoreDirectory(at: parent)
         // Also tighten an existing directory created by an older CLI.
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
+    }
+
+    private func validateTmuxCompatStoreDirectory(at parent: URL) throws {
+        var metadata = stat()
+        guard Darwin.lstat(parent.path, &metadata) == 0 else {
+            if errno == ENOENT {
+                return
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFDIR else {
+            throw POSIXError(.ENOTDIR)
+        }
     }
 
     /// Serializes cross-process mutations of a tmux compatibility store.
