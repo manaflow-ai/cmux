@@ -83,6 +83,33 @@ import Testing
         #expect(startupInput.contains("/home/remote/project"), Comment(rawValue: startupInput))
     }
 
+    @Test func exactRestoreRepairsStaleManagedExecutableBeforeWrapping() throws {
+        let staleExecutable = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+            .appendingPathComponent("claude", isDirectory: false)
+            .path
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude-teams --resume stale-session",
+            cwd: "/home/remote/project",
+            checkpointId: "stale-session",
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claudeTeams",
+                executablePath: staleExecutable,
+                arguments: [staleExecutable, "claude-teams", "--model", "sonnet"],
+                workingDirectory: "/Users/alice/local-project"
+            ),
+            restoreWorkingDirectorySelection: .exact("/home/remote/project")
+        )
+
+        let startupInput = try #require(
+            binding.inlineStartupInput(repairPortableAgentExecutable: true)
+        )
+        #expect(!startupInput.contains(staleExecutable), Comment(rawValue: startupInput))
+        #expect(startupInput.contains("claude-teams"), Comment(rawValue: startupInput))
+    }
+
     @Test func localHookRefreshDoesNotInheritRemoteRestorePolicy() throws {
         let sessionID = "same-session-execution-boundary"
         let remoteContext = SurfaceResumeRemoteContext(
@@ -129,6 +156,77 @@ import Testing
         #expect(snapshot.workingDirectory == nil)
         #expect(snapshot.launchCommand == nil)
         #expect(snapshot.restoreWorkingDirectorySelection == nil)
+    }
+
+    @Test func unavailableRestorePolicySurvivesCwdRetargeting() {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume session",
+            cwd: nil,
+            checkpointId: "session",
+            source: "agent-hook",
+            restoreWorkingDirectorySelection: .unavailable
+        )
+
+        let retargeted = binding.retargetingWorkingDirectory("/remote/new-project")
+        #expect(retargeted.restoreWorkingDirectorySelection == .unavailable)
+    }
+
+    @Test func persistentSSHOwnerRetargetKeepsSamePTYSessionState() throws {
+        let sessionID = "same-session-retarget"
+        let persistentPTYSessionID = "stable-remote-pty"
+        let sourceContext = SurfaceResumeRemoteContext(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            persistentPTYSessionID: persistentPTYSessionID
+        )
+        let destinationContext = SurfaceResumeRemoteContext(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            persistentPTYSessionID: " \(persistentPTYSessionID) "
+        )
+        let previousBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: "/home/remote/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "resume", sessionID],
+                workingDirectory: "/home/remote/project"
+            ),
+            restoreWorkingDirectorySelection: .exact("/home/remote/project"),
+            launchFlavor: .persistentSSH(sourceContext)
+        )
+        let retargetedRefresh = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchFlavor: .persistentSSH(destinationContext)
+        )
+        let previousSnapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: "/home/remote/project",
+            launchCommand: previousBinding.launchCommand,
+            restoreWorkingDirectorySelection: .exact("/home/remote/project")
+        )
+
+        let snapshot = try #require(
+            retargetedRefresh.managedRestorableAgentSnapshot(
+                replacing: previousSnapshot,
+                previousBinding: previousBinding
+            )
+        )
+        #expect(snapshot.workingDirectory == previousSnapshot.workingDirectory)
+        #expect(snapshot.launchCommand == previousSnapshot.launchCommand)
+        #expect(
+            snapshot.restoreWorkingDirectorySelection ==
+                previousSnapshot.restoreWorkingDirectorySelection
+        )
     }
 
     @MainActor

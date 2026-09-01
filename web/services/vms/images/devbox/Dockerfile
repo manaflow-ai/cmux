@@ -181,6 +181,26 @@ RUN bash -n /etc/cmux/bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf \
   && bash -ic 'head -2 /root/.bash_history'
 
+# Pre-generate ble.sh's per-TERM tput caches for the terminals cmux panes use.
+# The devbox can run as root or as a provider-created uid-1000 user, so keep
+# both fallback cache locations readable while the per-HOME copy in cmux-bashrc
+# handles durable XDG cache directories.
+RUN mkdir -p /etc/cmux/blesh-cache-seed \
+  && for term in xterm-256color screen-256color tmux-256color linux; do \
+       echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed \
+         script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; \
+     done \
+  && rm -rf /tmp/blesh-seed-home \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color \
+  && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux \
+  && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && chmod a+rx /usr/local/share/blesh/cache.d /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
+  && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
+  && chmod a+r /usr/local/share/blesh/cache.d/0/term.* /usr/local/share/blesh/cache.d/1000/term.*
+
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted
 # at VM create) and persists that env 0600 for shells that boot without it.

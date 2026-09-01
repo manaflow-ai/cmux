@@ -116,7 +116,9 @@ extension SurfaceResumeBindingSnapshot {
             )
         } == true
         let canInheritPreviousSessionState = continuesPreviousSession &&
-            previousBinding?.launchFlavor == launchFlavor
+            previousBinding?.launchFlavor.representsSameExecutionLocation(
+                as: launchFlavor
+            ) == true
         return SessionRestorableAgentSnapshot(
             kind: kind,
             sessionId: identity.checkpointId,

@@ -786,6 +786,49 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func persistentSSHRecordedFallbackIsTransportOnly() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let surfaceID = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let persistentPTYSessionID = "recorded-fallback-pty"
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: workspace.id,
+            surfaceID: surfaceID,
+            persistentPTYSessionID: persistentPTYSessionID
+        )
+        let capturedLocalDirectory = "/Users/alice/local-project"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "cd '\(capturedLocalDirectory)' && codex resume remote-session",
+            cwd: capturedLocalDirectory,
+            checkpointId: "remote-session",
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "resume", "remote-session"],
+                workingDirectory: capturedLocalDirectory
+            ),
+            restoreWorkingDirectorySelection: .recordedFallback(
+                preferred: capturedLocalDirectory
+            ),
+            launchFlavor: .persistentSSH(context)
+        )
+
+        let attachCommand = try #require(
+            workspace.persistentSSHResumeCommand(
+                for: binding,
+                expectedWorkspaceID: workspace.id,
+                expectedSurfaceID: surfaceID,
+                persistentPTYSessionID: persistentPTYSessionID
+            )
+        )
+        #expect(!attachCommand.contains(capturedLocalDirectory), Comment(rawValue: attachCommand))
+        #expect(!attachCommand.contains("codex resume remote-session"), Comment(rawValue: attachCommand))
+    }
+
+    @Test
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
 
@@ -933,7 +976,7 @@ struct RemoteResumeBindingTests {
         #expect(launchCommand["working_directory"] as? String == nil)
         #expect(restoreRecord["legacy_command"] as? String == nil)
 
-        workspace.restoredAgentSnapshotsByPanelId[surfaceID] = SessionRestorableAgentSnapshot(
+        workspace.setRestoredAgentSnapshotForTesting(SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: sessionID,
             workingDirectory: capturedDirectory,
@@ -944,7 +987,7 @@ struct RemoteResumeBindingTests {
                 workingDirectory: capturedDirectory
             ),
             restoreWorkingDirectorySelection: .exact(capturedDirectory)
-        )
+        ), panelId: surfaceID)
         let staleAgentResult = try v2Result(request: [
             "id": "exact-nil-cwd-with-stale-agent-resume-get",
             "method": "surface.resume.get",
@@ -1104,12 +1147,12 @@ struct RemoteResumeBindingTests {
 
         // A matching snapshot without its registry metadata reaches the
         // snapshot branch, so cover that branch separately from the fallback.
-        workspace.restoredAgentSnapshotsByPanelId[surfaceID] = SessionRestorableAgentSnapshot(
+        workspace.setRestoredAgentSnapshotForTesting(SessionRestorableAgentSnapshot(
             kind: .custom("acme-agent"),
             sessionId: sessionID,
             workingDirectory: capturedDirectory,
             launchCommand: launchCommand
-        )
+        ), panelId: surfaceID)
         let missingRegistrationResult = try v2Result(request: [
             "id": "custom-exact-missing-registration",
             "method": "surface.resume.get",
@@ -1142,13 +1185,13 @@ struct RemoteResumeBindingTests {
             restoreWorkingDirectorySelection: .exact(trustedDirectory),
             autoResume: true
         )
-        workspace.restoredAgentSnapshotsByPanelId[surfaceID] = SessionRestorableAgentSnapshot(
+        workspace.setRestoredAgentSnapshotForTesting(SessionRestorableAgentSnapshot(
             kind: .custom(registration.id),
             sessionId: sessionID,
             workingDirectory: capturedDirectory,
             launchCommand: launchCommand,
             registration: registration
-        )
+        ), panelId: surfaceID)
         let validResult = try v2Result(request: [
             "id": "custom-exact-registered",
             "method": "surface.resume.get",
@@ -1329,13 +1372,13 @@ struct RemoteResumeBindingTests {
             autoResume: true,
             launchFlavor: .persistentSSH(context)
         )
-        workspace.restoredAgentSnapshotsByPanelId[surfaceID] = SessionRestorableAgentSnapshot(
+        workspace.setRestoredAgentSnapshotForTesting(SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: sessionID,
             workingDirectory: staleDirectory,
             launchCommand: nil,
             restoreWorkingDirectorySelection: .unavailable
-        )
+        ), panelId: surfaceID)
 
         let authenticatedRefresh = SurfaceResumeBindingSnapshot(
             kind: "codex",

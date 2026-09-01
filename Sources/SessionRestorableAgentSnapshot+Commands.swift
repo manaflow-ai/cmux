@@ -51,6 +51,17 @@ extension SessionRestorableAgentSnapshot {
         resumeCommand(includeWorkingDirectoryPrefix: true)
     }
 
+    /// Returns the cwd-option policy identity only when the snapshot carries
+    /// cmux's exact built-in registration (or no Vault registration at all).
+    /// A user registration may reuse a registry-owned id such as `kimi`, so its
+    /// raw kind must not enable built-in-only option removal.
+    var workingDirectoryOptionPolicyBuiltInKind: String? {
+        guard registration == nil || registration?.registeredResumeKind != nil else {
+            return nil
+        }
+        return kind.rawValue
+    }
+
     /// Returns a copy whose persisted cwd state cannot outlive the supplied trust decision.
     func applyingRestoreWorkingDirectorySelection(
         _ proposedSelection: AgentRestoreWorkingDirectorySelection
@@ -125,6 +136,7 @@ extension SessionRestorableAgentSnapshot {
             from: candidate.arguments,
             workingDirectory: nil,
             agentKind: kind.rawValue,
+            builtInAgentKind: workingDirectoryOptionPolicyBuiltInKind,
             removeAllWorkingDirectoryOptions: true
         )
         candidate.workingDirectory = nil
@@ -251,7 +263,8 @@ extension SurfaceResumeBindingSnapshot {
     func constrainedRestoreCommand(
         selection: AgentRestoreWorkingDirectorySelection,
         includeWorkingDirectoryPrefix: Bool,
-        registration: CmuxVaultAgentRegistration?
+        registration: CmuxVaultAgentRegistration?,
+        repairPortableAgentExecutable: Bool
     ) -> String? {
         guard case .exact = selection,
               let rawKind = kind,
@@ -288,8 +301,14 @@ extension SurfaceResumeBindingSnapshot {
         ) else {
             return nil
         }
+        let repairedCommand = repairPortableAgentExecutable
+            ? SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+                in: command,
+                kind: agentKind.rawValue
+            )
+            : command
         return AgentRestoreLaunch(kind: agentKind.rawValue, sessionID: sessionId)?
-            .applying(toStoredCommand: command) ?? command
+            .applying(toStoredCommand: repairedCommand) ?? repairedCommand
     }
 
     /// Carries an agent snapshot's cwd trust boundary onto its persisted hook binding.

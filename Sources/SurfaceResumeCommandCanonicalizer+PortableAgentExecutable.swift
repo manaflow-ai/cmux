@@ -36,7 +36,8 @@ extension SurfaceResumeBindingSnapshot {
             guard let constrainedCommand = constrainedRestoreCommand(
                 selection: selection,
                 includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
-                registration: registration
+                registration: registration,
+                repairPortableAgentExecutable: repairPortableAgentExecutable
             ) else {
                 return nil
             }

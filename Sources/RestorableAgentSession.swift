@@ -554,6 +554,11 @@ struct AgentResumeCommandBuilder {
             cwd,
             normalized(launchCommand?.workingDirectory),
         ].compactMap { $0 }
+        let workingDirectoryOptionPolicyBuiltInKind: String? = if customRegistration == nil {
+            kind.rawValue
+        } else {
+            customRegistration.flatMap { $0.registeredResumeKind?.rawValue }
+        }
         // Exact built-in registrations delegate to AgentResumeArgv just like
         // non-Vault kinds; only user-authored templates own their cwd flags.
         let usesStructuredResumeArguments = customRegistration == nil ||
@@ -568,6 +573,7 @@ struct AgentResumeCommandBuilder {
                 from: commandParts,
                 workingDirectory: nil,
                 agentKind: kind.rawValue,
+                builtInAgentKind: workingDirectoryOptionPolicyBuiltInKind,
                 removeAllWorkingDirectoryOptions: true
             )
         } else {
@@ -575,7 +581,8 @@ struct AgentResumeCommandBuilder {
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
                     workingDirectory: directory,
-                    agentKind: kind.rawValue
+                    agentKind: kind.rawValue,
+                    builtInAgentKind: workingDirectoryOptionPolicyBuiltInKind
                 )
             }
         }

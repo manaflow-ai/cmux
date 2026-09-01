@@ -90,15 +90,18 @@ extension Workspace {
             binding
         }
         let startupInput: String?
-        if bindingForStartup.restoreWorkingDirectorySelection?.discardsRecordedCwdOptions == true {
-            // Exact/unavailable policies may intentionally have no structured
-            // launch recipe. Keep the transport reattach, but never replay the
-            // untrusted stored shell command in that case.
-            startupInput = bindingForStartup.remoteStartupInput(
-                registration: matchingRestorableAgent?.registration
-            )
-        } else if bindingForStartup.isAgentHookBinding && bindingForStartup.restoreWorkingDirectorySelection == nil {
-            startupInput = nil
+        if bindingForStartup.isAgentHookBinding {
+            // Persistent-SSH agent-hook startup is safe only after an
+            // authoritative remote cwd selection. Recorded-fallback, missing,
+            // and unavailable policies are transport-only so a captured local
+            // command can never be replayed on the remote host.
+            if case .exact = bindingForStartup.restoreWorkingDirectorySelection {
+                startupInput = bindingForStartup.remoteStartupInput(
+                    registration: matchingRestorableAgent?.registration
+                )
+            } else {
+                startupInput = nil
+            }
         } else {
             guard let input = bindingForStartup.remoteStartupInput(
                 registration: matchingRestorableAgent?.registration

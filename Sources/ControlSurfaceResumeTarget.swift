@@ -494,10 +494,19 @@ extension TerminalController {
         if let bindingSelection,
            bindingSelection.discardsRecordedCwdOptions,
            var command = binding.launchCommand {
+            let builtInAgentKind: String? = if let restorableAgent = target.restorableAgent {
+                restorableAgent.workingDirectoryOptionPolicyBuiltInKind
+            } else if let parsedKind = RestorableAgentKind(rawValue: normalizedKind),
+                      parsedKind.customAgentID == nil {
+                normalizedKind
+            } else {
+                nil
+            }
             command.arguments = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: command.arguments,
                 workingDirectory: nil,
                 agentKind: normalizedKind,
+                builtInAgentKind: builtInAgentKind,
                 removeAllWorkingDirectoryOptions: true
             )
             command.workingDirectory = nil

@@ -433,6 +433,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         }
         // An id-keyed agent's live cwd is authoritative for the refreshed
         // binding. Directory-keyed agents must retain their launch namespace.
+        if case .unavailable = retargeted.restoreWorkingDirectorySelection {
+            return retargeted
+        }
         if AgentResumeWorkingDirectory().cwdNamespacing(forKind: normalizedKind ?? "") == .cwdInFile {
             retargeted.restoreWorkingDirectorySelection = .exact(normalizedCwd)
         }

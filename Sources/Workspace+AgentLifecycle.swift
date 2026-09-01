@@ -742,6 +742,22 @@ extension Workspace {
                         cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                         continue
                     }
+                    let hasAuthoritativeAgentPolicy: Bool = if binding.isAgentHookBinding {
+                        if case .exact = binding.restoreWorkingDirectorySelection {
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        true
+                    }
+                    guard hasAuthoritativeAgentPolicy else {
+                        // An exact remote report is the only policy that may
+                        // replay an agent-hook command. Recorded-fallback,
+                        // missing, and unavailable policies remain transport-only.
+                        cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                        continue
+                    }
                 }
                 let approvedBinding = policy.approvedSurfaceResumeBinding(
                     binding,

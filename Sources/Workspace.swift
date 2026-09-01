@@ -2247,7 +2247,7 @@ extension Workspace {
                 // would let the lifecycle/restore-record path reintroduce that
                 // cwd after the remote trust decision has already stripped it.
                 snapshot: restorableAgentForContinuation,
-                resumeBinding: resumeBinding,
+                resumeBinding: resumeBindingForRetention,
                 manualResumeAvailable: restorableAgentForContinuation != nil,
                 willRunStartupCommand: restoredAgentWillRunStartupCommand,
                 willRunStartupInput: restoredAgentWillRunStartupInput,
@@ -2267,7 +2267,7 @@ extension Workspace {
                     restore: DeferredAgentResumeRestore(
                         stablePanelID: snapshot.id,
                         restorableAgent: retainedRestorableAgent,
-                        resumeBinding: resumeBinding,
+                        resumeBinding: resumeBindingForRetention,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
                         remoteResumeCommandEmbedded: deferredPersistentSSHResumeCommand != nil,
@@ -3270,8 +3270,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalStartupRestoreCoordinator.lifecycle
     }
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] {
-        get { restoredAgentLifecycle.snapshotsByPanelId }
-        set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
+        restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     /// In-memory compare-and-claim state held while a CLI restore hands the
@@ -6207,7 +6206,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   // Apply it to a refresh only while the binding stays in the
                   // same execution location; a local hook refresh starts a new
                   // restore scope and must not inherit remote state.
-                  previousBinding?.launchFlavor == binding.launchFlavor,
+                  previousBinding?.launchFlavor.representsSameExecutionLocation(
+                      as: binding.launchFlavor
+                  ) == true,
                   let restoredAgent =
             restoredAgentSnapshotsByPanelId[panelId],
            let selection = restoredAgent.restoreWorkingDirectorySelection,
@@ -6221,7 +6222,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         } else if let previousBinding,
                   previousBinding.isSameManagedSession(as: binding),
-                  previousBinding.launchFlavor == binding.launchFlavor {
+                  previousBinding.launchFlavor.representsSameExecutionLocation(
+                      as: binding.launchFlavor
+                  ) {
             binding.inheritingRestoreWorkingDirectorySelection(from: previousBinding)
         } else {
             binding
@@ -6251,7 +6254,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     lhs: previousRestorableAgent.sessionId,
                     rhs: incomingSessionID
                 ) &&
-                previousBinding?.launchFlavor == constrainedBinding.launchFlavor
+                previousBinding?.launchFlavor.representsSameExecutionLocation(
+                    as: constrainedBinding.launchFlavor
+                ) == true
         } else {
             false
         }

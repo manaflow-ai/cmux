@@ -221,6 +221,15 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain("Restart=always");
   });
 
+  test("Freestyle Dockerfile replay bakes the same ble.sh cache seeds", () => {
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    expect(freestyleScript).toContain("/etc/cmux/blesh-cache-seed");
+    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/0");
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(freestyleScript).toContain(`term.${term}`);
+    }
+  });
+
   test("the beta SDK serves the bake, verify, and beta driver arm; the legacy arm stays on 0.1.51", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain('from "freestyle-beta"');
     expect(readScript("verify-devbox-image.ts")).toContain('from "freestyle-beta"');

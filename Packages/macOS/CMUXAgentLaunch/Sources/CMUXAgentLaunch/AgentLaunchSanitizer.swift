@@ -252,11 +252,44 @@ public enum AgentLaunchSanitizer {
         agentKind: String? = nil,
         removeAllWorkingDirectoryOptions: Bool = false
     ) -> [String] {
+        removingSavedWorkingDirectoryOptions(
+            from: args,
+            workingDirectory: workingDirectory,
+            agentKind: agentKind,
+            builtInAgentKind: agentKind,
+            removeAllWorkingDirectoryOptions: removeAllWorkingDirectoryOptions
+        )
+    }
+
+    /// Removes captured cwd options with an explicit built-in policy identity.
+    ///
+    /// A custom Vault registration can reuse a registry-owned id (for example
+    /// `kimi`). Its raw id must not opt the command into the built-in's
+    /// unconditional option removal, because the same token may be a profile
+    /// selector for that custom command.
+    ///
+    /// - Parameters:
+    ///   - args: The captured command arguments to sanitize.
+    ///   - workingDirectory: The saved cwd whose matching options should be removed.
+    ///   - agentKind: The captured command kind, when known.
+    ///   - builtInAgentKind: The exact cmux built-in kind, or `nil` for a custom registration.
+    ///   - removeAllWorkingDirectoryOptions: Whether to remove every built-in cwd option regardless of value.
+    /// - Returns: Sanitized arguments while preserving content after `--`.
+    public static func removingSavedWorkingDirectoryOptions(
+        from args: [String],
+        workingDirectory: String?,
+        agentKind: String?,
+        builtInAgentKind: String?,
+        removeAllWorkingDirectoryOptions: Bool = false
+    ) -> [String] {
         let savedWorkingDirectory = normalizedWorkingDirectory(workingDirectory)
         guard removeAllWorkingDirectoryOptions || savedWorkingDirectory != nil else {
             return args
         }
-        let optionPolicy = AgentWorkingDirectoryOptionPolicy(agentKind: agentKind)
+        let optionPolicy = AgentWorkingDirectoryOptionPolicy(
+            agentKind: agentKind,
+            builtInAgentKind: builtInAgentKind
+        )
         let valueOptions = optionPolicy.valueOptions
         let unconditionallyRemovableValueOptions = optionPolicy.unconditionallyRemovableValueOptions
         let attachedShortValueOptions = optionPolicy.attachedShortValueOptions

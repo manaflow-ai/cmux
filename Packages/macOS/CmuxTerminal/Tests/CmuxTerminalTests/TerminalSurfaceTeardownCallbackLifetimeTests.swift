@@ -180,12 +180,17 @@ import Testing
             surface.manualIOContext = Unmanaged.passRetained(manualIOContext)
         }
         surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
+        surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: 12,
+            fittedRuntimePointSize: 8
+        )
 
         #expect(surface.surface == nil)
         #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.nilSurface"))
         #expect(surface.surfaceCallbackContext == nil)
         #expect(surface.manualIOContext == nil)
         #expect(surface.mobileByteTeeLease == nil)
+        #expect(surface.mobileViewportFontFitState == nil)
 
         #expect(
             await recorder.waitForEventCount(1),
