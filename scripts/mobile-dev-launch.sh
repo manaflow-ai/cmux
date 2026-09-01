@@ -45,9 +45,6 @@
 #              tag, build, simulator, device, or Mac action.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
 #              running after this script exits.
-#   --iroh-release-gate <automatic|relayOnly|directOnly>
-#              simulator only: run the credential-free Iroh release-gate probe
-#              after sign-in and attach.
 #   --credentials-file <absolute-path>
 #              load one 0600 credential file exclusively. Intended for an
 #              isolated temporary production release-gate account.
@@ -80,7 +77,6 @@ ATTACH=0
 ATTACH_EXPLICIT=0
 ENSURE_MAC=0
 DETACH=0
-IROH_RELEASE_GATE_MODE=""
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_PROFILE_EXPLICIT=0
@@ -118,7 +114,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --check-auth-contract) CHECK_AUTH_CONTRACT=1; shift ;;
     --detach) DETACH=1; shift ;;
-    --iroh-release-gate) IROH_RELEASE_GATE_MODE="${2:-}"; shift 2 ;;
     --credentials-file)
       [[ -n "${2:-}" ]] || { echo "error: --credentials-file requires a path" >&2; exit 2; }
       AUTH_CREDENTIALS_FILE="$2"; shift 2
@@ -183,19 +178,6 @@ if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
   echo "error: --detach is supported only with simulator launches" >&2
   usage >&2
   exit 2
-fi
-if [[ -n "$IROH_RELEASE_GATE_MODE" ]]; then
-  if [[ "$TARGET" != "simulator" ]]; then
-    echo "error: --iroh-release-gate is simulator-only" >&2
-    exit 2
-  fi
-  case "$IROH_RELEASE_GATE_MODE" in
-    automatic|relayOnly|directOnly) ;;
-    *)
-      echo "error: invalid --iroh-release-gate mode '$IROH_RELEASE_GATE_MODE'" >&2
-      exit 2
-      ;;
-  esac
 fi
 
 # Ignore ambient auth vars from the calling shell. Normal dev launches must
@@ -264,10 +246,7 @@ if [[ "$TARGET" == "device" ]]; then
     exit "$EXIT_PHONE_AWAY"
   fi
 fi
-if [[ "$TARGET" == "device" || -n "$IROH_RELEASE_GATE_MODE" ]]; then
-  # The release gate runs in a simulator but must fail closed until the Mac can
-  # mint an identity-only Iroh route. Reuse the physical-device ticket policy,
-  # which polls for Iroh and never falls back to loopback.
+if [[ "$TARGET" == "device" ]]; then
   ATTACH_TARGET="physical_device"
 else
   ATTACH_TARGET="simulator_injection"
@@ -357,9 +336,8 @@ fi
 echo "==> launching $BUNDLE_ID on $TARGET (profile $CMUX_DEV_AUTH_PROFILE, signed in as $SIGN_IN_ACCOUNT_LABEL${ATTACH_URL:+, auto-pairing})"
 READINESS_STARTED_MS=""
 # Ordinary dogfood needs this launcher to prove the app reached an authenticated
-# RPC session. Release-gate launches instead let the in-app runner own readiness,
-# path validation, and its longer relay-rollover deadline so its report survives.
-if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
+# RPC session.
+if [[ -n "$READINESS_CURSOR" ]]; then
   READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
 fi
 
@@ -391,9 +369,6 @@ if [[ "$TARGET" == "simulator" ]]; then
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
-  SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
-  SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_SCENARIO="${CMUX_IROH_RELEASE_GATE_SCENARIO:-standard}" \
-  SIMCTL_CHILD_CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="${CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH:-0}" \
     xcrun simctl "${launch_args[@]}" "$SIM_UDID" "$BUNDLE_ID"
 else
   if [[ -z "$DEVICE_ID" ]]; then
@@ -437,7 +412,7 @@ else
   rm -f "$LAUNCH_ERR"
 fi
 
-if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
+if [[ -n "$READINESS_CURSOR" ]]; then
   if ! READY_EVENT="$(cmux_attach_wait_for_usable_session \
       "$TAG" \
       "$REPO_ROOT" \
