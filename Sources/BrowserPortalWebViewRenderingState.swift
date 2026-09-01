@@ -18,9 +18,10 @@ private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 
 /// Resolves the primary page-content child of a macOS `WKWebView` without
 /// depending on WebKit's sibling ordering. Inspector/companion children are
-/// excluded explicitly. When a responder is available, it must belong to the
-/// unique child covering the largest portion of the web view; otherwise that
-/// child wins. Near-ties fail closed rather than being disambiguated by focus.
+/// excluded explicitly. WebKit's structural page child (normally
+/// `WKFlippedView`) is preferred when present; otherwise a unique child
+/// covering the largest portion of the web view wins. Near-ties fail closed
+/// rather than being disambiguated by focus.
 func cmuxBrowserPageContentRoot(
     for webView: WKWebView,
     owningResponder: NSResponder? = nil
@@ -35,8 +36,28 @@ func cmuxBrowserPageContentRoot(
           webBounds.height > 0 else {
         return nil
     }
-    guard candidates.count > 1 else {
-        let candidate = candidates[0]
+    let structuralCandidates = candidates.filter(cmuxBrowserIsPageContentCandidate)
+    let candidatePool = structuralCandidates.isEmpty ? candidates : structuralCandidates
+
+    guard candidatePool.count > 1 else {
+        guard let candidate = candidatePool.first else { return nil }
+
+        // A recognized WebKit page child remains authoritative while it is
+        // being resized or temporarily covered by a companion view. The
+        // responder ownership check still prevents an unknown sibling from
+        // being treated as page content.
+        if !structuralCandidates.isEmpty {
+            if let owningResponder,
+               let responderView = cmuxBrowserViewOwningResponder(owningResponder) {
+                guard responderView === webView
+                        || responderView === candidate
+                        || responderView.isDescendant(of: candidate) else {
+                    return nil
+                }
+            }
+            return candidate
+        }
+
         let intersection = candidate.frame.intersection(webBounds)
         let coverage = max(0, intersection.width) * max(0, intersection.height) / webArea
         guard coverage >= 0.5 else { return nil }
@@ -49,7 +70,7 @@ func cmuxBrowserPageContentRoot(
         return candidate
     }
 
-    let scored = candidates.map { view in
+    let scored = candidatePool.map { view in
         let intersection = view.frame.intersection(webBounds)
         let area = max(0, intersection.width) * max(0, intersection.height)
         return (view: view, coverage: area / webArea)
@@ -76,6 +97,22 @@ func cmuxBrowserPageContentRoot(
     return winners[0].view
 }
 
+/// Whether a direct WebKit child is the structural page-content host rather
+/// than a companion/overlay. These private WebKit class names are the stable
+/// AppKit ownership signal available on supported macOS releases; geometry is
+/// retained as a compatibility fallback for future class-name changes.
+private func cmuxBrowserIsPageContentCandidate(_ view: NSView) -> Bool {
+    let classNames = [
+        String(describing: type(of: view)),
+        NSStringFromClass(type(of: view)),
+    ]
+    return classNames.contains { className in
+        className == "WKFlippedView"
+            || className == "WKContentView"
+            || className == "WKScrollView"
+    }
+}
+
 /// Whether WebKit has not yet exposed a stable page-content structure. This
 /// narrow transient signal is used only by the legacy document-editing
 /// fallback. Ambiguous populated hierarchies remain fail-closed; a lone child
@@ -86,6 +123,9 @@ func cmuxBrowserPageContentStructureIsTransient(for webView: WKWebView) -> Bool 
     }
     guard webView.bounds.width > 0, webView.bounds.height > 0 else {
         return true
+    }
+    if !candidates.filter(cmuxBrowserIsPageContentCandidate).isEmpty {
+        return false
     }
     guard candidates.count == 1 else {
         return candidates.isEmpty
