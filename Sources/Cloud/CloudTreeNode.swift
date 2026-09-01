@@ -30,8 +30,11 @@ final class CloudTreeNode: NSObject {
         /// A local workspace, grouping the local terminals it projects.
         case localWorkspace(CloudTreeLocalWorkspaceRow)
         case terminal(CloudTreeTerminalRow)
-        /// One VNC display of a machine.
-        case display(SurfaceResource)
+        /// One VNC display of a machine. Under a remote workspace the row carries the
+        /// local workspace already showing that remote workspace (the parent's openIn),
+        /// so its open verb stays inside that workspace instead of jumping to a VNC
+        /// pane elsewhere; pool rows carry nil and keep the global open-or-focus.
+        case display(SurfaceResource, openIn: UUID?)
         /// "Browsers" group (this Mac).
         case browsersGroup(machine: SurfaceMachineID)
         case browser(CloudTreeBrowserRow)
@@ -103,7 +106,7 @@ final class CloudTreeNode: NSObject {
             return machine
         case .localWorkspace: return .local
         case .terminal(let row): return row.resource.machine
-        case .display(let resource), .port(let resource): return resource.machine
+        case .display(let resource, _), .port(let resource): return resource.machine
         case .browser(let row): return row.resource.machine
         }
     }
@@ -126,7 +129,7 @@ final class CloudTreeNode: NSObject {
         case .workspace(_, let workspace, _, _): return workspace.name
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.resource.title
-        case .display(let resource): return resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title
+        case .display(let resource, _): return resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
@@ -158,7 +161,7 @@ final class CloudTreeNode: NSObject {
         switch kind {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
-        case .display(let resource), .port(let resource): return resource
+        case .display(let resource, _), .port(let resource): return resource
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
             return nil
         }
@@ -408,7 +411,7 @@ enum CloudTreeNodeBuilder {
         let displaysNode: CloudTreeNode? = displays.isEmpty ? nil : CloudTreeNode(
             id: nodeID(displaysPool: machine),
             kind: .displaysPool(machine: machine, count: displays.count),
-            children: displays.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .display($0)) }
+            children: displays.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .display($0, openIn: nil)) }
         )
 
         switch info.linkState {
@@ -477,9 +480,10 @@ enum CloudTreeNodeBuilder {
                     // place. Implicit rows stay out of `members`/dragGroup — only
                     // real pointers travel with the workspace's open/drag group.
                     let shownDisplays = workspaceDisplays.isEmpty ? displays : workspaceDisplays
+                    let openInLocal = localWorkspaceShowing(members, snapshot: snapshot)
                     return CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
-                        kind: .workspace(machine: machine, workspace, terminalCount: pointed.count, openIn: localWorkspaceShowing(members, snapshot: snapshot)),
+                        kind: .workspace(machine: machine, workspace, terminalCount: pointed.count, openIn: openInLocal),
                         children: pointed.map {
                             terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
                         } + workspaceBrowsers.map {
@@ -488,7 +492,7 @@ enum CloudTreeNodeBuilder {
                                 kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
                             )
                         } + shownDisplays.map {
-                            CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0))
+                            CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0, openIn: openInLocal))
                         },
                         dragGroup: SurfaceResourceGroup(
                             title: workspace.name,

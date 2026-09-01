@@ -9,6 +9,7 @@ import {
 import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   maxActiveVmsForPlan,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -34,7 +35,7 @@ import {
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
-import { vmRequestLocale, vmUnsupportedCopy } from "./vmErrorMessages";
+import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -271,11 +272,45 @@ export type VmRouteAccountScope =
     readonly response: Response;
   };
 
+type VmProvisioningScopeOptions = {
+  readonly requestedBillingTeamId?: string | null;
+};
+
+/**
+ * Resolve the account scope for a route that can allocate a new machine.
+ *
+ * Provisioning routes must use this helper instead of resolving entitlements
+ * and checking the Pro gate independently. Keeping the account lookup and
+ * policy decision together makes a newly added provisioning route fail closed
+ * by construction while management routes can continue to use
+ * `resolveVmRouteAccountScope` without a paywall.
+ */
+export async function resolveVmProvisioningAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): Promise<VmRouteAccountScope> {
+  const scope = resolveVmAccountScope(user, request, options);
+  if (!scope.ok) return scope;
+  if (isVmProGateBlocked(scope.entitlements)) {
+    return { ok: false, response: await vmRequiresProResponse(vmRequestLocale(request)) };
+  }
+  return scope;
+}
+
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
 ): VmRouteAccountScope {
-  const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
+  return resolveVmAccountScope(user, request);
+}
+
+function resolveVmAccountScope(
+  user: AuthedUser,
+  request: Request,
+  options: VmProvisioningScopeOptions = {},
+): VmRouteAccountScope {
+  const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
     return {
       ok: true,
@@ -306,20 +341,27 @@ export function vmBillingTeamErrorResponse(err: {
     action: err.code === "vm_billing_team_not_found"
       ? "Switch to a team you belong to, or run `cmux auth login` again and retry with the correct team id."
       : "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`.",
-    reason: err.message,
-  });
-}
-
-export function vmRequiresProResponse(): Response {
-  return vmErrorResponse({
-    error: "vm_requires_pro",
-    status: 402,
-    message: "Cloud VMs require a cmux Pro plan.",
-    action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
   });
 }
 
 const VM_UPGRADE_URL = "https://cmux.com/pricing";
+
+/**
+ * The paid-plan gate response. Copy comes from the `vmErrors.requiresPro`
+ * catalog so non-English clients get a translated upgrade instruction; the
+ * machine-readable `upgradeUrl`/`upgradeRequired` fields stay locale-free.
+ */
+export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Response> {
+  const copy = await vmRequiresProCopy(locale, { upgradeUrl: VM_UPGRADE_URL });
+  return vmErrorResponse({
+    error: "vm_requires_pro",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+  });
+}
 
 /**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
