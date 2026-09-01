@@ -458,6 +458,10 @@ struct Attachment {
     /// is separate because start callbacks can emit output and re-enter the
     /// operation gate.
     publication_gate: Arc<Mutex<()>>,
+    /// Even values admit output publication. Revocation flips the low bit,
+    /// giving emitters an atomic linearization point without waiting on the
+    /// transport callback.
+    publication_state: Arc<AtomicU64>,
     /// Releases this attachment (detach a viewer, close a control stream,
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
@@ -1063,6 +1067,7 @@ impl PtyManager {
             let publication =
                 candidate.publication_gate.lock().expect("attachment publication lock");
             let operation = candidate.operation_gate.lock().expect("attachment operation lock");
+            Self::revoke_publication(&candidate);
             candidate.closing.store(true, Ordering::Release);
             let removed = {
                 let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
@@ -1536,6 +1541,7 @@ impl Inner {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::clone(&publication_gate),
+                    publication_state: Arc::new(AtomicU64::new(0)),
                     control,
                     actor_id: actor.to_owned(),
                     owner: TransportOwner::from_context(context),
@@ -1569,6 +1575,7 @@ impl Inner {
                 let _state = self.tunnel_state.lock().expect("tunnel state lock");
                 let mut attachments = self.attachments.lock().expect("attach lock");
                 if let Some(current) = attachments.get(&pty_id) {
+                    Self::revoke_publication(current);
                     current.closing.store(true, Ordering::Release);
                 }
                 attachments.remove(&pty_id)
@@ -1696,11 +1703,12 @@ impl Inner {
             );
             return;
         }
-        // This final identity check is the publication linearization point.
-        // A concurrent detach may complete after the check, in which case
-        // this already-admitted frame is ordered before that detach. It can
-        // never block retirement while the callback runs.
-        if !self.attachment_snapshot_is_current(pty_id, &attachment) {
+        // Claim publication atomically with revocation. If detach wins the
+        // claim, no callback runs. If this claim wins first, the frame is
+        // ordered before detach even if the callback itself is slow.
+        if !self.attachment_snapshot_is_current(pty_id, &attachment)
+            || !Self::try_claim_publication(&attachment)
+        {
             return;
         }
         (auth.send)(json!({
@@ -1734,6 +1742,7 @@ impl Inner {
             return;
         }
         let removed = {
+            Self::revoke_publication(&attachment);
             attachment.closing.store(true, Ordering::Release);
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
@@ -2032,6 +2041,29 @@ impl Inner {
             && self.attachment_is_current(pty_id, attachment)
     }
 
+    fn try_claim_publication(attachment: &Attachment) -> bool {
+        loop {
+            let state = attachment.publication_state.load(Ordering::Acquire);
+            if state & 1 != 0 {
+                return false;
+            }
+            let next = state.wrapping_add(2);
+            match attachment.publication_state.compare_exchange_weak(
+                state,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(_) => continue,
+            }
+        }
+    }
+
+    fn revoke_publication(attachment: &Attachment) {
+        attachment.publication_state.fetch_or(1, Ordering::AcqRel);
+    }
+
     fn transport_auth_is_current(&self, context: &FrameContext, auth: &AuthSnapshot) -> bool {
         if context.cancellation.is_cancelled()
             || Self::matching_trust(auth, context).is_none()
@@ -2084,6 +2116,7 @@ impl Inner {
         // Callers must release any prior guard before entering this helper.
         let publication = attachment.publication_gate.lock().expect("attachment publication lock");
         let operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        Self::revoke_publication(attachment);
         attachment.closing.store(true, Ordering::Release);
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
@@ -2105,6 +2138,7 @@ impl Inner {
         // was linearized before removal from the attachment map; killing the
         // control concurrently closes that admitted operation when the
         // platform permits it, while this transition remains bounded.
+        Self::revoke_publication(&attachment);
         attachment.closing.store(true, Ordering::SeqCst);
         attachment.control.kill();
     }
@@ -4816,6 +4850,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    publication_state: Arc::new(AtomicU64::new(0)),
                     control: slow,
                     actor_id: "user_owner".to_owned(),
                     owner: owner_a,
@@ -4828,6 +4863,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(fast),
                     actor_id: "user_owner".to_owned(),
                     owner: owner_b,
@@ -4883,6 +4919,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
                         entered: Arc::clone(&entered),
                         release: Arc::clone(&release),
@@ -4937,6 +4974,7 @@ mod tests {
                     active_operations: Arc::new(AtomicUsize::new(0)),
                     operation_gate: Arc::new(Mutex::new(())),
                     publication_gate: Arc::new(Mutex::new(())),
+                    publication_state: Arc::new(AtomicU64::new(0)),
                     control: Arc::new(BlockingControl {
                         entered: Arc::clone(&entered),
                         release: Arc::clone(&release),
@@ -5012,6 +5050,7 @@ mod tests {
             active_operations: Arc::new(AtomicUsize::new(0)),
             operation_gate: Arc::new(Mutex::new(())),
             publication_gate: Arc::new(Mutex::new(())),
+            publication_state: Arc::new(AtomicU64::new(0)),
             control: Arc::new(pty),
             actor_id: "user_owner".to_owned(),
             owner: TransportOwner {
