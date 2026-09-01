@@ -29,6 +29,30 @@ struct AgentForkPlannerTests {
         ])
     }
 
+    @Test("Custom templates preserve single-quoted backslashes")
+    func customTemplatePreservesSingleQuotedBackslashes() throws {
+        let renderer = AgentLaunchTemplateRenderer()
+        #expect(renderer.arguments(
+            template: "agent '{{sessionId}}\\path'",
+            executable: "agent",
+            sessionID: "session",
+            workingDirectory: nil,
+            sessionDirectory: nil
+        ) == ["agent", "session\\path"])
+    }
+
+    @Test("Custom templates reject unterminated quotes")
+    func customTemplateRejectsUnterminatedQuotes() {
+        let renderer = AgentLaunchTemplateRenderer()
+        #expect(renderer.arguments(
+            template: "agent '{{sessionId}}",
+            executable: "agent",
+            sessionID: "session",
+            workingDirectory: nil,
+            sessionDirectory: nil
+        ) == nil)
+    }
+
     @Test("Uses prepared fork argv with restore environment policy")
     func preparedForkArgumentsStayStructured() throws {
         let checkpointID = "fork-session"

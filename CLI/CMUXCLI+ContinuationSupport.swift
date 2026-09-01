@@ -351,7 +351,7 @@ extension CMUXCLI {
         }
         let hookStatePath = agentHookStatePath(
             sessionStoreSuffix: "hermes-agent",
-            env: processEnvironment
+            env: recoveryEnvironment
         )
         let expectedWorkingDirectory = record.workingDirectory
             ?? record.launchCommand?.workingDirectory

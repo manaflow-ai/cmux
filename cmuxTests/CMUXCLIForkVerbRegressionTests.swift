@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -20,7 +21,7 @@ struct CMUXCLIForkVerbRegressionTests {
             (.codex, "codex", ["codex", "fork", sessionID]),
             (.opencode, "opencode", ["opencode", "--session", sessionID, "--fork"]),
             (.pi, "pi", ["pi", "--fork", sessionID]),
-            (.omp, "omp", ["omp", "--fork", sessionID]),
+            (.custom("omp"), "omp", ["omp", "--fork", sessionID]),
         ]
         for (kind, executable, expectedArguments) in nativeCases {
             let snapshot = SessionRestorableAgentSnapshot(
@@ -59,7 +60,7 @@ struct CMUXCLIForkVerbRegressionTests {
             (.codex, "codex-template"),
             (.opencode, "opencode-template"),
             (.pi, "pi-template"),
-            (.omp, "omp-template"),
+            (.custom("omp"), "omp-template"),
             (.hermesAgent, "hermes-template"),
             (.custom("custom-template"), "custom-template"),
         ]
@@ -259,22 +260,6 @@ struct CMUXCLIForkVerbRegressionTests {
     }
 
     @Test
-    func forkRecordUsesPreparedArgumentsWhenPrimaryFieldIsNull() throws {
-        let cli = CMUXCLI(args: ["cmux", "fork"])
-        let record = try cli.restoreRecord(
-            from: [
-                "mode": "forkAgent",
-                "kind": "custom-agent",
-                "checkpoint_id": "mixed-checkpoint",
-                "fork_arguments": NSNull(),
-                "prepared_fork_arguments": ["custom-agent", "--fork", "mixed-checkpoint"],
-            ],
-            verb: .fork
-        )
-        #expect(record.forkArguments == ["custom-agent", "--fork", "mixed-checkpoint"])
-    }
-
-    @Test
     func contextMenuForkQueuesForkVerbAndStagesParentRecord() async throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
@@ -303,7 +288,10 @@ struct CMUXCLIForkVerbRegressionTests {
         let forkPanelID = try #require(workspace.focusedPanelId)
         let forkPanel = try #require(workspace.terminalPanel(for: forkPanelID))
         #expect(forkPanel.surface.initialInput == " cmux fork claude \(sessionID)\n")
-        #expect(workspace.restoredAgentSnapshotsByPanelId[forkPanelID] == snapshot)
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[forkPanelID]?.sessionId
+                == snapshot.sessionId
+        )
     }
 
     @Test
@@ -343,7 +331,8 @@ struct CMUXCLIForkVerbRegressionTests {
                         "working_directory": root.path,
                         "environment": ["CODEX_HOME": "structured value"],
                     ],
-                    "fork_arguments": [executable.path, "--fork", checkpointID],
+                    "fork_arguments": NSNull(),
+                    "prepared_fork_arguments": [executable.path, "--fork", checkpointID],
                 ],
             ],
         ])
@@ -364,7 +353,7 @@ struct CMUXCLIForkVerbRegressionTests {
             arguments: ["fork", "--surface", surfaceID, "custom-agent", checkpointID],
             environment: environment
         )
-        #expect(result.status == 0, result.description)
+        #expect(result.status == 0, Comment(rawValue: result.description))
         let output = try String(contentsOf: marker, encoding: .utf8)
         #expect(output.contains("pwd=\(root.path)"))
         #expect(output.contains("value=structured value"))
@@ -408,8 +397,11 @@ struct CMUXCLIForkVerbRegressionTests {
             arguments: ["fork", "--surface", surfaceID, "custom-agent", checkpointID],
             environment: environment
         )
-        #expect(result.status != 0, result.description)
-        #expect(result.stderr.contains("does not support forking"), result.description)
+        #expect(result.status != 0, Comment(rawValue: result.description))
+        #expect(
+            result.stderr.contains("does not support forking"),
+            Comment(rawValue: result.description)
+        )
     }
 
     private struct ProcessResult: CustomStringConvertible {

@@ -20,7 +20,11 @@ extension Workspace {
         }
         if let lifecycleSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId),
            Self.forkSnapshotsMatch(lifecycleSnapshot, selected) {
-            return lifecycleSnapshot
+            return await revalidatedForkSnapshotIfNeeded(
+                lifecycleSnapshot,
+                selected: selected,
+                panelId: panelId
+            )
         }
         guard let index = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
               index.isComplete(
@@ -32,7 +36,48 @@ extension Workspace {
               Self.forkSnapshotsMatch(entry.snapshot, selected) else {
             return nil
         }
-        return entry.snapshot
+        return await revalidatedForkSnapshotIfNeeded(
+            entry.snapshot,
+            selected: selected,
+            panelId: panelId
+        )
+    }
+
+    private func revalidatedForkSnapshotIfNeeded(
+        _ candidate: SessionRestorableAgentSnapshot,
+        selected: SessionRestorableAgentSnapshot,
+        panelId: UUID
+    ) async -> SessionRestorableAgentSnapshot? {
+        let selectedIdentity = AgentForkSupport.forkValidationIdentity(
+            snapshot: selected,
+            isRemoteContext: false
+        )
+        let candidateIdentity = AgentForkSupport.forkValidationIdentity(
+            snapshot: candidate,
+            isRemoteContext: false
+        )
+        guard let candidateIdentity else { return nil }
+        guard candidateIdentity != selectedIdentity else { return candidate }
+
+        // A fresh lifecycle/index read can replace executable or registration
+        // metadata while retaining the same session id. Re-run the capability
+        // probe for that exact candidate and refresh cache metadata before
+        // persisting it on the destination surface.
+        await SharedLiveAgentIndex.shared.refreshForkAvailabilityNow(
+            workspaceId: id,
+            panelId: panelId,
+            isRemoteContext: false,
+            fallbackSnapshot: candidate
+        )
+        guard SharedLiveAgentIndex.shared.forkSupportProbeAccepted(
+            workspaceId: id,
+            panelId: panelId,
+            isRemoteContext: false,
+            fallbackSnapshot: candidate
+        ) else {
+            return nil
+        }
+        return candidate
     }
 
     /// Selects the fork startup input for one source panel. A matching local
@@ -87,7 +132,7 @@ private extension SurfaceResumeBindingSnapshot {
               !bindingCheckpoint.isEmpty else {
             return false
         }
-        return bindingKind.caseInsensitiveCompare(snapshot.kind.rawValue) == .orderedSame
+        return bindingKind == snapshot.kind.rawValue
             && bindingCheckpoint == snapshot.sessionId
     }
 }

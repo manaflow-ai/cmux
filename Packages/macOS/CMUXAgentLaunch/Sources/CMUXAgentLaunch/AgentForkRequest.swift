@@ -93,92 +93,14 @@ public struct AgentForkRequest: Sendable, Equatable {
     }
 
     private func templateArguments(_ template: CustomTemplate) -> [String] {
-        let parts = splitShellWords(template.command)
-        guard !parts.isEmpty else { return [] }
         let originalExecutable = commandExecutable(fallbackExecutable: template.defaultExecutable)
-        let replacements: [String: String] = [
-            "sessionId": checkpointID,
-            "sessionPath": checkpointID,
-            "executable": originalExecutable,
-            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
-            "sessionDir": template.sessionDirectory ?? "",
-        ]
-        var resolved: [String] = []
-        for part in parts {
-            guard let value = resolveTemplatePart(part, replacements: replacements) else { return [] }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return [] }
-            resolved.append(trimmed)
-        }
-        return resolved
-    }
-
-    private func resolveTemplatePart(
-        _ part: String,
-        replacements: [String: String]
-    ) -> String? {
-        var resolved = ""
-        var searchStart = part.startIndex
-        while let opening = part[searchStart...].range(of: "{{") {
-            resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
-            guard let closing = part[opening.upperBound...].range(of: "}}") else {
-                resolved.append(contentsOf: part[opening.lowerBound...])
-                return resolved
-            }
-            let key = String(part[opening.upperBound..<closing.lowerBound])
-            if let replacement = replacements[key] {
-                guard !replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return nil
-                }
-                resolved += replacement
-            } else {
-                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
-            }
-            searchStart = closing.upperBound
-        }
-        resolved.append(contentsOf: part[searchStart...])
-        return resolved
-    }
-
-    private func splitShellWords(_ command: String) -> [String] {
-        enum Quote { case single, double }
-        var words: [String] = []
-        var current = ""
-        var quote: Quote?
-        var escaping = false
-
-        func finishWord() {
-            guard !current.isEmpty else { return }
-            words.append(current)
-            current = ""
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            switch (quote, character) {
-            case (.single, "'"), (.double, "\""):
-                quote = nil
-            case (nil, "'"):
-                quote = .single
-            case (nil, "\""):
-                quote = .double
-            case (nil, " "), (nil, "\t"), (nil, "\n"):
-                finishWord()
-            default:
-                current.append(character)
-            }
-        }
-        if escaping { current.append("\\") }
-        finishWord()
-        return words
+        return AgentLaunchTemplateRenderer().arguments(
+            template: template.command,
+            executable: originalExecutable,
+            sessionID: checkpointID,
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            sessionDirectory: template.sessionDirectory
+        ) ?? []
     }
 
     private func commandExecutable(fallbackExecutable: String) -> String {

@@ -445,8 +445,8 @@ extension CMUXCLI {
             let hasLegacyForkFallback = legacyForkCommand != nil
                 || legacyCommand?.contains("--fork") == true
                 || legacyCommand?.contains("--fork-session") == true
-            let hasStructuredForkData = object["fork_arguments"] != nil
-                || object["prepared_fork_arguments"] != nil
+            let hasStructuredForkData = object["fork_arguments"].map { !($0 is NSNull) } == true
+                || object["prepared_fork_arguments"].map { !($0 is NSNull) } == true
             let canUseLegacyFallback: Bool
             if verb == .fork {
                 canUseLegacyFallback = mode == AgentRestoreRequestMode.forkAgent.rawValue
