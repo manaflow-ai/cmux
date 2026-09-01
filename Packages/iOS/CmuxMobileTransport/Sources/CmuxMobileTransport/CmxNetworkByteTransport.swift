@@ -157,7 +157,10 @@ public actor CmxNetworkByteTransport: CmxByteTransport, CmxByteTransportPathObse
             port: port,
             maximumReceiveLength: maximumReceiveLength,
             connectTimeoutNanoseconds: connectTimeoutNanoseconds,
-            transportPath: Self.path(for: route.kind, host: host)
+            transportPath: CmxNetworkByteTransportPath().path(
+                for: route.kind,
+                host: host
+            )
         )
     }
 
@@ -224,7 +227,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport, CmxByteTransportPathObse
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         advertisedTransportPath = .tailscale(
-            address: Self.hostString(from: preparedTailscaleRoute.proof.request.route)
+            address: CmxNetworkByteTransportPath().host(
+                from: preparedTailscaleRoute.proof.request.route
+            )
                 ?? String(describing: preparedTailscaleRoute.proof.peerAddress.nwHost)
         )
         tailscaleBinding = CmxTailscaleTransportBinding(
@@ -259,24 +264,6 @@ public actor CmxNetworkByteTransport: CmxByteTransport, CmxByteTransportPathObse
         for continuation in pathContinuations.values {
             continuation.yield(advertisedTransportPath)
         }
-    }
-
-    private static func path(
-        for kind: CmxAttachTransportKind,
-        host: String
-    ) -> CmxTransportPath {
-        switch kind {
-        case .lan: .lan(address: host)
-        case .debugLoopback: .debugLoopback
-        case .tailscale: .tailscale(address: host)
-        case .iroh: .unavailable
-        case .websocket: .websocket
-        }
-    }
-
-    private static func hostString(from route: CmxAttachRoute) -> String? {
-        guard case let .hostPort(host, _) = route.endpoint else { return nil }
-        return host
     }
 
     /// Opens the connection, awaiting `ready` or failing on error/timeout.

@@ -1,9 +1,11 @@
 import CMUXMobileCore
-import Foundation
+import CmuxMobilePairing
 
-/// The consumer of a newly minted attach ticket. The destination owns route
-/// selection and URL representation so simulator and phone policies cannot be
-/// accidentally interchanged after the route set has been minted.
+/// App-target compatibility facade for the package-owned route planner.
+///
+/// Ticket issuance and its error vocabulary stay in the host app; route
+/// selection itself lives in ``CmxMobileAttachRoutePlanner`` so it is testable
+/// without launching the app.
 enum MobileAttachTarget: String, Sendable {
     case ticketOnly = "ticket_only"
     case simulatorInjection = "simulator_injection"
@@ -14,99 +16,37 @@ enum MobileAttachTarget: String, Sendable {
     }
 
     func selectRoutes(from routes: [CmxAttachRoute]) throws -> [CmxAttachRoute] {
-        guard !routes.isEmpty else { throw MobileAttachTicketStoreError.noRoutes }
-        let selected: [CmxAttachRoute]
-        switch self {
-        case .ticketOnly:
-            selected = routes
-        case .simulatorInjection:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            selected = irohRoutes.isEmpty
-                ? routes.filter { route in
-                    route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
-                }
-                : irohRoutes
-        case .physicalDevice:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            let tailscaleRoutes = try Self.canonicalTailscaleRoutes(from: routes)
-            let lanRoutes = try Self.canonicalLANRoutes(from: routes)
-            guard !irohRoutes.isEmpty || !tailscaleRoutes.isEmpty else {
-                // A raw LAN route cannot bootstrap an authenticated phone
-                // session by itself; require Iroh identity or Tailscale
-                // compatibility before minting a physical-device payload.
-                throw MobileAttachTicketStoreError.routeUnavailable
-            }
-            // Keep every explicitly advertised network class alongside the
-            // identity-only Iroh route. The iPhone's pinned mode filters this
-            // set after pairing; dropping LAN/Tailscale here would make those
-            // modes impossible whenever the Mac also has Iroh online.
-            selected = irohRoutes + lanRoutes + tailscaleRoutes
-        }
-        guard !selected.isEmpty else {
+        do {
+            return try CmxMobileAttachRoutePlanner().selectRoutes(
+                for: CmxMobileAttachTarget(rawValue: rawValue),
+                from: routes
+            )
+        } catch CmxMobileAttachRoutePlanningError.noRoutes {
+            throw MobileAttachTicketStoreError.noRoutes
+        } catch CmxMobileAttachRoutePlanningError.routeUnavailable {
             throw MobileAttachTicketStoreError.routeUnavailable
+        } catch {
+            throw MobileAttachTicketStoreError.invalidAttachURL
         }
-        return selected
     }
 
-    /// The non-loopback Tailscale routes of `routes`, reindexed to the
-    /// canonical id/priority sequence the v2 pairing decoder resynthesizes.
-    ///
-    /// A route-id filter can leave `tailscale_2` as the only route, and mixed
-    /// snapshots interleave Iroh and loopback entries. Reindexing keeps the
-    /// disclosed subsequence expressible in the bare `host:port` grammar
-    /// (which encodes neither ids nor priorities) without a token-bearing v1
-    /// fallback. Shared by the physical-device destination and the pairing
-    /// window's Tailscale compatibility code.
     static func canonicalTailscaleRoutes(
         from routes: [CmxAttachRoute]
     ) throws -> [CmxAttachRoute] {
-        try routes
-            .filter { $0.kind == .tailscale && !CmxLoopbackHost().matches($0) }
-            .enumerated().map { index, route in
-                try CmxAttachRoute(
-                    id: index == 0
-                        ? CmxAttachTransportKind.tailscale.rawValue
-                        : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)",
-                    kind: .tailscale,
-                    endpoint: route.endpoint,
-                    priority: 10 + index * 10
-                )
-            }
+        do {
+            return try CmxMobileAttachRoutePlanner().canonicalTailscaleRoutes(from: routes)
+        } catch {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        }
     }
 
-    /// The non-loopback LAN routes of `routes`, reindexed for compact pairing
-    /// payloads that synthesize IDs from route class and position.
     static func canonicalLANRoutes(
         from routes: [CmxAttachRoute]
     ) throws -> [CmxAttachRoute] {
-        try routes
-            .filter { $0.kind == .lan && !CmxLoopbackHost().matches($0) }
-            .enumerated().map { index, route in
-                try CmxAttachRoute(
-                    id: index == 0
-                        ? CmxAttachTransportKind.lan.rawValue
-                        : "\(CmxAttachTransportKind.lan.rawValue)_\(index + 1)",
-                    kind: .lan,
-                    endpoint: route.endpoint,
-                    priority: 5 + index * 5
-                )
-            }
-    }
-
-    private static func identityOnlyIrohRoutes(
-        from routes: [CmxAttachRoute]
-    ) throws -> [CmxAttachRoute] {
-        try routes.compactMap { route in
-            guard route.kind == .iroh,
-                  case let .peer(identity, _) = route.endpoint else {
-                return nil
-            }
-            return try CmxAttachRoute(
-                id: route.id,
-                kind: .iroh,
-                endpoint: .peer(identity: identity, pathHints: []),
-                priority: route.priority
-            )
+        do {
+            return try CmxMobileAttachRoutePlanner().canonicalLANRoutes(from: routes)
+        } catch {
+            throw MobileAttachTicketStoreError.invalidAttachURL
         }
     }
 }

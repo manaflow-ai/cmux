@@ -532,11 +532,6 @@ extension MobileShellComposite {
             recordConnectionRecoverySucceeded(attempt)
             applyConnectionRecoveryOwnerState()
         }
-        if connectionState == .connected,
-           let client = remoteClient,
-           transportPathObservationClientID != ObjectIdentifier(client) {
-            startTransportPathObservation(for: client)
-        }
     }
 
     func applyConnectionRecoveryOwnerState() {
@@ -836,7 +831,7 @@ extension MobileShellComposite {
                     lastTransportModeError = modeError
                     presentTransportModeErrorIfNeeded()
                 }
-                outcome = .failed(Self.diagnosticFailureKind(for: error))
+                outcome = .failed(diagnosticFailureKind(for: error))
                 if let automaticReconnectAccountID {
                     recordAutomaticReconnectBackoff(
                         error: error,

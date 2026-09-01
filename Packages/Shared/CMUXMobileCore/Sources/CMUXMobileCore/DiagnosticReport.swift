@@ -386,6 +386,7 @@ public extension DiagnosticEvent {
                 || code == .transportPathMigration else {
             return nil
         }
+        /// Selects the payload slot used by this event's path schema.
         let rawValue: Int?
         switch code {
         case .transportPathEvent, .transportPathMigration:

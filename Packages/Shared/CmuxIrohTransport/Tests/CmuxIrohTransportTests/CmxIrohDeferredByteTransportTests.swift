@@ -29,6 +29,28 @@ struct CmxIrohDeferredByteTransportTests {
         await transport.close()
     }
 
+    @Test
+    func keepsPathSubscribersUntilDeferredTransportConnects() async throws {
+        let underlying = PathTransport()
+        let transport = CmxIrohDeferredByteTransport(
+            request: try request(),
+            provider: DeferredProvider(transport: underlying)
+        )
+
+        let stream = await transport.transportPathChanges()
+        let observations = Task {
+            var iterator = stream.makeAsyncIterator()
+            let first = await iterator.next()
+            while await iterator.next() != nil {}
+            return first
+        }
+
+        try await transport.connect()
+        await underlying.close()
+        #expect(await observations.value == .irohDirect)
+        await transport.close()
+    }
+
     private func request() throws -> CmxByteTransportRequest {
         let peer = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "ab", count: 32)
@@ -118,5 +140,50 @@ private actor ContinuityTransport:
         await withCheckedContinuation { continuation in
             closeWaiters.append(continuation)
         }
+    }
+}
+
+private actor PathTransport: CmxByteTransport, CmxByteTransportPathObserving {
+    private let paths: AsyncStream<CmxTransportPath>
+    private let pathContinuation: AsyncStream<CmxTransportPath>.Continuation
+    private var connected = false
+    private var closed = false
+
+    init() {
+        let stream = AsyncStream<CmxTransportPath>.makeStream()
+        paths = stream.stream
+        pathContinuation = stream.continuation
+        pathContinuation.yield(.irohDirect)
+    }
+
+    func connect() {
+        connected = true
+    }
+
+    func receive() throws -> Data? {
+        guard connected, !closed else {
+            throw CmxIrohByteTransportError.notConnected
+        }
+        return nil
+    }
+
+    func send(_: Data) throws {
+        guard connected, !closed else {
+            throw CmxIrohByteTransportError.notConnected
+        }
+    }
+
+    func close() {
+        guard !closed else { return }
+        closed = true
+        pathContinuation.finish()
+    }
+
+    func currentTransportPath() -> CmxTransportPath {
+        .irohDirect
+    }
+
+    func transportPathChanges() -> AsyncStream<CmxTransportPath> {
+        paths
     }
 }

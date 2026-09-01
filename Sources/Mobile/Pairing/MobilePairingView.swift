@@ -12,12 +12,6 @@ import SwiftUI
 /// Each tab ends in a status row that doubles as the debugging surface
 /// (live transport state, manual-entry routes, signed-in account).
 struct MobilePairingView: View {
-    /// The transport whose pairing flow the window presents.
-    enum TransportChoice: Hashable {
-        case iroh
-        case tailscale
-    }
-
     @State private var model = MobilePairingModel()
     @State private var signInModel = AccountSignInModel(
         flow: AppDelegate.shared?.auth?.accountFlow
@@ -25,7 +19,7 @@ struct MobilePairingView: View {
     /// The user's explicit tab pick. `nil` until they touch the chooser; the
     /// effective tab then follows Iroh readiness (Iroh when ready, else
     /// Tailscale) so the page opens on the transport that will work.
-    @State private var chosenTransport: TransportChoice?
+    @State private var chosenTransport: MobilePairingTransportChoice?
     /// The manual-entry value that was just copied (the host or the port
     /// string), so only the matching button shows the brief "Copied" flash.
     /// The two values can never collide: one is a host, the other a port.
@@ -103,13 +97,18 @@ struct MobilePairingView: View {
     private func effectiveTransport(
         reachableViaIroh: Bool,
         reachableViaTailscale: Bool
-    ) -> TransportChoice {
+    ) -> MobilePairingTransportChoice {
+        guard reachableViaIroh || reachableViaTailscale else {
+            return .unavailable
+        }
         if let chosenTransport {
             switch chosenTransport {
             case .tailscale where !reachableViaTailscale:
-                return reachableViaIroh ? .iroh : .tailscale
+                return reachableViaIroh ? .iroh : .unavailable
             case .iroh where !reachableViaIroh:
-                return reachableViaTailscale ? .tailscale : .iroh
+                return reachableViaTailscale ? .tailscale : .unavailable
+            case .unavailable:
+                return reachableViaIroh ? .iroh : .tailscale
             default:
                 return chosenTransport
             }
@@ -135,10 +134,10 @@ struct MobilePairingView: View {
         ) {
             // Transport product names are literal tokens, not translatable copy.
             Text(verbatim: "Iroh")
-                .tag(TransportChoice.iroh)
+                .tag(MobilePairingTransportChoice.iroh)
                 .disabled(!reachableViaIroh)
             Text(verbatim: "Tailscale")
-                .tag(TransportChoice.tailscale)
+                .tag(MobilePairingTransportChoice.tailscale)
                 .disabled(!reachableViaTailscale)
         }
         .pickerStyle(.segmented)
@@ -246,15 +245,19 @@ struct MobilePairingView: View {
         )
 
         VStack(alignment: .center, spacing: 14) {
-            transportPicker(
-                reachableViaIroh: ready.reachableViaIroh,
-                reachableViaTailscale: ready.reachableViaTailscale
-            )
+            if ready.reachableViaIroh || ready.reachableViaTailscale {
+                transportPicker(
+                    reachableViaIroh: ready.reachableViaIroh,
+                    reachableViaTailscale: ready.reachableViaTailscale
+                )
+            }
             getIPhoneAppBadge
             if transport == .tailscale {
                 tailscaleReadyBody(ready)
-            } else {
+            } else if transport == .iroh {
                 irohBody(waiting: ready.reachableViaIroh)
+            } else {
+                unavailableTransportBody
             }
         }
         .frame(maxWidth: .infinity)
@@ -264,7 +267,10 @@ struct MobilePairingView: View {
         if transport == .tailscale {
             tailscaleRow(ready)
             manualEntry(ready)
+        } else if transport == .iroh {
+            irohRow(reachableViaIroh: ready.reachableViaIroh)
         } else {
+            tailscaleRow(ready)
             irohRow(reachableViaIroh: ready.reachableViaIroh)
         }
 
@@ -387,15 +393,19 @@ struct MobilePairingView: View {
         )
 
         VStack(alignment: .center, spacing: 14) {
-            transportPicker(
-                reachableViaIroh: reachableViaIroh,
-                reachableViaTailscale: false
-            )
+            if reachableViaIroh {
+                transportPicker(
+                    reachableViaIroh: true,
+                    reachableViaTailscale: false
+                )
+            }
             getIPhoneAppBadge
             if transport == .iroh {
                 irohBody(waiting: reachableViaIroh)
-            } else {
+            } else if transport == .tailscale {
                 tailscaleMissingBody
+            } else {
+                unavailableTransportBody
             }
         }
         .frame(maxWidth: .infinity)
@@ -404,6 +414,8 @@ struct MobilePairingView: View {
 
         if transport == .iroh {
             irohRow(reachableViaIroh: reachableViaIroh)
+        } else if transport == .unavailable {
+            unavailableTransportRows
         }
 
         footer
@@ -430,6 +442,40 @@ struct MobilePairingView: View {
         )
         .buttonStyle(.borderedProminent)
         refreshButton
+    }
+
+    @ViewBuilder
+    private var unavailableTransportBody: some View {
+        Image(systemName: "network.slash")
+            .cmuxFont(size: 28)
+            .foregroundStyle(.orange)
+        Text(String(
+            localized: "mobile.pairing.transport.unavailable",
+            defaultValue: "Neither Iroh nor Tailscale is reachable for this Mac."
+        ))
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        refreshButton
+    }
+
+    @ViewBuilder
+    private var unavailableTransportRows: some View {
+        irohRow(reachableViaIroh: false)
+        transportRow(
+            name: "Tailscale",
+            healthy: false,
+            status: String(
+                localized: "mobile.pairing.transport.status.notDetected",
+                defaultValue: "Not detected"
+            ),
+            detail: String(
+                localized: "mobile.pairing.transport.tailscale.detail",
+                defaultValue: "This code pairs over Tailscale instead. Both devices must be connected to the same Tailscale network."
+            )
+        ) {
+            EmptyView()
+        }
     }
 
     // MARK: Transport status rows (debugging surface)

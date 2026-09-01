@@ -6067,6 +6067,57 @@
           }
         }
       }
+    },
+    "diagnostics.field.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モード"
+          }
+        }
+      }
+    },
+    "diagnostics.field.fromPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移行元経路"
+          }
+        }
+      }
+    },
+    "diagnostics.field.toPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移行先経路"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

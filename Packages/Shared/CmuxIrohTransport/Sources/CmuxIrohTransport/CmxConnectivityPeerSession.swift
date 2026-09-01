@@ -197,7 +197,7 @@ actor CmxConnectivityPeerSession {
         redial: while true {
             if let activeConnection {
                 if let activeRequest,
-                   !Self.sameTransportPolicy(activeRequest, request) {
+                   !sameTransportPolicy(activeRequest, request) {
                     // One Iroh peer session may be shared by foreground and
                     // secondary owners. Do not tear down an owned session just
                     // because a sibling pairing selected another policy; let
@@ -226,7 +226,7 @@ actor CmxConnectivityPeerSession {
 
             let pending: PendingConnection
             if let pendingConnection,
-               Self.sameTransportPolicy(pendingConnection.request, request) {
+               sameTransportPolicy(pendingConnection.request, request) {
                 pending = pendingConnection
             } else {
                 // Keep ownership of every canceled dial. Once the bounded
@@ -288,7 +288,7 @@ actor CmxConnectivityPeerSession {
 
             if let installed = activeConnection {
                 if let activeRequest,
-                   !Self.sameTransportPolicy(activeRequest, request) {
+                   !sameTransportPolicy(activeRequest, request) {
                     // This completion is older than the already-installed
                     // policy. Retire only its stale candidate; never displace
                     // the newer active session (or roll the mode backward).
@@ -321,7 +321,7 @@ actor CmxConnectivityPeerSession {
             // an established lifecycle for the same peer.
             if let installed = activeConnection {
                 if let activeRequest,
-                   !Self.sameTransportPolicy(activeRequest, request) {
+                   !sameTransportPolicy(activeRequest, request) {
                     await connected.close()
                     throw CmxConnectivityEngineError.superseded
                 }
@@ -582,11 +582,11 @@ actor CmxConnectivityPeerSession {
     /// Compares only the immutable transport authority, not the local owner
     /// role. Foreground and background lanes may share one admitted session;
     /// changing the route, authorization, mode, or Direct allowlist may not.
-    private static func sameTransportPolicy(
+    private func sameTransportPolicy(
         _ lhs: CmxByteTransportRequest,
         _ rhs: CmxByteTransportRequest
     ) -> Bool {
-        Self.sameRouteAuthority(lhs.route, rhs.route)
+        sameRouteAuthority(lhs.route, rhs.route)
             && lhs.expectedPeerDeviceID == rhs.expectedPeerDeviceID
             && lhs.authorizationMode == rhs.authorizationMode
             && lhs.irohDirectOnlyDialCandidates == rhs.irohDirectOnlyDialCandidates
@@ -597,7 +597,7 @@ actor CmxConnectivityPeerSession {
     /// authenticated peer. They must not force a second session (or make a
     /// waiter hang behind a dial that no longer has a release signal), while a
     /// different route class/peer remains a hard replacement boundary.
-    private static func sameRouteAuthority(
+    private func sameRouteAuthority(
         _ lhs: CmxAttachRoute,
         _ rhs: CmxAttachRoute
     ) -> Bool {

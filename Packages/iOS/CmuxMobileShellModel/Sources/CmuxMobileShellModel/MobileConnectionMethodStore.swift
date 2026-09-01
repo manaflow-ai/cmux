@@ -34,9 +34,13 @@ extension MobileConnectionMethod {
     }
 
     /// Source-compatible aliases for settings and tests.
+    /// The automatic connection method.
     public static var auto: Self { .automatic }
+    /// The LAN-only connection method.
     public static var lanOnly: Self { .lan }
+    /// The Tailscale-only connection method.
     public static var tailscaleOnly: Self { .tailscale }
+    /// The Iroh-only connection method.
     public static var irohOnly: Self { .iroh }
 
     /// Exhaustive mapping into the diagnostics payload enum, so a future third

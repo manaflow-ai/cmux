@@ -86,23 +86,7 @@ extension MobileShellComposite {
         }
     }
 
-    /// Maps a route-level transport to the best path class available before a
-    /// socket negotiates. Iroh remains unknown until its selected-path callback
-    /// reports direct or relay evidence.
-    nonisolated private static func diagnosticPathKind(
-        for transport: DiagnosticTransportKind
-    ) -> DiagnosticPathKind {
-        switch transport {
-        case .lan: .lan
-        case .tailscale: .tailscale
-        case .iroh: .unknown
-        case .websocket: .direct
-        case .debugLoopback: .loopback
-        case .unknown: .unknown
-        }
-    }
-
-    static func diagnosticFailureKind(
+    func diagnosticFailureKind(
         for error: (any Error)?
     ) -> DiagnosticFailureKind {
         guard let error else { return .connectionClosed }
@@ -117,7 +101,7 @@ extension MobileShellComposite {
     /// must report equivalent staleness evidence itself. Auth, admission,
     /// policy, and cancellation failures stay out: refetching discovery cannot
     /// repair those.
-    static func routeFailureIndicatesStaleDiscovery(
+    func routeFailureIndicatesStaleDiscovery(
         _ failure: DiagnosticFailureKind
     ) -> Bool {
         switch failure {

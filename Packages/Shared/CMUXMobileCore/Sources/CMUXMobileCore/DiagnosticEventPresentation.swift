@@ -329,7 +329,10 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// Renders an already-described event as a title followed by labeled fields.
     public func summary(_ described: DescribedEvent) -> String {
-        let visibleFields = described.fields
+        // Session IDs are process-local correlation values. Keep them in the
+        // structured description for diagnostics, but never expose them in a
+        // human-readable summary or report.
+        let visibleFields = described.fields.filter { $0.key != "session" }
         guard !visibleFields.isEmpty else { return described.name }
         let details = visibleFields.map { field in
             localized(
@@ -1466,6 +1469,7 @@ public struct DiagnosticEventPresentation: Sendable {
     private func label(for key: String) -> String {
         switch key {
         case "surface": localized("diagnostics.field.surface", defaultValue: "Surface")
+        case "peer": localized("diagnostics.field.peer", defaultValue: "Peer")
         case "transport": localized("diagnostics.field.transport", defaultValue: "Transport")
         case "failure": localized("diagnostics.field.failure", defaultValue: "Failure")
         case "attempt": localized("diagnostics.field.attempt", defaultValue: "Attempt")
@@ -1479,6 +1483,9 @@ public struct DiagnosticEventPresentation: Sendable {
         case "state": localized("diagnostics.field.state", defaultValue: "State")
         case "purpose": localized("diagnostics.field.purpose", defaultValue: "Purpose")
         case "path": localized("diagnostics.field.path", defaultValue: "Path")
+        case "mode": localized("diagnostics.field.mode", defaultValue: "Mode")
+        case "from_path": localized("diagnostics.field.fromPath", defaultValue: "From path")
+        case "to_path": localized("diagnostics.field.toPath", defaultValue: "To path")
         case "operation": localized("diagnostics.field.operation", defaultValue: "Operation")
         case "duration": localized("diagnostics.field.duration", defaultValue: "Duration")
         case "lag": localized("diagnostics.field.lag", defaultValue: "Lag")

@@ -13,6 +13,7 @@ public protocol CmxByteTransportPathObserving: CmxByteTransport {
     func transportPathChanges() async -> AsyncStream<CmxTransportPath>
 }
 
+/// Convenience projections shared by path-observing transports.
 public extension CmxByteTransportPathObserving {
     /// A stable class for diagnostics even when the concrete path is not known.
     func currentTransportClass() async -> CmxTransportClass? {
@@ -23,27 +24,3 @@ public extension CmxByteTransportPathObserving {
 /// The mode captured for one physical dial in the privacy-safe diagnostic ring.
 /// Raw values are append-only and intentionally independent of route-kind raw
 /// values so adding a route class cannot change historical exports.
-public enum DiagnosticTransportMode: Int, Codable, CaseIterable, Hashable, Sendable {
-    case automatic = 0
-    case lan = 1
-    case tailscale = 2
-    case iroh = 3
-    case direct = 4
-
-    public init(_ mode: CmxTransportMode) {
-        switch mode {
-        case .automatic: self = .automatic
-        case .lan: self = .lan
-        case .tailscale: self = .tailscale
-        case .iroh: self = .iroh
-        case .direct: self = .direct
-        }
-    }
-}
-
-public extension CmxTransportMode {
-    /// Stable integer vocabulary used by diagnostic event payloads.
-    var diagnosticMode: DiagnosticTransportMode {
-        DiagnosticTransportMode(self)
-    }
-}

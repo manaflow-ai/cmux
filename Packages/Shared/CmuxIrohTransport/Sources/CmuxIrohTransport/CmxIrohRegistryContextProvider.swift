@@ -613,6 +613,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             activeNetworkProfiles: profiles,
             transportMode: transportMode
         ) else {
+            if transportMode.isPinned {
+                throw CmxTransportModeError.noRoute(
+                    mode: transportMode,
+                    macDisplayName: nil
+                )
+            }
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
         let fallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
@@ -667,6 +673,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 b: 0,
                 c: 0
             ))
+            if transportMode.isPinned {
+                throw CmxTransportModeError.noRoute(
+                    mode: transportMode,
+                    macDisplayName: nil
+                )
+            }
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
         let directPorts = freshDirectPorts(targetBinding: targetBinding, at: clock)
@@ -708,6 +720,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 b: candidates.count,
                 c: 0
             ))
+            if transportMode.isPinned {
+                throw CmxTransportModeError.noRoute(
+                    mode: transportMode,
+                    macDisplayName: nil
+                )
+            }
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
         diagnostics?.record(DiagnosticEvent(

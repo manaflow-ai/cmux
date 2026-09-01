@@ -14,6 +14,10 @@ actor CmxConnectivityByteTransport:
     private let engine: CmxConnectivityEngine
     private let ownerID = UUID()
     private var session: (any CmxConnectivitySession)?
+    /// Changes whenever the admitted session is installed or torn down, so a
+    /// path-observer registration cannot be attached to a session that closed
+    /// while its stream was being requested.
+    private var sessionGeneration = UUID()
     private var ownsControlSession = false
     private var closed = false
     private var pathObservationTasks: [UUID: Task<Void, Never>] = [:]
@@ -38,6 +42,7 @@ actor CmxConnectivityByteTransport:
         }
         ownsControlSession = true
         session = connected
+        sessionGeneration = UUID()
     }
 
     func receive() async throws -> Data? {
@@ -48,6 +53,7 @@ actor CmxConnectivityByteTransport:
         } catch {
             finishAllPathObservations()
             self.session = nil
+            sessionGeneration = UUID()
             await releaseOwnedControlSession(
                 reason: .controlReadFailed,
                 failure: DiagnosticFailureKind.classify(error)
@@ -64,6 +70,7 @@ actor CmxConnectivityByteTransport:
         } catch {
             finishAllPathObservations()
             self.session = nil
+            sessionGeneration = UUID()
             await releaseOwnedControlSession(
                 reason: .controlWriteFailed,
                 failure: DiagnosticFailureKind.classify(error)
@@ -77,6 +84,7 @@ actor CmxConnectivityByteTransport:
         closed = true
         finishAllPathObservations()
         session = nil
+        sessionGeneration = UUID()
         await releaseOwnedControlSession(
             reason: .controlOwnerReleased,
             failure: .none
@@ -107,12 +115,16 @@ actor CmxConnectivityByteTransport:
 
     func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
         guard let session else {
-            return AsyncStream { continuation in
-                continuation.yield(.unavailable)
-                continuation.finish()
-            }
+            return unavailablePathStream()
         }
+        let generation = sessionGeneration
         let changes = await session.observedSelectedPathChanges()
+        // `observedSelectedPathChanges()` suspends the actor. A receive/send
+        // failure or close may have retired this session while it was waiting;
+        // never register a continuation against that stale stream.
+        guard !closed, self.session != nil, sessionGeneration == generation else {
+            return unavailablePathStream()
+        }
         let observationID = UUID()
         let stream = AsyncStream<CmxTransportPath>(
             bufferingPolicy: .bufferingNewest(1)
@@ -136,6 +148,13 @@ actor CmxConnectivityByteTransport:
         }
         pathObservationTasks[observationID] = task
         return stream
+    }
+
+    private func unavailablePathStream() -> AsyncStream<CmxTransportPath> {
+        AsyncStream { continuation in
+            continuation.yield(.unavailable)
+            continuation.finish()
+        }
     }
 
     private func cancelPathObservation(_ id: UUID) {
@@ -164,37 +183,6 @@ actor CmxConnectivityByteTransport:
             continuation.finish()
         }
         pathObservationContinuations.removeAll()
-    }
-
-    nonisolated static func mobileTransportPath(
-        _ path: CmxIrohObservedConnectionPath,
-        mode: CmxTransportMode,
-        source: CmxIrohPathHintSource? = nil
-    ) -> CmxTransportPath {
-        switch path {
-        case .unavailable:
-            return .unavailable
-        case .unknown:
-            return .unavailable
-        case .direct:
-            return .irohDirect
-        case let .privateNetwork(address):
-            // A source-qualified caller may report LAN/Tailscale explicitly;
-            // without that provenance, do not infer a class from the address
-            // range and risk a false active-path claim.
-            if source == .lan {
-                return .lan(address: address)
-            }
-            if source == .tailscale {
-                return .tailscale(address: address)
-            }
-            if mode == .iroh || mode == .direct {
-                return .irohDirect
-            }
-            return .unavailable
-        case .relay:
-            return .irohRelay(region: nil)
-        }
     }
 
     func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) async {

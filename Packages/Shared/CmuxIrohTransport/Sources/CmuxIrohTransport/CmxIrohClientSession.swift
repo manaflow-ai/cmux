@@ -407,11 +407,7 @@ public actor CmxIrohClientSession {
         _ address: String?,
         source: CmxIrohPathHintSource
     ) -> Bool {
-        guard let address else {
-            return (dialPlan.publicPaths + dialPlan.privateFallbackPaths).contains {
-                $0.kind == .directAddress && $0.source == source
-            }
-        }
+        guard let address else { return false }
         return (dialPlan.publicPaths + dialPlan.privateFallbackPaths).contains {
                 $0.kind == .directAddress
                 && $0.source == source
@@ -420,8 +416,8 @@ public actor CmxIrohClientSession {
     }
 
     private func socketAddressesMatch(_ lhs: String, _ rhs: String) -> Bool {
-        guard let lhsHost = CmxIrohIPAddressScope.host(from: lhs),
-              let rhsHost = CmxIrohIPAddressScope.host(from: rhs) else {
+        guard let lhsHost = lhs.cmxIrohSocketHost,
+              let rhsHost = rhs.cmxIrohSocketHost else {
             return lhs == rhs
         }
         guard lhsHost == rhsHost else { return false }

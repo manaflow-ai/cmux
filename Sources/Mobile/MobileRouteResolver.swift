@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrohTransport
 import Darwin
 import Foundation
 
@@ -415,33 +416,17 @@ final class MobileRouteResolver: @unchecked Sendable {
     /// provenance remains explicit and a pinned LAN policy cannot inherit an
     /// overlay address.
     private static func lanRouteHosts() -> [String] {
-        var interfaces: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&interfaces) == 0, let firstInterface = interfaces else {
+        // Reuse the typed LAN interface snapshot used by Bonjour discovery.
+        // Its allowlist and interface flags exclude packet tunnels, VPNs, VM
+        // bridges, and point-to-point links; a name heuristic alone would
+        // incorrectly advertise interfaces such as `ppp0` as LAN routes.
+        guard let interfaces = try? CmxIrohSystemLANInterfaceSnapshotProvider()
+            .interfaceAddresses() else {
             return []
         }
-        defer { freeifaddrs(interfaces) }
-
-        var hosts: [String] = []
-        var pointer: UnsafeMutablePointer<ifaddrs>? = firstInterface
-        while let current = pointer {
-            defer { pointer = current.pointee.ifa_next }
-            guard let nameCString = current.pointee.ifa_name,
-                  let address = current.pointee.ifa_addr else {
-                continue
-            }
-            let interfaceName = String(cString: nameCString)
-            let flags = Int32(current.pointee.ifa_flags)
-            guard flags & IFF_UP != 0,
-                  flags & IFF_RUNNING != 0,
-                  flags & IFF_LOOPBACK == 0,
-                  !isTailscaleInterfaceName(interfaceName),
-                  let host = numericHost(for: address),
-                  isLANPeerAddress(host) else {
-                continue
-            }
-            hosts.append(host)
-        }
-        return deduplicatedHosts(hosts)
+        return deduplicatedHosts(
+            interfaces.map(\.ipAddress).filter(isLANPeerAddress)
+        )
     }
 
     private static func isLANPeerAddress(_ host: String) -> Bool {
@@ -465,8 +450,10 @@ final class MobileRouteResolver: @unchecked Sendable {
         }
         let bytes = withUnsafeBytes(of: &address) { Array($0) }
         let isULA = bytes.first.map { $0 & 0xfe == 0xfc } ?? false
-        let isLinkLocal = bytes.count >= 2 && bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80
-        return isULA || isLinkLocal
+        // IPv6 link-local addresses require an interface scope that cannot be
+        // carried portably from the Mac to the iPhone. Advertise only ULA
+        // addresses, which are cross-device routable within the LAN.
+        return isULA
     }
 
     private static func isTailscaleInterfaceName(_ name: String) -> Bool {

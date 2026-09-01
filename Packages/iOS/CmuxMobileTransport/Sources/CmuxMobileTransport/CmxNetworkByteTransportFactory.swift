@@ -7,7 +7,7 @@ public import CMUXMobileCore
 /// LAN TCP from `supportedKinds` and cannot accidentally advertise a route it
 /// will reject at the request boundary.
 public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory {
-    public var supportedKinds: [CmxAttachTransportKind]
+    public private(set) var supportedKinds: [CmxAttachTransportKind]
     public var maximumReceiveLength: Int
     public var connectTimeoutNanoseconds: UInt64
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing

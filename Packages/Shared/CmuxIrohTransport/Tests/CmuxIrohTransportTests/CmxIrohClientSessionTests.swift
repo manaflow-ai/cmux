@@ -129,8 +129,41 @@ struct CmxIrohClientSessionTests {
 
         // A selected-but-unclassified path is not the same as a temporarily
         // empty selection. Pinned modes must reject it rather than grace it.
-        #expect(!String(describing: unknownPath).contains("unavailable"))
+        #expect(unknownPath == .unknown)
         #expect(!(await session.pathIsAllowed(unknownPath)))
+    }
+
+    @Test
+    func directModeRejectsAnAddresslessDirectObservation() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let directHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.8:4242",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            expiresAt: Date(timeIntervalSince1970: 1_700_003_600),
+            networkProfile: CmxIrohNetworkProfileKey(
+                source: .customVPN,
+                profileID: String(repeating: "e", count: 64)
+            )
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: CmxIrohDialPlan(
+                publicPaths: [directHint],
+                privateFallbackPaths: []
+            ),
+            credential: credential,
+            transportMode: .direct
+        )
+
+        #expect(!(await session.pathIsAllowed(.direct(address: nil))))
+        #expect(await session.pathIsAllowed(.direct(address: "10.0.0.8:4242")))
     }
 
     @Test

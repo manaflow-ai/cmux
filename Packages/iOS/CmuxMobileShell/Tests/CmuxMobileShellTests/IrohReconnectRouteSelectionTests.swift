@@ -118,7 +118,7 @@ extension ReconnectRouteSelectionTests {
             actual: .lan
         )
         let methodDefaults = UserDefaults(
-            suiteName: "stored-reconnect-mode-error-(UUID().uuidString)"
+            suiteName: "stored-reconnect-mode-error-\(UUID().uuidString)"
         )!
         methodDefaults.set(
             MobileConnectionMethod.iroh.rawValue,
@@ -140,7 +140,7 @@ extension ReconnectRouteSelectionTests {
                 defaults: methodDefaults
             ),
             pairingHintDefaults: UserDefaults(
-                suiteName: "stored-reconnect-mode-error-hints-(UUID().uuidString)"
+                suiteName: "stored-reconnect-mode-error-hints-\(UUID().uuidString)"
             )!
         )
 

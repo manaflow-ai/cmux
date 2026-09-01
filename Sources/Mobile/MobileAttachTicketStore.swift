@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairing
 import Foundation
 #if canImport(Security)
 import Security

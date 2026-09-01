@@ -10,31 +10,36 @@ extension MobileShellComposite {
     /// before publishing a new path, so a late migration can never overwrite a
     /// newer connection's status.
     func startTransportPathObservation(for client: MobileCoreRPCClient) {
+        guard connectionState == .connected else { return }
+        let clientID = ObjectIdentifier(client)
+        if transportPathObservationClientID == clientID,
+           transportPathObservationTask != nil {
+            return
+        }
         stopTransportPathObservation()
         activeTransportPath = .unavailable
-        let clientID = ObjectIdentifier(client)
         transportPathObservationClientID = clientID
         transportPathObservationTask = Task { @MainActor [weak self, client] in
             defer {
-                guard let self,
-                      self.transportPathObservationClientID == clientID else { return }
-                self.transportPathObservationTask = nil
-                self.transportPathObservationClientID = nil
-                self.activeTransportPath = .unavailable
+                if let self,
+                   self.transportPathObservationClientID == clientID {
+                    self.transportPathObservationTask = nil
+                    self.transportPathObservationClientID = nil
+                    self.activeTransportPath = .unavailable
+                }
             }
             let initial = await client.currentTransportPath()
             guard !Task.isCancelled,
                   let self,
                   self.remoteClient === client,
                   self.connectionState == .connected else { return }
-            self.applyObservedTransportPath(initial, client: client)
+            await self.applyObservedTransportPath(initial, client: client)
             let changes = await client.transportPathChanges()
             for await path in changes {
                 guard !Task.isCancelled,
-                      let self,
                       self.remoteClient === client,
                       ObjectIdentifier(client) == clientID else { return }
-                self.applyObservedTransportPath(path, client: client)
+                await self.applyObservedTransportPath(path, client: client)
             }
         }
     }
@@ -50,7 +55,7 @@ extension MobileShellComposite {
     private func applyObservedTransportPath(
         _ path: CmxTransportPath,
         client: MobileCoreRPCClient
-    ) {
+    ) async {
         guard remoteClient === client, connectionState == .connected else { return }
         let previous = activeTransportPath
         guard previous != path else { return }
@@ -62,19 +67,17 @@ extension MobileShellComposite {
         let policy = CmxTransportModePolicy(client.transportMode)
         let pathIsAllowed = path == .unavailable || policy.allows(path: path)
         if pathIsAllowed, previous != .unavailable, path != .unavailable {
-            Task { @MainActor [weak self, client] in
-                let sessionID = await client.transportDiagnosticSessionID()
-                guard let self,
-                      self.remoteClient === client,
-                      self.connectionState == .connected,
-                      self.activeTransportPath == path else { return }
-                self.recordTransportPathMigration(
-                    from: previous,
-                    to: path,
-                    sessionID: sessionID,
-                    peerID: client.attachTicket.macDeviceID
-                )
-            }
+            let sessionID = await client.transportDiagnosticSessionID()
+            guard !Task.isCancelled,
+                  remoteClient === client,
+                  connectionState == .connected,
+                  activeTransportPath == path else { return }
+            recordTransportPathMigration(
+                from: previous,
+                to: path,
+                sessionID: sessionID,
+                peerID: client.attachTicket.macDeviceID
+            )
         }
 
         guard path != .unavailable, !pathIsAllowed else { return }
@@ -86,27 +89,28 @@ extension MobileShellComposite {
             expected: client.transportMode.pinnedClass ?? .iroh,
             actual: path.transportClass ?? .iroh
         )
+        // Read the admitted session correlation before teardown clears the
+        // transport. Policy-violation migrations use the same schema as
+        // allowed migrations, so their `c` field must remain populated.
+        let sessionID = await client.transportDiagnosticSessionID()
+        guard !Task.isCancelled else { return }
+        recordTransportPathMigration(
+            from: previous,
+            to: path,
+            sessionID: sessionID,
+            peerID: client.attachTicket.macDeviceID
+        )
+        guard remoteClient === client,
+              connectionState == .connected,
+              activeTransportPath == path else { return }
+        // Do not let a superseded client publish an error for the current one.
         connectionError = error.mobileMessage
         connectionErrorGuidance = error.mobileGuidance
-        Task { @MainActor [weak self, client] in
-            // Read the admitted session correlation before teardown clears the
-            // transport. Policy-violation migrations use the same schema as
-            // allowed migrations, so their `c` field must remain populated.
-            let sessionID = await client.transportDiagnosticSessionID()
-            guard let self else { return }
-            self.recordTransportPathMigration(
-                from: previous,
-                to: path,
-                sessionID: sessionID,
-                peerID: client.attachTicket.macDeviceID
-            )
-            guard self.remoteClient === client else { return }
-            await client.disconnect()
-            guard self.remoteClient === client else { return }
-            self.connectionState = .disconnected
-            self.macConnectionStatus = .unavailable
-            self.clearRemoteConnectionContext()
-        }
+        await client.disconnect()
+        guard !Task.isCancelled, remoteClient === client else { return }
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
     }
 
     /// Records a path transition for both allowed and policy-violation flows.

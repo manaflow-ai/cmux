@@ -17,8 +17,11 @@ public enum CmxTransportMode: String, Codable, CaseIterable, Hashable, Sendable 
 
     /// Source-compatible spelling for callers that use the UI vocabulary.
     public static var auto: Self { .automatic }
+    /// Source-compatible spelling for the LAN-only mode.
     public static var lanOnly: Self { .lan }
+    /// Source-compatible spelling for the Tailscale-only mode.
     public static var tailscaleOnly: Self { .tailscale }
+    /// Source-compatible spelling for the Iroh-only mode.
     public static var irohOnly: Self { .iroh }
 
     /// The class required by a pinned mode, or `nil` for Auto.
@@ -38,15 +41,16 @@ public enum CmxTransportMode: String, Codable, CaseIterable, Hashable, Sendable 
     /// Stable human-readable name used in errors and fallback diagnostics.
     public var displayName: String {
         switch self {
-        case .automatic: Self.localized("cmux.transport.mode.auto", "Auto")
-        case .lan: Self.localized("cmux.transport.mode.lan", "LAN only")
-        case .tailscale: Self.localized("cmux.transport.mode.tailscale", "Tailscale only")
-        case .iroh: Self.localized("cmux.transport.mode.iroh", "iroh only")
-        case .direct: Self.localized("cmux.transport.mode.direct", "Direct")
+        case .automatic:
+            String(localized: "cmux.transport.mode.auto", defaultValue: "Auto", bundle: .module)
+        case .lan:
+            String(localized: "cmux.transport.mode.lan", defaultValue: "LAN only", bundle: .module)
+        case .tailscale:
+            String(localized: "cmux.transport.mode.tailscale", defaultValue: "Tailscale only", bundle: .module)
+        case .iroh:
+            String(localized: "cmux.transport.mode.iroh", defaultValue: "iroh only", bundle: .module)
+        case .direct:
+            String(localized: "cmux.transport.mode.direct", defaultValue: "Direct", bundle: .module)
         }
-    }
-
-    private static func localized(_ key: StaticString, _ value: String) -> String {
-        String(localized: key, defaultValue: String.LocalizationValue(value), bundle: .module)
     }
 }

@@ -81,7 +81,7 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport, CmxByteTransportPath
     func currentTransportPath() async -> CmxTransportPath {
         guard let transport,
               let observing = transport as? any CmxByteTransportPathObserving else {
-            return .tailscale(address: Self.routeHost(request.route))
+            return .tailscale(address: routeHost(request.route))
         }
         return await observing.currentTransportPath()
     }
@@ -90,14 +90,14 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport, CmxByteTransportPath
         guard let transport,
               let observing = transport as? any CmxByteTransportPathObserving else {
             return AsyncStream { continuation in
-                continuation.yield(.tailscale(address: Self.routeHost(request.route)))
+                continuation.yield(.tailscale(address: routeHost(request.route)))
                 continuation.finish()
             }
         }
         return await observing.transportPathChanges()
     }
 
-    private static func routeHost(_ route: CmxAttachRoute) -> String {
+    private func routeHost(_ route: CmxAttachRoute) -> String {
         guard case let .hostPort(host, _) = route.endpoint else { return "" }
         return host
     }

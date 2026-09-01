@@ -205,6 +205,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             recordForegroundTransportSelected()
             if connectionState == .connected {
+                if let client = remoteClient {
+                    startTransportPathObservation(for: client)
+                }
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
                 simulatorStreamStore?.setSimulatorStreamConnectionStatus(.connected)
@@ -273,7 +276,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recomputeNotificationFeedItems()
         }
     }
+    /// Display name of the Mac currently connected in the foreground.
     public internal(set) var connectedHostName: String
+    /// Localized connection error shown when the foreground attempt fails.
     public internal(set) var connectionError: String?
     /// The most recent pinned-mode route-selection failure. Kept separately
     /// from the generic pairing category so the UI can explain exactly which
@@ -1136,6 +1141,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
                 resetTerminalOutputTracking()
+            } else if connectionState == .connected,
+                      let client = remoteClient {
+                startTransportPathObservation(for: client)
             }
         }
     }
@@ -7947,49 +7955,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[key] = state
     }
 
-    #if DEBUG
-    /// Replace the foreground Mac's workspaces/groups for DEBUG-only preview
-    /// harnesses that exercise shell state without opening a live connection.
-    public func replaceForegroundWorkspaceState(
-        _ workspaces: [MobileWorkspacePreview],
-        groups: [MobileWorkspaceGroupPreview] = []
-    ) {
-        setForegroundWorkspaceState(workspaces: workspaces, groups: groups, merge: false)
-    }
-
-    /// Test seam: seed the full per-Mac workspace source of truth so aggregation
-    /// edge cases can be tested without opening live secondary transports.
-    func setWorkspaceStatesForTesting(
-        _ states: [String: MacWorkspaceState],
-        foregroundMacDeviceID: String?
-    ) {
-        self.foregroundMacDeviceID = foregroundMacDeviceID
-        workspacesByMac = Dictionary(
-            uniqueKeysWithValues: states.map { (MacPairingKey(pairingID: $0.key), $0.value) }
-        )
-    }
-
-    /// Test seam for the secondary-refresh failure path: stale rows should stay
-    /// visible but become unavailable when a secondary Mac cannot be reached.
-    func markSecondaryMacUnavailableForTesting(_ macID: String) {
-        markSecondaryMacUnavailable(MacPairingKey(pairingID: macID))
-    }
-    func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
-
-    func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
-        macConnectionRegistry.focusedConnection(onDevice: macDeviceID)?.route
-            ?? macConnectionRegistry.controlSubscriptions.first {
-                $0.key.isOnDevice(macDeviceID)
-            }?.value.route
-    }
-    func refreshRoutesFromRegistryForTesting(
-        for mac: MobilePairedMac,
-        scope: MobileShellScopeSnapshot
-    ) {
-        refreshRoutesFromRegistry(for: mac, scope: scope)
-    }
-    #endif
-
     func invalidateStoredMacReconnectAttempt() {
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
@@ -10149,7 +10114,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // here only adds a second connect-time round trip and can
                     // observe a different process during a rapid dev restart.
                     startTerminalRefreshPolling(initialHostStatus: status)
-                    startTransportPathObservation(for: client)
                     // The connect seam guarantees identity recovery for an
                     // anonymous (v2 QR) ticket on every supported runtime, not
                     // just push-event ones: when the event-listener task starts,
@@ -10216,7 +10180,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
-                    let failure = Self.diagnosticFailureKind(for: error)
+                    let failure = diagnosticFailureKind(for: error)
                     if failure == .identityMismatch
                         || failure == .admissionDenied
                         || failure == .authorizationFailed
@@ -10233,7 +10197,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // classified the outcome reports it too.
                     if route.kind == .iroh,
                        !ticket.macDeviceID.isEmpty,
-                       Self.routeFailureIndicatesStaleDiscovery(failure) {
+                       routeFailureIndicatesStaleDiscovery(failure) {
                         await personalIrohDiscovery?.invalidateDiscovery(
                             forMacDeviceID: ticket.macDeviceID
                         )
@@ -10253,7 +10217,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .pairFail,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
                 ?? DiagnosticTransportKind.unknown.rawValue,
-            b: Self.diagnosticFailureKind(for: lastError).rawValue
+            b: diagnosticFailureKind(for: lastError).rawValue
         ))
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
@@ -10705,9 +10669,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // begun during staging cannot cross onto the target connection.
         connectionGeneration = generation
         remoteClient = newValue
-        if connectionState == .connected {
-            startTransportPathObservation(for: newValue)
-        }
         if !preservingTerminalHandoffFences {
             terminalSubscriptionHandoffFences.removeAll()
         }

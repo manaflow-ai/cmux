@@ -56,14 +56,15 @@ struct CmxTransportModePolicyTests {
 
     @Test("Tailscale mode never admits Iroh paths")
     func tailscaleNeverFallsBackToIroh() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
         let hints = try [
             CmxIrohPathHint(
                 kind: .directAddress,
                 value: "192.168.1.10:58465",
                 source: .lan,
                 privacyScope: .localNetwork,
-                observedAt: Date(),
-                expiresAt: Date().addingTimeInterval(300),
+                observedAt: now,
+                expiresAt: now.addingTimeInterval(300),
                 networkProfile: try CmxIrohNetworkProfileKey(
                     source: .lan,
                     profileID: String(repeating: "1", count: 64)
@@ -74,8 +75,8 @@ struct CmxTransportModePolicyTests {
                 value: "100.64.1.10:58465",
                 source: .tailscale,
                 privacyScope: .privateNetwork,
-                observedAt: Date(),
-                expiresAt: Date().addingTimeInterval(300),
+                observedAt: now,
+                expiresAt: now.addingTimeInterval(300),
                 networkProfile: try CmxIrohNetworkProfileKey(
                     source: .tailscale,
                     profileID: String(repeating: "2", count: 64)
@@ -87,7 +88,7 @@ struct CmxTransportModePolicyTests {
             pathHints: hints
         )
         let plan = try #require(endpoint.irohDialPlan(
-            at: Date(),
+            at: now,
             managedRelayURLs: [],
             activeNetworkProfiles: []
         ))
@@ -138,6 +139,7 @@ struct CmxTransportModePolicyTests {
 
     @Test("LAN Iroh plans retain only LAN private paths")
     func lanIrohPlanKeepsOnlyLANPaths() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
         let plan = CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: [])
         #expect(throws: CmxTransportModeError.noRoute(mode: .lan, macDisplayName: nil)) {
             try CmxTransportModePolicy(.lanOnly).validate(irohDialPlan: plan)
@@ -148,8 +150,8 @@ struct CmxTransportModePolicyTests {
                 value: "192.168.1.10:58465",
                 source: .lan,
                 privacyScope: .localNetwork,
-                observedAt: Date(),
-                expiresAt: Date().addingTimeInterval(300),
+                observedAt: now,
+                expiresAt: now.addingTimeInterval(300),
                 networkProfile: try CmxIrohNetworkProfileKey(
                     source: .lan,
                     profileID: String(repeating: "3", count: 64)
@@ -160,8 +162,8 @@ struct CmxTransportModePolicyTests {
                 value: "100.64.1.10:58465",
                 source: .tailscale,
                 privacyScope: .privateNetwork,
-                observedAt: Date(),
-                expiresAt: Date().addingTimeInterval(300),
+                observedAt: now,
+                expiresAt: now.addingTimeInterval(300),
                 networkProfile: try CmxIrohNetworkProfileKey(
                     source: .tailscale,
                     profileID: String(repeating: "4", count: 64)
@@ -191,6 +193,7 @@ struct CmxTransportModePolicyTests {
 
     @Test("Direct mode rejects relay paths and only allows direct attribution")
     func directModeIsRelayFree() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
         let relay = try CmxIrohPathHint(
             kind: .relayURL,
             value: "https://relay.example/",
@@ -208,7 +211,7 @@ struct CmxTransportModePolicyTests {
         }
         let nativeDirect = try CmxIrohPathHint(
             kind: .directAddress,
-            value: "203.0.113.10:58465",
+            value: "8.8.8.8:58465",
             source: .native,
             privacyScope: .publicInternet
         )
@@ -217,8 +220,8 @@ struct CmxTransportModePolicyTests {
             value: "10.0.0.10:58465",
             source: .customVPN,
             privacyScope: .privateNetwork,
-            observedAt: Date(),
-            expiresAt: Date().addingTimeInterval(300),
+            observedAt: now,
+            expiresAt: now.addingTimeInterval(300),
             networkProfile: try CmxIrohNetworkProfileKey(
                 source: .customVPN,
                 profileID: String(repeating: "5", count: 64)

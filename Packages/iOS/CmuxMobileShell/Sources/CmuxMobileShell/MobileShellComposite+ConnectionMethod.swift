@@ -99,7 +99,7 @@ extension MobileShellComposite {
             : recoveryTargetInstanceTag
         let affectsForeground = cmxCanonicalDeviceID(foregroundTargetDeviceID ?? "")
             == canonical
-            && (instanceTag == nil || foregroundTargetInstanceTag == targetInstanceTag)
+            && (targetInstanceTag == nil || foregroundTargetInstanceTag == targetInstanceTag)
         if affectsForeground {
             recoverMobileConnection(trigger: .connectionMethodChanged)
         } else {
