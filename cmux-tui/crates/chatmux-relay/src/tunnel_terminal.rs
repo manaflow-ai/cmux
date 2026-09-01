@@ -387,6 +387,7 @@ impl Connection {
 async fn handle_client_frame(
     connection: &Arc<Connection>,
     context: &FrameContext,
+    parent: &CancellationToken,
     frame: TunnelFrame,
 ) {
     if connection.finished.load(Ordering::SeqCst) {
@@ -427,7 +428,24 @@ async fn handle_client_frame(
             if let Some(surface) = surface {
                 open["surface"] = Value::from(surface);
             }
-            connection.manager.handle_frame(&open, context).await;
+            // OPEN may wait on a session or PTY reservation. Keep that exact
+            // task cancellable so listener shutdown cannot strand it.
+            let manager = Arc::clone(&connection.manager);
+            let context = context.clone();
+            let open_task = tokio::spawn(async move { manager.handle_frame(&open, &context).await });
+            tokio::select! {
+                biased;
+                _ = parent.cancelled() => {
+                    open_task.abort();
+                    let _ = open_task.await;
+                    connection.finish();
+                }
+                _ = connection.done.cancelled() => {
+                    open_task.abort();
+                    let _ = open_task.await;
+                }
+                _ = open_task => {}
+            }
         }
         ClientFrame::Resize { cols, rows } => {
             if !connection.open_sent.load(Ordering::SeqCst) {
@@ -548,7 +566,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, &context, frame).await;
+                            handle_client_frame(&connection, &context, &parent, frame).await;
                         }
                     }
                     Err(_) => {
@@ -987,6 +1005,20 @@ mod tests {
         assert_eq!(reopened["t"], "opened");
         assert_eq!(reopened["created"], false);
         rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn listener_cancellation_cancels_pending_open_without_attachment() {
+        let rig = rig().await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        write
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .await
+            .unwrap();
+        rig.cancel.cancel();
+        read_eof(&mut read).await;
+        assert!(rig.spawned.lock().unwrap().is_empty(), "cancelled open must not reserve a PTY");
     }
 
     #[tokio::test]
