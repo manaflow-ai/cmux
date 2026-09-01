@@ -194,6 +194,14 @@ struct WorkspaceDetailView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+            // Paint the navigation container, including the status-bar safe
+            // area, with the same theme as the terminal surface below it. A
+            // plain view background only covers the content bounds, leaving
+            // the split view's top safe area on the default system color.
+            .containerBackground(
+                store.activeTerminalTheme.terminalBackgroundColor,
+                for: .navigation
+            )
             // The browser and chat surfaces scroll; without this the system
             // minimizes the whole bar into a floating "…" pill, unlike the
             // terminal surface, which has no system scroll view.

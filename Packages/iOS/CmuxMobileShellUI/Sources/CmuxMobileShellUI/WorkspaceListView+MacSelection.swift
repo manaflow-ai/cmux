@@ -244,6 +244,16 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 title: value.title,
                 isLoading: value.isLoading,
                 width: value.labelWidth,
+                truncationMode: {
+                    switch value.selection {
+                    case .machine:
+                        // Device names repeat their prefix ("MacBook Pro …"),
+                        // so the distinguishing suffix must survive.
+                        return .middle
+                    case .automatic, .all:
+                        return .tail
+                    }
+                }(),
                 statusLine: value.statusLine
             )
             // Put the identity and status on the final combined label element.
@@ -285,19 +295,22 @@ private struct WorkspaceMacTitlePickerLabel: View {
     let title: String
     let isLoading: Bool
     let width: CGFloat
+    let truncationMode: Text.TruncationMode
     var statusLine: WorkspaceConnectionStatusLine?
 
     var body: some View {
         VStack(spacing: 1) {
             HStack(spacing: 6) {
-                Spacer(minLength: 0)
                 Text(title)
                     .font(.headline.weight(.bold))
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .allowsTightening(true)
-                    .minimumScaleFactor(0.75)
-                    .layoutPriority(1)
+                    .truncationMode(truncationMode)
+                    .allowsTightening(false)
+                    // Leave the text as the flexible item. A high layout
+                    // priority makes a narrow toolbar item ask UIKit to hide
+                    // the entire principal item before SwiftUI can insert an
+                    // ellipsis.
+                    .frame(maxWidth: .infinity, alignment: .center)
                 ZStack {
                     Image(systemName: "chevron.down")
                         .font(.caption.weight(.bold))
@@ -309,7 +322,6 @@ private struct WorkspaceMacTitlePickerLabel: View {
                 }
                 .frame(width: 12, height: 12)
                 .accessibilityHidden(true)
-                Spacer(minLength: 0)
             }
             if let statusLine {
                 WorkspaceConnectionStatusLineView(line: statusLine)

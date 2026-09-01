@@ -16,17 +16,22 @@ extension WorkspaceShellView {
         workspaceSearchNavigationPath: [MobileWorkspacePreview.ID],
         notificationSearchNavigationPath: [MobileWorkspacePreview.ID]
     ) -> MobileWorkspacePreview.ID? {
+        // Split navigation always presents the selected workspace in the
+        // detail column, regardless of which destination the sidebar shows.
+        guard usesCompactStack else {
+            return selectedWorkspaceID
+        }
         switch selectedPrimaryTab {
         case .workspaces:
-            usesCompactStack ? compactNavigationPath.last : selectedWorkspaceID
+            return compactNavigationPath.last
         case .notifications:
-            notificationNavigationPath.last
+            return notificationNavigationPath.last
         case .search:
             switch searchScope {
             case .workspaces:
-                workspaceSearchNavigationPath.last
+                return workspaceSearchNavigationPath.last
             case .notifications:
-                notificationSearchNavigationPath.last
+                return notificationSearchNavigationPath.last
             }
         }
     }
