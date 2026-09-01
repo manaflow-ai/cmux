@@ -74,10 +74,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// optimistic press/deselect, hover enforcement).
     var applyModelProbeForTesting: ((SidebarWorkspaceRowModel) -> Void)?
 #endif
-
     /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
     /// metadata/branch/PR updates repaint just this cell without any
-    /// container re-render. Installed per configure; replaced on reuse.
+    /// container re-render; installation also replays the current model.
     func installPump(
         workspace: Workspace,
         rebuild: @escaping @MainActor () -> Void
@@ -95,6 +94,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 MainActor.assumeIsolated { rebuild() }
             }
             .store(in: &pumpCancellables)
+        rebuild()
     }
 
     /// Measurement/apply entry used by the pump path.
