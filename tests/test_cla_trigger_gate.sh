@@ -203,7 +203,7 @@ run_case() {
 
 run_case exact-recheck 0 "" true
 run_case exact-sign 0 "" true
-run_case non-author-sign 0 "" false
+run_case non-author-sign 0 "" true
 run_case legacy-sign 0 "" false
 run_case uppercase-recheck 0 "" false
 run_case untrusted-recheck 0 "" false

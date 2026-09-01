@@ -1,6 +1,6 @@
 name: "CLA Assistant v2"
-# The base-controlled policy guard pins this parsed workflow. Update its
-# expected digest in a follow-up control-plane change whenever policy changes.
+# The base-controlled policy guard compares this parsed workflow with the
+# trusted base policy before accepting a control-plane change.
 on:
   issue_comment:
     types: [created]
@@ -27,7 +27,11 @@ jobs:
     # This job is intentionally unprivileged. The job-level expression is a
     # coarse admission filter, and the shell step below is the exact,
     # case-sensitive check. GitHub expressions compare strings without case,
-    # so the shell remains the authority for the declaration itself.
+    # so the shell remains the authority for the declaration itself. The
+    # maintained action is the identity authority: it maps an exact signing
+    # comment to authenticated commit authors and co-authors. Do not duplicate
+    # that mapping here, because a REST approximation can omit co-authors or
+    # race a force-push.
     if: >-
       (
         github.event_name == 'pull_request_target' &&
@@ -46,8 +50,7 @@ jobs:
         github.event.comment.user.type == 'User' &&
         (
           (
-            github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
-            github.event.comment.user.id == github.event.issue.user.id
+            github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
           ) ||
           (
             github.event.comment.body == 'recheck' &&
@@ -123,10 +126,10 @@ jobs:
               fail "The issue-comment author association is malformed"
 
             if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign the CLA" ]]; then
-              if [[ "${COMMENT_AUTHOR_ID}" != "${PR_AUTHOR_ID}" ]]; then
-                printf 'admitted=false\n' >>"${GITHUB_OUTPUT}"
-                exit 0
-              fi
+              # The maintained action authenticates the commenter against the
+              # current PR author/co-author set. Keep this gate focused on
+              # exact human declarations and let that single identity source
+              # handle commit attribution.
               printf 'admitted=true\n' >>"${GITHUB_OUTPUT}"
               exit 0
             fi
@@ -212,8 +215,7 @@ jobs:
           github.event.comment.user.type == 'User' &&
           (
             (
-              github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
-              github.event.comment.user.id == github.event.issue.user.id
+              github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
             ) ||
             (
               github.event.comment.body == 'recheck' &&
@@ -455,7 +457,6 @@ jobs:
         (
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
           github.event.comment.user.type == 'User' &&
-          github.event.comment.user.id == github.event.issue.user.id &&
           needs.CLAAssistant.outputs.signature_recorded == 'true'
         )
       )
