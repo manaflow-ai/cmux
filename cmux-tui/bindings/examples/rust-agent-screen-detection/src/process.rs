@@ -1187,15 +1187,11 @@ mod tests {
     fn direct_process_identity_does_not_probe_environment_hint() {
         let process = process(7, "codex", &["codex"]);
         let mut probes = 0;
-        let (manifest, _) = identify_process_with_hint(
-            ManifestSet::bundled(),
-            &process,
-            |pid| {
-                probes += 1;
-                assert_eq!(pid, 7);
-                Some("claude".into())
-            },
-        )
+        let (manifest, _) = identify_process_with_hint(ManifestSet::bundled(), &process, |pid| {
+            probes += 1;
+            assert_eq!(pid, 7);
+            Some("claude".into())
+        })
         .expect("codex should match");
 
         assert_eq!(manifest.id(), "codex");
@@ -1206,16 +1202,13 @@ mod tests {
     fn environment_hint_is_used_when_process_candidates_are_unknown() {
         let process = process(8, "sandbox-wrapper", &["sandbox-wrapper"]);
         let mut probes = 0;
-        let (manifest, candidate) = identify_process_with_hint(
-            ManifestSet::bundled(),
-            &process,
-            |pid| {
+        let (manifest, candidate) =
+            identify_process_with_hint(ManifestSet::bundled(), &process, |pid| {
                 probes += 1;
                 assert_eq!(pid, 8);
                 Some("claude".into())
-            },
-        )
-        .expect("the explicit wrapper hint should identify claude");
+            })
+            .expect("the explicit wrapper hint should identify claude");
 
         assert_eq!(manifest.id(), "claude");
         assert_eq!(candidate, "claude");
