@@ -13519,6 +13519,47 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn dropping_a_stale_pending_server_preserves_a_replacement_socket() {
+        let dir = TestSocketDir::create("pending-server-replacement");
+        let path = dir.path().join("mux.sock");
+        let first = serve_paused(test_mux(), Some(path.clone())).unwrap();
+
+        std::fs::remove_file(&path).unwrap();
+        let second = serve_paused(test_mux(), Some(path.clone())).unwrap();
+        drop(first);
+
+        assert!(path.exists(), "stale pending-server cleanup removed the replacement socket");
+        assert!(transport::connect(&path).is_ok());
+        drop(second);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_server_cleanup_waits_for_the_start_lock() {
+        let dir = TestSocketDir::create("pending-server-cleanup-lock");
+        let path = dir.path().join("mux.sock");
+        let pending = serve_paused(test_mux(), Some(path.clone())).unwrap();
+        let start_lock = SocketStartLock::acquire(&path, Instant::now()).unwrap();
+        let (observed_tx, observed_rx) = std::sync::mpsc::channel();
+        let cleanup = std::thread::spawn(move || {
+            drop(pending);
+            observed_tx.send(()).unwrap();
+        });
+
+        assert!(
+            observed_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "pending-server cleanup bypassed the concurrent start lock"
+        );
+        drop(start_lock);
+        observed_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("pending-server cleanup did not resume after the start lock was released");
+        cleanup.join().unwrap();
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_socket_path_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
