@@ -17,6 +17,7 @@
       }
     },
     "requiresPro": {
+      "title": "ត្រូវការ cmux Pro",
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
     }

@@ -17,6 +17,7 @@
       }
     },
     "requiresPro": {
+      "title": "cmux Pro gerekli",
       "message": "Cloud VM'ler için cmux Pro planı gerekir.",
       "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
     }

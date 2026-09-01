@@ -358,6 +358,7 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
     status: 402,
     message: copy.message,
     action: copy.action,
+    displayTitle: copy.title,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
   });
 }

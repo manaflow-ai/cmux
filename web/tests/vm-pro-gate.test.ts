@@ -76,6 +76,7 @@ describe("vm_requires_pro response copy", () => {
       action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
       upgradeRequired: true,
       upgradeUrl: "https://cmux.com/pricing",
+      ui: { title: "cmux Pro required" },
     });
   });
 
@@ -85,26 +86,36 @@ describe("vm_requires_pro response copy", () => {
     expect(String(payload.action)).toContain("https://cmux.com/pricing");
     expect(String(payload.action)).toContain("cmux Pro にアップグレード");
     // Clients key off these, never the prose.
-    expect(payload).toMatchObject({ error: "vm_requires_pro", upgradeRequired: true });
+    expect(payload).toMatchObject({
+      error: "vm_requires_pro",
+      upgradeRequired: true,
+      ui: { title: "cmux Pro が必要です" },
+    });
   });
 
   test("ships translated copy with the upgrade URL placeholder in every locale catalog", async () => {
     for (const locale of locales) {
       const messages = (await import(`../messages/${locale}.json`)).default as {
-        vmErrors: { requiresPro?: { message?: string; action?: string } };
+        vmErrors: { requiresPro?: { title?: string; message?: string; action?: string } };
       };
       const copy = messages.vmErrors.requiresPro;
-      const payload = await (await vmRequiresProResponse(locale)).json() as { action: string };
+      const payload = await (await vmRequiresProResponse(locale)).json() as {
+        action: string;
+        ui: { title: string };
+      };
       // Keyed by locale so a failure names the catalog that is missing or broken.
       expect({
         locale,
         hasMessage: Boolean(copy?.message),
+        // ui.title must come from the catalog, never the English status fallback.
+        uiTitleIsLocalized: Boolean(copy?.title) && payload.ui.title === copy?.title,
         actionHasPlaceholder: copy?.action?.includes("{upgradeUrl}") ?? false,
         renderedHasUrl: payload.action.includes("https://cmux.com/pricing"),
         renderedHasRawPlaceholder: payload.action.includes("{upgradeUrl}"),
       }).toEqual({
         locale,
         hasMessage: true,
+        uiTitleIsLocalized: true,
         actionHasPlaceholder: true,
         renderedHasUrl: true,
         renderedHasRawPlaceholder: false,

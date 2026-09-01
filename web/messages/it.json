@@ -17,6 +17,7 @@
       }
     },
     "requiresPro": {
+      "title": "Richiesto cmux Pro",
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
     }

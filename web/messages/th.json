@@ -17,6 +17,7 @@
       }
     },
     "requiresPro": {
+      "title": "ต้องใช้ cmux Pro",
       "message": "Cloud VM ต้องใช้แผน cmux Pro",
       "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
     }

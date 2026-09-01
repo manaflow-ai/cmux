@@ -662,9 +662,12 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(402);
-    const payload = await response.json() as { error: string; message: string; action: string; upgradeUrl: string };
+    const payload = await response.json() as {
+      error: string; message: string; action: string; upgradeUrl: string; ui: { title: string };
+    };
     expect(payload.error).toBe("vm_requires_pro");
     expect(payload.message).toBe("Cloud VM を利用するには cmux Pro プランが必要です。");
+    expect(payload.ui.title).toBe("cmux Pro が必要です");
     expect(payload.action).toContain("https://cmux.com/pricing");
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
     expect(createVm).not.toHaveBeenCalled();

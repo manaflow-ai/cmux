@@ -58,6 +58,7 @@ export async function vmUnsupportedCopy(
 
 /** Copy returned when a provisioning verb is blocked by the paid-plan gate. */
 export type VmRequiresProCopy = {
+  readonly title: string;
   readonly message: string;
   readonly action: string;
 };
@@ -73,6 +74,7 @@ export async function vmRequiresProCopy(
     namespace: "vmErrors.requiresPro",
   }) as unknown as (key: string, values?: Record<string, string>) => string;
   return {
+    title: translator("title"),
     message: translator("message"),
     action: translator("action", { upgradeUrl: values.upgradeUrl }),
   };

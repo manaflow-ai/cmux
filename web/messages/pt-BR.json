@@ -17,6 +17,7 @@
       }
     },
     "requiresPro": {
+      "title": "cmux Pro necessário",
       "message": "As Cloud VMs exigem um plano cmux Pro.",
       "action": "Faça upgrade para o cmux Pro em {upgradeUrl} para criar Cloud VMs."
     }

@@ -17,6 +17,7 @@
       }
     },
     "requiresPro": {
+      "title": "cmux Pro påkrævet",
       "message": "Cloud VM'er kræver en cmux Pro-plan.",
       "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
     }
