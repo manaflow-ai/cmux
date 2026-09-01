@@ -28,6 +28,7 @@ would drop the renderer-state recovery in this PR. The `466f85867` artifact
 remains checksum-pinned for the mainline pin. After Ghostty PR #208 lands,
 rebase this branch onto the fork-main merge and publish a new artifact before
 changing the parent pointer.
+
 The Fish SSH feature-condition fix (`fd13a3fc2`) is included in that
 mainline-compatible pin, but is not yet in `c1d6d8769`; keep the distinction
 until the combined fork-main artifact is rebuilt.
