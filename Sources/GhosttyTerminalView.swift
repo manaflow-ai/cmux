@@ -508,6 +508,12 @@ class GhosttyApp {
     private var deferredConfigurationSurfaceCreationOrder: [UUID] = []
     private var deferredConfigurationSurfaceCreations:
         [UUID: DeferredConfigurationSurfaceCreation] = [:]
+    /// Set when more unique surfaces arrive than fit in the coalescing map.
+    /// Overflow is revisited through the registry after the gate instead of
+    /// allowing a caller to create a native surface synchronously.
+    private var deferredConfigurationSurfaceCreationOverflowPending = false
+    private var deferredConfigurationSurfaceCreationOverflowTraversal:
+        TerminalSurfaceRegistryIncrementalTraversal?
     private var configurationSurfaceCreationGateGeneration: UInt64 = 0
     private var activeConfigurationSurfaceCreationGateGeneration: UInt64?
     private var appliedConfigurationContentIdentity:
@@ -583,7 +589,11 @@ class GhosttyApp {
         if deferredConfigurationSurfaceCreations[surfaceID] == nil {
             guard deferredConfigurationSurfaceCreations.count
                     < Self.maximumDeferredConfigurationSurfaceCreations else {
-                return false
+                // Keep the caller behind the reload gate. The surface model is
+                // already registered, so the post-gate overflow sweep can
+                // recover it without retaining another closure here.
+                deferredConfigurationSurfaceCreationOverflowPending = true
+                return true
             }
             deferredConfigurationSurfaceCreationOrder.append(surfaceID)
         }
@@ -605,12 +615,21 @@ class GhosttyApp {
             return
         }
         activeConfigurationSurfaceCreationGateGeneration = nil
+        if deferredConfigurationSurfaceCreationOverflowPending {
+            // Start a fresh weak traversal so surfaces registered during a
+            // replacement gate are included even when an older overflow sweep
+            // was already in progress.
+            deferredConfigurationSurfaceCreationOverflowTraversal =
+                Self.terminalSurfaceRegistry.makeIncrementalTraversal()
+            deferredConfigurationSurfaceCreationOverflowPending = false
+        }
         scheduleDeferredConfigurationSurfaceCreations()
     }
 
     @MainActor
     private func scheduleDeferredConfigurationSurfaceCreations() {
-        guard !deferredConfigurationSurfaceCreationOrder.isEmpty,
+        guard (!deferredConfigurationSurfaceCreationOrder.isEmpty
+            || deferredConfigurationSurfaceCreationOverflowTraversal != nil),
               !deferredConfigurationSurfaceCreationScheduler.isScheduled else {
             return
         }
@@ -623,18 +642,42 @@ class GhosttyApp {
 
     @MainActor
     private func drainDeferredConfigurationSurfaceCreations() {
+        // A replacement reload can start before an earlier completion callback
+        // drains this queue. Leave all creations deferred until the newest gate
+        // has committed as well.
+        guard activeConfigurationSurfaceCreationGateGeneration == nil else {
+            return
+        }
         var drained = 0
         while drained < Self.maximumDeferredConfigurationSurfaceCreationsPerTurn,
-              !deferredConfigurationSurfaceCreationOrder.isEmpty {
-            let surfaceID = deferredConfigurationSurfaceCreationOrder.removeFirst()
-            guard let action = deferredConfigurationSurfaceCreations
-                    .removeValue(forKey: surfaceID) else {
+              activeConfigurationSurfaceCreationGateGeneration == nil {
+            if !deferredConfigurationSurfaceCreationOrder.isEmpty {
+                let surfaceID = deferredConfigurationSurfaceCreationOrder.removeFirst()
+                guard let action = deferredConfigurationSurfaceCreations
+                        .removeValue(forKey: surfaceID) else {
+                    continue
+                }
+                drained += 1
+                action()
+                continue
+            }
+
+            guard let traversal = deferredConfigurationSurfaceCreationOverflowTraversal else {
+                break
+            }
+            guard let visit = traversal.nextVisit() else {
+                deferredConfigurationSurfaceCreationOverflowTraversal = nil
                 continue
             }
             drained += 1
-            action()
+            (visit.surface as? TerminalSurface)?
+                .resumeDeferredRuntimeSurfaceCreationAfterConfigurationReloadIfNeeded()
         }
-        scheduleDeferredConfigurationSurfaceCreations()
+        if activeConfigurationSurfaceCreationGateGeneration == nil,
+           (!deferredConfigurationSurfaceCreationOrder.isEmpty
+            || deferredConfigurationSurfaceCreationOverflowTraversal != nil) {
+            scheduleDeferredConfigurationSurfaceCreations()
+        }
     }
 
     static func retainTickNotifications() -> () -> Void {

@@ -697,6 +697,16 @@ extension TerminalSurface {
         createSurface(for: view, source: source)
     }
 
+    /// Replays a surface creation request that could not fit in the engine's
+    /// bounded reload-deferral map. The engine calls this from its incremental
+    /// post-gate overflow sweep; ordinary callers should continue using
+    /// ``createSurface(for:source:)``.
+    @MainActor
+    public func resumeDeferredRuntimeSurfaceCreationAfterConfigurationReloadIfNeeded() {
+        guard configurationReloadDeferredRuntimeSurfaceCreation else { return }
+        resumeRuntimeSurfaceCreationAfterConfigurationReload()
+    }
+
     @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
         guard allowsRuntimeSurfaceCreation() else {
