@@ -18075,11 +18075,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for entry in snapshot.staleDefaults {
             guard isMenuBackedShortcutAction(entry.action),
                   entry.whenClause.evaluate(focusContext.shortcutContext),
-                  matchesKeyboardShortcutEvent(
-                      event,
-                      action: entry.action,
-                      shortcut: entry.shortcut
-                  ) else {
+                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
                 continue
             }
             return true
@@ -18240,13 +18236,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for entry in snapshot.staleDefaults {
             guard isMenuBackedShortcutAction(entry.action),
                   entry.action.shortcutContext == .browserPanel
-                    || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
+                  || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
                   entry.whenClause.evaluate(focusContext.shortcutContext),
-                  matchesKeyboardShortcutEvent(
-                      event,
-                      action: entry.action,
-                      shortcut: entry.shortcut
-                  ) else {
+                  browserCaptureMatchesShortcut(event: event, shortcut: entry.shortcut) else {
                 continue
             }
             return true

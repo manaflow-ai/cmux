@@ -15,21 +15,30 @@ final class ShortcutEventBrowserWebViewCache {
     weak var eventWindow: NSWindow?
     weak var firstResponder: NSResponder?
     weak var webView: CmuxWebView?
+    let activeChordPrefix: ShortcutStroke?
     var captureDecision: Bool?
 
     init(
         eventWindow: NSWindow,
         firstResponder: NSResponder,
-        webView: CmuxWebView?
+        webView: CmuxWebView?,
+        activeChordPrefix: ShortcutStroke?
     ) {
         self.eventWindow = eventWindow
         self.firstResponder = firstResponder
         self.webView = webView
+        self.activeChordPrefix = activeChordPrefix
     }
 
-    func matches(window: NSWindow, responder: NSResponder) -> Bool {
+    func matches(
+        window: NSWindow,
+        responder: NSResponder,
+        activeChordPrefix: ShortcutStroke?
+    ) -> Bool {
         guard let eventWindow, let firstResponder else { return false }
-        return eventWindow === window && firstResponder === responder
+        return eventWindow === window
+            && firstResponder === responder
+            && self.activeChordPrefix == activeChordPrefix
     }
 }
 

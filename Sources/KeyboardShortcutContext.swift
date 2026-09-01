@@ -442,7 +442,11 @@ extension AppDelegate {
         }
 
         if let cached = event.cmuxBrowserWebViewCache,
-           cached.matches(window: shortcutWindow, responder: responder) {
+           cached.matches(
+               window: shortcutWindow,
+               responder: responder,
+               activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+           ) {
             return cached.webView
         }
 
@@ -483,7 +487,8 @@ extension AppDelegate {
         event.cmuxBrowserWebViewCache = ShortcutEventBrowserWebViewCache(
             eventWindow: shortcutWindow,
             firstResponder: responder,
-            webView: webView
+            webView: webView,
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
         )
         return webView
     }
