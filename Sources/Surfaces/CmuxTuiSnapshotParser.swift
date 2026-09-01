@@ -99,6 +99,29 @@ struct CmuxTuiSnapshotParser: Sendable {
             browser.remoteViews = views
             resources.append(browser)
         }
+        // A display tab (`content_kind: "display"`, `content_id: "display:1"`) is a pointer
+        // to the machine's screen: the same display resource the pool lists, with one view
+        // per workspace tab that holds it — so a workspace remembers its desktop the way
+        // it remembers its terminals and browsers.
+        var displayViews: [String: [SurfaceRemoteView]] = [:]
+        var displayOrder: [String] = []
+        for tab in tabsRaw {
+            guard (tab["content_kind"] as? String) == "display",
+                  let contentID = tab["content_id"] as? String, !contentID.isEmpty,
+                  let tabID = tab["id"] as? String,
+                  let paneID = paneOfTab[tabID],
+                  let screenID = screenOfPane[paneID],
+                  let workspaceID = workspaceOfScreen[screenID],
+                  let workspace = workspaceByID[workspaceID] else { continue }
+            if displayViews[contentID] == nil { displayOrder.append(contentID) }
+            displayViews[contentID, default: []].append(SurfaceRemoteView(tabID: tabID, workspace: workspace))
+        }
+        for contentID in displayOrder {
+            var display = Self.display(machine: machine, key: contentID)
+            display.remoteViews = displayViews[contentID]
+            display.remoteWorkspace = displayViews[contentID]?.first?.workspace
+            resources.append(display)
+        }
         // Workspace order first; zero-view terminals (the pool) trail.
         return resources.sorted { lhs, rhs in
             let li = lhs.remoteWorkspace?.index ?? Int.max, ri = rhs.remoteWorkspace?.index ?? Int.max
@@ -128,6 +151,13 @@ struct CmuxTuiSnapshotParser: Sendable {
             guard let id = raw["id"] as? String, !id.isEmpty else { continue }
             let tabIDs = ((raw["tab_ids"] as? [String]) ?? []) + [(raw["tab_id"] as? String) ?? ""]
             if let tab = tabIDs.first(where: { !$0.isEmpty }) { result[id] = tab }
+        }
+        // A display pointer has no process to end: closing it means closing its tab.
+        for tab in (snapshot["tabs"] as? [[String: Any]]) ?? [] {
+            guard (tab["content_kind"] as? String) == "display",
+                  let contentID = tab["content_id"] as? String, !contentID.isEmpty,
+                  let tabID = tab["id"] as? String, !tabID.isEmpty, result[contentID] == nil else { continue }
+            result[contentID] = tabID
         }
         return result
     }
@@ -228,10 +258,11 @@ struct CmuxTuiSnapshotParser: Sendable {
         image.contains("xfce-vnc") || image.contains("cmux-devbox")
     }
 
-    /// The VNC display of a desktop machine.
-    static func display(machine: SurfaceMachineID) -> SurfaceResource {
+    /// The VNC display of a desktop machine (`display:1`; the key is the daemon's content id
+    /// once a workspace points at it).
+    static func display(machine: SurfaceMachineID, key: String = "display:1") -> SurfaceResource {
         SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .display, key: "display:1"),
+            id: SurfaceResourceID(machine: machine, kind: .display, key: key),
             title: "Desktop",
             detail: "noVNC",
             lifecycle: .running,
@@ -240,6 +271,14 @@ struct CmuxTuiSnapshotParser: Sendable {
             port: desktopPort,
             url: nil
         )
+    }
+
+    /// The machine's display list after a snapshot: a display the daemon's workspaces point
+    /// at (carrying its views) replaces the bare pool entry of the same id; every other
+    /// resource passes through. Pure, so the provider's refresh stays a straight line.
+    static func mergingDisplays(pool: [SurfaceResource], parsed: [SurfaceResource]) -> [SurfaceResource] {
+        let pointed = Set(parsed.filter { $0.kind == .display }.map(\.id))
+        return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
     /// A forwarded port, shown as a browser resource.
