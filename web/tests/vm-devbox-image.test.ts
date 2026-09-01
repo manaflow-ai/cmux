@@ -164,6 +164,10 @@ describe("devbox image template", () => {
     }
     expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
     expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
+    expect(dockerfile).toContain("chmod 755 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000");
+    expect(freestyleBuilder).toContain(
+      "chmod 755 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000",
+    );
     expect(freestyleBuilder).toContain('"blesh-cache"');
   });
 

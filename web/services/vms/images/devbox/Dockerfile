@@ -212,7 +212,7 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
   && chmod a+rwxt /usr/local/share/blesh/cache.d \
   && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ \
   && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ \
-  && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000
+  && chmod 755 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000
 
 # Agent harness config: every shell materializes per-harness model-proxy
 # configs from the machine boot env (the coderouter model-plane vars minted
