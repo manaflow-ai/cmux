@@ -48,6 +48,8 @@ public final class SocketCredentialResolver: @unchecked Sendable {
     private let socketPath: String
     private let filePasswordProvider: () -> String?
     private let keychainPasswordProvider: KeychainPasswordProvider
+    /// Shared mode state for clients targeting this route.
+    public let authenticationModeCoordinator: SocketAuthenticationModeCoordinator
     // The resolver is shared by synchronous CLI and detached readiness paths.
     // Security's lookup and SocketClient's send are synchronous, so an actor
     // hop cannot preserve one-shot ordering here; this lock guards only the
@@ -66,7 +68,8 @@ public final class SocketCredentialResolver: @unchecked Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         filePasswordProvider: (() -> String?)? = nil,
-        keychainPasswordProvider: KeychainPasswordProvider? = nil
+        keychainPasswordProvider: KeychainPasswordProvider? = nil,
+        authenticationModeCoordinator: SocketAuthenticationModeCoordinator? = nil
     ) {
         self.explicitPassword = Self.normalized(explicitPassword)
         self.environment = environment
@@ -77,6 +80,7 @@ public final class SocketCredentialResolver: @unchecked Sendable {
         self.keychainPasswordProvider = keychainPasswordProvider ?? { services in
             Self.loadFromKeychain(services: services)
         }
+        self.authenticationModeCoordinator = authenticationModeCoordinator ?? SocketAuthenticationModeCoordinator()
     }
 
     /// The flag or environment password, if present, without reading deferred sources.

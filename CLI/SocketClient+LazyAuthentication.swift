@@ -14,6 +14,7 @@ extension SocketClient {
               authenticationPasswordProvider != nil else {
             return nil
         }
+        authenticationModeCoordinator?.recordPasswordRequired()
         guard let password = resolveDeferredAuthenticationPassword(deadline: operationDeadline) else {
             return nil
         }
@@ -42,6 +43,7 @@ extension SocketClient {
     func recordCredentialFreeResponseIfNeeded(_ response: String) {
         if authenticationPasswordProvider != nil,
            !SocketAuthenticationChallenge.isRequired(response) {
+            authenticationModeCoordinator?.recordCredentialFree()
             authenticationModeEstablished = true
         }
     }
@@ -62,9 +64,50 @@ extension SocketClient {
     /// Probes once before a write-only request when authentication is deferred.
     func establishAuthenticationForOneWayIfNeeded(responseTimeout: TimeInterval) throws {
         guard authenticationPassword == nil,
-              authenticationPasswordProvider != nil,
-              !authenticationPasswordResolutionAttempted,
-              !authenticationModeEstablished else { return }
-        _ = try send(command: "ping", responseTimeout: responseTimeout)
+              authenticationPasswordProvider != nil else { return }
+        guard let coordinator = authenticationModeCoordinator else {
+            guard !authenticationPasswordResolutionAttempted,
+                  !authenticationModeEstablished else { return }
+            _ = try send(command: "ping", responseTimeout: responseTimeout)
+            return
+        }
+
+        let mode = coordinator.current
+        switch mode {
+        case .credentialFree, .probing, .probeFailed:
+            authenticationModeEstablished = mode == .credentialFree
+        case .passwordRequired:
+            try authenticateOneWayClientIfNeeded(responseTimeout: responseTimeout)
+        case .unknown:
+            guard coordinator.claimProbe() else { return }
+            let probeClient = SocketClient(path: socketPath)
+            defer { probeClient.close() }
+            probeClient.configureAuthentication(
+                password: nil,
+                passwordProvider: authenticationPasswordProvider,
+                authenticationModeCoordinator: coordinator
+            )
+            do {
+                try probeClient.connectWithoutRetry(responseTimeout: responseTimeout)
+                _ = try probeClient.send(command: "ping", responseTimeout: responseTimeout)
+            } catch {
+                coordinator.recordProbeFailure()
+                throw error
+            }
+            if coordinator.current == .passwordRequired {
+                try authenticateOneWayClientIfNeeded(responseTimeout: responseTimeout)
+            }
+        }
+    }
+
+    private func authenticateOneWayClientIfNeeded(responseTimeout: TimeInterval) throws {
+        let deadline = Date.now.addingTimeInterval(responseTimeout)
+        guard !authenticationPasswordResolutionAttempted,
+              let password = resolveDeferredAuthenticationPassword(deadline: deadline) else {
+            return
+        }
+        authenticationPassword = password
+        socketAuthenticated = false
+        try authenticateIfNeeded(responseTimeout: responseTimeout, deadline: deadline)
     }
 }

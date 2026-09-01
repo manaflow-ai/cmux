@@ -5,7 +5,7 @@ import Testing
 @Suite(.serialized)
 struct CLISocketCredentialResolverTests {
     @Test
-    func allowAllInitialConnectionDoesNotReadDeferredSources() {
+    func initialConnectionDemandDoesNotReadDeferredSources() {
         var fileReads = 0
         var keychainReads = 0
         let resolver = SocketCredentialResolver(

@@ -8,8 +8,10 @@ public nonisolated enum SocketAuthenticationChallenge {
     /// Returns `true` only for the control-socket authentication challenge.
     public static func isRequired(_ response: String) -> Bool {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("ERROR:") {
-            return trimmed.lowercased().contains(challengeMarker)
+        let normalizedResponse = trimmed.lowercased()
+        if normalizedResponse.hasPrefix("error:") {
+            return !nonSocketAuthMarkers.contains(where: normalizedResponse.contains)
+                && normalizedResponse.contains(challengeMarker)
         }
         guard let data = trimmed.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

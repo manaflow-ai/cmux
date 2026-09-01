@@ -1,12 +1,9 @@
 public import Foundation
 
-/// Owns credential resolvers for one CLI process.
+/// Memoizes one keychain lookup per service scope for a CLI process.
 ///
-/// Implicit credentials are shared by socket route so reconnect, readiness,
-/// resize, and feed paths reuse one memoized deferred lookup. Explicit
-/// passwords always receive a fresh resolver because they are per-call input.
-/// The short lock protects resolver publication when detached CLI work asks for
-/// the same route concurrently; credential I/O remains owned by the resolver.
+/// The lock serializes concurrent lookups for the same scope so a single CLI
+/// invocation creates at most one `LocalAuthentication` context per scope.
 private final class KeychainLookupMemoizer: @unchecked Sendable {
     private enum State {
         case resolved(String?)
@@ -39,6 +36,7 @@ public final class SocketCredentialResolutionSession: @unchecked Sendable {
     private let keychainPasswordProvider: SocketCredentialResolver.KeychainPasswordProvider
     private let resolverLock = NSLock()
     private var resolvers: [String: SocketCredentialResolver] = [:]
+    private var authenticationModeCoordinators: [String: SocketAuthenticationModeCoordinator] = [:]
 
     /// Creates a process-scoped resolution session.
     /// - Parameters:
@@ -72,13 +70,15 @@ public final class SocketCredentialResolutionSession: @unchecked Sendable {
         explicitPassword: String?,
         socketPath: String
     ) -> SocketCredentialResolver {
+        let modeCoordinator = authenticationModeCoordinator(for: socketPath)
         if explicitPassword != nil {
             return SocketCredentialResolver(
                 explicitPassword: explicitPassword,
                 socketPath: socketPath,
                 environment: environment,
                 filePasswordProvider: filePasswordProvider,
-                keychainPasswordProvider: keychainPasswordProvider
+                keychainPasswordProvider: keychainPasswordProvider,
+                authenticationModeCoordinator: modeCoordinator
             )
         }
 
@@ -92,9 +92,21 @@ public final class SocketCredentialResolutionSession: @unchecked Sendable {
             socketPath: socketPath,
             environment: environment,
             filePasswordProvider: filePasswordProvider,
-            keychainPasswordProvider: self.keychainPasswordProvider
+            keychainPasswordProvider: self.keychainPasswordProvider,
+            authenticationModeCoordinator: modeCoordinator
         )
         resolvers[socketPath] = resolver
         return resolver
+    }
+
+    private func authenticationModeCoordinator(for socketPath: String) -> SocketAuthenticationModeCoordinator {
+        resolverLock.lock()
+        defer { resolverLock.unlock() }
+        if let existing = authenticationModeCoordinators[socketPath] {
+            return existing
+        }
+        let coordinator = SocketAuthenticationModeCoordinator()
+        authenticationModeCoordinators[socketPath] = coordinator
+        return coordinator
     }
 }

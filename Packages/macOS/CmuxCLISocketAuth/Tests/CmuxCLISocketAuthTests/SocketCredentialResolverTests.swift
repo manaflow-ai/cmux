@@ -230,6 +230,7 @@ struct SocketCredentialResolverTests {
                 socketPath: "/tmp/cmux-debug-first.sock"
             ) === first
         )
+        #expect(first.authenticationModeCoordinator !== second.authenticationModeCoordinator)
         #expect(first.password(for: .authenticationRequired) == "keychain-password")
         #expect(first.password(for: .authenticationRequired) == "keychain-password")
         #expect(second.password(for: .authenticationRequired) == "keychain-password")
@@ -237,7 +238,33 @@ struct SocketCredentialResolverTests {
     }
 
     @Test
-    func allowAllConnectionLeavesDeferredProvidersUntouched() {
+    func authenticationModeCoordinatorAllowsOneProbeAndPublishesMode() {
+        let coordinator = SocketAuthenticationModeCoordinator()
+
+        #expect(coordinator.current == .unknown)
+        #expect(coordinator.claimProbe())
+        #expect(!coordinator.claimProbe())
+        coordinator.recordCredentialFree()
+
+        #expect(coordinator.current == .credentialFree)
+        #expect(!coordinator.claimProbe())
+        coordinator.recordPasswordRequired()
+        #expect(coordinator.current == .passwordRequired)
+    }
+
+    @Test
+    func failedProbeDisablesFutureBlockingProbes() {
+        let coordinator = SocketAuthenticationModeCoordinator()
+
+        #expect(coordinator.claimProbe())
+        coordinator.recordProbeFailure()
+
+        #expect(coordinator.current == .probeFailed)
+        #expect(!coordinator.claimProbe())
+    }
+
+    @Test
+    func initialConnectionLeavesDeferredProvidersUntouched() {
         let fileCounter = CallCounter()
         let keychainCounter = CallCounter()
         let resolver = resolver(
@@ -251,6 +278,15 @@ struct SocketCredentialResolverTests {
         #expect(resolver.password(for: .initialConnection) == nil)
         #expect(fileCounter.value == 0)
         #expect(keychainCounter.value == 0)
+    }
+
+    @Test
+    func plainTextCloudSignInMessageIsNotSocketChallenge() {
+        #expect(
+            !SocketAuthenticationChallenge.isRequired(
+                "ERROR: Cloud VM access requires sign-in. Send auth <password> first"
+            )
+        )
     }
 
     @Test

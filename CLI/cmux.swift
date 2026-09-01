@@ -2908,6 +2908,7 @@ final class SocketClient {
     var authenticationPasswordProvider: ((Date?) -> String?)?
     var authenticationPasswordResolutionAttempted = false
     var authenticationModeEstablished = false
+    var authenticationModeCoordinator: SocketAuthenticationModeCoordinator?
     var authenticationInProgress = false
     var socketAuthenticated = false
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -3077,11 +3078,16 @@ final class SocketClient {
         socketAuthenticated = false
     }
 
-    func configureAuthentication(password: String?, passwordProvider: ((Date?) -> String?)? = nil) {
+    func configureAuthentication(
+        password: String?,
+        passwordProvider: ((Date?) -> String?)? = nil,
+        authenticationModeCoordinator: SocketAuthenticationModeCoordinator? = nil
+    ) {
         authenticationPassword = password
         authenticationPasswordProvider = passwordProvider
+        self.authenticationModeCoordinator = authenticationModeCoordinator
         authenticationPasswordResolutionAttempted = false
-        authenticationModeEstablished = false
+        authenticationModeEstablished = authenticationModeCoordinator?.current == .credentialFree
         socketAuthenticated = password == nil
     }
 
@@ -3250,7 +3256,8 @@ final class SocketClient {
             try connect()
         }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
-        if authenticationPassword != nil {
+        if authenticationPassword != nil,
+           !authenticationPasswordResolutionAttempted {
             try authenticateIfNeeded(
                 responseTimeout: writeTimeout,
                 deadline: Date.now.addingTimeInterval(writeTimeout)
@@ -8668,7 +8675,8 @@ struct CMUXCLI {
             : nil
         client.configureAuthentication(
             password: initialPassword,
-            passwordProvider: deferredProvider
+            passwordProvider: deferredProvider,
+            authenticationModeCoordinator: credentialResolver.authenticationModeCoordinator
         )
         try client.authenticateIfNeeded(responseTimeout: responseTimeout, deadline: deadline)
     }
@@ -36995,7 +37003,13 @@ export default CMUXSessionRestore;
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
-            try oneWayClient.establishAuthenticationForOneWayIfNeeded(responseTimeout: 0.05)
+        } catch {
+            return
+        }
+        // Authentication-mode discovery is optional for telemetry. A failed
+        // probe must not suppress the best-effort write attempt.
+        try? oneWayClient.establishAuthenticationForOneWayIfNeeded(responseTimeout: 0.05)
+        do {
             try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
         } catch {
             return
