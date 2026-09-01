@@ -1481,6 +1481,12 @@ int cmux_ish_session_open(const char *const *argv, const char *const *envp,
     if (err < 0)
         goto fail;
 
+    // iSH may destroy the task as soon as task_start_checked returns. Capture
+    // the pid while the task is still owned by this opening thread, before the
+    // child can run and exit. This follows the same lifetime rule as iSH's
+    // fork.c task_start path.
+    pid_t session_pid = task->pid;
+
     // Publish the pid and ACTIVE state under cmux_lock. Readers of
     // cmux_ish_session_pid and cmux_exit_hook use that lock, so writing pid
     // outside it would be a C memory-model data race. Publish ACTIVE before
@@ -1488,7 +1494,7 @@ int cmux_ish_session_open(const char *const *argv, const char *const *envp,
     // short-lived command could clean up an OPENING binding; all rollback
     // paths above still remain OPENING and are owned by this function.
     pthread_mutex_lock(&cmux_lock);
-    session->pid = task->pid;
+    session->pid = (int) session_pid;
     atomic_store_explicit(&session->state, CMUX_SESSION_ACTIVE, memory_order_release);
     pthread_mutex_unlock(&cmux_lock);
     err = task_start_checked(task);
