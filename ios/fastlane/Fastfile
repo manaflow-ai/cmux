@@ -20,6 +20,9 @@ platform :ios do
                 .split(",").map(&:strip).reject(&:empty?)
     capture_screenshots(
       scheme: "cmux-ios",
+      # The UI-only test plan builds just the app + cmuxUITests, so stale
+      # unit-test targets elsewhere in the scheme cannot break screenshots.
+      testplan: "cmux-ui",
       devices: devices,
       languages: languages,
       # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
