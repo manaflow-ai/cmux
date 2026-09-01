@@ -542,13 +542,15 @@ struct WorkspaceShellView: View {
             whatsNewSheetPages = []
             whatsNewWebLoads = [:]
         }) {
+            // Presentation sizing lives inside the sheet: fitted to content
+            // for the common single-page case, full height only for web
+            // pages, multi-page catch-up, and accessibility type.
             MobileWhatsNewSheet(
                 pages: whatsNewSheetPages,
                 allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],
                 webLoads: whatsNewWebLoads,
                 dismiss: { showsWhatsNewSheet = false }
             )
-            .presentationDetents([.large])
             // Acknowledge on the sheet's ACTUAL appearance, not at gate time:
             // a competing presentation (e.g. a state-restored Settings sheet)
             // can swallow this presentation entirely, and gate-time

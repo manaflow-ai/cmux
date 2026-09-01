@@ -27106,7 +27106,7 @@ struct CMUXCLI {
                     throw CLIError(message: "set-hook --unset requires an event name")
                 }
                 try withLockedTmuxCompatStore { store in
-                    store.hooks.removeValue(forKey: event)
+                    _ = store.hooks.removeValue(forKey: event)
                 }
                 print("OK")
                 return

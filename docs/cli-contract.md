@@ -589,8 +589,8 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
