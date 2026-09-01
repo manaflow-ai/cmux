@@ -78,7 +78,7 @@ export default async function BillingSuccessPage({
     });
     redirect("/pricing?billing=error");
   }
-  if (!isCmuxCheckoutSession(session)) {
+  if (!isCmuxCheckoutSession(session, expandedSubscription(session))) {
     redirect("/pricing?billing=error");
   }
   const scheme =

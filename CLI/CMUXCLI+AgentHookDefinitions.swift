@@ -76,6 +76,17 @@ extension CMUXCLI {
         struct HookEvent {
             let agentEvent: String
             let cmuxSubcommand: String
+            let matcher: String?
+
+            init(
+                agentEvent: String,
+                cmuxSubcommand: String,
+                matcher: String? = nil
+            ) {
+                self.agentEvent = agentEvent
+                self.cmuxSubcommand = cmuxSubcommand
+                self.matcher = matcher
+            }
         }
 
         enum PostInstallAction {
@@ -149,7 +160,9 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse
+        case codexSubagentStart, codexSubagentStop
+        case shellObserved, shellDone, shellFailed, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -160,13 +173,20 @@ extension CMUXCLI {
         "notify": .notification,
         "agent-response": .stop,
         "approval-response": .approvalResponse,
+        "subagent-start": .codexSubagentStart,
+        "subagent-stop": .codexSubagentStop,
         "shell-exec": .promptSubmit,
-        "shell-done": .noop,
+        "shell-done": .shellDone,
+        "shell-failed": .shellFailed,
         "session-end": .sessionEnd,
         "session-finalize": .sessionFinalize,
     ]
 
-    static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+    static func hookCommandString(
+        for def: AgentHookDef,
+        event: AgentHookDef.HookEvent,
+        materializeCodexScripts: Bool = true
+    ) -> String {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
@@ -175,7 +195,11 @@ extension CMUXCLI {
             inline = agentHookShellCommand(command, for: def)
         }
         if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: event.cmuxSubcommand)
+            return codexPersistentHookScriptCommand(
+                inline,
+                eventTag: event.cmuxSubcommand,
+                materialize: materializeCodexScripts
+            )
         }
         return inline
     }
@@ -186,8 +210,13 @@ extension CMUXCLI {
     /// the `command` string directly and fail an inline shell snippet with
     /// "No such file or directory (os error 2)". Falls back to the inline command
     /// on any write failure, so the persistent install can never regress.
-    private static func codexPersistentHookScriptCommand(_ inlineCommand: String, eventTag: String) -> String {
-        guard let dir = codexHookScriptsDirectory(),
+    private static func codexPersistentHookScriptCommand(
+        _ inlineCommand: String,
+        eventTag: String,
+        materialize: Bool = true
+    ) -> String {
+        guard materialize,
+              let dir = codexHookScriptsDirectory(),
               let path = writeCodexHookScript(
                   subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
               ) else {
@@ -200,18 +229,31 @@ extension CMUXCLI {
         subcommand == "session-start" || subcommand == "prompt-submit" || subcommand == "stop"
     }
 
-    static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+    static func feedHookCommandString(
+        for def: AgentHookDef,
+        agentEvent: String,
+        materializeCodexScripts: Bool = true
+    ) -> String {
         if def.name == "codex",
            let injectedEvent = CodexHookInjectionSchema.current.events.first(where: {
                $0.agentEvent == agentEvent
            }) {
-            let inline = codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
-                for: def
-            )
+            let inline: String
+            if injectedEvent.isSynchronous {
+                inline = codexSynchronousAgentHookShellCommand(
+                    "cmux hooks feed --source codex --event \(agentEvent)",
+                    for: def
+                )
+            } else {
+                inline = codexFireAndForgetAgentHookShellCommand(
+                    "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
+                    for: def
+                )
+            }
             return codexPersistentHookScriptCommand(
                 inline,
-                eventTag: "feed-\(agentEvent)"
+                eventTag: "feed-\(agentEvent)",
+                materialize: materializeCodexScripts
             )
         }
 
@@ -232,7 +274,11 @@ extension CMUXCLI {
             )
         }
         if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
+            return codexPersistentHookScriptCommand(
+                inline,
+                eventTag: "feed-\(agentEvent)",
+                materialize: materializeCodexScripts
+            )
         }
         return inline
     }
@@ -259,7 +305,7 @@ extension CMUXCLI {
         return "{ \(command); }"
     }
 
-    private static func agentHookShellCommand(
+    static func agentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"
@@ -270,6 +316,17 @@ extension CMUXCLI {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
+    }
+
+    /// Synchronous Codex lifecycle hook command. Capturing the callback's
+    /// parent PID before dispatch prevents a descendant from reusing an
+    /// inherited `CMUX_CODEX_PID` as its own owner identity.
+    static func codexSynchronousAgentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef
+    ) -> String {
+        let dispatch = agentHookShellCommand(command, for: def)
+        return "CMUX_CODEX_HOOK_PID=\"${PPID:-}\"; export CMUX_CODEX_HOOK_PID; \(dispatch)"
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(
@@ -449,15 +506,32 @@ extension CMUXCLI {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
+    static func isCmuxOwnedHookCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        includeLegacy: Bool = true,
+        materializeCodexScripts: Bool = true
+    ) -> Bool {
         if case .pinned(let marker) = def.dispatch, command.contains(marker) {
             return true
         }
         if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
             return true
         }
-        if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
-            || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
+        if def.events.contains(where: {
+            hookCommandString(
+                for: def,
+                event: $0,
+                materializeCodexScripts: materializeCodexScripts
+            ) == command
+        })
+            || def.feedHookEvents.contains(where: {
+                feedHookCommandString(
+                    for: def,
+                    agentEvent: $0,
+                    materializeCodexScripts: materializeCodexScripts
+                ) == command
+            })
         {
             return true
         }
@@ -465,7 +539,7 @@ extension CMUXCLI {
     }
 
     private static func isCmuxOwnedCodexHookScriptCommand(_ command: String) -> Bool {
-        guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
+        let hooksDirectory = codexHookScriptsURL()
         let url = URL(fileURLWithPath: command, isDirectory: false)
         let name = url.lastPathComponent
         return CodexHookScriptName(filename: name) != nil

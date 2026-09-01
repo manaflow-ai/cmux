@@ -87,7 +87,7 @@ describe("billing success page", () => {
     expect(html).toContain("Cloud agents on Cloud VMs");
     expect(html).toContain("Run agents in isolated remote sandboxes.");
     expect(html).toContain("Model gateway");
-    expect(html).toContain("Route across providers with usage and cost analytics, plus 20 compute-hours a month.");
+    expect(html).toContain("Hosted model routing across your connected provider accounts.");
     expect(html).toContain("Connect your AI accounts");
     expect(html).toContain("Add provider accounts so cmux can route work through them.");
     expect(html).toContain("cmux iOS app");
