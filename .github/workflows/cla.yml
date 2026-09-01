@@ -650,6 +650,18 @@ jobs:
               unlock_after_state_change
               fail "The already-locked pull request changed; the stale lock was removed"
             fi
+            # A lock may change state immediately after the first validation.
+            # Re-read before returning success so a concurrent reopen or
+            # retarget does not leave a stale lock with no later close event
+            # available to clean it up. Only a successful read that proves a
+            # stale state permits unlocking; an API error preserves the lock.
+            if ! final_live_pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)"; then
+              fail "Could not verify the already-locked pull request before success"
+            fi
+            if ! validate_live_merged_pr "${final_live_pr_json}"; then
+              unlock_after_state_change
+              fail "The already-locked pull request changed; the stale lock was removed"
+            fi
             echo "Pull request ${PR_NUMBER} is already locked"
             exit 0
           fi

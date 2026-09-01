@@ -70,6 +70,12 @@ gh() {
 
   case "$endpoint" in
     repos/manaflow-ai/cmux/pulls/123)
+      if [[ "${FAKE_MODE:-}" == already-locked-reopen-after-final-read ]]; then
+        local pull_read_count=0
+        [[ -f "${FAKE_LOCK_FILE}.pull-reads" ]] && pull_read_count="$(<"${FAKE_LOCK_FILE}.pull-reads")"
+        pull_read_count=$((pull_read_count + 1))
+        printf '%s\n' "$pull_read_count" >"${FAKE_LOCK_FILE}.pull-reads"
+      fi
       local state=closed
       local merged=true
       local base_ref=main
@@ -82,6 +88,14 @@ gh() {
         reopened) state=open; merged=false ;;
         already-locked-reopen-after-read)
           if [[ -f "${FAKE_LOCK_FILE}.recheck" ]]; then
+            state=open
+            merged=false
+          fi
+          ;;
+        already-locked-reopen-after-final-read)
+          if [[ -f "${FAKE_LOCK_FILE}.recheck" &&
+                -f "${FAKE_LOCK_FILE}.pull-reads" &&
+                "$(<"${FAKE_LOCK_FILE}.pull-reads")" -ge 3 ]]; then
             state=open
             merged=false
           fi
@@ -127,8 +141,9 @@ gh() {
       local locked=false
       [[ -f "${FAKE_LOCK_FILE}" ]] && locked="$(<"${FAKE_LOCK_FILE}")"
       if [[ " $* " == *" --jq .locked "* ]]; then
-        if [[ "${FAKE_MODE:-}" == already-locked-reopen-after-read ||
-              "${FAKE_MODE:-}" == already-locked-read-failure ]]; then
+  if [[ "${FAKE_MODE:-}" == already-locked-reopen-after-read ||
+              "${FAKE_MODE:-}" == already-locked-read-failure ||
+              "${FAKE_MODE:-}" == already-locked-reopen-after-final-read ]]; then
           printf 'seen\n' >"${FAKE_LOCK_FILE}.recheck"
         fi
         printf '%s\n' "$locked"
@@ -165,7 +180,8 @@ run_case() {
   : >"$work/posts-$mode"
   : >"$work/lock-$mode"
   if [[ "$mode" == already-locked || "$mode" == already-locked-reopen-after-read ||
-        "$mode" == already-locked-read-failure ]]; then
+        "$mode" == already-locked-read-failure ||
+        "$mode" == already-locked-reopen-after-final-read ]]; then
     printf 'true\n' >"$work/lock-$mode"
   fi
   if [[ "$mode" == deleted-fork || "$mode" == deleted-fork-metadata-mismatch ]]; then
@@ -216,3 +232,4 @@ run_case lock-failure 1 "Could not lock the merged pull request" 1
 run_case reopen-after-lock 1 "changed after locking; the stale lock was removed" 2
 run_case already-locked-reopen-after-read 1 "already-locked pull request changed; the stale lock was removed" 1
 run_case already-locked-read-failure 1 "Could not verify the already-locked pull request" 0
+run_case already-locked-reopen-after-final-read 1 "already-locked pull request changed; the stale lock was removed" 1
