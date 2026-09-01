@@ -4,7 +4,7 @@ use std::io::Write;
 use anyhow::Context;
 use base64::Engine;
 use flate2::{Compression, GzBuilder};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::resource::TerminalPublicId;
