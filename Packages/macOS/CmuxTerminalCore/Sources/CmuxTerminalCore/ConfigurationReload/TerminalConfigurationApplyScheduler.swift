@@ -141,7 +141,9 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     public func cancelPendingWork() {
         guard snapshot != nil else { return }
         workGeneration &+= 1
+        let cancellationGeneration = workGeneration
         abandonPendingRetriesBeforeReplacement()
+        guard workGeneration == cancellationGeneration else { return }
         drainGeneration &+= 1
         isDrainScheduled = false
         finish()
@@ -169,6 +171,10 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         }
         let generation = workGeneration
         let pendingRetryIDs = Array(retryIDs[retryIndex...])
+        // Mark the range consumed before invoking user-owned callbacks. An
+        // abandon callback may synchronously install replacement work; leaving
+        // retryIndex unchanged would recursively abandon the same IDs.
+        retryIndex = retryIDs.count
         var abandonedIDs: Set<ID> = []
         for id in pendingRetryIDs
         where abandonedIDs.insert(id).inserted {

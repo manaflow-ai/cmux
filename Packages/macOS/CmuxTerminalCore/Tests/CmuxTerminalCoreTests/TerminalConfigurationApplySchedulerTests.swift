@@ -334,6 +334,62 @@ struct TerminalConfigurationApplySchedulerTests {
     }
 
     @Test @MainActor
+    func reentrantCancelCannotDiscardReplacementWork() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumVisitsPerDrain: 1,
+            schedule: manualScheduler.schedule
+        )
+        let firstSnapshot = Snapshot(id: 1)
+        let secondSnapshot = Snapshot(id: 2)
+        var didReplace = false
+        var events: [String] = []
+        var firstCompletionCount = 0
+        var secondCompletionCount = 0
+
+        scheduler.replacePendingWork(
+            snapshot: firstSnapshot,
+            prioritizedIDs: [11],
+            nextID: { .exhausted },
+            apply: { id, snapshot in
+                events.append("apply:\(id):\(snapshot.id)")
+                return .retry
+            },
+            abandon: { id, snapshot, _ in
+                events.append("abandon:\(id):\(snapshot.id)")
+                if !didReplace {
+                    didReplace = true
+                    scheduler.replacePendingWork(
+                        snapshot: secondSnapshot,
+                        prioritizedIDs: [22],
+                        nextID: { .exhausted },
+                        apply: { id, snapshot in
+                            events.append("apply:\(id):\(snapshot.id)")
+                            return .complete
+                        },
+                        completion: {
+                            secondCompletionCount += 1
+                        }
+                    )
+                }
+            },
+            completion: {
+                firstCompletionCount += 1
+            }
+        )
+
+        scheduler.cancelPendingWork()
+
+        #expect(events == ["apply:11:1", "abandon:11:1", "apply:22:2"])
+        #expect(firstCompletionCount == 0)
+        #expect(secondCompletionCount == 0)
+        #expect(manualScheduler.pendingCount == 1)
+        manualScheduler.fireNext()
+        #expect(secondCompletionCount == 1)
+        #expect(firstCompletionCount == 0)
+    }
+
+    @Test @MainActor
     func sharesOneDerivedSnapshotAcrossEverySurface() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(

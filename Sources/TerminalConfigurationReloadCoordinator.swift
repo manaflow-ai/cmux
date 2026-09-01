@@ -54,10 +54,12 @@ final class TerminalConfigurationReloadCoordinator {
                 - outstandingCompletionCount
         )
         // Commit acknowledgements are the latency-sensitive socket path, so
-        // retain them before optional post-fanout callbacks. Keep one slot
-        // reserved even when earlier requests filled the budget with only
-        // post-fanout callbacks, so a later commit acknowledgement is never
-        // silently dropped.
+        // retain them before optional post-fanout callbacks. For
+        // completion-only requests, keep one slot reserved so a later commit
+        // acknowledgement is not silently dropped behind optional work. A
+        // request that already carries commit callbacks may consume the
+        // remaining capacity; later requests then receive normal bounded
+        // backpressure rather than exceeding the global limit.
         let retainedCommitCompletionCount = min(
             request.commitCompletions.count,
             availableCompletionCount

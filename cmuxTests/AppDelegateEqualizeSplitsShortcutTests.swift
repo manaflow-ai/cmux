@@ -5677,10 +5677,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 source: "test.commitReservation.final",
                 reloadSettingsFromFile: false,
                 preferredColorScheme: nil,
-                completions: [{ }]
+                completions: [{ }, { }]
             )
         )
-        XCTAssertTrue(finalAdmission.retainedAllCompletions)
+        XCTAssertFalse(finalAdmission.retainedAllCompletions)
 
         let commitAdmission = coordinator.enqueue(
             TerminalPendingConfigurationReload(

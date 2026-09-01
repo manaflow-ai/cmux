@@ -10509,19 +10509,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         // AppKit's SwiftUI WindowGroup briefly exposes an unregistered
-        // bootstrap window with the bare `cmux.main` identifier. Only a
-        // context-owned window is a visibility-controller target; otherwise
-        // the UI-test recovery path can mistake the bootstrap for the real
-        // terminal window and skip creating one.
-        for window in NSApp.windows {
-            guard isMainTerminalWindow(window),
-                  mainWindowContexts.values.contains(where: { $0.window === window }) else {
-                continue
-            }
-            if !windows.contains(where: { $0 === window }) {
-                windows.append(window)
-            }
-        }
+        // bootstrap window with the bare `cmux.main` identifier. It is
+        // intentionally absent from this context-owned list so UI-test
+        // recovery can create the real terminal window.
         return windows
     }
 
