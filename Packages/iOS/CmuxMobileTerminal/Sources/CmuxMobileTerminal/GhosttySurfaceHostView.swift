@@ -87,6 +87,34 @@ public final class GhosttySurfaceHostView: UIView {
     /// payloads (the iOS 27 contract: did frames and steady-state
     /// re-derivations misreport there and move a settled dock).
     private let seatTrustsOnlyWillFrames: Bool
+    /// Screen-anchored scroll-edge fade over the top band: rows dissolve
+    /// into the terminal background as they pass under the (glass)
+    /// navigation bar. Lives in this host's keyboard-invariant chrome space
+    /// (like the dock) because the render wrapper slides for the keyboard
+    /// while the under-bar fade must stay put. The system scroll edge
+    /// effect cannot treat this content — UIKit renders it on the tracked
+    /// scroll view's own content subtree, and the terminal's pixels live in
+    /// the Ghostty render layer outside any scroll view — so the fade is
+    /// reproduced deterministically with a composited gradient.
+    private let scrollEdgeFadeLayer: CAGradientLayer = {
+        let fade = CAGradientLayer()
+        fade.name = "cmux.scrollEdgeFade"
+        fade.zPosition = 900 // above the clipped render, below the dock chrome
+        fade.startPoint = CGPoint(x: 0.5, y: 0)
+        fade.endPoint = CGPoint(x: 0.5, y: 1)
+        // Mostly-opaque under the status bar, easing out toward the band's
+        // seam with the grid — the soft scroll-edge profile.
+        fade.locations = [0, 0.35, 1]
+        fade.isHidden = true
+        fade.actions = [
+            "bounds": NSNull(),
+            "frame": NSNull(),
+            "hidden": NSNull(),
+            "position": NSNull(),
+            "colors": NSNull(),
+        ]
+        return fade
+    }()
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
@@ -155,6 +183,8 @@ public final class GhosttySurfaceHostView: UIView {
 
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
+        layer.addSublayer(scrollEdgeFadeLayer)
+        refreshScrollEdgeFadeColors(background: surfaceView.backgroundColor)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
         // The artifact chip joins the dock in this host's keyboard-invariant
         // chrome space: the render wrapper slides under a keyboard, the
@@ -249,6 +279,7 @@ public final class GhosttySurfaceHostView: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
+        layoutScrollEdgeFade()
         // A notification-driven keyboard leg owns the dock constant until its
         // animation completes; layout passes inside the leg must not reseat it.
         guard !keyboardTransitionActive else { return }
@@ -562,6 +593,34 @@ public final class GhosttySurfaceHostView: UIView {
         backgroundColor = color
         terminalClipView.backgroundColor = color
         terminalPresentationView.backgroundColor = color
+        refreshScrollEdgeFadeColors(background: color)
+    }
+
+    /// Sizes the fade to the live band (zero hides it) without implicit
+    /// animation, so it lands in the same frame as the layout pass.
+    private func layoutScrollEdgeFade() {
+        let height = surfaceView.hostedScrollEdgeFadeHeight
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if height > 0 {
+            scrollEdgeFadeLayer.isHidden = false
+            let frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+            if scrollEdgeFadeLayer.frame != frame {
+                scrollEdgeFadeLayer.frame = frame
+            }
+        } else {
+            scrollEdgeFadeLayer.isHidden = true
+        }
+        CATransaction.commit()
+    }
+
+    private func refreshScrollEdgeFadeColors(background: UIColor?) {
+        let bg = background ?? .black
+        scrollEdgeFadeLayer.colors = [
+            bg.withAlphaComponent(0.95).cgColor,
+            bg.withAlphaComponent(0.55).cgColor,
+            bg.withAlphaComponent(0).cgColor,
+        ]
     }
 
     func sampleTerminalDockPresentationGap() {

@@ -1715,6 +1715,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutRenderedTerminalForCurrentViewport(using: snapshot)
         setNeedsGeometrySync()
         setNeedsLayout()
+        // The host owns the screen-anchored scroll-edge fade sized by this
+        // inset; its layout does not follow from this view's.
+        bottomDockHostView?.setNeedsLayout()
     }
 
     /// The render layer rect: the grid render rect grown upward by the
@@ -1727,6 +1730,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: renderRect.width,
             height: renderRect.height + appliedRenderTopInsetPts
         )
+    }
+
+    /// Screen-anchored scroll-edge fade: rows dissolve into the terminal
+    /// background as they pass under the (glass) navigation bar. Owned by
+    /// the HOST's keyboard-invariant chrome space (like the dock): the
+    /// render wrapper slides for the keyboard, the under-bar fade must not.
+    /// The host reads the live band height through this hook.
+    var hostedScrollEdgeFadeHeight: CGFloat {
+        topContentInset
     }
 
     private func layoutRenderedTerminalForCurrentViewport() {

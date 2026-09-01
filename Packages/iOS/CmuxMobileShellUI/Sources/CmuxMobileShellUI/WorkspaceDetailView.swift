@@ -198,11 +198,8 @@ struct WorkspaceDetailView: View {
             )
             // The browser and chat surfaces scroll; without this the system
             // minimizes the whole bar into a floating "…" pill, unlike the
-            // terminal surface, which has no system scroll view. In
-            // scrolled-under mode the stand-in additionally reports content
-            // frozen mid-scroll so the bar renders its scroll edge effect
-            // over the terminal's band without ever seeing a scroll delta.
-            .mobilePinnedNavigationBar(scrolledUnderContent: terminalScrollEdgeGlassActive)
+            // terminal surface, which has no system scroll view.
+            .mobilePinnedNavigationBar()
             .trackBarPresence(barPresence)
             .toolbar { workspaceDetailToolbar }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
