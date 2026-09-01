@@ -897,12 +897,7 @@ final class RemoteTmuxControlConnection {
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil
-                    paneTitleMetadataByPane[pane] = nil
-                    paneTitleMetadataLiveRevisionByPane[pane] = nil
                 }
-            }
-            paneTitleMetadataLiveRevisionByPane = paneTitleMetadataLiveRevisionByPane.filter {
-                !closingPaneIDs.contains($0.key)
             }
             paneTitleMetadataSnapshotRevisions = paneTitleMetadataSnapshotRevisions.filter {
                 $0.key.windowId != id
@@ -918,6 +913,7 @@ final class RemoteTmuxControlConnection {
             pendingLayouts[id] = nil
             initialBatchStaged[id] = nil
             finishInitialBatchMember(id)
+            prunePaneState(keeping: paneIDsForStatePruning())
             record("window-close @\(id)")
             // A move of the window's final pane reports the source close before
             // the destination layout. Re-list atomically so observers reconcile
