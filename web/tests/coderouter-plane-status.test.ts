@@ -27,8 +27,8 @@ function account(
 describe("planeStatusForAccounts", () => {
   test("no accounts: nothing is ready and every agent names its fix", () => {
     const status = planeStatusForAccounts([]);
-    expect(status.agents.claude).toEqual({ ready: false, kinds: [], connect: "cmux ai-accounts upload claude" });
-    expect(status.agents.codex).toEqual({ ready: false, kinds: [], connect: "cmux ai-accounts upload codex" });
+    expect(status.agents.claude).toEqual({ ready: false, kinds: [], accounts: 0, refreshing: 0, connect: "cmux ai-accounts upload claude" });
+    expect(status.agents.codex).toEqual({ ready: false, kinds: [], accounts: 0, refreshing: 0, connect: "cmux ai-accounts upload codex" });
     expect(status.agents.pi.ready).toBe(false);
     expect(status.agents.opencode.ready).toBe(false);
   });
@@ -49,16 +49,31 @@ describe("planeStatusForAccounts", () => {
     expect(status.agents.claude.ready).toBe(false);
   });
 
-  test("broken, expired, and cooling-down accounts do not count", () => {
+  test("counts every account a session could land on", () => {
+    const status = planeStatusForAccounts([
+      account("claude", { id: "c1" }),
+      account("claude", { id: "c2" }),
+      account("anthropic-apikey"),
+    ]);
+    expect(status.agents.claude).toMatchObject({ ready: true, accounts: 3, kinds: ["claude", "anthropic-apikey"] });
+    expect(status.agents.opencode.accounts).toBe(3);
+    expect(status.agents.codex.accounts).toBe(0);
+  });
+
+  test("broken, expired, and cooling-down accounts do not count; refreshing is reported, not ready", () => {
+    // "Ready" means what placement means: a refreshing account cannot take a
+    // new session this instant, so the sole refreshing account is not ready
+    // — but it is surfaced, so a client can wait rather than send the user
+    // off to connect one.
     const status = planeStatusForAccounts([
       account("claude", { state: "broken" }),
       account("codex", { state: "expired" }),
       account("anthropic-apikey", { cooldownUntil: new Date(Date.now() + 60_000).toISOString() }),
       account("opencode-go", { state: "refreshing" }),
     ]);
-    expect(status.agents.claude.ready).toBe(false);
+    expect(status.agents.claude).toMatchObject({ ready: false, accounts: 0, refreshing: 0 });
     expect(status.agents.codex.ready).toBe(false);
-    expect(status.agents.opencode).toMatchObject({ ready: true, kinds: ["opencode-go"] });
+    expect(status.agents.opencode).toMatchObject({ ready: false, kinds: [], accounts: 0, refreshing: 1 });
   });
 });
 
@@ -76,7 +91,7 @@ describe("GET /v1/status", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     const body = await response.text();
     expect(JSON.parse(body).agents.claude.ready).toBe(true);
-    expect(JSON.parse(body).agents.pi.kinds).toEqual(["codex"]);
+    expect(JSON.parse(body).agents.pi).toMatchObject({ kinds: ["codex"], accounts: 1, refreshing: 0 });
     expect(body).not.toContain("person@example.com");
     expect(body).not.toContain("acct-");
   });

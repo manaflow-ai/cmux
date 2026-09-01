@@ -50,6 +50,9 @@ describe("coderouter vault", () => {
     });
     expect(apiKeyAccountId("sk-ant-api03-secret")).not.toContain("secret");
     expect(parseCredential({ provider: "openai-apikey", apiKey: "sk-x" })?.email).toBe(apiKeyAccountId("sk-x"));
+    // A caller-chosen id cannot make the same key a second account.
+    expect(parseCredential({ provider: "openai-apikey", apiKey: "sk-x", accountId: "mine" })?.accountId)
+      .toBe(apiKeyAccountId("sk-x"));
     expect(parseCredential({ provider: "openai-apikey", apiKey: "" })).toBeNull();
     expect(parseCredential({ provider: "openai-apikey" })).toBeNull();
   });

@@ -146,13 +146,19 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
   if (provider === "anthropic-apikey" || provider === "openai-apikey") {
     const apiKey = boundedString(value.apiKey, 4_096);
     if (!apiKey) return null;
-    const accountId = boundedString(value.accountId, 512) ?? apiKeyAccountId(apiKey);
+    // A directly added key is identified by the key itself, never by a
+    // caller-chosen id: the same key connected twice is one account (and one
+    // free-tier slot). Mirrored keys carry their app-side id, but they are
+    // built by the mirror, not parsed here.
+    const accountId = apiKeyAccountId(apiKey);
     const email = boundedString(value.email, 320) ??
       boundedString(value.label, 320) ??
       accountId;
+    const key = { apiKey, accountId, email };
+    // Spelled out per provider so the literal narrows into the credential union.
     return provider === "anthropic-apikey"
-      ? { provider, apiKey, accountId, email }
-      : { provider, apiKey, accountId, email };
+      ? { provider: "anthropic-apikey", ...key }
+      : { provider: "openai-apikey", ...key };
   }
   const accessToken = boundedString(value.accessToken, 32_768);
   const refreshToken = boundedString(value.refreshToken, 32_768);

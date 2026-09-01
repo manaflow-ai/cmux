@@ -298,7 +298,7 @@ describe("hosted Subrouter account routes", () => {
         kind: "openai-apikey",
         label: "work",
       },
-      // API-key accounts have no machine-plane provider to mirror into.
+      // API-key accounts mirror into the machines' vault plane like logins do.
       vmPlane: "mirrored",
     });
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer cookie-access");

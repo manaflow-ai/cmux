@@ -5,10 +5,13 @@ let unusableAccounts = new Set<string>();
 
 const originalFetch = globalThis.fetch;
 let upstreamUrl = "";
+let upstreamHeaders = new Headers();
+let apiKeyAccounts = new Set<string>();
 beforeAll(() => {
   globalThis.fetch = mock(async (...args: unknown[]) => {
-    const input = args[0] as string | URL | Request;
+    const [input, init] = args as [string | URL | Request, RequestInit | undefined];
     upstreamUrl = String(input);
+    upstreamHeaders = new Headers(init?.headers);
     return Response.json({ models: [{ slug: "gpt-test" }] });
   }) as typeof fetch;
 });
@@ -29,6 +32,9 @@ const proxyCodexModels = createCodexModelsProxy({
     if (unusableAccounts.has(accountId)) {
       throw Object.assign(new Error("busy"), { _tag: "CodeRouterRefreshBusy" });
     }
+    if (apiKeyAccounts.has(accountId)) {
+      return { provider: "openai-apikey", apiKey: "sk-openai-key", accountId: "key:1", email: "work key" };
+    }
     return {
       provider: "codex",
       accessToken: "provider-access",
@@ -47,6 +53,23 @@ describe("coderouter models proxy", () => {
   beforeEach(() => {
     selectedAccounts = ["account-1"];
     unusableAccounts = new Set();
+    apiKeyAccounts = new Set();
+    upstreamHeaders = new Headers();
+  });
+
+  test("lists the public API's models for an OpenAI API-key account with only its bearer", async () => {
+    selectedAccounts = ["key-1"];
+    apiKeyAccounts = new Set(["key-1"]);
+    const response = await proxyCodexModels(
+      new Request("https://coderouter.dev/v1/models", {
+        headers: { authorization: "Bearer crt_route" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(upstreamUrl).toBe("https://api.openai.com/v1/models");
+    expect(upstreamHeaders.get("authorization")).toBe("Bearer sk-openai-key");
+    expect(upstreamHeaders.get("chatgpt-account-id")).toBeNull();
+    expect(upstreamHeaders.get("originator")).toBeNull();
   });
 
   test("forwards Codex model discovery through the authenticated account", async () => {

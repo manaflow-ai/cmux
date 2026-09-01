@@ -44,8 +44,13 @@ export function createOpenCodeClientConfig(
     // so the config works on every deployment of this app (coderouter.dev,
     // the cmux origin Cloud VMs are minted against, previews, self-hosted).
     const origin = new URL(request.url).origin;
-    const kinds = activeProviderKinds(await dependencies.accounts(auth.teamId));
+    // The config is written once on the machine's first shell, so an account
+    // mid-refresh (usable again in seconds) still counts here.
+    const kinds = activeProviderKinds(await dependencies.accounts(auth.teamId), {
+      includeRefreshing: true,
+    });
     let provider: Record<string, unknown> = {};
+    let catalogUnavailable = false;
     if (kinds.has("opencode-go")) {
       const resolved = await dependencies.opencodeAccount(auth.teamId);
       if (resolved) {
@@ -59,12 +64,21 @@ export function createOpenCodeClientConfig(
           // The OpenCode catalog is one provider among several now; a console
           // outage must not take the Claude/Codex planes down with it.
           reportCoderouterFailure("provider_usage", error, { provider: "opencode-go" });
+          catalogUnavailable = true;
         }
+      } else {
+        catalogUnavailable = true;
       }
     }
     provider = { ...provider, ...planeProviders(kinds, auth.token, origin) };
     if (Object.keys(provider).length === 0) {
-      return Response.json({ error: "no_usable_account" }, { status: 503 });
+      // A team with an OpenCode account whose catalog could not be fetched is
+      // not a team without accounts: the machine retries next shell either
+      // way, but only the latter should send anyone off to connect one.
+      return Response.json(
+        { error: catalogUnavailable ? "provider_unavailable" : "no_usable_account" },
+        { status: 503 },
+      );
     }
     return Response.json(
       { provider },
@@ -82,18 +96,28 @@ export const openCodeClientConfig = createOpenCodeClientConfig({
   remote: remoteConfig,
 });
 
-/** The kinds of account currently able to take traffic. */
+/**
+ * The kinds of account a new session could be placed on right now: active
+ * and not cooling down — the same gate `claimAccountForPlacement` applies.
+ * `includeRefreshing` also counts accounts mid-refresh (seconds from usable),
+ * for callers whose answer is written down once rather than re-asked.
+ */
 export function activeProviderKinds(
   accounts: readonly CodeRouterAccountSummary[],
+  options: { readonly includeRefreshing?: boolean } = {},
 ): ReadonlySet<CodeRouterProvider> {
+  return new Set(claimableAccounts(accounts, options).map((account) => account.provider));
+}
+
+export function claimableAccounts(
+  accounts: readonly CodeRouterAccountSummary[],
+  options: { readonly includeRefreshing?: boolean } = {},
+): readonly CodeRouterAccountSummary[] {
   const now = Date.now();
-  return new Set(
-    accounts
-      .filter((account) =>
-        (account.state === "active" || account.state === "refreshing") &&
-        (!account.cooldownUntil || Date.parse(account.cooldownUntil) <= now),
-      )
-      .map((account) => account.provider),
+  return accounts.filter((account) =>
+    (account.state === "active" ||
+      (options.includeRefreshing === true && account.state === "refreshing")) &&
+    (!account.cooldownUntil || Date.parse(account.cooldownUntil) <= now),
   );
 }
 
@@ -152,7 +176,7 @@ export async function proxyOpenCodeRequest(
     });
     return apiError(
       "no_usable_account",
-      "No OpenCode Go account is connected for your team right now. Add one with `cr add opencode`, or connect a Claude or Codex account on your Mac (`cmux ai-accounts upload claude|codex`) and opencode routes over it.",
+      "No OpenCode Go account is connected for your team right now. Add one with `cr add opencode`, or connect a Claude or Codex account on your Mac (`cmux ai-accounts upload claude` or `cmux ai-accounts upload codex`) and opencode routes over it.",
       503,
       true,
     );

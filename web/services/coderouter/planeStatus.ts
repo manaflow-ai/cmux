@@ -1,9 +1,10 @@
 // What a machine may ask about its own model plane: which agents will work
 // right now, and how to fix the ones that will not. Route-token scoped, so it
 // exposes nothing a machine cannot already infer by trying — counts and
-// kinds, never identifiers or credentials.
+// kinds, never identifiers or credentials. "Ready" means what placement
+// means: an account is active and not cooling down this instant.
 import { listAccounts } from "./repository";
-import { activeProviderKinds } from "./opencodeProxy";
+import { claimableAccounts } from "./opencodeProxy";
 import { bearerToken } from "./codexProxy";
 import { authenticateRouteToken } from "./repository";
 import {
@@ -17,10 +18,14 @@ export const PLANE_AGENTS = ["claude", "codex", "pi", "opencode"] as const;
 export type PlaneAgent = (typeof PLANE_AGENTS)[number];
 
 export type AgentPlaneStatus = {
-  /** An account of a usable kind is active and not cooling down. */
+  /** A new session could be placed right now: an account of a usable kind is active and not cooling down. */
   readonly ready: boolean;
-  /** Active account kinds backing this agent right now. */
+  /** Account kinds a session could be placed on right now. */
   readonly kinds: readonly CodeRouterProvider[];
+  /** How many accounts a session could be placed on right now. */
+  readonly accounts: number;
+  /** Accounts mid-refresh: usable again in seconds, not claimable this instant. */
+  readonly refreshing: number;
   /** The one-line fix on the user's Mac when not ready. */
   readonly connect: string;
 };
@@ -47,10 +52,20 @@ const AGENT_KINDS: Readonly<Record<PlaneAgent, readonly CodeRouterProvider[]>> =
 export function planeStatusForAccounts(
   accounts: readonly CodeRouterAccountSummary[],
 ): PlaneStatus {
-  const active = activeProviderKinds(accounts);
+  const claimable = claimableAccounts(accounts);
   const status = (agent: PlaneAgent): AgentPlaneStatus => {
-    const kinds = AGENT_KINDS[agent].filter((kind) => active.has(kind));
-    return { ready: kinds.length > 0, kinds, connect: CONNECT_HINTS[agent] };
+    const usable = claimable.filter((account) => AGENT_KINDS[agent].includes(account.provider));
+    const kinds = AGENT_KINDS[agent].filter((kind) => usable.some((account) => account.provider === kind));
+    const refreshing = accounts.filter((account) =>
+      account.state === "refreshing" && AGENT_KINDS[agent].includes(account.provider),
+    ).length;
+    return {
+      ready: usable.length > 0,
+      kinds,
+      accounts: usable.length,
+      refreshing,
+      connect: CONNECT_HINTS[agent],
+    };
   };
   return {
     agents: {

@@ -510,7 +510,9 @@ function planeOf(selector: ProviderSelector): CodeRouterProvider {
 }
 
 function providersOf(selector: ProviderSelector): readonly CodeRouterProvider[] {
-  return typeof selector === "string" ? [selector] : selector;
+  if (typeof selector === "string") return [selector];
+  if (selector.length === 0) throw new Error("provider selector is empty");
+  return selector;
 }
 
 export async function findSessionAccount(

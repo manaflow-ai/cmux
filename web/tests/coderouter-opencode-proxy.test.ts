@@ -94,13 +94,14 @@ describe("coderouter OpenCode Go proxy", () => {
     expect(planeProviders(new Set(["opencode-go"]), "t", "https://o")).toEqual({});
   });
 
-  test("only healthy accounts count as active kinds", () => {
+  test("only claimable accounts count as active kinds; refreshing only on request", () => {
     const summary = (provider: CodeRouterAccountSummary["provider"], state: CodeRouterAccountSummary["state"]) => ({
       id: provider, provider, providerAccountId: provider, label: provider, state,
       credentialExpiresAt: null, lastFailureCode: null, cooldownUntil: null, activeSessions: 0,
     });
-    expect([...activeProviderKinds([summary("claude", "active"), summary("codex", "broken"), summary("openai-apikey", "refreshing")])])
-      .toEqual(["claude", "openai-apikey"]);
+    const accounts = [summary("claude", "active"), summary("codex", "broken"), summary("openai-apikey", "refreshing")];
+    expect([...activeProviderKinds(accounts)]).toEqual(["claude"]);
+    expect([...activeProviderKinds(accounts, { includeRefreshing: true })]).toEqual(["claude", "openai-apikey"]);
   });
 });
 
@@ -161,6 +162,20 @@ describe("opencode client config", () => {
     expect(Object.keys(body.provider)).toEqual(["anthropic"]);
   });
 
+  test("an OpenCode-only team whose console is down is 'provider_unavailable', not 'no account'", async () => {
+    const config = createOpenCodeClientConfig({
+      identity: async () => ({ teamId: "team-1", stackUserId: "u", token: "crt_token" }),
+      accounts: async () => [summary("opencode-go")],
+      opencodeAccount: async () => ({ account: { id: "a", vaultRevision: 1, credentialExpiresAt: null }, credential: goCredential, attempts: 1 }),
+      remote: async () => {
+        throw new Error("console down");
+      },
+    });
+    const response = await config(request);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "provider_unavailable" });
+  });
+
   test("no usable account of any kind is still a 503 (the machine retries next shell)", async () => {
     const config = createOpenCodeClientConfig({
       identity: async () => ({ teamId: "team-1", stackUserId: "u", token: "crt_token" }),
@@ -168,6 +183,8 @@ describe("opencode client config", () => {
       opencodeAccount: async () => null,
       remote: async () => ({}),
     });
-    expect((await config(request)).status).toBe(503);
+    const response = await config(request);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "no_usable_account" });
   });
 });
