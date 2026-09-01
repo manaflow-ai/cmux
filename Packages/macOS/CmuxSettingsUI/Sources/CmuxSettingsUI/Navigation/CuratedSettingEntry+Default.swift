@@ -296,6 +296,17 @@ extension Array where Element == CuratedSettingEntry {
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
+            .init(
+                section: .betaFeatures,
+                id: "cloudMachines",
+                title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.cloudMachines.subtitleOn", defaultValue: "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries."),
+                    String(localized: "settings.betaFeatures.cloudMachines.subtitleOff", defaultValue: "Hides every Cloud Machines surface unless remote rollout enables it."),
+                ].joined(separator: " "),
+                paths: ["cloud.beta.machines.enabled"],
+                synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
+            ),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
@@ -346,6 +357,27 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 
+            // Computer Use
+            .init(
+                section: .computerUse,
+                id: "enabled",
+                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
+                paths: ["computerUse.enabled"],
+                synonyms: String(localized: "settings.search.alias.setting.computerUse.enabled", defaultValue: "computerUse.enabled enable disable computer use cua mcp agent sessions")
+            ),
+            .init(
+                section: .computerUse,
+                id: "permissions",
+                title: String(localized: "settings.computerUse.permissions", defaultValue: "Permissions"),
+                synonyms: String(localized: "settings.search.alias.setting.computerUse.permissions", defaultValue: "accessibility screen recording capture permissions privacy system settings grant")
+            ),
+            .init(
+                section: .computerUse,
+                id: "show-in-menu-bar",
+                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show Computer Use in Menu Bar"),
+                paths: ["computerUse.showInMenuBar"],
+                synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
+            ),
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),

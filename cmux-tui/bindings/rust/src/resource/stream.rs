@@ -8,11 +8,15 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub(crate) type StreamItemValidator = fn(&StreamItem) -> Result<()>;
+
+const CANCELLATION_READY: u8 = 0;
+const CANCELLATION_SENDING: u8 = 1;
+const CANCELLATION_RETIRED: u8 = 2;
 
 pub(crate) struct StreamParts {
     pub(crate) id: StreamId,
@@ -34,7 +38,7 @@ struct CancellationInner {
     writer: Mutex<UnixStream>,
     cancel_params: Params,
     max_request_bytes: usize,
-    canceled: AtomicBool,
+    cancel_state: AtomicU8,
 }
 
 /// Thread-safe cancellation handle for an owned resource stream.
@@ -57,7 +61,17 @@ impl StreamCancellation {
     }
 
     fn send(&self) -> Result<bool> {
-        if self.inner.canceled.swap(true, Ordering::AcqRel) {
+        if self
+            .inner
+            .cancel_state
+            .compare_exchange(
+                CANCELLATION_READY,
+                CANCELLATION_SENDING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
             return Ok(false);
         }
         let request_id = self.request_id();
@@ -68,8 +82,13 @@ impl StreamCancellation {
             "operation": ops::STREAM_CANCEL,
             "params": self.inner.cancel_params.clone().into_value(),
         });
-        self.write_envelope(&envelope, "stream cancel")?;
-        Ok(true)
+        let result = self.write_envelope(&envelope, "stream cancel");
+        // A write error closes the shared transport. It can also follow a
+        // partial write, so another attempt could append a duplicate request
+        // to an indeterminate frame. Pre-write errors close the transport too,
+        // so every claimed send attempt is terminal.
+        self.inner.cancel_state.store(CANCELLATION_RETIRED, Ordering::Release);
+        result.map(|()| true)
     }
 
     fn write_envelope(&self, envelope: &Value, context: &str) -> Result<()> {
@@ -140,7 +159,7 @@ impl ResourceStream {
                 writer: Mutex::new(parts.writer),
                 cancel_params: parts.cancel_params,
                 max_request_bytes: parts.max_request_bytes,
-                canceled: AtomicBool::new(false),
+                cancel_state: AtomicU8::new(CANCELLATION_READY),
             }),
         };
         let mut stream = Self {
@@ -668,7 +687,7 @@ mod tests {
     use std::io::Read;
 
     #[test]
-    fn failed_cancel_send_is_one_shot_and_closes_the_transport() {
+    fn failed_cancel_send_is_retired_and_closes_the_transport() {
         let (client, mut peer) = UnixStream::pair().unwrap();
         peer.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
         let connection =
@@ -693,11 +712,41 @@ mod tests {
         let detached = stream.cancellation();
 
         assert!(matches!(stream.cancel(), Err(Error::FrameTooLarge { limit: 1, .. })));
-        detached.cancel().unwrap();
+        assert!(!detached.send().unwrap());
 
         let mut received = Vec::new();
         peer.read_to_end(&mut received).unwrap();
         assert!(received.is_empty());
+    }
+
+    #[test]
+    fn partial_cancel_write_is_not_retried() {
+        const PREFIX_BYTES: usize = 4096;
+        const REQUEST_BYTES: usize = 8 * 1024 * 1024;
+
+        let (client, mut peer) = UnixStream::pair().unwrap();
+        let cancellation = StreamCancellation {
+            inner: Arc::new(CancellationInner {
+                id: StreamId::parse("stream_00000000000000000000000000000001").unwrap(),
+                writer: Mutex::new(client),
+                cancel_params: Params::new().string("padding", "x".repeat(REQUEST_BYTES)),
+                max_request_bytes: REQUEST_BYTES * 2,
+                cancel_state: AtomicU8::new(CANCELLATION_READY),
+            }),
+        };
+        let reader = std::thread::spawn(move || {
+            let mut prefix = vec![0; PREFIX_BYTES];
+            peer.read_exact(&mut prefix).unwrap();
+            peer.shutdown(Shutdown::Both).unwrap();
+            prefix
+        });
+
+        assert!(matches!(cancellation.send(), Err(Error::Connection(_))));
+        assert!(!cancellation.send().unwrap());
+
+        let prefix = reader.join().unwrap();
+        assert_eq!(prefix.len(), PREFIX_BYTES);
+        assert!(!prefix.ends_with(b"\n"));
     }
 
     #[test]
