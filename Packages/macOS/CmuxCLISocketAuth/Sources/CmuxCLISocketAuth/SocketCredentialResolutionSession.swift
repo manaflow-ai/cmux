@@ -9,24 +9,25 @@ public import Foundation
 /// the same route concurrently; credential I/O remains owned by the resolver.
 private final class KeychainLookupMemoizer: @unchecked Sendable {
     private enum State {
-        case unresolved
         case resolved(String?)
     }
 
     private let lock = NSLock()
-    private var state = State.unresolved
+    private var states: [String: State] = [:]
 
+    /// Returns the cached result for a service scope, loading it once when needed.
     func password(
         services: [String],
         provider: SocketCredentialResolver.KeychainPasswordProvider
     ) -> String? {
         lock.lock()
         defer { lock.unlock() }
-        if case let .resolved(password) = state {
+        let key = services.joined(separator: "\u{1f}")
+        if case let .resolved(password) = states[key] {
             return password
         }
         let password = provider(services)
-        state = .resolved(password)
+        states[key] = .resolved(password)
         return password
     }
 }

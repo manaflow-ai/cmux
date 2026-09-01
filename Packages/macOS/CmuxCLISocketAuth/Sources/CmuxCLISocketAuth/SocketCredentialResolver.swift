@@ -220,6 +220,7 @@ public final class SocketCredentialResolver: @unchecked Sendable {
         return normalized(environment["CMUX_TAG"]).flatMap(SocketPathMarkerFiles.sanitizeSocketSlug)
     }
 
+    /// Reads the legacy keychain entries for a single socket service scope.
     static func loadFromKeychain(services: [String]) -> String? {
 #if canImport(Security) && canImport(LocalAuthentication)
         let authContext = LAContext()

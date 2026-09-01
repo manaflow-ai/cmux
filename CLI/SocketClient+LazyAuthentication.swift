@@ -20,7 +20,12 @@ extension SocketClient {
         authenticationPassword = password
         socketAuthenticated = false
         let remaining = operationDeadline.timeIntervalSinceNow
-        guard remaining > 0 else { throw CLIError(message: "Command timed out") }
+        guard remaining > 0 else {
+            throw CLIError(message: String(
+                localized: "cli.socket.error.commandTimedOut",
+                defaultValue: "Command timed out"
+            ))
+        }
         let retriedResponse = try send(
             command: command,
             responseTimeout: remaining,

@@ -4109,22 +4109,23 @@ final class SocketClient {
                 deadline: deadline
             )
             let line = try readStreamLine(deadline: deadline)
-            if !didRetryAuthentication,
-               !authenticationInProgress,
-               !authenticationPasswordResolutionAttempted,
-               SocketAuthenticationChallenge.isRequired(line),
-               authenticationPasswordProvider != nil {
-                if let password = resolveDeferredAuthenticationPassword(deadline: deadline) {
-                    authenticationPassword = password
-                    socketAuthenticated = false
-                    let remaining = deadline?.timeIntervalSinceNow
-                    try authenticateIfNeeded(
-                        responseTimeout: remaining.map { max($0, 0.001) },
-                        deadline: deadline
-                    )
-                    didRetryAuthentication = true
-                    continue
+            if SocketAuthenticationChallenge.isRequired(line) {
+                guard !didRetryAuthentication,
+                      !authenticationInProgress,
+                      !authenticationPasswordResolutionAttempted,
+                      authenticationPasswordProvider != nil,
+                      let password = resolveDeferredAuthenticationPassword(deadline: deadline) else {
+                    throw CLIError(message: line)
                 }
+                authenticationPassword = password
+                socketAuthenticated = false
+                let remaining = deadline?.timeIntervalSinceNow
+                try authenticateIfNeeded(
+                    responseTimeout: remaining.map { max($0, 0.001) },
+                    deadline: deadline
+                )
+                didRetryAuthentication = true
+                continue
             }
             try onLine(line)
             break

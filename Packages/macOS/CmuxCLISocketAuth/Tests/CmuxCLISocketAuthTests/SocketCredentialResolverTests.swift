@@ -204,7 +204,7 @@ struct SocketCredentialResolverTests {
     }
 
     @Test
-    func implicitRoutesShareOneDeferredKeychainLookupPerSession() {
+    func implicitRoutesPartitionDeferredKeychainLookupsByScope() {
         let keychainCounter = CallCounter()
         let session = SocketCredentialResolutionSession(
             environment: [:],
@@ -224,9 +224,16 @@ struct SocketCredentialResolverTests {
         )
 
         #expect(first !== second)
+        #expect(
+            session.resolver(
+                explicitPassword: nil,
+                socketPath: "/tmp/cmux-debug-first.sock"
+            ) === first
+        )
+        #expect(first.password(for: .authenticationRequired) == "keychain-password")
         #expect(first.password(for: .authenticationRequired) == "keychain-password")
         #expect(second.password(for: .authenticationRequired) == "keychain-password")
-        #expect(keychainCounter.value == 1)
+        #expect(keychainCounter.value == 2)
     }
 
     @Test
