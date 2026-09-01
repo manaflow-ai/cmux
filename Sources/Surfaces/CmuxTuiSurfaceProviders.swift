@@ -314,12 +314,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     /// `screen wait` default when the caller gives no (or a non-positive) timeout.
-    static let defaultWaitTimeoutMs = 30_000
+    nonisolated static let defaultWaitTimeoutMs = 30_000
     /// Upper bound for one `screen wait` (an hour): long enough for any build, short
     /// enough that the link call and the socket call stay finite.
-    static let maxWaitTimeoutMs = 3_600_000
+    nonisolated static let maxWaitTimeoutMs = 3_600_000
 
-    static func clampedWaitTimeoutMs(_ requested: Int?) -> Int {
+    /// Pure, so the nonisolated socket handler can normalize before hopping actors.
+    nonisolated static func clampedWaitTimeoutMs(_ requested: Int?) -> Int {
         guard let requested, requested > 0 else { return defaultWaitTimeoutMs }
         return min(requested, maxWaitTimeoutMs)
     }
