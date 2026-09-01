@@ -26,12 +26,12 @@ struct TerminalControllingTTYWaiter {
     ) async throws -> String {
         let deadline = clock.now + timeout
         while clock.now < deadline {
-            if let ttyName = terminal.surface.controllingTTYName() {
+            if let ttyName = await terminal.surface.controllingTTYName() {
                 return ttyName
             }
             try await clock.sleep(for: pollInterval)
         }
-        if let ttyName = terminal.surface.controllingTTYName() {
+        if let ttyName = await terminal.surface.controllingTTYName() {
             return ttyName
         }
         throw NSError(
