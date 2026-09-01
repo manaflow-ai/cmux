@@ -76,7 +76,11 @@ impl TextInput {
                 InputEvent::None
             }
             KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
-                if self.delete_word_left() { InputEvent::Changed } else { InputEvent::None }
+                if self.delete_word_left() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                }
             }
             KeyCode::Backspace => {
                 if self.delete_left() {
@@ -115,15 +119,26 @@ impl TextInput {
         if cursor < scroll {
             scroll = cursor;
         }
-        while self.display_width(scroll, cursor) >= width {
-            let next = self.next_boundary(scroll);
-            if next <= scroll || next > cursor {
-                scroll = cursor;
-                break;
-            }
-            scroll = next;
+        // Measure the cursor suffix once, then discard leading graphemes until it fits.
+        // Recomputing widths from `scroll` on every iteration makes long inputs quadratic.
+        let mut suffix_width = 0;
+        for grapheme in self.buffer[scroll..cursor].graphemes(true) {
+            suffix_width += UnicodeWidthStr::width(grapheme);
         }
-        let cursor_col = self.display_width(scroll, cursor);
+        if suffix_width >= width {
+            for (offset, grapheme) in self.buffer[scroll..cursor].grapheme_indices(true) {
+                let next = scroll + offset + grapheme.len();
+                if next > cursor {
+                    break;
+                }
+                suffix_width = suffix_width.saturating_sub(UnicodeWidthStr::width(grapheme));
+                scroll = next;
+                if suffix_width < width {
+                    break;
+                }
+            }
+        }
+        let cursor_col = suffix_width;
         let mut used = 0;
         let mut end = scroll;
         for (offset, grapheme) in self.buffer[scroll..].grapheme_indices(true) {
