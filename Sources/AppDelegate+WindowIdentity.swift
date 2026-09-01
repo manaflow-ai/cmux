@@ -19,7 +19,7 @@ extension AppDelegate {
     }
 
     func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+        if let context = mainWindowLifecycleCoordinator.registeredContext(windowId: windowId) {
             guard let window = context.window,
                   !hasCommittedMainWindowClose(window) else {
                 return nil

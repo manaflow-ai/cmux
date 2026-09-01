@@ -473,6 +473,15 @@ final class MainWindowLifecycleCoordinator {
               case .orphaned = record.phase else {
             return false
         }
+        if replacement.frozenWindowSnapshot != nil {
+            guard maximumFrozenOrphanRecords > 0 else { return false }
+            // Freezing is the point at which this route becomes the durable
+            // persistence record. Give it a fresh order before trimming so a
+            // live orphan that waited behind newer frozen records cannot be
+            // replaced, torn down, and then trimmed out of the only state we
+            // captured.
+            record.order = issueOrder()
+        }
         record.phase = .orphaned(replacement)
         recordsByWindowId[windowId] = record
         trimFrozenOrphanRecordsToLimit()

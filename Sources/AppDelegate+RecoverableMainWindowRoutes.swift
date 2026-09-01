@@ -27,9 +27,14 @@ extension AppDelegate {
     /// present and belongs to the requested stable window id. Explicitly hidden
     /// app/titlebar restore targets remain in the live topology; generic hidden
     /// windows stay fail-closed.
-    func liveRecoverableMainWindow(windowId: UUID, cachedWindow: NSWindow?) -> NSWindow? {
+    func liveRecoverableMainWindow(
+        windowId: UUID,
+        cachedWindow: NSWindow?,
+        liveWindowIdentities: Set<ObjectIdentifier>? = nil
+    ) -> NSWindow? {
         guard let cachedWindow,
-              NSApp.windows.contains(where: { $0 === cachedWindow }),
+              liveWindowIdentities?.contains(ObjectIdentifier(cachedWindow))
+                ?? NSApp.windows.contains(where: { $0 === cachedWindow }),
               cachedWindow.isVisible || cachedWindow.isMiniaturized
                 || mainWindowParticipatesInRestoreTopology(cachedWindow),
               mainWindowId(from: cachedWindow) == windowId,
@@ -157,12 +162,14 @@ extension AppDelegate {
     }
 
     private func recoverableMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
+        let liveWindowIdentities = Set(NSApp.windows.map { ObjectIdentifier($0) })
         mainWindowLifecycleCoordinator.orphanedRoutes().compactMap { route in
             guard let manager = route.tabManager,
                   tabManagerCanOwnRecoverableMainWindowRoute(manager),
                   let window = liveRecoverableMainWindow(
                       windowId: route.windowId,
-                      cachedWindow: route.window
+                      cachedWindow: route.window,
+                      liveWindowIdentities: liveWindowIdentities
                   ) else {
                 return nil
             }
@@ -172,10 +179,15 @@ extension AppDelegate {
 
     private func currentMainWindowsByWindowId() -> [UUID: NSWindow] {
         var windowsByWindowId: [UUID: NSWindow] = [:]
+        // Materialize AppKit membership once for this persistence operation.
+        // Repeated `NSApp.windows.contains` scans make a large orphan ledger
+        // quadratic in the number of windows and do not add any identity
+        // safety beyond this exact-object set.
+        let liveWindowIdentities = Set(NSApp.windows.map { ObjectIdentifier($0) })
 
         func appendExactWindow(_ window: NSWindow?, for windowId: UUID) {
             guard let window,
-                  NSApp.windows.contains(where: { $0 === window }),
+                  liveWindowIdentities.contains(ObjectIdentifier(window)),
                   mainWindowId(from: window) == windowId else {
                 return
             }
@@ -447,10 +459,15 @@ extension AppDelegate {
                 restorableAgentIndex = cachedAgentIndex
             } else {
                 // A cold cache still has a persisted projection. Refresh it
-                // off the interactive path before falling back to empty; the
-                // process-detected surface bindings remain fail-closed.
+                // off the interactive path, then fall back to that persisted
+                // projection if the ownership-sensitive refresh deadline is
+                // unavailable. Never substitute an empty index merely because
+                // a bounded refresh timed out before this irreversible freeze.
                 restorableAgentIndex = await SharedLiveAgentIndex.shared
-                    .indexRefreshingNow() ?? .empty
+                    .indexRefreshingNow()
+                    ?? Task.detached(priority: .utility) {
+                        RestorableAgentSessionIndex.load()
+                    }.value
             }
             guard !Task.isCancelled else { return }
             let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
