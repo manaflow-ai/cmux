@@ -21,7 +21,7 @@ COPY --from=build --chown=cmux-relay:cmux-relay \
 
 USER cmux-relay:cmux-relay
 WORKDIR /nonexistent
-ENV CMUX_RELAY_BIND=0.0.0.0:8787
+ENV CMUX_RELAY_BIND=127.0.0.1:8787
 ENV CMUX_RELAY_ALLOW_OPEN=false
 EXPOSE 8787
 ENTRYPOINT ["/usr/local/bin/cmux-relay"]

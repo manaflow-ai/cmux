@@ -54,7 +54,7 @@ export CMUX_RELAY_SHARD="$relay_shard"
 binary_tmp="$(mktemp /tmp/cmux-relay.XXXXXX)"
 trap 'rm -f "$binary_tmp"' EXIT
 curl --proto '=https' --proto-redir '=https' --fail --silent --show-error \
-  --retry 8 --retry-max-time 120 --location \
+  --retry 8 --retry-max-time 120 --connect-timeout 10 --max-time 180 --location \
   "$relay_binary_url" -o "$binary_tmp"
 printf '%s  %s\n' "$relay_binary_sha256" "$binary_tmp" | sha256sum --check --status -
 install -o cmux-relay -g cmux-relay -m 0755 "$binary_tmp" /opt/cmux-relay/cmux-relay
@@ -73,19 +73,20 @@ set -euo pipefail
 key_vault_name='__CMUX_RELAY_KEY_VAULT_NAME__'
 secret_name='__CMUX_RELAY_SECRET_NAME__'
 token_json="$(curl --fail --silent --show-error \
-  --retry 5 --retry-max-time 60 \
+  --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 5 --max-time 30 \
   -H 'Metadata: true' \
   'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net')"
 access_token="$(printf '%s' "$token_json" | jq -er '.access_token')"
 secret_uri="https://${key_vault_name}.vault.azure.net/secrets/${secret_name}?api-version=7.4"
 secret_value="$(curl --fail --silent --show-error \
-  --retry 5 --retry-max-time 60 \
-  -H "Authorization: Bearer ${access_token}" "$secret_uri" | jq -er '.value')"
-
-if [[ -z "$secret_value" || "$secret_value" == *$'\n'* || "$secret_value" == *$'\r'* ]]; then
-  echo 'cmux-relay secret is empty or contains a newline' >&2
-  exit 1
-fi
+  --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 5 --max-time 30 \
+  -H "Authorization: Bearer ${access_token}" "$secret_uri" | jq -er '
+    .value as $value
+    | if ($value | type) != "string" then error("secret value is not a string")
+      elif $value == "" or ($value | test("[\\r\\n]")) then error("secret value is empty or contains a newline")
+      else $value
+      end
+  ')"
 
 umask 077
 install -d -m 0750 /run/cmux-relay
@@ -149,7 +150,6 @@ RuntimeDirectoryMode=0750
 ExecStartPre=/usr/local/libexec/cmux-relay-load-secret
 ExecStart=/usr/local/libexec/cmux-relay-run
 Restart=always
-RestartSec=10s
 TimeoutStartSec=120s
 TimeoutStopSec=330s
 KillMode=process
@@ -168,7 +168,6 @@ UNIT
 
 systemctl daemon-reload
 systemctl enable cmux-relay.service
-# Do not make VM provisioning fail while the Key Vault role assignment is
-# still propagating. The service retries its secret fetch on a ten-second
-# restart interval.
+# The pre-start loader owns a bounded retry window for managed-identity and
+# Key Vault readiness. systemd restarts the unit after a failed attempt.
 systemctl start --no-block cmux-relay.service

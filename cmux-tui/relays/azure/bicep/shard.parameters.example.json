@@ -5,6 +5,9 @@
     "shard": {
       "value": "westus2-a"
     },
+    "availabilityZone": {
+      "value": ""
+    },
     "relayBinaryUrl": {
       "value": "https://files.cmux.com/cmux-relay/replace-with-40-char-commit/cmux-relay-x86_64-unknown-linux-musl"
     },
@@ -16,6 +19,9 @@
     },
     "relaySecretName": {
       "value": "cmux-relay-hmac"
+    },
+    "certificateSecretName": {
+      "value": "cmux-relay-tls"
     },
     "certificateSecretId": {
       "value": "https://replace-with-key-vault.vault.azure.net/secrets/cmux-relay-tls/replace-with-version"

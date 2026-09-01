@@ -8,6 +8,15 @@ param location string = resourceGroup().location
 @maxLength(32)
 param shard string
 
+@description('Optional availability zone. Leave empty for a region without availability zones.')
+@allowed([
+  ''
+  '1'
+  '2'
+  '3'
+])
+param availabilityZone string = ''
+
 @description('Immutable files.cmux.com URL for the x86_64 Linux cmux-relay binary.')
 @minLength(1)
 param relayBinaryUrl string
@@ -24,6 +33,10 @@ param keyVaultName string
 @description('Key Vault secret name containing at least 32 random bytes.')
 @minLength(1)
 param relaySecretName string = 'cmux-relay-hmac'
+
+@description('Key Vault secret name used by Application Gateway for the TLS certificate.')
+@minLength(1)
+param certificateSecretName string = 'cmux-relay-tls'
 
 @description('Versioned Key Vault secret ID for the TLS certificate consumed by Application Gateway.')
 @secure()
@@ -47,6 +60,10 @@ param vmssCapacity int = 1
 var gatewaySubnetPrefix = '10.42.0.0/24'
 var relaySubnetPrefix = '10.42.1.0/24'
 var relayFrontendIp = '10.42.1.4'
+// Azure resource names and public DNS labels use a hash-derived suffix. The
+// human shard can contain routing separators without making Azure names invalid.
+var relayResourceName = 'cmux-relay-${uniqueString(resourceGroup().id, shard)}'
+var relayZones = empty(availabilityZone) ? null : [availabilityZone]
 var cloudInit = base64(
   replace(
     replace(
@@ -75,17 +92,38 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
 }
 
+resource relayHmacSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: relaySecretName
+}
+
+resource tlsCertificateSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: certificateSecretName
+}
+
 resource relayIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'cmux-relay-${shard}'
+  name: '${relayResourceName}-vm'
   location: location
   tags: {
     'cmux.relay.shard': shard
   }
 }
 
-resource keyVaultSecretsRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, relayIdentity.id, 'Key Vault Secrets User')
-  scope: keyVault
+resource gatewayIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: '${relayResourceName}-gateway'
+  location: location
+  tags: {
+    'cmux.relay.shard': shard
+    'cmux.relay.role': 'application-gateway'
+  }
+}
+
+// The vault must use Azure RBAC authorization. Scoping each identity to one
+// secret limits the impact of a compromise of either the VM or gateway.
+resource relaySecretRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(relayHmacSecret.id, relayIdentity.id, 'Key Vault Secrets User')
+  scope: relayHmacSecret
   properties: {
     principalId: relayIdentity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -96,8 +134,21 @@ resource keyVaultSecretsRole 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
+resource gatewayCertificateRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(tlsCertificateSecret.id, gatewayIdentity.id, 'Key Vault Secrets User')
+  scope: tlsCertificateSecret
+  properties: {
+    principalId: gatewayIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '4633458b-17de-408a-b874-0445c86b69e6'
+    )
+  }
+}
+
 resource relayNsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
-  name: 'cmux-relay-${shard}-nsg'
+  name: '${relayResourceName}-nsg'
   location: location
   properties: {
     securityRules: [
@@ -132,7 +183,7 @@ resource relayNsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
 }
 
 resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
-  name: 'cmux-relay-${shard}-vnet'
+  name: '${relayResourceName}-vnet'
   location: location
   properties: {
     addressSpace: {
@@ -169,7 +220,7 @@ resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' = 
 }
 
 resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
-  name: 'cmux-relay-${shard}-public-ip'
+  name: '${relayResourceName}-public-ip'
   location: location
   sku: {
     name: 'Standard'
@@ -177,7 +228,7 @@ resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
   properties: {
     publicIPAllocationMethod: 'Static'
     dnsSettings: {
-      domainNameLabel: 'cmux-relay-${shard}-${uniqueString(resourceGroup().id)}'
+      domainNameLabel: relayResourceName
     }
   }
 }
@@ -186,7 +237,7 @@ resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
 // implicit outbound-access defaults. The Application Gateway public IP is not
 // reused because its lifecycle and SNAT behavior are different.
 resource outboundPublicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
-  name: 'cmux-relay-${shard}-egress-ip'
+  name: '${relayResourceName}-egress-ip'
   location: location
   sku: {
     name: 'Standard'
@@ -197,7 +248,7 @@ resource outboundPublicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
 }
 
 resource natGateway 'Microsoft.Network/natGateways@2023-11-01' = {
-  name: 'cmux-relay-${shard}-nat'
+  name: '${relayResourceName}-nat'
   location: location
   sku: {
     name: 'Standard'
@@ -213,7 +264,7 @@ resource natGateway 'Microsoft.Network/natGateways@2023-11-01' = {
 }
 
 resource loadBalancer 'Microsoft.Network/loadBalancers@2023-11-01' = {
-  name: 'cmux-relay-${shard}-lb'
+  name: '${relayResourceName}-lb'
   location: location
   sku: {
     name: 'Standard'
@@ -272,21 +323,21 @@ resource loadBalancer 'Microsoft.Network/loadBalancers@2023-11-01' = {
           frontendIPConfiguration: {
             id: resourceId(
               'Microsoft.Network/loadBalancers/frontendIPConfigurations',
-              'cmux-relay-${shard}-lb',
+              '${relayResourceName}-lb',
               'relay'
             )
           }
           backendAddressPool: {
             id: resourceId(
               'Microsoft.Network/loadBalancers/backendAddressPools',
-              'cmux-relay-${shard}-lb',
+              '${relayResourceName}-lb',
               'relay'
             )
           }
           probe: {
             id: resourceId(
               'Microsoft.Network/loadBalancers/probes',
-              'cmux-relay-${shard}-lb',
+              '${relayResourceName}-lb',
               'readyz'
             )
           }
@@ -297,11 +348,9 @@ resource loadBalancer 'Microsoft.Network/loadBalancers@2023-11-01' = {
 }
 
 resource vmss 'Microsoft.Compute/virtualMachineScaleSets@2023-09-01' = {
-  name: 'cmux-relay-${shard}'
+  name: '${relayResourceName}-vmss'
   location: location
-  zones: [
-    '1'
-  ]
+  zones: relayZones
   sku: {
     name: 'Standard_D2as_v6'
     tier: 'Standard'
@@ -365,7 +414,7 @@ resource vmss 'Microsoft.Compute/virtualMachineScaleSets@2023-09-01' = {
         healthProbe: {
           id: resourceId(
             'Microsoft.Network/loadBalancers/probes',
-            'cmux-relay-${shard}-lb',
+            '${relayResourceName}-lb',
             'healthz'
           )
         }
@@ -385,7 +434,7 @@ resource vmss 'Microsoft.Compute/virtualMachineScaleSets@2023-09-01' = {
                       {
                         id: resourceId(
                           'Microsoft.Network/loadBalancers/backendAddressPools',
-                          'cmux-relay-${shard}-lb',
+                          '${relayResourceName}-lb',
                           'relay'
                         )
                       }
@@ -404,18 +453,18 @@ resource vmss 'Microsoft.Compute/virtualMachineScaleSets@2023-09-01' = {
     'cmux.relay.role': 'data-plane'
   }
   dependsOn: [
-    keyVaultSecretsRole
+    relaySecretRole
     loadBalancer
   ]
 }
 
 resource appGateway 'Microsoft.Network/applicationGateways@2023-11-01' = {
-  name: 'cmux-relay-${shard}-gateway'
+  name: '${relayResourceName}-gateway'
   location: location
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${relayIdentity.id}': {}
+      '${gatewayIdentity.id}': {}
     }
   }
   // The Azure type schema omits this required property for this API version.
@@ -494,7 +543,7 @@ resource appGateway 'Microsoft.Network/applicationGateways@2023-11-01' = {
           probe: {
             id: resourceId(
               'Microsoft.Network/applicationGateways/probes',
-              'cmux-relay-${shard}-gateway',
+              '${relayResourceName}-gateway',
               'readyz'
             )
           }
@@ -522,14 +571,14 @@ resource appGateway 'Microsoft.Network/applicationGateways@2023-11-01' = {
           frontendIPConfiguration: {
             id: resourceId(
               'Microsoft.Network/applicationGateways/frontendIPConfigurations',
-              'cmux-relay-${shard}-gateway',
+              '${relayResourceName}-gateway',
               'public'
             )
           }
           frontendPort: {
             id: resourceId(
               'Microsoft.Network/applicationGateways/frontendPorts',
-              'cmux-relay-${shard}-gateway',
+              '${relayResourceName}-gateway',
               'https'
             )
           }
@@ -537,7 +586,7 @@ resource appGateway 'Microsoft.Network/applicationGateways@2023-11-01' = {
           sslCertificate: {
             id: resourceId(
               'Microsoft.Network/applicationGateways/sslCertificates',
-              'cmux-relay-${shard}-gateway',
+              '${relayResourceName}-gateway',
               'relay'
             )
           }
@@ -553,21 +602,21 @@ resource appGateway 'Microsoft.Network/applicationGateways@2023-11-01' = {
           httpListener: {
             id: resourceId(
               'Microsoft.Network/applicationGateways/httpListeners',
-              'cmux-relay-${shard}-gateway',
+              '${relayResourceName}-gateway',
               'https'
             )
           }
           backendAddressPool: {
             id: resourceId(
               'Microsoft.Network/applicationGateways/backendAddressPools',
-              'cmux-relay-${shard}-gateway',
+              '${relayResourceName}-gateway',
               'relay'
             )
           }
           backendHttpSettings: {
             id: resourceId(
               'Microsoft.Network/applicationGateways/backendHttpSettingsCollection',
-              'cmux-relay-${shard}-gateway',
+              '${relayResourceName}-gateway',
               'relay'
             )
           }
@@ -576,7 +625,7 @@ resource appGateway 'Microsoft.Network/applicationGateways@2023-11-01' = {
     ]
   }
   dependsOn: [
-    keyVaultSecretsRole
+    gatewayCertificateRole
     vmss
   ]
 }

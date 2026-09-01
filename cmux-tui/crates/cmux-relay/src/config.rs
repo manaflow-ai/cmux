@@ -12,6 +12,9 @@ const DEFAULT_LEASE_SECONDS: u64 = 30;
 const DEFAULT_JOIN_TIMEOUT_SECONDS: u64 = 15;
 const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
 const DEFAULT_DRAIN_TIMEOUT_SECONDS: u64 = 300;
+// Keep the drain window bounded so an orchestrator can give the process a
+// slightly longer stop deadline and still preserve the configured behavior.
+const MAXIMUM_DRAIN_TIMEOUT_SECONDS: u64 = 300;
 const DEFAULT_HANDSHAKE_TIMEOUT_SECONDS: u64 = 10;
 const DEFAULT_CONTROL_IDLE_TIMEOUT_SECONDS: u64 = 120;
 const DEFAULT_HTTP_HEADER_TIMEOUT_SECONDS: u64 = 5;
@@ -224,6 +227,11 @@ impl RelayConfig {
         if self.join_ticket_ttl.as_secs() > MAXIMUM_JOIN_TICKET_TTL_SECONDS {
             return Err(ConfigError::new(format!(
                 "relay join ticket TTL cannot exceed {MAXIMUM_JOIN_TICKET_TTL_SECONDS} seconds"
+            )));
+        }
+        if self.drain_timeout > Duration::from_secs(MAXIMUM_DRAIN_TIMEOUT_SECONDS) {
+            return Err(ConfigError::new(format!(
+                "relay drain timeout cannot exceed {MAXIMUM_DRAIN_TIMEOUT_SECONDS} seconds"
             )));
         }
         if self.join_timeout > self.join_ticket_ttl {
@@ -695,6 +703,14 @@ mod tests {
 
         let valid = RelayConfig { shard: "westus2-a".into(), ..RelayConfig::default() };
         valid.validate().unwrap();
+    }
+
+    #[test]
+    fn drain_timeout_has_a_finite_operational_bound() {
+        let invalid =
+            RelayConfig { drain_timeout: Duration::from_secs(u64::MAX), ..RelayConfig::default() };
+        let error = invalid.validate().unwrap_err();
+        assert!(error.to_string().contains("drain timeout"));
     }
 
     #[test]

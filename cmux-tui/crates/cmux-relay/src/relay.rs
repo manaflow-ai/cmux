@@ -273,7 +273,9 @@ impl Relay {
     /// Waits for all upgraded sockets to close. A notification plus a second
     /// counter check avoids polling and avoids missing a close between checks.
     pub async fn wait_for_idle(&self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
+        let Some(deadline) = Instant::now().checked_add(timeout) else {
+            return false;
+        };
         loop {
             if self.active_connections() == 0 {
                 return true;
@@ -2281,9 +2283,9 @@ mod tests {
     async fn draining_rejects_new_circuit_allocations_on_existing_control_sockets() {
         let server = TestServer::start(RelayConfig::default()).await;
         let mut daemon = register_open_daemon(&server, "slot-a").await;
+        let mut client = server.connect().await;
         assert!(server.relay.begin_drain().await);
 
-        let mut client = server.connect().await;
         send_control(
             &mut client,
             RelayControl::Connect {

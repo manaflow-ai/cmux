@@ -73,8 +73,13 @@ async fn serve_until_shutdown(
 ) -> anyhow::Result<()> {
     let (shutdown_request_sender, shutdown_request_receiver) = watch::channel(false);
     let (shutdown_complete_sender, shutdown_complete_receiver) = watch::channel(false);
+    let signal_relay = relay.clone();
     let signal_task = tokio::spawn(async move {
         shutdown_signal().await;
+        // Flip readiness before publishing the shutdown request. This closes
+        // the small window where a load-balancer probe could still see 200
+        // after SIGTERM arrived, while the drain branch remains idempotent.
+        signal_relay.begin_drain().await;
         let _ = shutdown_request_sender.send(true);
     });
     let server_shutdown = async move {

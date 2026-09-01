@@ -43,6 +43,10 @@ client and VM  ->  Application Gateway (TLS/WebSocket)  ->  Standard Load Balanc
                 ->  one VMSS instance  ->  cmux-relay:8787
 ```
 
+Azure resource names and the public DNS label use a deterministic hash of the
+resource group and shard. The relay still receives the original shard string,
+so routing names can contain periods, underscores, or uppercase characters.
+
 Application Gateway probes `/readyz`. A relay that receives `SIGTERM` changes
 `/readyz` to `503`, rejects new upgrades and circuit allocations, and keeps
 existing circuits alive during the drain period. The VMSS service waits up to
@@ -63,8 +67,21 @@ The cmux Cloud API remains the identity authority for the integration. It will
 check Stack ownership and team access, then issue short-lived, slot-bound
 Register and Connect tickets. The relay verifies those tickets with an HMAC
 key. The key is stored in Azure Key Vault. The VM receives it at service start
-through its managed identity and keeps it in `/run/cmux-relay/relay.env` with
-mode `0640`, readable only by the relay service account and its group.
+through a VM-only managed identity and keeps it in `/run/cmux-relay/relay.env`
+with mode `0640`, readable only by the relay service account and its group.
+
+The existing vault must use Azure RBAC authorization. The template creates a
+separate managed identity for Application Gateway and scopes it to only the TLS
+certificate secret. The VM identity is scoped to only the relay HMAC secret.
+Check the vault before deployment:
+
+```sh
+az keyvault show --name <key-vault> \
+  --query properties.enableRbacAuthorization --output tsv
+```
+
+The command must print `true`. The template does not create legacy access
+policies.
 
 The relay never receives a user's Stack token and has no chatmux organization
 dependency. The Noise session above the relay authenticates the enrolled device
@@ -83,16 +100,17 @@ binary URL and SHA-256 digest in production.
 ## Build
 
 The Azure VM installs the x86_64 musl binary published by the existing
-`cmux-tui-artifacts` workflow. After that workflow publishes a commit, read
-the URL and digest from its immutable manifest:
+`cmux-tui-artifacts` workflow. After that workflow publishes a commit, read the
+binary digest from its immutable manifest:
 
 ```sh
 curl -fsSL https://files.cmux.com/cmux-relay/<commit>/manifest.json | jq
 ```
 
-Set `relayBinaryUrl` to the immutable artifact URL listed in the manifest for
-`cmux-relay-x86_64-unknown-linux-musl`, and set `relayBinarySha256` to its
-matching digest. The cloud-init script accepts only immutable
+Construct `relayBinaryUrl` as
+`https://files.cmux.com/cmux-relay/<commit>/cmux-relay-x86_64-unknown-linux-musl`.
+Set `relayBinarySha256` to the matching `binaries` digest from the manifest.
+The cloud-init script accepts only immutable
 `files.cmux.com` commit paths and verifies the digest before systemd starts the
 service. The `Dockerfile` remains available for a local smoke test. TLS
 terminates at Application Gateway.
@@ -104,10 +122,14 @@ and deploy this template once per shard. Keep `vmssCapacity=1`.
 
 1. Store the relay HMAC secret and a versioned TLS certificate secret in the
    existing Key Vault. The HMAC secret must contain at least 32 random bytes.
+   Set `certificateSecretName` to the TLS secret name used in
+   `certificateSecretId`.
 2. Copy `bicep/shard.parameters.example.json` to a private parameters file.
-   Set `relayBinaryUrl` and `relayBinarySha256` from the immutable artifact
-   manifest, and set the certificate secret ID to a versioned Key Vault secret
-   ID.
+   Set `relayBinaryUrl` to the immutable artifact path described above and set
+   `relayBinarySha256` to its `binaries` digest from the manifest. Set the
+   certificate secret ID to a versioned Key Vault secret ID. Set
+   `availabilityZone` to `1`, `2`, or `3` only when the selected region
+   supports that zone. Keep it empty for a non-zonal region.
 3. Deploy without putting secret values on the command line:
 
 ```sh
@@ -121,9 +143,10 @@ The output `relayRoute` is the route to publish in the cmux relay catalog. Add
 a CNAME such as `relay-westus2-a.cmux.cloud` to the output hostname. DNS changes
 are outside this template.
 
-The Bicep deployment grants the VM and Application Gateway identity the Azure
-Key Vault Secrets User role. Role propagation can delay the first service start;
-systemd retries the secret fetch every ten seconds.
+The Bicep deployment grants each identity the Azure Key Vault Secrets User role
+at its individual secret scope. Role propagation can delay the first service
+start. The pre-start loader uses bounded network retries, and systemd retries a
+failed service start.
 
 ## Upgrade and failure behavior
 
@@ -152,6 +175,10 @@ docker run --rm -p 127.0.0.1:8787:8787 \
   -e CMUX_RELAY_SHARD=local \
   cmux-relay:dev serve
 ```
+
+The image defaults to a loopback bind and refuses an unauthenticated
+non-loopback bind. The command above supplies a test secret before widening the
+container bind to `0.0.0.0`.
 
 Check both endpoints:
 
