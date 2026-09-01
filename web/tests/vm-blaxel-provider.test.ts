@@ -549,18 +549,26 @@ describe("cloud work user setup", () => {
     const wrapped = userExecCommand("echo 'hi there'");
     expect(wrapped).toContain("runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux sh -c 'echo '\\''hi there'\\'''");
     // Legacy sandboxes (volume at /root) keep the historical root exec.
-    expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then cd /root 2>/dev/null; exec env HOME=/root sh -c");
+    expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then cd /root 2>/dev/null || exit 75; exec env HOME=/root sh -c");
     // Volume mounted but the view missing: root exec homed on the persistent
     // backing path, matching where the daemon fail-over puts sessions.
     expect(wrapped).toContain(
-      "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then cd /cmux/home 2>/dev/null; exec env HOME=/cmux/home sh -c",
+      "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home 2>/dev/null || exit 75; exec env HOME=/cmux/home sh -c",
     );
     // No user/runuser: fall back to root, keeping state on the mounted volume
     // when one exists and using the rootfs home only without a volume.
     expect(wrapped).toContain(
-      "else if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home 2>/dev/null; exec env HOME=/cmux/home sh -c",
+      "elif mountpoint -q /cmux/home 2>/dev/null; then if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home 2>/dev/null || exit 75; exec env HOME=/cmux/home sh -c",
     );
-    expect(wrapped).toContain("else cd /home/cmux 2>/dev/null; exec env HOME=/home/cmux sh -c");
+    expect(wrapped).toContain("else cd /home/cmux 2>/dev/null || exit 75; exec env HOME=/home/cmux sh -c");
+
+    // The provider marks volume-backed sandboxes from the Blaxel spec. If the
+    // mount is late or gone, exec must fail closed instead of writing to the
+    // disposable rootfs home.
+    const guarded = userExecCommand("echo 'hi there'", { persistentVolumeExpected: true });
+    expect(guarded).toContain("if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q /cmux/home 2>/dev/null; then exit 75; fi");
+    expect(guarded).toContain("else exit 75; fi");
+    expect(guarded).not.toContain("else cd /home/cmux 2>/dev/null; exec env HOME=/home/cmux sh -c");
   });
 });
 

@@ -114,7 +114,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain(
       "runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start",
     );
-    expect(command).toContain("&& cd /home/cmux 2>/dev/null; then cmux_tui_view_lost=0;");
+    expect(command).toContain("&& runuser -u cmux -- test -w /home/cmux 2>/dev/null; then cmux_tui_view_lost=0;");
+    expect(command).toContain("cd /home/cmux 2>/dev/null || exit 75; exec runuser -u cmux -- env HOME=/home/cmux");
     expect(command).toContain("runuser -u cmux -- env HOME=/home/cmux");
     expect(command).toContain("cmux_tui_backing_expected=0");
     expect(command).toContain("if mountpoint -q /cmux/home 2>/dev/null; then cmux_tui_backing_expected=1; fi");
@@ -133,7 +134,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Volume mounted but the identity view missing (bindfs failed): home on the
     // persistent backing path as root, never the writable-but-disposable rootfs dir.
     expect(command).toContain("elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then ");
-    expect(command).toContain("cd /cmux/home && if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color /cmux/home/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("cd /cmux/home 2>/dev/null || exit 75; if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color /cmux/home/.cmux/bin/cmux-tui server start");
     expect(command).toContain("elif [ -x /root/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
     // No user, no runuser, or an unusable home (bindfs view missing over the
     // root-squashing volume): fall back to root instead of crash-looping.
@@ -145,10 +146,51 @@ describe("cmux-tui install and daemon commands", () => {
     // If the work user is unavailable even after setup, keep root fallback state on
     // the mounted volume instead of the disposable /home/cmux rootfs directory.
     expect(command).toContain(
-      "if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home && if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home",
+      "if ! mountpoint -q /cmux/home 2>/dev/null; then exit 75; fi; cd /cmux/home 2>/dev/null || exit 75; if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home",
     );
     // Both root fallbacks leave a breadcrumb so the degraded state is findable.
     expect(command.split("/etc/cmux/root-session-fallback").length - 1).toBe(2);
+  });
+
+  test("a volume-backed daemon fails closed while its persistent mount is absent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-volume-missing-"));
+    const fakeBin = join(root, "fake-bin");
+    mkdirSync(fakeBin, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", "#!/bin/sh\nexit 1\n");
+    // Make the failure deterministic even on a host that happens to have findmnt.
+    writeExecutable("findmnt", "#!/bin/sh\nexit 1\n");
+    const layout = { user: "cmux", home: join(root, "home"), volumeBackingPath: join(root, "backing") } as const;
+    const command = cmuxTuiDaemonCommand(undefined, layout, { persistentVolumeExpected: true });
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: { ...process.env, PATH: [fakeBin, process.env.PATH || ""].join(":"), HOME: root },
+        stdio: "ignore",
+      });
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("missing-volume guard timed out"));
+        }, 2_000);
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
+      expect(exitCode).toBe(75);
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("selects the persistent binary for layout installs", () => {
@@ -241,6 +283,81 @@ describe("cmux-tui install and daemon commands", () => {
         const timer = setTimeout(() => {
           child?.kill("SIGKILL");
           reject(new Error("mount-loss supervisor test timed out"));
+        }, 5_000);
+        child?.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child?.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? -1);
+        });
+      });
+      expect(exitCode).toBe(75);
+      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
+      expect(existsSync(join(state, "daemon-term"))).toBe(true);
+    } finally {
+      child?.kill("SIGKILL");
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("supervises the root fallback while its backing mount is present", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-backing-"));
+    const fakeBin = join(root, "fake-bin");
+    const home = join(root, "home");
+    const backing = join(root, "backing");
+    const state = join(root, "state");
+    mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(join(backing, ".cmux", "bin"), { recursive: true });
+    mkdirSync(state, { recursive: true });
+    const writeExecutable = (name: string, contents: string) => {
+      const file = join(fakeBin, name);
+      writeFileSync(file, contents);
+      chmodSync(file, 0o755);
+    };
+    writeExecutable("mountpoint", [
+      "#!/bin/sh",
+      "path=\"$2\"",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
+      "exit 1",
+      "",
+    ].join("\n"));
+    writeExecutable("findmnt", [
+      "#!/bin/sh",
+      "case \"$1\" in",
+      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
+      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; : > \"$CMUX_TEST_STATE/backing-unmounted\"; exit 0 ;;",
+      "esac",
+      "exit 1",
+      "",
+    ].join("\n"));
+    const daemonBinary = join(backing, ".cmux", "bin", "cmux-tui");
+    writeFileSync(daemonBinary, [
+      "#!/bin/sh",
+      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
+      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
+      "while :; do :; done",
+      "",
+    ].join("\n"));
+    chmodSync(daemonBinary, 0o755);
+    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
+    const command = cmuxTuiDaemonCommand(undefined, layout);
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      child = spawn("/bin/sh", ["-c", command], {
+        env: {
+          ...process.env,
+          PATH: [fakeBin, process.env.PATH || ""].join(":"),
+          CMUX_TEST_BACKING: backing,
+          CMUX_TEST_STATE: state,
+        },
+        stdio: "ignore",
+      });
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child?.kill("SIGKILL");
+          reject(new Error("backing-loss supervisor test timed out"));
         }, 5_000);
         child?.once("error", (error) => {
           clearTimeout(timer);

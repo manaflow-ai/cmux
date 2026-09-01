@@ -34,6 +34,7 @@ import {
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand as sharedCmuxTuiDaemonCommand,
   cmuxTuiHomeViewMissingCondition,
+  cmuxTuiPersistentMountWait as sharedCmuxTuiPersistentMountWait,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiInstallCommand as sharedCmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand as sharedCmuxTuiPinCheckCommand,
@@ -291,19 +292,31 @@ const CMUX_HOME_VIEW_MISSING_CONDITION = cmuxTuiHomeViewMissingCondition(CMUX_CL
 const CMUX_CLOUD_USER_USABLE_CONDITION = cmuxTuiUserUsableCondition(CMUX_CLOUD_LAYOUT);
 
 /** Runs user-facing `cmux vm exec` under the same identity and home as a terminal pane. */
-export function userExecCommand(command: string): string {
+export function userExecCommand(
+  command: string,
+  options?: { readonly persistentVolumeExpected?: boolean },
+): string {
   const quoted = shellQuote(command);
-  const rootFallback =
+  const persistentVolumeExpected = options?.persistentVolumeExpected === true;
+  const backingExec =
     `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then ` +
-    `cd ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} sh -c ${quoted}; ` +
-    `else cd ${CMUX_CLOUD_HOME} 2>/dev/null; exec env HOME=${CMUX_CLOUD_HOME} sh -c ${quoted}; fi`;
+    `cd ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null || exit 75; exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} sh -c ${quoted}; ` +
+    `else exit 75; fi`;
+  const rootFallback = persistentVolumeExpected
+    ? `elif mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then ${backingExec}; else exit 75`
+    : `elif mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then ${backingExec}; ` +
+      `else cd ${CMUX_CLOUD_HOME} 2>/dev/null || exit 75; exec env HOME=${CMUX_CLOUD_HOME} sh -c ${quoted}`;
+  const persistentVolumeGuard = persistentVolumeExpected
+    ? `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then exit 75; fi; `
+    : "";
   return (
-    `if mountpoint -q /root 2>/dev/null; then cd /root 2>/dev/null; exec env HOME=/root sh -c ${quoted}; ` +
+    persistentVolumeGuard +
+    `if mountpoint -q /root 2>/dev/null; then cd /root 2>/dev/null || exit 75; exec env HOME=/root sh -c ${quoted}; ` +
     `elif ${CMUX_HOME_VIEW_MISSING_CONDITION}; then ` +
-    `cd ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} sh -c ${quoted}; ` +
+    `${backingExec}; ` +
     `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
-    `cd ${CMUX_CLOUD_HOME} 2>/dev/null; exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} sh -c ${quoted}; ` +
-    `else ${rootFallback}; fi`
+    `cd ${CMUX_CLOUD_HOME} 2>/dev/null || exit 75; exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} sh -c ${quoted}; ` +
+    `${rootFallback}; fi`
   );
 }
 
@@ -337,6 +350,18 @@ export const CMUX_PROVISION_SCRIPT = `#!/bin/bash
 # paths detect and honor that); its old driver already provisioned /root at create.
 # Writing the new-layout home there would target disposable rootfs, so do nothing.
 mountpoint -q /root 2>/dev/null && exit 0
+# A volume-backed process carries this intent explicitly. If the provider has
+# not mounted the volume yet, wait for its kernel mount event instead of
+# installing tools into the disposable /home/cmux rootfs directory.
+if [ "\${CMUX_PROVISION_VOLUME_EXPECTED:-0}" = "1" ] && ! mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then
+  mkdir -p ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null || true
+  if command -v findmnt >/dev/null 2>&1 && findmnt --help 2>&1 | grep -q -- '--poll'; then
+    findmnt --poll=mount --first-only --mountpoint ${CMUX_HOME_VOLUME_BACKING_PATH} >/dev/null 2>&1 || exit 75
+  else
+    exit 75
+  fi
+  mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null || exit 75
+fi
 # A mounted volume with no bindfs identity view is still durable. Use its backing
 # path for provisioning instead of the writable-but-disposable /home/cmux rootfs dir.
 # When the view exists, keep using it so files are presented as cmux-owned.
@@ -481,6 +506,14 @@ const DEFAULT_MEMORY_MB = 4096;
 // Volumes born when this said "/root" keep their data: resurrection remounts them here
 // and the view makes the root-owned tree cmux-owned instantly.
 const HOME_VOLUME_MOUNT_PATH = CMUX_HOME_VOLUME_BACKING_PATH;
+
+/** Returns whether Blaxel attached the driver's persistent home volume. */
+function sandboxHasPersistentHomeVolume(sandbox: BlaxelSandbox): boolean {
+  return (sandbox.spec?.volumes ?? []).some((volume) =>
+    volume.mountPath === HOME_VOLUME_MOUNT_PATH || volume.mountPath === "/root"
+  );
+}
+
 // Disk follows memory the way hosted dev boxes do, but Blaxel caps a volume at 16 GB
 // (measured 2026-08-26: 16384 MB accepted, 20480 MB refused with "exceeds maximum allowed
 // size"), so the 24 GB plan default gets the 16 GB ceiling instead of the old flat 5 GB.
@@ -518,7 +551,10 @@ export function resolveHomeVolumeMb(
 
 type BlaxelSandbox = {
   metadata?: { name?: string; url?: string; createdAt?: string };
-  spec?: { runtime?: { image?: string; memory?: number } };
+  spec?: {
+    runtime?: { image?: string; memory?: number };
+    volumes?: Array<{ name?: string; mountPath?: string }>;
+  };
   state?: string;
   status?: string;
 };
@@ -879,6 +915,7 @@ export {
   cmuxTuiDaemonCommand,
   parseEnrollmentInvitationUri,
   type CmuxTuiSource,
+  type CmuxTuiDaemonOptions,
 } from "./cmuxTuiDaemon";
 
 export const CMUX_TUI_CLIENT_CAPABILITY_USER_AGENT = "direct-ws-user-agent";
@@ -1154,7 +1191,7 @@ export class BlaxelProvider implements VMProvider {
           // preview POST is still in flight, or the late preview recreates the
           // orphaned branded route the rollback exists to remove.
           const [bootstrapResult, previewResult, rawPreviewResult] = await Promise.allSettled([
-            timedStep("bootstrap_daemon", () => this.bootstrapMachine(name, sandboxUrl)),
+            timedStep("bootstrap_daemon", () => this.bootstrapMachine(name, sandboxUrl, !!homeVolume)),
             timedStep("ensure_preview", () => this.ensurePreview(name, CMUX_TUI_PREVIEW_NAME, CMUX_TUI_PORT, { branded: true })),
             timedStep("ensure_raw_preview", () => this.ensurePreview(name, CMUX_TUI_RAW_PREVIEW_NAME, CMUX_TUI_PORT, { branded: false })),
           ]);
@@ -1221,7 +1258,11 @@ export class BlaxelProvider implements VMProvider {
   // MARK: cmux-tui remote daemon
 
   /** Create-time bootstrap: the smart-sleep watcher, the cmux-tui daemon, the hostname/VNC chain and background provisioning. */
-  private async bootstrapMachine(name: string, sandboxUrl: string): Promise<void> {
+  private async bootstrapMachine(
+    name: string,
+    sandboxUrl: string,
+    persistentVolumeExpected: boolean,
+  ): Promise<void> {
     // A just-created sandbox answers 404 ("VM not found") on its API for a few
     // seconds; the first write is the readiness probe and retries instead.
     await this.awaitSandboxApi(name, sandboxUrl, () =>
@@ -1254,7 +1295,9 @@ export class BlaxelProvider implements VMProvider {
     // The watcher and hostname/VNC heal can start while the daemon downloads its
     // binary. Keep the detached provisioner until that download is done, because a
     // stock image may need apk for curl and cannot run two package managers safely.
-    const daemonReady = timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl));
+    const daemonReady = timedStep("cmux_tui_bootstrap", () =>
+      this.bootstrapCmuxTui(name, sandboxUrl, persistentVolumeExpected),
+    );
     await Promise.all([
       daemonReady,
       timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl)),
@@ -1269,7 +1312,7 @@ export class BlaxelProvider implements VMProvider {
       await blaxelFetch("PUT", `${sandboxUrl}/filesystem/${CMUX_PROVISION_SCRIPT_PATH}`, { content: CMUX_PROVISION_SCRIPT, permissions: "0755" });
       await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
         name: "cmux-provision",
-        command: CMUX_PROVISION_COMMAND,
+        command: `CMUX_PROVISION_VOLUME_EXPECTED=${persistentVolumeExpected ? "1" : "0"} ${CMUX_PROVISION_COMMAND}`,
         waitForCompletion: false,
       });
     })().catch(() => undefined);
@@ -1292,26 +1335,47 @@ export class BlaxelProvider implements VMProvider {
   }
 
   /** Installs (or re-verifies) the pinned binary and starts the daemon. */
-  private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<void> {
+  private async bootstrapCmuxTui(
+    name: string,
+    sandboxUrl: string,
+    persistentVolumeExpected: boolean,
+  ): Promise<void> {
     const source = await sharedResolveCmuxTuiSource("blaxel");
-    const install = await this.sandboxExec(sandboxUrl, sharedCmuxTuiInstallCommand(source, CMUX_CLOUD_LAYOUT), CMUX_TUI_INSTALL_TIMEOUT_MS);
+    const install = await this.sandboxExec(
+      sandboxUrl,
+      sharedCmuxTuiInstallCommand(source, CMUX_CLOUD_LAYOUT, { persistentVolumeExpected }),
+      CMUX_TUI_INSTALL_TIMEOUT_MS,
+    );
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `cmux-tui install in ${name} failed: ${install.stderr || install.stdout}`);
     }
-    await this.startCmuxTuiProcess(sandboxUrl);
-    await this.waitForCmuxTuiReady(name, sandboxUrl);
+    await this.startCmuxTuiProcess(sandboxUrl, persistentVolumeExpected);
+    await this.waitForCmuxTuiReady(name, sandboxUrl, persistentVolumeExpected);
   }
 
-  private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
+  private async startCmuxTuiProcess(
+    sandboxUrl: string,
+    persistentVolumeExpected: boolean,
+  ): Promise<void> {
     // Blaxel restarts this named process after the mount watcher returns 75.
     // Re-run the idempotent setup in that same command so a lost bindfs view
     // is repaired before the daemon chooses its root backing fallback. A
     // bounded second attempt covers a short package-lock or mirror failure
     // before the daemon accepts a deliberate root fallback.
     const setup = shellQuote(CMUX_CLOUD_USER_SETUP_COMMAND);
-    const daemon = sharedCmuxTuiDaemonCommand(undefined, CMUX_CLOUD_LAYOUT);
+    const daemon = sharedCmuxTuiDaemonCommand(undefined, CMUX_CLOUD_LAYOUT, {
+      persistentVolumeExpected,
+    });
     const setupAttempt = `if command -v timeout >/dev/null 2>&1; then timeout 300 sh -c ${setup}; else sh -c ${setup}; fi`;
+    // A volume may be attached after the provider process starts. Wait for that
+    // mount before setup so bindfs repair runs against durable storage, rather
+    // than creating a healthy root fallback from a transient rootfs home.
+    const persistentMountWait = sharedCmuxTuiPersistentMountWait(
+      CMUX_CLOUD_LAYOUT,
+      persistentVolumeExpected,
+    );
     const command =
+      persistentMountWait +
       `for _ in 1 2; do ` +
       `${setupAttempt} >/dev/null 2>&1 || true; ` +
       `if ${CMUX_CLOUD_USER_USABLE_CONDITION}; then break; fi; ` +
@@ -1350,6 +1414,7 @@ export class BlaxelProvider implements VMProvider {
     sandboxUrl: string,
     proc: BlaxelProcess,
     source: CmuxTuiSource,
+    persistentVolumeExpected: boolean,
   ): Promise<void> {
     if (proc.status !== "running") return;
     const marker = await this.sandboxExec(
@@ -1367,19 +1432,25 @@ export class BlaxelProvider implements VMProvider {
     // attach-time reconciliation for a transient lock or package mirror failure.
     await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS).catch(() => undefined);
     await this.healSudo(sandboxUrl, `attach ${vmId} root-fallback-reconcile`);
-    const usable = await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_USABLE_CONDITION, 10_000).catch(() => null);
+    // Do not stop a durable root fallback until the expected volume is back. The
+    // setup command is safe to retry, but replacing the only live daemon while
+    // its persistent home is absent would create avoidable downtime.
+    const usableCondition = persistentVolumeExpected
+      ? `${CMUX_CLOUD_USER_USABLE_CONDITION} && mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null`
+      : CMUX_CLOUD_USER_USABLE_CONDITION;
+    const usable = await this.sandboxExec(sandboxUrl, usableCondition, 10_000).catch(() => null);
     if (usable?.exitCode !== 0) return;
 
     const installed = await this.sandboxExec(
       sandboxUrl,
-      sharedCmuxTuiPinCheckCommand(source, CMUX_CLOUD_LAYOUT),
+      sharedCmuxTuiPinCheckCommand(source, CMUX_CLOUD_LAYOUT, { persistentVolumeExpected }),
     ).catch(() => null);
     if (!(await this.stopCmuxTuiProcess(sandboxUrl, `attach ${vmId} root-fallback-reconcile`))) return;
     if (installed?.exitCode !== 0) {
-      await this.bootstrapCmuxTui(vmId, sandboxUrl);
+      await this.bootstrapCmuxTui(vmId, sandboxUrl, persistentVolumeExpected);
     } else {
-      await this.startCmuxTuiProcess(sandboxUrl);
-      await this.waitForCmuxTuiReady(vmId, sandboxUrl);
+      await this.startCmuxTuiProcess(sandboxUrl, persistentVolumeExpected);
+      await this.waitForCmuxTuiReady(vmId, sandboxUrl, persistentVolumeExpected);
     }
   }
 
@@ -1393,11 +1464,18 @@ export class BlaxelProvider implements VMProvider {
     sandboxUrl: string,
     proc: BlaxelProcess,
     source: CmuxTuiSource,
+    persistentVolumeExpected: boolean,
   ): Promise<void> {
     const key = `${vmId}:${sandboxUrl}`;
     const inflight = this.inflightRootFallbackReconciliations.get(key);
     if (inflight) return inflight;
-    const task = this.reconcileCmuxTuiRootFallback(vmId, sandboxUrl, proc, source).finally(() => {
+    const task = this.reconcileCmuxTuiRootFallback(
+      vmId,
+      sandboxUrl,
+      proc,
+      source,
+      persistentVolumeExpected,
+    ).finally(() => {
       if (this.inflightRootFallbackReconciliations.get(key) === task) {
         this.inflightRootFallbackReconciliations.delete(key);
       }
@@ -1406,45 +1484,86 @@ export class BlaxelProvider implements VMProvider {
     return task;
   }
 
-  private waitForCmuxTuiReady(name: string, sandboxUrl: string): Promise<void> {
-    return sharedWaitForCmuxTuiReady(this.cmuxTuiInvoke(sandboxUrl), "blaxel", name);
+  private waitForCmuxTuiReady(
+    name: string,
+    sandboxUrl: string,
+    persistentVolumeExpected: boolean,
+  ): Promise<void> {
+    return sharedWaitForCmuxTuiReady(
+      this.cmuxTuiInvoke(sandboxUrl, persistentVolumeExpected),
+      "blaxel",
+      name,
+    );
   }
 
   // Mirrors the daemon command's user/home selection (cmuxTuiDaemonCommand): CLI
   // invocations must read the same state dir, as the same user, as the daemon writes.
   /** Runs a cmux-tui CLI request using the daemon's selected home and identity. */
-  private cmuxTuiExec(sandboxUrl: string, args: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
+  private cmuxTuiExec(
+    sandboxUrl: string,
+    args: string,
+    timeoutMs = EXEC_DEFAULT_TIMEOUT_MS,
+    persistentVolumeExpected = false,
+  ): Promise<ExecResult> {
     const legacy =
       `if [ -x ${CMUX_TUI_LEGACY_BINARY_PATH} ]; then exec env HOME=/root ${CMUX_TUI_LEGACY_BINARY_PATH} ${args}; ` +
       `elif [ -x ${CMUX_TUI_BINARY_PATH} ]; then exec env HOME=/root ${CMUX_TUI_BINARY_PATH} ${args}; ` +
       `else exec env HOME=/root ${CMUX_TUI_LEGACY_BINARY_PATH} ${args}; fi`;
     const backing =
+      `if ! mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then exit 75; fi; ` +
       `if [ -x ${CMUX_TUI_BACKING_BINARY_PATH} ]; then exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} ${CMUX_TUI_BACKING_BINARY_PATH} ${args}; ` +
       `elif [ -x ${CMUX_TUI_LEGACY_BINARY_PATH} ]; then exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} ${CMUX_TUI_LEGACY_BINARY_PATH} ${args}; ` +
       `else exec env HOME=${CMUX_HOME_VOLUME_BACKING_PATH} ${CMUX_TUI_BACKING_BINARY_PATH} ${args}; fi`;
+    const usable = persistentVolumeExpected
+      ? `${CMUX_CLOUD_USER_USABLE_CONDITION} && mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null`
+      : CMUX_CLOUD_USER_USABLE_CONDITION;
+    const rootFallback = persistentVolumeExpected
+      ? `elif mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then ${backing}; else exit 75`
+      : `elif mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then ${backing}; ` +
+        `else exec env HOME=${CMUX_CLOUD_HOME} ${CMUX_TUI_BINARY_PATH} ${args}`;
+    const persistentVolumeGuard = persistentVolumeExpected
+      ? `if ! mountpoint -q /root 2>/dev/null && ! mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then exit 75; fi; `
+      : "";
     const command =
+      persistentVolumeGuard +
       `if mountpoint -q /root 2>/dev/null; then ${legacy}; ` +
       `elif ${CMUX_HOME_VIEW_MISSING_CONDITION}; then ` +
       backing +
       "; " +
-      `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
+      `elif ${usable}; then ` +
       `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} ${CMUX_TUI_BINARY_PATH} ${args}; ` +
-      `else if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null; then ` +
-      `${backing}; ` +
-      `else exec env HOME=${CMUX_CLOUD_HOME} ${CMUX_TUI_BINARY_PATH} ${args}; fi; fi`;
+      `${rootFallback}; fi`;
     return this.sandboxExec(sandboxUrl, command, timeoutMs);
   }
 
   /** Adapts the sandbox API exec to the shared cmux-tui flows. */
-  private cmuxTuiInvoke(sandboxUrl: string): CmuxTuiInvoke {
-    return (args, timeoutMs) => this.cmuxTuiExec(sandboxUrl, args, timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS);
+  private cmuxTuiInvoke(
+    sandboxUrl: string,
+    persistentVolumeExpected = false,
+  ): CmuxTuiInvoke {
+    return (args, timeoutMs) => this.cmuxTuiExec(
+      sandboxUrl,
+      args,
+      timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS,
+      persistentVolumeExpected,
+    );
   }
 
-  private async ensureCmuxTuiRunning(vmId: string, sandboxUrl: string): Promise<void> {
+  private async ensureCmuxTuiRunning(
+    vmId: string,
+    sandboxUrl: string,
+    persistentVolumeExpected: boolean,
+  ): Promise<void> {
     const source = await sharedResolveCmuxTuiSource("blaxel");
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
     if (proc?.status === "running") {
-      await this.reconcileCmuxTuiRootFallbackOnce(vmId, sandboxUrl, proc, source);
+      await this.reconcileCmuxTuiRootFallbackOnce(
+        vmId,
+        sandboxUrl,
+        proc,
+        source,
+        persistentVolumeExpected,
+      );
     } else {
       // The daemon is about to (re)start with the layout command; make sure the work
       // user it drops to exists even on a sandbox whose create predates the layout
@@ -1458,14 +1577,14 @@ export class BlaxelProvider implements VMProvider {
       // needs the process started; a pin change or a fresh volume re-runs the install.
       const installed = await this.sandboxExec(
         sandboxUrl,
-        sharedCmuxTuiPinCheckCommand(source, CMUX_CLOUD_LAYOUT),
+        sharedCmuxTuiPinCheckCommand(source, CMUX_CLOUD_LAYOUT, { persistentVolumeExpected }),
       ).catch(() => null);
       if (installed?.exitCode !== 0) {
         // Missing, or a different build than the manifest now pins: (re)install.
-        await this.bootstrapCmuxTui(vmId, sandboxUrl);
+        await this.bootstrapCmuxTui(vmId, sandboxUrl, persistentVolumeExpected);
       } else {
-        await this.startCmuxTuiProcess(sandboxUrl);
-        await this.waitForCmuxTuiReady(vmId, sandboxUrl);
+        await this.startCmuxTuiProcess(sandboxUrl, persistentVolumeExpected);
+        await this.waitForCmuxTuiReady(vmId, sandboxUrl, persistentVolumeExpected);
       }
     }
     // Attach = user activity: re-arm the smart-sleep watcher so the sandbox stays awake
@@ -1511,7 +1630,10 @@ export class BlaxelProvider implements VMProvider {
           if (!sandboxUrl) {
             throw new Error("sandbox is missing metadata.url");
           }
-          await this.ensureCmuxTuiRunning(vmId, sandboxUrl);
+          const persistentVolumeExpected =
+            sandboxHasPersistentHomeVolume(sandbox) ||
+            typeof options?.providerMetadata?.homeVolume === "string";
+          await this.ensureCmuxTuiRunning(vmId, sandboxUrl, persistentVolumeExpected);
           const branded = cmuxTuiPreviewBranded(options?.clientCapabilities);
           const previewUrl = await this.ensurePreview(
             vmId,
@@ -1529,7 +1651,7 @@ export class BlaxelProvider implements VMProvider {
           // never inside an invitation.
           const route = `wss://${host}/v1/link?bl_preview_token=${encodeURIComponent(token)}`;
 
-          const invoke = this.cmuxTuiInvoke(sandboxUrl);
+          const invoke = this.cmuxTuiInvoke(sandboxUrl, persistentVolumeExpected);
           let invitation: CmuxRemoteEndpoint["invitation"];
           const enrolled = options?.deviceFingerprint
             ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
@@ -1561,8 +1683,17 @@ export class BlaxelProvider implements VMProvider {
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
       async () => {
         try {
-          const sandboxUrl = await this.sandboxApiUrl(vmId);
-          return await approveCmuxTuiEnrollment(this.cmuxTuiInvoke(sandboxUrl), "blaxel", vmId, invitationId);
+          const sandbox = await this.getSandbox(vmId);
+          const sandboxUrl = sandbox.metadata?.url;
+          if (!sandboxUrl) {
+            throw new ProviderError("blaxel", `sandbox ${vmId} has no API url (status ${sandbox.status ?? "unknown"})`);
+          }
+          return await approveCmuxTuiEnrollment(
+            this.cmuxTuiInvoke(sandboxUrl, sandboxHasPersistentHomeVolume(sandbox)),
+            "blaxel",
+            vmId,
+            invitationId,
+          );
         } catch (err) {
           throw err instanceof ProviderError ? err : new ProviderError("blaxel", `approveCmuxRemoteEnrollment(${vmId}) failed`, err);
         }
@@ -1668,8 +1799,18 @@ export class BlaxelProvider implements VMProvider {
         "cmux.timeout_ms": timeoutMs,
       },
       async (span) => {
-        const sandboxUrl = await this.sandboxApiUrl(vmId);
-        const result = await this.sandboxExec(sandboxUrl, userExecCommand(command), timeoutMs);
+        const sandbox = await this.getSandbox(vmId);
+        const sandboxUrl = sandbox.metadata?.url;
+        if (!sandboxUrl) {
+          throw new ProviderError("blaxel", `sandbox ${vmId} has no API url (status ${sandbox.status ?? "unknown"})`);
+        }
+        const result = await this.sandboxExec(
+          sandboxUrl,
+          userExecCommand(command, {
+            persistentVolumeExpected: sandboxHasPersistentHomeVolume(sandbox),
+          }),
+          timeoutMs,
+        );
         span.setAttribute("cmux.exec.exit_code", result.exitCode);
         return result;
       },
@@ -1903,7 +2044,7 @@ export class BlaxelProvider implements VMProvider {
     if (!sandboxUrl) {
       throw new ProviderError("blaxel", `resurrect(${vmId}) returned no sandbox url`);
     }
-    await this.bootstrapMachine(vmId, sandboxUrl);
+    await this.bootstrapMachine(vmId, sandboxUrl, true);
     return created;
   }
 
