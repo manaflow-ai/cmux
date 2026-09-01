@@ -89,6 +89,16 @@ RESULT_ENV = {
   "SIGNER_AUTHORIZED" => "${{ needs.CLACommentGate.outputs.signer_authorized || '' }}",
   "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}"
 }.freeze
+CLA_COMMENT_BINDING_OUTPUTS = {
+  "comment_id" => "${{ steps.signer_preflight.outputs.comment_id }}",
+  "comment_created_at" => "${{ steps.signer_preflight.outputs.comment_created_at }}",
+  "comment_author_id" => "${{ steps.signer_preflight.outputs.comment_author_id }}"
+}.freeze
+CLA_COMMENT_BINDING_INPUTS = {
+  "expected-comment-id" => "${{ needs.CLACommentGate.outputs.comment_id }}",
+  "expected-comment-created-at" => "${{ needs.CLACommentGate.outputs.comment_created_at }}",
+  "expected-comment-author-id" => "${{ needs.CLACommentGate.outputs.comment_author_id }}"
+}.freeze
 COMPATIBILITY_ENV = {
   "RESULT" => "${{ needs.CLAAssistant.result }}"
 }.freeze
@@ -1288,10 +1298,53 @@ def run_runner_regression_matrix!
   puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + rejected_runners.length} cases)"
 end
 
+def run_comment_binding_regression_matrix!
+  gate_outputs = {
+    "admitted" => "${{ steps.admission.outputs.admitted }}",
+    "signer_authorized" => "${{ steps.signer_preflight.outputs.signer_authorized }}",
+    "head_sha" => "${{ steps.signer_preflight.outputs.head_sha }}",
+    "base_sha" => "${{ steps.signer_preflight.outputs.base_sha }}"
+  }.merge(CLA_COMMENT_BINDING_OUTPUTS)
+  writer_inputs = {
+    "path-to-document" => CLA_DOCUMENT_INPUT,
+    "path-to-signatures" => CLA_SIGNATURES_PATH,
+    "branch" => "cla-signatures",
+    "required-base-ref" => "main",
+    "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
+    "allowlist-ids" => "38676809,67667005",
+    "require-opener-as-author" => "true",
+    "lock-pullrequest-aftermerge" => "false",
+    "expected-head-sha" => "${{ needs.CLACommentGate.outputs.head_sha }}",
+    "expected-base-sha" => "${{ needs.CLACommentGate.outputs.base_sha }}"
+  }.merge(CLA_COMMENT_BINDING_INPUTS)
+  assert_comment_binding_contract(gate_outputs, writer_inputs)
+  checks = 1
+
+  CLA_COMMENT_BINDING_OUTPUTS.each_key do |key|
+    expect_policy_error("missing #{key} signer output") do
+      assert_comment_binding_contract(gate_outputs.reject { |name, _| name == key }, writer_inputs)
+    end
+    checks += 1
+  end
+  CLA_COMMENT_BINDING_INPUTS.each_key do |key|
+    expect_policy_error("missing #{key} writer input") do
+      assert_comment_binding_contract(gate_outputs, writer_inputs.reject { |name, _| name == key })
+    end
+    checks += 1
+  end
+  puts "PASS: CLA signer comment binding regression matrix (#{checks} cases)"
+end
+
 def run_lifecycle_regression_matrix!
   fragments = CLA_LIFECYCLE_ACTIONS.map { |action| "github.event.action == '#{action}'" }
   expressions = Array.new(4) { fragments.join(" || ") }
-  admission_run = <<~'SH'
+  admission_helper = <<~'SH'
+    emit() {
+      [[ -n "${GITHUB_OUTPUT+x}" && -n "${GITHUB_OUTPUT}" ]] || fail "GITHUB_OUTPUT is unavailable"
+      printf 'admitted=%s\n' "$1" >>"${GITHUB_OUTPUT}"
+    }
+  SH
+  admission_run = admission_helper + <<~'SH'
     case "${EVENT_ACTION}" in
       opened|edited|reopened|synchronize|ready_for_review) emit true ;;
       *) fail "Pull-request event action is unsupported" ;;
@@ -1310,6 +1363,10 @@ def run_lifecycle_regression_matrix!
   end
   expect_policy_error("missing lifecycle admission shell case") do
     assert_lifecycle_admission_contract(expressions, admission_run.sub("ready_for_review", ""))
+  end
+  checks += 1
+  expect_policy_error("missing lifecycle admission output helper") do
+    assert_lifecycle_admission_contract(expressions, admission_run.sub("emit() {", "missing_emit() {"))
   end
   checks += 1
   puts "PASS: CLA lifecycle path regression matrix (#{checks} cases)"
@@ -1845,6 +1902,7 @@ def validate_guard_script(raw)
     "run_yaml_regression_matrix!",
     "run_environment_regression_matrix!",
     "run_runner_regression_matrix!",
+    "run_comment_binding_regression_matrix!",
     "run_lifecycle_regression_matrix!",
     "run_document_contract_regression_matrix!",
     "run_trusted_review_regression_matrix!",
@@ -1920,6 +1978,7 @@ begin
   run_trusted_cla_regression_matrix!
   run_environment_regression_matrix!
   run_runner_regression_matrix!
+  run_comment_binding_regression_matrix!
   run_lifecycle_regression_matrix!
   run_document_contract_regression_matrix!
   run_trusted_review_regression_matrix!
