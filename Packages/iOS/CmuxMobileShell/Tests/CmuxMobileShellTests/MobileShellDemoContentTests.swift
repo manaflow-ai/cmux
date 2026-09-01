@@ -500,6 +500,133 @@ import Testing
             .contains("/Users/demo/code/api-server"))
     }
 
+    /// Owner-phone regression (round 4): re-entering a demo workspace after
+    /// hours of background/foreground churn found a blank canvas and the
+    /// send-failure banner. Whatever tears the session down (every teardown
+    /// funnels through deactivateDemonstrationContent), a mounted demo
+    /// surface must SELF-HEAL at interaction time: ownership is derived from
+    /// the stable `cmux-demo-` id namespace, and the first replay/viewport/
+    /// input interaction recreates the session and reseeds. The invariant: a
+    /// demo workspace opened any number of times, after any lifecycle,
+    /// always paints and always routes input to the engine.
+    @Test func demoSurfaceSelfHealsAfterSessionTeardownOnReentry() async throws {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        let row = try #require(store.workspaces.first {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
+        await store.openWorkspace(row.id)
+        let surfaceID = try #require(row.terminals.first?.id.rawValue)
+
+        // Simulate the round-4 phone state: the demo session died underneath
+        // a still-presented detail (rows gone, session nil).
+        store.deactivateDemonstrationContent()
+        #expect(store.demoContentSession == nil)
+
+        // Re-entry mounts through the real order: geometry preparation must
+        // succeed (self-healing the session), the viewport must answer, and
+        // the sink attach must replay the canned session.
+        let preparation = try #require(store.prepareTerminalViewport(
+            surfaceID: surfaceID,
+            columns: 80,
+            rows: 24
+        ))
+        let grid = await store.updatePreparedTerminalViewport(preparation)
+        #expect(grid?.columns == 80)
+
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        let replay = try #require(await iterator.next())
+        #expect(String(decoding: replay.data, as: UTF8.self).contains("review PR #412"))
+
+        // The heal restored the seeds too, so the list recovers.
+        #expect(store.demoContentSession != nil)
+        #expect(store.workspaces.contains {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
+    }
+
+    /// Owner directive (round 4): typing after focusing INTO the terminal on
+    /// the phone must echo through the engine. The on-screen keyboard enters
+    /// through `ghosttySurfaceView(_:didProduceInput:)` →
+    /// `sendTerminalRawInput(_ data:surfaceID:)` — the synchronous send-status
+    /// pipeline, NOT the awaiting funnel earlier tests drove — so this drives
+    /// that exact entry.
+    @Test func onScreenKeyboardPathEchoesThroughTheEngine() async throws {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        let row = try #require(store.workspaces.first {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
+        await store.openWorkspace(row.id)
+        let surfaceID = try #require(row.terminals.first?.id.rawValue)
+
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        let replay = try #require(await iterator.next())
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replay.streamToken)
+
+        // The Ghostty key-input delegate entry (typing on the phone keyboard).
+        store.sendTerminalRawInput(Data("ls".utf8), surfaceID: surfaceID)
+
+        // The engine saw the keystrokes (require first: a mis-routed send
+        // would leave the stream silent and an await would hang the suite).
+        let session = try #require(store.demoContentSession)
+        let engineLine = String(
+            decoding: session.engine.replayBytes(surfaceID: surfaceID) ?? Data(),
+            as: UTF8.self
+        )
+        try #require(engineLine.hasSuffix("ls"))
+
+        let echo = try #require(await iterator.next())
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: echo.streamToken)
+        #expect(String(decoding: echo.data, as: UTF8.self) == "ls")
+
+        // Enter through the same entry runs the command.
+        store.sendTerminalRawInput(Data("\r".utf8), surfaceID: surfaceID)
+        let response = try #require(await iterator.next())
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: response.streamToken)
+        let responseText = String(decoding: response.data, as: UTF8.self)
+        #expect(responseText.contains("src"))
+        #expect(responseText.contains("demo@demo-mac"))
+        // And the send-status pipeline never flags a failure for demo input.
+        #expect(store.terminalSendStatus(forTerminalID: surfaceID) != .failed)
+    }
+
+    /// Owner directive (round 4): the task composer must never operate
+    /// against the demo Mac (a fake Mac cannot run real tasks). With only
+    /// the demo computer, the composer entry hides entirely; with a real Mac
+    /// alongside, the composer stays available but its target list excludes
+    /// the demo computer.
+    @Test func taskComposerNeverTargetsTheDemoComputer() async throws {
+        let (demoOnlyStore, _) = makeStore(demonstrationContentEnabled: true)
+        demoOnlyStore.signIn()
+        await demoOnlyStore.loadPairedMacs()
+        #expect(!demoOnlyStore.supportsTaskComposer)
+
+        let inner = RecordingPairedMacStore()
+        inner.records = [
+            MobilePairedMac(
+                macDeviceID: "real-mac-1",
+                displayName: "Office Mac",
+                routes: [
+                    try CmxAttachRoute(
+                        id: "ts",
+                        kind: .tailscale,
+                        endpoint: .hostPort(host: "office-mac.example.ts.net", port: 58_465)
+                    ),
+                ],
+                createdAt: Date(),
+                lastSeenAt: Date(),
+                isActive: true,
+                stackUserID: "demo-tests-user"
+            ),
+        ]
+        let (mixedStore, _) = makeStore(demonstrationContentEnabled: true, inner: inner)
+        mixedStore.signIn()
+        await mixedStore.loadPairedMacs()
+        // A real (even offline) Mac keeps the composer available.
+        #expect(mixedStore.supportsTaskComposer)
+    }
+
     @Test func demoTerminalReplaysCannedSessionOnMount() async {
         let (store, _) = makeStore(demonstrationContentEnabled: true)
         store.signIn()
