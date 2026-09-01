@@ -38,7 +38,7 @@ extension Workspace {
               let refreshedAnchorTabId = surfaceIdFromPanelId(
                   refreshedOwnership.containerPanelID
               ),
-              let refreshedPaneId = paneId(
+              let refreshedPaneId = self.paneId(
                   forPanelId: refreshedOwnership.containerPanelID
               ),
               isRemoteTerminalContext(refreshedOwnership.surfaceID)
