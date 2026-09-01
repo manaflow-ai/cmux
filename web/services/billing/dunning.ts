@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Resend } from "resend";
 
 import { env } from "../../app/env";
@@ -56,6 +56,9 @@ export type BillingDunningDeliveryStore = {
    * delivery. The production store implements this against Postgres; the
    * optional shape keeps older test doubles source-compatible.
    */
+  releaseAbandonedReport?: (
+    input: BillingDunningAbandonedSignal,
+  ) => Promise<void>;
   claimAbandonedReport?: (
     input: BillingDunningAbandonedSignal,
   ) => Promise<boolean>;
@@ -98,6 +101,14 @@ export class BillingDunningProviderRejectedError extends Error {
   }
 }
 
+/** The provider call exceeded its deadline; the outcome is ambiguous. */
+export class BillingDunningProviderTimeoutError extends Error {
+  constructor(invoiceId: string) {
+    super(`cmux billing dunning provider call timed out: ${invoiceId}`);
+    this.name = "BillingDunningProviderTimeoutError";
+  }
+}
+
 /** A provider attempt is still ambiguous and Stripe must retry the webhook. */
 export class BillingDunningDeliveryRetryableError extends Error {
   constructor(invoiceId: string) {
@@ -119,12 +130,28 @@ export class BillingDunningDeliveryAbandonedError extends Error {
 // an empty value shape under TypeScript.
 type DeliveryDb = ReturnType<typeof cloudDb>;
 
+const DUNNING_SEND_TIMEOUT_MS = 10_000;
+
 const defaultDependencies: Required<
   Pick<BillingDunningDependencies, "sendEmail" | "fromEmail">
 > & { readonly reportAbandoned: BillingDunningAbandonedReporter } = {
   sendEmail: async (payload, options) => {
     const resend = new Resend(env.RESEND_API_KEY);
-    return resend.emails.send(payload, options);
+    // Bound the synchronous webhook wait. A timeout leaves the outcome
+    // ambiguous: the lease stays live, the caller surfaces the retryable
+    // error, and Resend's invoice-keyed idempotency dedupes the retry.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new BillingDunningProviderTimeoutError(options.idempotencyKey)),
+        DUNNING_SEND_TIMEOUT_MS,
+      );
+    });
+    try {
+      return await Promise.race([resend.emails.send(payload, options), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
   },
   fromEmail: () => env.CMUX_PRO_FROM_EMAIL ?? DEFAULT_DUNNING_FROM_EMAIL,
   reportAbandoned: reportBillingDunningDeliveryAbandoned,
@@ -189,7 +216,23 @@ export async function sendBillingDunningEmail(
         })
       : true;
     if (shouldReport) {
-      await reportAbandoned({ invoiceId: input.invoiceId, scope: input.scope });
+      try {
+        await reportAbandoned({ invoiceId: input.invoiceId, scope: input.scope });
+      } catch (error) {
+        // The claim was taken but the operator signal never went out. Release
+        // the marker so a Stripe retry can report again; if the release also
+        // fails, the loud error below is the remaining trace.
+        console.error("[billing] dunning abandonment report failed", error);
+        try {
+          await deliveryStore.releaseAbandonedReport?.({
+            invoiceId: input.invoiceId,
+            scope: input.scope,
+          });
+        } catch (releaseError) {
+          console.error("[billing] dunning abandonment release failed", releaseError);
+        }
+        throw new BillingDunningDeliveryRetryableError(input.invoiceId);
+      }
     }
   }
   return result;
@@ -275,6 +318,8 @@ export function makeBillingDunningDeliveryStore(
   return {
     claimAbandonedReport: async (input) =>
       await claimAbandonedDeliveryReport(db, input, new Date()),
+    releaseAbandonedReport: async (input) =>
+      await releaseAbandonedDeliveryReport(db, input, new Date()),
     deliverOnce: async (input, deliver) => {
       const claimedAt = new Date();
       const claim = await claimDelivery(db, input, claimedAt);
@@ -331,6 +376,31 @@ async function claimAbandonedDeliveryReport(
       })
       .where(eq(billingDunningDeliveries.invoiceId, input.invoiceId));
     return true;
+  });
+}
+
+/**
+ * Undo a report claim whose reporter failed, so the next Stripe retry can
+ * report again. Never touches rows that were meanwhile marked sent.
+ */
+async function releaseAbandonedDeliveryReport(
+  db: DeliveryDb,
+  input: BillingDunningAbandonedSignal,
+  releasedAt: Date,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${dunningLockKey(input.invoiceId)}, 0))`,
+    );
+    await tx
+      .update(billingDunningDeliveries)
+      .set({ abandonedReportedAt: null, updatedAt: releasedAt })
+      .where(
+        and(
+          eq(billingDunningDeliveries.invoiceId, input.invoiceId),
+          isNull(billingDunningDeliveries.sentAt),
+        ),
+      );
   });
 }
 
