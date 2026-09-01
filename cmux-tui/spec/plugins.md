@@ -317,6 +317,14 @@ application policy into cmux core.
 | Windows foreground process-group inspection | Not supported by this reference package | The Rust SDK transport and native process backend are Unix-only. A Windows package must add both before publication. |
 | OMP and Mastracode screen manifests | Not present at the manifest snapshot revision | Herdr lists these process kinds but ships no screen manifests. Hooks can still cover them. We do not invent state rules. |
 
+This inventory was rechecked against herdr revision
+`99c23cd1ea7468bd3661f6483c7105396503b417`. It found no newer detector or
+manifest capability after the pinned revisions. Later upstream changes cover
+Windows launch, process environment and job handling, and native input
+identity. The reference package has no Windows SDK transport or native process
+backend and does not own launch or input handling, so those changes remain
+outside this plugin. Review them before publishing Windows support.
+
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling
 terminal. Generic OSC metadata has no agent-specific reset operation. The

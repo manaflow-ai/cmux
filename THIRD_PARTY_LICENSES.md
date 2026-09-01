@@ -94,6 +94,7 @@ manifests and adapted detector sources live under
 - **Pi bundled-launcher correction:** commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
 - **Manifest snapshot:** commit `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 - **License text:** `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
+- **Latest capability audit:** commit `99c23cd1ea7468bd3661f6483c7105396503b417`; no later detector or manifest change requires another port. The later Windows launch, process, job, and input fixes are outside this Unix-only package.
 
 Seventeen manifests are unchanged from the manifest snapshot. Claude, Codex,
 and GitHub Copilot include the upstream fixes in that snapshot. `grok.toml` is

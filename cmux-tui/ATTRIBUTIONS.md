@@ -53,5 +53,15 @@ Derived material and vendored material:
   local `2026.07.16.2.1` patch gives idle OSC progress precedence over a
   generic custom title and keeps explicit braille-spinner activity stronger.
 
+The capability audit was rerun against herdr revision
+`99c23cd1ea7468bd3661f6483c7105396503b417`. No detector or manifest change
+after the pinned revisions needs another port. Later upstream commits
+`5158adab10b6dcfea9370782043392f80fa0643c`,
+`5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
+`da8c7b05f9ef7898cfb7494989df8a533b947bb9`, and
+`99c23cd1ea7468bd3661f6483c7105396503b417` are Windows launch, process
+environment, process-job, or input changes. They are outside this Unix-only
+reference package and must be reviewed before Windows support is published.
+
 Files that port herdr logic carry a header comment naming the upstream
 file and the modifications.
