@@ -137,6 +137,7 @@ extension Workspace {
         controller.start()
         if remoteControllerConnectionState == .connected {
             _ = reattachPersistentRemotePTYPanels()
+            drainPendingRemotePTYSessionCleanups()
         }
     }
 
@@ -159,6 +160,7 @@ extension Workspace {
             if remoteControllerIsReady {
                 let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
                 didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
+                drainPendingRemotePTYSessionCleanups()
             }
         } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
                   !startupCommand.isEmpty,

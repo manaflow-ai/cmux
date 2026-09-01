@@ -76,7 +76,6 @@ extension Workspace {
         focus: Bool?,
         allowTextBoxFocusDefault: Bool
     ) -> TerminalPanel? {
-        let previousController = remotePTYSessionCleanupController()
         guard let replacement = respawnTerminalSurface(
             panelId: panelId,
             command: plan.bridgeCommand,
@@ -104,16 +103,58 @@ extension Workspace {
         trackRemoteTerminalSurface(panelId)
 
         if let previousSessionID = plan.previousSessionID,
-           previousSessionID != plan.sessionID,
-           let previousController {
+           previousSessionID != plan.sessionID {
+            pendingRemotePTYSessionCleanupIDs.insert(previousSessionID)
+        }
+        drainPendingRemotePTYSessionCleanups()
+        return replacement
+    }
+
+    /// Closes daemon-side sessions replaced by respawns.
+    ///
+    /// Cleanup is lifecycle-owned rather than fire-and-forget: a respawn
+    /// issued while the workspace is disconnected parks the replaced session
+    /// in ``Workspace/pendingRemotePTYSessionCleanupIDs`` and the queue is
+    /// re-drained when a controller is available again (respawn, controller
+    /// start, explicit reconnect). A close that fails while the workspace has
+    /// no connected controller is re-queued for the next drain; a failure
+    /// with a live controller is terminal — the daemon no longer knows the
+    /// session, so retrying would spin forever.
+    func drainPendingRemotePTYSessionCleanups() {
+        guard !pendingRemotePTYSessionCleanupIDs.isEmpty else { return }
+        if let closeForTesting = remotePTYSessionCloseForTesting {
+            let sessionIDs = pendingRemotePTYSessionCleanupIDs
+            pendingRemotePTYSessionCleanupIDs.removeAll()
+            for sessionID in sessionIDs.sorted() {
+                do {
+                    try closeForTesting(sessionID)
+                } catch {
+                    pendingRemotePTYSessionCleanupIDs.insert(sessionID)
+                }
+            }
+            return
+        }
+        guard let controller = remotePTYSessionCleanupController() else { return }
+        let sessionIDs = pendingRemotePTYSessionCleanupIDs
+        pendingRemotePTYSessionCleanupIDs.removeAll()
+        for sessionID in sessionIDs {
             // RemoteSessionCoordinator is queue-confined and explicitly
             // `@unchecked Sendable`; this detached task performs only its
             // synchronous, queue-bridged close operation.
-            _ = Task.detached(priority: .utility) {
-                try? previousController.closePTYSession(sessionID: previousSessionID)
+            _ = Task.detached(priority: .utility) { [weak self] in
+                do {
+                    try controller.closePTYSession(sessionID: sessionID)
+                } catch {
+                    await MainActor.run { [weak self] in
+                        guard let self,
+                              self.remoteControllerConnectionState != .connected else {
+                            return
+                        }
+                        self.pendingRemotePTYSessionCleanupIDs.insert(sessionID)
+                    }
+                }
             }
         }
-        return replacement
     }
 
     private func isRemotePTYOwnedSurface(_ panelId: UUID) -> Bool {

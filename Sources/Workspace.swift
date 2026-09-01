@@ -3013,6 +3013,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
+    /// Daemon-side PTY sessions replaced by a respawn whose close is still
+    /// owed. A respawn issued while the workspace is disconnected parks the
+    /// replaced session ID here instead of dropping it; the queue is drained
+    /// idempotently whenever a session controller is available again.
+    var pendingRemotePTYSessionCleanupIDs: Set<String> = []
+    /// Test seam for ``drainPendingRemotePTYSessionCleanups()``: intercepts
+    /// the daemon-side close so tests can observe exactly-once semantics.
+    var remotePTYSessionCloseForTesting: ((String) throws -> Void)?
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
