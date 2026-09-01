@@ -377,6 +377,31 @@ struct MobileHostIdentityTests {
         #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.ios.feature-a")
     }
 
+    @Test func taggedDevAcceptsAnExplicitlyGrantedPhoneBuildTag() throws {
+        let suiteName = "mobile-ios-target-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobilePairedPhoneStore(
+            defaults: defaults,
+            macInstanceTag: "feature-b"
+        )
+
+        #expect(store.record(
+            clientID: "phone-feature-a",
+            bundleIdentifier: "dev.cmux.ios.feature-a",
+            accountID: "account-a",
+            handshakeIdentity: "iroh:feature-a",
+            trustedIOSBuildTag: "feature-a"
+        ))
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == "dev.cmux.ios.feature-a")
+        #expect(!store.record(
+            clientID: "phone-feature-c",
+            bundleIdentifier: "dev.cmux.ios.feature-c",
+            accountID: "account-a",
+            handshakeIdentity: "iroh:feature-c"
+        ))
+    }
+
     @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {
         let cases: [([String: String], String)] = [
             ([:], "com.cmuxterm.app"),

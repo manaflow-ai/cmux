@@ -43,13 +43,17 @@ final class MobilePairedPhoneStore {
         bundleIdentifier: String,
         accountID: String?,
         handshakeIdentity: String? = nil,
+        trustedIOSBuildTag: String? = nil,
         pairedAt: Date = .now
     ) -> Bool {
         guard let normalizedClientID = Self.normalized(clientID),
               normalizedClientID.utf16.count <= Self.maximumClientIDLength,
               normalizedClientID != Self.legacyClientID,
               let normalizedBundleIdentifier = Self.validBundleIdentifier(bundleIdentifier),
-              isBundleAllowedForMacLane(normalizedBundleIdentifier)
+              isBundleAllowedForMacLane(
+                  normalizedBundleIdentifier,
+                  trustedIOSBuildTag: trustedIOSBuildTag
+              )
         else {
             return false
         }
@@ -113,6 +117,7 @@ final class MobilePairedPhoneStore {
         clientID: String?,
         accountID: String?,
         handshakeIdentity: String?,
+        trustedIOSBuildTag: String? = nil,
         pairedAt: Date = .now
     ) -> Bool {
         // A long-lived host singleton can outlive an older settings domain
@@ -124,7 +129,10 @@ final class MobilePairedPhoneStore {
               normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength,
               let bundleIdentifier = legacyPickerBundleIdentifier
                   ?? legacyCompatibilityBundleIdentifier,
-              isBundleAllowedForMacLane(bundleIdentifier) else {
+              isBundleAllowedForMacLane(
+                  bundleIdentifier,
+                  trustedIOSBuildTag: trustedIOSBuildTag
+              ) else {
             return false
         }
         guard !recordsByClientID.values.contains(where: {
@@ -178,6 +186,15 @@ final class MobilePairedPhoneStore {
         return nil
     }
 
+    /// Returns the backup namespace for an authenticated account. A precise
+    /// handshake target wins; before the first modern handshake, the Mac-lane
+    /// fallback keeps legacy paired-Mac restore alive. Push delivery remains
+    /// fail-closed until ``targetBundleIdentifier(accountID:)`` is known.
+    func backupBundleIdentifier(accountID: String?) -> String? {
+        guard Self.normalized(accountID) != nil else { return nil }
+        return targetBundleIdentifier(accountID: accountID) ?? fallbackBundleIdentifier
+    }
+
     private var fallbackBundleIdentifier: String? {
         let normalizedTag = macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -217,7 +234,10 @@ final class MobilePairedPhoneStore {
         return normalizedTag.isEmpty || normalizedTag == "default"
     }
 
-    private func isBundleAllowedForMacLane(_ bundleIdentifier: String) -> Bool {
+    private func isBundleAllowedForMacLane(
+        _ bundleIdentifier: String,
+        trustedIOSBuildTag: String? = nil
+    ) -> Bool {
         if isOfficialMacLane {
             return Self.officialIOSBundleIdentifiers.contains(bundleIdentifier)
         }
@@ -231,6 +251,25 @@ final class MobilePairedPhoneStore {
                 || bundleIdentifier == fallbackBundleIdentifier
         }
         return bundleIdentifier == fallbackBundleIdentifier
+            || bundleIdentifier == trustedCrossTagBundleIdentifier(
+                trustedIOSBuildTag
+            )
+    }
+
+    /// An Iroh grant from a tagged phone carries that phone's exact build tag.
+    /// Accepting only the corresponding namespace preserves exact-tag pairing
+    /// by default while allowing the explicit cross-tag grant flow.
+    private func trustedCrossTagBundleIdentifier(_ tag: String?) -> String? {
+        let normalizedTag = Self.normalized(tag)?.lowercased()
+        guard let normalizedTag,
+              !Self.nonDevelopmentTags.contains(normalizedTag),
+              let namespace = MobileIOSAppNamespace(
+                  pairedMacInstanceTag: normalizedTag
+              ),
+              namespace.bundleIdentifier.hasPrefix("dev.cmux.ios.") else {
+            return nil
+        }
+        return namespace.bundleIdentifier
     }
 
     private static let officialIOSBundleIdentifiers: Set<String> = [
@@ -238,6 +277,12 @@ final class MobilePairedPhoneStore {
         "dev.cmux.app.beta",
         "dev.cmux.app.internal",
         "dev.cmux.app.demo",
+    ]
+    private static let nonDevelopmentTags: Set<String> = [
+        "default",
+        "nightly",
+        "rc",
+        "staging",
     ]
 
     private static func legacyCompatibilityClientID(for clientID: String?) -> String {

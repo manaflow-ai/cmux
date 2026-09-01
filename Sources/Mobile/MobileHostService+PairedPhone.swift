@@ -11,6 +11,14 @@ extension MobileHostService {
         pairedPhoneStore.targetBundleIdentifier(accountID: accountID)
     }
 
+    /// Returns the authenticated target or a lane-scoped legacy backup
+    /// namespace while a phone has not completed the modern metadata handshake.
+    /// This fallback is for paired-Mac restore only; push delivery uses the
+    /// strict ``pairedPhoneBundleIdentifier(accountID:)`` path.
+    func pairedPhoneBackupBundleIdentifier(accountID: String?) -> String? {
+        pairedPhoneStore.backupBundleIdentifier(accountID: accountID)
+    }
+
     /// Persists phone identity only after an authenticated host-status response
     /// proves the connection is usable. Public status probes remain identity-free
     /// and cannot influence push or backup routing.
@@ -37,6 +45,12 @@ extension MobileHostService {
             return
         }
         let previousTarget = pairedPhoneStore.targetBundleIdentifier(accountID: accountID)
+        let trustedIOSBuildTag: String? = switch authorization {
+        case let .irohAdmission(peer) where peer.platform == .ios:
+            peer.tag
+        case .stackBearer, .irohAdmission:
+            nil
+        }
         let hasBundleIdentifierField = request.params.keys.contains {
             $0 == "ios_bundle_identifier"
                 || $0 == "ios_bundle_id"
@@ -55,7 +69,8 @@ extension MobileHostService {
                 clientID: clientID,
                 bundleIdentifier: bundleIdentifier,
                 accountID: accountID,
-                handshakeIdentity: handshakeIdentity
+                handshakeIdentity: handshakeIdentity,
+                trustedIOSBuildTag: trustedIOSBuildTag
             )
         } else {
             // Older iOS clients do not send bundle metadata. Their status
@@ -64,7 +79,8 @@ extension MobileHostService {
             didRecord = pairedPhoneStore.recordLegacyCompatibility(
                 clientID: Self.clientID(from: request.params),
                 accountID: accountID,
-                handshakeIdentity: handshakeIdentity
+                handshakeIdentity: handshakeIdentity,
+                trustedIOSBuildTag: trustedIOSBuildTag
             )
         }
         guard didRecord else { return }

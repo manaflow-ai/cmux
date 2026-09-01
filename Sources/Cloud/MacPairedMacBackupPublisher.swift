@@ -101,7 +101,7 @@ final class MacPairedMacBackupPublisher {
                 guard let self, !Task.isCancelled else { break }
                 let accountID = self.auth?.authenticatedSessionIdentity?.accountID
                 let targetBundleIdentifier = MobileHostService.shared
-                    .pairedPhoneBundleIdentifier(accountID: accountID)
+                    .pairedPhoneBackupBundleIdentifier(accountID: accountID)
                 guard !status.routes.isEmpty,
                       targetBundleIdentifier != nil,
                       status.routes != self.lastPublishedRoutes
@@ -129,7 +129,13 @@ final class MacPairedMacBackupPublisher {
                     continue
                 }
                 let routes = MobileHostService.shared.statusSnapshot().routes
-                guard !routes.isEmpty else { continue }
+                let targetBundleIdentifier = MobileHostService.shared
+                    .pairedPhoneBackupBundleIdentifier(accountID: identity?.accountID)
+                guard !routes.isEmpty,
+                      targetBundleIdentifier != self.lastPublishedBundleIdentifier
+                        || routes != self.lastPublishedRoutes else {
+                    continue
+                }
                 await self.publish(routes: routes)
             }
         }
@@ -170,7 +176,7 @@ final class MacPairedMacBackupPublisher {
         let teamID = auth.resolvedTeamID
         let accountID = sessionSnapshot.accountID
         guard let targetBundleIdentifier = MobileHostService.shared
-            .pairedPhoneBundleIdentifier(accountID: accountID),
+            .pairedPhoneBackupBundleIdentifier(accountID: accountID),
               let targetNamespace = MobileIOSAppNamespace(
                   bundleIdentifier: targetBundleIdentifier
               ) else {

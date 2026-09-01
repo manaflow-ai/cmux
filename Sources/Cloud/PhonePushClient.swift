@@ -596,7 +596,15 @@ final class PhonePushClient {
             }
             activeIdentity = identity
             pairedPhoneTargetDidChange()
-            deliveryQueue.start()
+            if MobileHostService.shared
+                .pairedPhoneBundleIdentifier(accountID: identity.accountID) != nil {
+                deliveryQueue.start()
+            } else {
+                // A same-account token refresh can arrive before the first
+                // phone handshake. Keep nil-target events parked rather than
+                // letting the sender drop them as an invalid APNs request.
+                deliveryQueue.stop()
+            }
             return
         }
         cancelInMemoryQueue()
