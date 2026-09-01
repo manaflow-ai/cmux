@@ -89,7 +89,9 @@ extension RemoteSessionCoordinator {
 
     private static func ptyQueueHandoffTimedOutError() -> NSError {
         NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
-            NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation queue",
+            // Reuse the existing localized PTY-timeout wording; code 8 is the
+            // distinct machine-readable queue-handoff classification.
+            NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
         ])
     }
 
