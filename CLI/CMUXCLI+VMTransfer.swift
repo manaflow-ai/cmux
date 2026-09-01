@@ -686,7 +686,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).")
+                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).")
             }
             memoryMb = parsed
         }
@@ -921,17 +921,23 @@ extension CMUXCLI {
         var busy: [(id: String, cpu: Double)] = []
 
         if !forceNew {
+            // Read the pool before listing: every id in this snapshot was recorded
+            // before `vm.list` answered, so one that the list does not carry is
+            // genuinely gone. An id another `vm run` records after this point is
+            // never in `poolIDs`, so the prune below cannot touch it.
+            let poolIDs = Self.loadVMRunPool()
             let listResponse = try client.sendV2(method: "vm.list", responseTimeout: 60)
             let vms = (listResponse["vms"] as? [[String: Any]]) ?? []
-            let poolIDs = Self.loadVMRunPool()
             // Forget pool ids whose machines are gone (deleted by the user), so the
             // store cannot grow stale or accidentally match a recycled id later.
             let liveIDs = Set(vms.compactMap { $0["id"] as? String })
-            let prunedPoolIDs = poolIDs.intersection(liveIDs)
-            if prunedPoolIDs != poolIDs {
-                // Only drop ids that are gone; a concurrent create may have added
-                // one between our load and this write.
-                try Self.updateVMRunPool { machines in machines.formIntersection(liveIDs) }
+            let staleIDs = poolIDs.subtracting(liveIDs)
+            let prunedPoolIDs = poolIDs.subtracting(staleIDs)
+            if !staleIDs.isEmpty {
+                // Subtract only the ids this snapshot saw as gone. Intersecting the
+                // locked set with `liveIDs` would also drop a machine another `vm run`
+                // recorded after the list was taken but before this lock was held.
+                try Self.updateVMRunPool { machines in machines.subtract(staleIDs) }
             }
             let pool = vms.filter { vm in
                 guard let id = vm["id"] as? String else { return false }
@@ -1013,7 +1019,9 @@ extension CMUXCLI {
         do {
             try Self.updateVMRunPool { machines in machines.insert(id) }
         } catch {
-            throw CLIError(message: "vm run: provisioned \(id) but could not record it in the pool store (\(error)). Use `cmux vm run --machine \(id)` or `cmux vm rm \(id)`.")
+            // Product-level copy only: the underlying failure names a local lock path
+            // and raw OS text, which do not belong in user-facing output.
+            throw CLIError(message: "vm run: provisioned \(id) but could not record it in the pool store, so later runs will not reuse it. Use `cmux vm run --machine \(id)` to keep using it or `cmux vm rm \(id)` to remove it.")
         }
         // The label is cosmetic (membership is already recorded), but without it
         // the machine is not recognizable as pool in `vm ls`, so say so.
@@ -1214,7 +1222,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).")
+                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).")
             }
             memoryMb = parsed
         }
@@ -1303,7 +1311,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).")
+                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).")
             }
             memoryMb = parsed
         }
