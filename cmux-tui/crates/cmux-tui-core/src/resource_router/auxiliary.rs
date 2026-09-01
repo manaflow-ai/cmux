@@ -1,6 +1,5 @@
 //! Session-scoped resources that are neither workspace topology nor content.
 
-use std::io::Write;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -124,14 +123,11 @@ fn agent_report_operation_error(error: anyhow::Error) -> ResourceError {
         return resource.clone();
     }
 
-    let detail = format!("{error:#}");
     let public = resource_operation_error(error);
     if public.code != "operation.failed" {
         return public;
     }
 
-    let mut stderr = std::io::stderr().lock();
-    let _ = writeln!(stderr, "cmux-tui: agent.report internal failure: {detail}");
     ResourceError::operation_failed("agent.report", "could not read agent state", json!({}))
 }
 
