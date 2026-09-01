@@ -150,7 +150,10 @@ extension Workspace {
         for key in agentPIDKeysByPanelId[panelId] ?? [] {
             let context = "agentPIDKey:\(key)"
             guard isPromptCapableAgentPIDKey(key),
-                  let identity = agentPIDProcessIdentitiesByKey[key] else {
+                  let pid = agentPIDs[key],
+                  pid > 0,
+                  let identity = agentPIDProcessIdentitiesByKey[key],
+                  isRecordedAgentPIDLive(key: key, pid: pid) else {
                 continue
             }
             let scope = [
@@ -176,6 +179,86 @@ extension Workspace {
         return nil
     }
 
+    /// Whether a hook session token belongs to the currently live agent bound
+    /// to a panel. This prevents delayed hooks from an older process from
+    /// changing the replacement panel's prompt state.
+    func agentPromptHookMatchesSession(
+        panelId: UUID,
+        hookSource: String,
+        sessionID: String
+    ) -> Bool {
+        let normalizedSource = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let normalizedSessionID = sessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !normalizedSource.isEmpty,
+              !normalizedSessionID.isEmpty else {
+            return false
+        }
+        let sourceContext = "agentPIDKey:\(normalizedSource)"
+        for key in agentPIDKeysByPanelId[panelId] ?? [] {
+            guard isPromptCapableAgentPIDKey(key),
+                  let separator = key.firstIndex(of: "."),
+                  let pid = agentPIDs[key],
+                  isRecordedAgentPIDLive(key: key, pid: pid) else {
+                continue
+            }
+            let recordedSessionID = key[key.index(after: separator)...]
+            guard agentPromptSessionIDsMatch(
+                recordedSessionID: String(recordedSessionID),
+                hookSessionID: normalizedSessionID,
+                hookSource: normalizedSource
+            ) else {
+                continue
+            }
+            if TextBoxAgentDetection.representsSameAgentKind(
+                "agentPIDKey:\(key)",
+                sourceContext
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Compares the session token stored in an agent PID key with the
+    /// workstream token. Feed telemetry prefixes the raw token with its source
+    /// (`codex-<session>`), while the PID key stores the raw session; both are
+    /// the same process identity and must match case-insensitively.
+    func agentPromptSessionIDsMatch(
+        recordedSessionID: String,
+        hookSessionID: String,
+        hookSource: String
+    ) -> Bool {
+        let recorded = recordedSessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let hook = hookSessionID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let source = hookSource.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !recorded.isEmpty, !hook.isEmpty else { return false }
+        if recorded.caseInsensitiveCompare(hook) == .orderedSame {
+            return true
+        }
+        guard !source.isEmpty else { return false }
+        let prefixes = [source, "agentPIDKey:\(source)"]
+        return prefixes.contains { prefix in
+            let prefixWithSeparator = "\(prefix)-"
+            guard hook.lowercased().hasPrefix(
+                prefixWithSeparator.lowercased()
+            ) else {
+                return false
+            }
+            return String(hook.dropFirst(prefixWithSeparator.count))
+                .caseInsensitiveCompare(recorded) == .orderedSame
+        }
+    }
+
     private func synchronizePromptInputAgentScope(forPanelId panelId: UUID) {
         let scope = agentPromptInputScope(forPanelId: panelId)
         let terminalPanel = terminalPanel(for: panelId)
@@ -199,8 +282,11 @@ extension Workspace {
                     controlReturnIsPromptSubmissionBoundary
             )
         if scope != nil {
-            terminalPanel?.agentPromptResumePending = false
-            TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
+            if panelShellActivityStates[panelId] == .promptIdle {
+                _ = markAgentPromptResumeReady(panelId: panelId)
+            } else if terminalPanel?.agentPromptResumePending != true {
+                drainAgentPromptQueueIfReady(panelId: panelId)
+            }
         } else if !hasTrackedPromptAgent && !isAgentPromptResumePending {
             // No remaining cmux-owned agent binding means queued messages for
             // this surface cannot safely target a replacement process. A
@@ -627,6 +713,7 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)

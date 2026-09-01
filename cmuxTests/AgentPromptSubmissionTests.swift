@@ -76,7 +76,7 @@ struct AgentPromptSubmissionTests {
         #expect(tabManager.selectedTabId == selected.id)
     }
 
-    @Test func concurrentSubmissionsAcrossWorkspacesStayIntactAndGloballyFIFO() async {
+    @Test func mainHopKeepsConcurrentDeliveryCallbacksSerialized() async {
         let controller = await MainActor.run { TerminalController.shared }
         let probe = await MainActor.run {
             let firstPanel = TerminalPanel(workspaceId: UUID())
@@ -102,10 +102,9 @@ struct AgentPromptSubmissionTests {
         }.value
         #expect(firstStarted)
 
-        // The first synchronous socket hop is holding the same serial main
-        // boundary. async returns only after the second complete transaction
-        // has been accepted behind it, so releasing the first cannot degrade
-        // this into two sequential caller starts.
+        // This probe intentionally covers only the synchronous main-hop
+        // serialization contract. The package-level service tests cover the
+        // actual workspace FIFO and re-entrant admission path.
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 _ = probe.deliver(
@@ -221,7 +220,7 @@ struct AgentPromptSubmissionTests {
 
         #expect(result == .queued)
         #expect(panel.textBoxContent == "human draft")
-        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
         #expect(pending.promptSubmissionItems == 1)
     }
@@ -293,7 +292,11 @@ struct AgentPromptSubmissionTests {
 
         // A hook-observed turn owns the composer and takes precedence.
         let (busyWorkspace, busySurface) = try makeAgentWorkspace()
-        busyWorkspace.recordAgentTurnStart(panelId: busySurface)
+        let busySessionID = "busy-session"
+        busyWorkspace.recordAgentTurnStart(
+            panelId: busySurface,
+            sessionID: busySessionID
+        )
         #expect(try firstSubmissionReason(
             workspace: busyWorkspace,
             surfaceID: busySurface,
@@ -307,8 +310,20 @@ struct AgentPromptSubmissionTests {
         )
         #expect(!busyWorkspace.hasActiveAgentTurn(panelId: busySurface, now: past))
         #expect(!busyWorkspace.hasActiveAgentTurn(panelId: busySurface))
-        busyWorkspace.recordAgentTurnStart(panelId: busySurface)
-        busyWorkspace.recordAgentTurnEnd(panelId: nil)
+        let replacementSessionID = "replacement-session"
+        busyWorkspace.recordAgentTurnStart(
+            panelId: busySurface,
+            sessionID: replacementSessionID
+        )
+        #expect(!busyWorkspace.recordAgentTurnEnd(
+            panelId: busySurface,
+            sessionID: busySessionID
+        ))
+        #expect(busyWorkspace.hasActiveAgentTurn(panelId: busySurface))
+        #expect(busyWorkspace.recordAgentTurnEnd(
+            panelId: busySurface,
+            sessionID: replacementSessionID
+        ))
         #expect(!busyWorkspace.hasActiveAgentTurn(panelId: busySurface))
     }
 
@@ -325,7 +340,7 @@ struct AgentPromptSubmissionTests {
 
         #expect(!isBusy)
         #expect(panel.textBoxContent == "human draft")
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }
 
     @MainActor
@@ -347,7 +362,7 @@ struct AgentPromptSubmissionTests {
 
         #expect(result == .composerBusy)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }
 
     @MainActor
@@ -421,7 +436,7 @@ struct AgentPromptSubmissionTests {
         #expect(agentResponse["queued"] as? Bool == true)
         #expect(agentResponse["delivery_state"] as? String == "queued")
 
-        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
         #expect(pending.inputTextItems == 1)
         #expect(pending.promptSubmissionItems == 0)
@@ -466,7 +481,7 @@ struct AgentPromptSubmissionTests {
         }
         let response = try #require(payload as? [String: Any])
         #expect(response["submitted"] as? Bool == true)
-        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
         #expect(pending.keyEvents == 0)
         #expect(pending.promptSubmissionItems == 1)
@@ -500,7 +515,7 @@ struct AgentPromptSubmissionTests {
         #expect(agentResponse["submitted"] as? Bool == true)
         #expect(agentResponse["queued"] as? Bool == true)
         #expect(
-            panel.surface.pendingSocketInputSnapshotForTests.items == 2
+            panel.surface.debugPendingSocketInputForTesting().items == 2
         )
     }
 
@@ -668,7 +683,7 @@ struct AgentPromptSubmissionTests {
 
         #expect(result == .composerBusy)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }
 
     @MainActor
@@ -686,7 +701,7 @@ struct AgentPromptSubmissionTests {
             completion = $0
         }
 
-        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
         #expect(pending.promptSubmissionItems == 1)
         #expect(pending.pasteTextItems == 0)
@@ -713,7 +728,7 @@ struct AgentPromptSubmissionTests {
             completion = $0
         }
 
-        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
         #expect(pending.promptSubmissionItems == 1)
         #expect(completion?.didSubmit == true)
@@ -735,7 +750,7 @@ struct AgentPromptSubmissionTests {
             completion = $0
         }
 
-        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
         #expect(pending.promptSubmissionItems == 1)
         #expect(completion?.didSubmit == true)
@@ -833,7 +848,7 @@ struct AgentPromptSubmissionTests {
             hookRecordingSource: "workspace.agent_submit"
         )
         #expect(result == .agentScopeUnavailable)
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
 
         workspace.recordAgentPID(
             key: agentKey,
@@ -871,7 +886,7 @@ struct AgentPromptSubmissionTests {
         )
         #expect(recoveredResult == .queued)
         #expect(
-            panel.surface.pendingSocketInputSnapshotForTests
+            panel.surface.debugPendingSocketInputForTesting()
                 .promptSubmissionItems == 1
         )
     }
@@ -1054,7 +1069,7 @@ struct AgentPromptSubmissionTests {
         #expect(data["message_id"] is String)
         #expect(data["queued"] as? Bool == true)
         #expect(data["delivery_state"] as? String == "queued")
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
 
         workspace.recordAgentPID(
@@ -1082,7 +1097,7 @@ struct AgentPromptSubmissionTests {
         let busyResponse = try #require(busyPayload as? [String: Any])
         #expect(busyResponse["message_id"] is String)
         #expect(busyResponse["queued"] as? Bool == true)
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
 
         panel.surface.recordHumanPromptInput(.submissionBoundary)
@@ -1108,7 +1123,7 @@ struct AgentPromptSubmissionTests {
         #expect(payload["queued"] as? Bool == true)
         #expect(payload["workspace_id"] as? String == workspace.id.uuidString)
         #expect(payload["surface_id"] as? String == panelID.uuidString)
-        let pending = panel.surface.pendingSocketInputSnapshotForTests
+        let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(pending.items == 1)
         #expect(pending.promptSubmissionItems == 1)
         #expect(pending.inputTextItems == 0)
@@ -1161,7 +1176,7 @@ struct AgentPromptSubmissionTests {
         #expect(data["workspace_id"] as? String == workspace.id.uuidString)
         #expect(data["surface_id"] as? String == panelID.uuidString)
         #expect(data["retryable"] == nil)
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }
 
     @MainActor
@@ -1199,6 +1214,6 @@ struct AgentPromptSubmissionTests {
             return
         }
         #expect(code == "invalid_params")
-        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
     }
 }

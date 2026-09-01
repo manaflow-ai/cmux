@@ -3040,7 +3040,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// on this hook-derived state instead. Entries are bounded by
     /// `activeAgentTurnMaximumAge` so a missed stop hook cannot wedge the
     /// addressed-prompt queue forever.
-    var activeAgentTurnStartsByPanelId: [UUID: Date] = [:]
+    var activeAgentTurnStartsByPanelId: [UUID: AgentTurnStartRecord] = [:]
     /// Per-panel admission state preventing restored PTY startup noise from
     /// taking ownership of the persisted title.
     var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
@@ -5806,7 +5806,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
             if state == .promptIdle,
                agentPromptInputScope(forPanelId: panelId) != nil {
-                TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
+                _ = markAgentPromptResumeReady(panelId: panelId)
             }
             return
         }
@@ -5835,7 +5835,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
         if state == .promptIdle,
            agentPromptInputScope(forPanelId: panelId) != nil {
-            TerminalController.shared.drainAgentPromptQueue(workspaceID: id)
+            _ = markAgentPromptResumeReady(panelId: panelId)
         }
 #if DEBUG
         cmuxDebugLog(
@@ -5883,6 +5883,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               ) else {
             return false
         }
+        // Hibernation permanently ends the old process generation. Do not
+        // carry its logical turn into the replacement runtime.
+        activeAgentTurnStartsByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.setSnapshot(agent, panelId: panelId)
         restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -6358,6 +6361,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
+        activeAgentTurnStartsByPanelId = activeAgentTurnStartsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }

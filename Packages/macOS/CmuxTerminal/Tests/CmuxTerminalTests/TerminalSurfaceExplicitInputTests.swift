@@ -89,6 +89,26 @@ struct TerminalSurfaceExplicitInputTests {
         )
     }
 
+    @Test func promptSubmissionChecksComposerOwnershipBeforeClipboardDeferral() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.clipboard-admission"
+        )
+        fixture.surface.recordHumanPromptInput(.unknown)
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "must remain separate",
+                submitKey: "return",
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .composerBusy
+        )
+        #expect(fixture.nativeView.deferredRuntimeInputs.isEmpty)
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+    }
+
     @Test func pasteTextNotifiesPaneHostBeforeQueueingOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
@@ -416,6 +436,27 @@ struct TerminalSurfaceExplicitInputTests {
         _ = fixture.surface.sendKeyText("x")
 
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func coldKeyTextClaimsHumanOwnershipBeforeAnAgentSubmissionCanAdmit() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        let scope = "agentPIDKey:codex.cold-key-text"
+        fixture.surface.synchronizePromptInputAgentScope(scope)
+
+        #expect(fixture.surface.sendKeyText("draft"))
+        #expect(fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "automation",
+                submitKey: "return",
+                rejectIfHumanComposerBusy: true,
+                hookRecordingSource: "workspace.agent_submit"
+            ) == .composerBusy
+        )
+        #expect(
+            fixture.surface.debugPendingSocketInputForTesting().items == 1
+        )
     }
 
     @Test func explicitBindingActionNotifiesWithoutChangingInternalBindingActions() {

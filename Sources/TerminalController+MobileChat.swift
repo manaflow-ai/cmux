@@ -339,6 +339,17 @@ extension TerminalController {
                 data: nil
             )
         }
+        guard let refreshedTerminalTarget = mobileCanonicalTerminalTarget(
+            params: refreshedTerminalParams
+        ) else {
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: nil
+            )
+        }
 
         var promptComponents: [String] = []
         promptComponents.reserveCapacity(
@@ -354,13 +365,22 @@ extension TerminalController {
         }
         var pasteParams = refreshedTerminalParams
         pasteParams["text"] = promptComponents.joined(separator: " ")
+        let attachmentDeliveryID: UUID? = attachmentFileURLs.isEmpty
+            ? nil
+            : retainMobileChatAttachmentDelivery(
+                workspaceID: refreshedTerminalTarget.workspace.id,
+                surfaceID: refreshedTerminalTarget.surfaceID,
+                promptText: pasteParams["text"] as? String ?? "",
+                fileURLs: attachmentFileURLs
+            )
         let result = v2MobileTerminalPaste(
             params: pasteParams,
             rejectIfHumanComposerBusy: true
         )
         if case .err = result {
-            GhosttyApp.terminalPasteboard
-                .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
+            if let attachmentDeliveryID {
+                finishMobileChatAttachmentDelivery(id: attachmentDeliveryID)
+            }
         }
         return result
     }
@@ -392,6 +412,115 @@ extension TerminalController {
             fileURLs.append(fileURL)
         }
         return fileURLs
+    }
+
+    /// Retains materialized attachment files until their prompt hook arrives,
+    /// with a bounded deadline for a queued or abandoned submission.
+    @MainActor
+    func retainMobileChatAttachmentDelivery(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        promptText: String,
+        fileURLs: [URL]
+    ) -> UUID {
+        while mobileChatAttachmentDeliveryOrder.count
+                >= Self.maximumMobileChatAttachmentDeliveries {
+            guard let oldestID = mobileChatAttachmentDeliveryOrder.first else {
+                break
+            }
+            if mobileChatAttachmentDeliveries[oldestID] == nil {
+                mobileChatAttachmentDeliveryOrder.removeFirst()
+                mobileChatAttachmentCleanupSchedulers.removeValue(forKey: oldestID)?.cancel()
+                continue
+            }
+            finishMobileChatAttachmentDelivery(id: oldestID)
+        }
+
+        let delivery = MobileChatAttachmentDelivery(
+            id: UUID(),
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            promptText: promptText,
+            fileURLs: fileURLs
+        )
+        mobileChatAttachmentDeliveries[delivery.id] = delivery
+        mobileChatAttachmentDeliveryOrder.append(delivery.id)
+
+        let scheduler = MainActorDeferredActionScheduler()
+        mobileChatAttachmentCleanupSchedulers[delivery.id] = scheduler
+        scheduler.schedule(after: .seconds(10 * 60)) { [weak self] in
+            self?.finishMobileChatAttachmentDelivery(id: delivery.id)
+        }
+        return delivery.id
+    }
+
+    /// Releases one retained batch after the agent's matching prompt hook or
+    /// the bounded abandonment deadline.
+    @MainActor
+    func finishMobileChatAttachmentDelivery(id: UUID) {
+        guard let delivery = mobileChatAttachmentDeliveries.removeValue(forKey: id) else {
+            return
+        }
+        mobileChatAttachmentDeliveryOrder.removeAll { $0 == id }
+        mobileChatAttachmentCleanupSchedulers.removeValue(forKey: id)?.cancel()
+        GhosttyApp.terminalPasteboard
+            .cleanupTransferredTemporaryImageFiles(delivery.fileURLs)
+    }
+
+    /// Releases the oldest matching batch after an authoritative prompt hook.
+    @MainActor
+    func finishMobileChatAttachmentDelivery(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        submittedMessage: String?
+    ) {
+        let normalizedMessage = submittedMessage.map {
+            $0.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        guard let deliveryID = mobileChatAttachmentDeliveryOrder.first(
+            where: { id in
+                guard let delivery = mobileChatAttachmentDeliveries[id],
+                      delivery.workspaceID == workspaceID,
+                      delivery.surfaceID == surfaceID,
+                      let normalizedMessage,
+                      !normalizedMessage.isEmpty else {
+                    return false
+                }
+                let normalizedPrompt = delivery.promptText
+                    .split(whereSeparator: \.isWhitespace)
+                    .joined(separator: " ")
+                if normalizedMessage == normalizedPrompt {
+                    return true
+                }
+                return delivery.fileURLs.allSatisfy { fileURL in
+                    normalizedMessage.contains(fileURL.path)
+                        || normalizedMessage.contains(
+                            fileURL.path.terminalShellEscaped
+                        )
+                }
+            }
+        ) else {
+            return
+        }
+        finishMobileChatAttachmentDelivery(id: deliveryID)
+    }
+
+    /// Releases all attachment batches owned by a closing workspace or surface.
+    @MainActor
+    func discardMobileChatAttachmentDeliveries(
+        workspaceID: UUID,
+        surfaceID: UUID? = nil
+    ) {
+        let ids = mobileChatAttachmentDeliveryOrder.filter { id in
+            guard let delivery = mobileChatAttachmentDeliveries[id],
+                  delivery.workspaceID == workspaceID else {
+                return false
+            }
+            return surfaceID == nil || delivery.surfaceID == surfaceID
+        }
+        for id in ids {
+            finishMobileChatAttachmentDelivery(id: id)
+        }
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of

@@ -2468,6 +2468,13 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
 
         for workspace in closingWorkspaces {
+            // Window teardown bypasses `closeWorkspace`, so release the
+            // workspace-scoped agent FIFO before its panels disappear. The
+            // per-panel close path remains idempotent and handles any later
+            // surface-level cleanup.
+            TerminalController.shared.discardAgentPromptQueue(
+                workspaceID: workspace.id
+            )
             finalizeWorkspaceForRemoval(workspace, clearsWorkspaceGitProbes: false)
         }
 

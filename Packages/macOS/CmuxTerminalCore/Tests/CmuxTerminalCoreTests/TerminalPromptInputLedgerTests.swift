@@ -75,6 +75,23 @@ import Testing
         #expect(confirmation.messageID == messageID)
     }
 
+    @Test func emptyProgrammaticPromptStillHasAConfirmableBoundary() {
+        var ledger = TerminalPromptInputLedger()
+        let messageID = UUID()
+        ledger.recordProgrammaticSubmission(
+            message: "",
+            source: "workspace.agent_submit",
+            messageID: messageID
+        )
+
+        let confirmation = ledger.confirmSubmissionWithMessageID(message: "")
+        #expect(
+            confirmation.origin
+                == .programmatic(source: "workspace.agent_submit")
+        )
+        #expect(confirmation.messageID == messageID)
+    }
+
     @Test func humanOwnedAppSubmissionRecoversOnlyItsPriorInput() {
         var ledger = TerminalPromptInputLedger()
         ledger.recordHumanInput(.unknown)

@@ -51,13 +51,19 @@ extension TerminalController {
         let terminalTarget = resolved.target
         let terminalPanel = terminalTarget.panel
 
-        let agentContext = WorkspaceContentView.terminalAgentContext(
+        let restoredAgentContext = WorkspaceContentView.terminalAgentContext(
             panel: terminalPanel,
             workspace: resolved.workspace
         )
         let agentInputScope = resolved.workspace.agentPromptInputScope(
             forPanelId: terminalPanel.id
         )
+        // Once a live process scope exists, it is the authoritative agent kind;
+        // restored panel metadata can describe the agent that used this panel
+        // before a registry rebind.
+        let agentContext = agentInputScope.map {
+            String($0.prefix(while: { $0 != "|" }))
+        } ?? restoredAgentContext
         if submitKeyWasReturnIntent {
             submitKeyName = TextBoxAgentDetection.composedPromptSubmitKey(
                 containsNewline: text.contains("\n") || text.contains("\r"),
@@ -86,7 +92,7 @@ extension TerminalController {
                 rejectIfHumanComposerBusy && agentInputScope == nil
                     ? ["ctrl+a", "ctrl+k", "ctrl+u"]
                     : []
-            let result = terminalPanel.sendPromptSubmissionResult(
+            let result = terminalTarget.sendPromptSubmissionResult(
                 text,
                 submitKey: submitKeyName,
                 preparationKeys: preparationKeys,
@@ -97,20 +103,16 @@ extension TerminalController {
                 // gap a regression in the existing human-owned send flow.
                 rejectIfHumanComposerBusy: rejectTrackedHumanComposer,
                 hookRecordingSource:
-                    TextBoxAgentDetection.supportsActiveAgentPrefixes(
-                        context: agentContext
-                    )
+                    TextBoxAgentDetection.supportsActiveAgentPrefixes(context: agentContext)
                         ? "workspace.prompt_submit"
                         : nil,
                 hookConfirmsHumanInput:
-                    TextBoxAgentDetection.supportsActiveAgentPrefixes(
-                        context: agentContext
-                    )
+                    TextBoxAgentDetection.supportsActiveAgentPrefixes(context: agentContext)
             )
             switch result {
             case .sent:
                 submitted = true
-                terminalPanel.surface.forceRefresh(
+                terminalTarget.forceRefresh(
                     reason: "mobileHost.terminalPaste"
                 )
             case .queued:
@@ -163,17 +165,14 @@ extension TerminalController {
                 )
             }
         } else {
-            terminalPanel.surface.synchronizePromptInputAgentScope(
-                agentInputScope
-            )
-            guard terminalPanel.sendText(text) else {
+            guard terminalTarget.sendText(text) else {
                 return .err(
                     code: "surface_unavailable",
                     message: Self.terminalSurfaceUnavailableMessage,
                     data: ["surface_id": surfaceID.uuidString]
                 )
             }
-            terminalPanel.surface.forceRefresh(
+            terminalTarget.forceRefresh(
                 reason: "mobileHost.terminalPaste"
             )
         }

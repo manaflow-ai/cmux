@@ -511,6 +511,47 @@ struct RemoteResumeBindingTests {
         let pingEnvelope = try v2Envelope(requestData: ping)
         #expect(pingEnvelope["ok"] as? Bool == true, "\(pingEnvelope)")
 
+        // Relay callers use the same short refs as the CLI. Authorization must
+        // resolve them inside the authenticated owner's topology before the
+        // selector allow-list rejects non-UUID values.
+        let workspaceRef = try #require(
+            TerminalController.shared.v2Ref(
+                kind: .workspace,
+                uuid: workspace.id
+            ) as? String
+        )
+        let surfaceRef = try #require(
+            TerminalController.shared.v2Ref(
+                kind: .surface,
+                uuid: surfaceID
+            ) as? String
+        )
+        let relayedAgentSubmit = rewriter.rewriteRemoteRelayCommandLine(
+            try requestData([
+                "id": "relay-agent-submit-refs",
+                "method": "workspace.agent_submit",
+                "params": [
+                    "workspace_id": workspaceRef,
+                    "surface_id": surfaceRef,
+                    "text": "queued from a relay ref",
+                ],
+            ]),
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+        let relayedAgentRequest = try controlRequest(relayedAgentSubmit)
+        let agentAuthorization = TerminalController.shared
+            .authorizeRemoteRelayRequest(relayedAgentRequest)
+        #expect(agentAuthorization.errorResponse == nil)
+        #expect(
+            agentAuthorization.request.params["workspace_id"]
+                == .string(workspace.id.uuidString)
+        )
+        #expect(
+            agentAuthorization.request.params["surface_id"]
+                == .string(surfaceID.uuidString)
+        )
+
         let forbidden = rewriter.rewriteRemoteRelayCommandLine(
             try requestData([
                 "id": "relay-forbidden",
@@ -1461,6 +1502,21 @@ struct RemoteResumeBindingTests {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
+    }
+
+    private func controlRequest(_ data: Data) throws -> ControlRequest {
+        let line = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch ControlRequestParser().request(fromLine: line) {
+        case .success(let request):
+            return request
+        case .failure(let error):
+            throw NSError(
+                domain: "cmux.tests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: String(describing: error)]
+            )
+        }
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {

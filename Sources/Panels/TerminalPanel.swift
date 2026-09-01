@@ -659,7 +659,8 @@ final class TerminalPanel: Panel, ObservableObject {
         isClosingPanel = true
         TerminalController.shared.discardAgentPromptQueue(
             surfaceID: id,
-            workspaceID: workspaceId
+            workspaceID: workspaceId,
+            discardAttachments: true
         )
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,

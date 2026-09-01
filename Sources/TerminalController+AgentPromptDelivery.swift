@@ -236,7 +236,11 @@ extension TerminalController {
                           sourceContext
                       ) else { continue }
                 sawSameKindSessionKey = true
-                if key[key.index(after: separator)...] == normalizedSessionID {
+                if workspace.agentPromptSessionIDsMatch(
+                    recordedSessionID: String(key[key.index(after: separator)...]),
+                    hookSessionID: normalizedSessionID,
+                    hookSource: normalizedSource
+                ) {
                     return false
                 }
             }
@@ -271,7 +275,11 @@ extension TerminalController {
                     return false
                 }
                 let sessionID = key[key.index(after: separator)...]
-                guard sessionID == normalizedSessionID else {
+                guard workspace.agentPromptSessionIDsMatch(
+                    recordedSessionID: String(sessionID),
+                    hookSessionID: normalizedSessionID,
+                    hookSource: normalizedSource
+                ) else {
                     return false
                 }
                 return TextBoxAgentDetection.representsSameAgentKind(
@@ -357,10 +365,6 @@ extension TerminalController {
         panel: TerminalPanel,
         workspace: Workspace
     ) -> AgentPromptTerminalTarget? {
-        let context = WorkspaceContentView.terminalAgentContext(
-            panel: panel,
-            workspace: workspace
-        )
         let liveAgent = workspace.agentPIDKeysByPanelId[panel.id]?.contains(where: {
             workspace.isPromptCapableAgentPIDKey($0)
         }) == true
@@ -378,16 +382,9 @@ extension TerminalController {
         let agentInputScope = workspace.agentPromptInputScope(
             forPanelId: panel.id
         )
-        // Once process identity is available, the scope's key is the
-        // authoritative live agent kind. Do not let restored/initial command
-        // metadata override it after a panel is reused for another agent.
-        let resolvedAgentContext = agentInputScope.map {
-            String($0.prefix(while: { $0 != "|" }))
-        } ?? context
         return AgentPromptTerminalTarget(
             surfaceID: surfaceID,
             panel: panel,
-            agentContext: resolvedAgentContext,
             agentInputScope: agentInputScope
         )
     }

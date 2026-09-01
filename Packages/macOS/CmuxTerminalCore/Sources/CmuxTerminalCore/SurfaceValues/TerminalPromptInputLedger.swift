@@ -349,7 +349,6 @@ public struct TerminalPromptInputLedger: Sendable {
         let normalized = message
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        guard !normalized.isEmpty else { return nil }
         let bytes = Data(normalized.utf8)
         return TerminalPromptMessageSignature(
             digest: Array(SHA256.hash(data: bytes)),

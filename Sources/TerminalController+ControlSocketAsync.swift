@@ -110,8 +110,18 @@ extension TerminalController {
         _ request: ControlRequest
     ) async -> String? {
         if request.method == "workspace.agent_submit" {
+            let foundationParams = request.params.mapValues(\.foundationObject)
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(
+                method: request.method,
+                params: foundationParams
+            ) {
+                return v2Result(
+                    id: request.id?.foundationObject,
+                    workspaceParamError
+                )
+            }
             let result = await v2WorkspaceAgentSubmitAsync(
-                params: request.params.mapValues(\.foundationObject),
+                params: foundationParams,
                 id: request.id
             )
             return result

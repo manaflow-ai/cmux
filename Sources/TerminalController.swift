@@ -175,6 +175,11 @@ class TerminalController {
     /// One replaceable deadline scheduler per workspace for unconfirmed prompt
     /// barriers. The scheduler owns cancellation; this controller owns scope.
     var agentPromptConfirmationFallbackSchedulers: [UUID: MainActorDeferredActionScheduler] = [:]
+    /// Bounded mobile-chat attachment ownership waiting for agent consumption.
+    static let maximumMobileChatAttachmentDeliveries = 64
+    var mobileChatAttachmentDeliveries: [UUID: MobileChatAttachmentDelivery] = [:]
+    var mobileChatAttachmentDeliveryOrder: [UUID] = []
+    var mobileChatAttachmentCleanupSchedulers: [UUID: MainActorDeferredActionScheduler] = [:]
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -6289,7 +6294,8 @@ class TerminalController {
     }
 
     nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
-        guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop,
+        guard event.hookEventName == .userPromptSubmit
+                || event.hookEventName == .stop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
         else { return }
@@ -6309,9 +6315,18 @@ class TerminalController {
                        in: workspace,
                        event: event
                    ) {
+                    finishMobileChatAttachmentDelivery(
+                        workspaceID: workspaceId,
+                        surfaceID: terminalPanel.id,
+                        submittedMessage: event.submittedPromptMessage
+                    )
                     // The submitted prompt starts an agent turn; addressed
                     // delivery queues behind it until the stop hook.
-                    workspace.recordAgentTurnStart(panelId: terminalPanel.id)
+                    workspace.recordAgentTurnStart(
+                        panelId: terminalPanel.id,
+                        sessionID: event.sessionId
+                    )
+                    _ = workspace.markAgentPromptResumeReady(panelId: terminalPanel.id)
                     if let confirmation = confirmAgentPromptSubmission(
                         workspaceID: workspaceId,
                         panel: terminalPanel,
@@ -6333,6 +6348,13 @@ class TerminalController {
                             iMessageModeEnabled: iMessageModeEnabled
                         )
                     }
+                    // The new turn is still active, so this is a safe no-op
+                    // for the current event; it also keeps the readiness gate
+                    // centralized if a hook arrives after a queued request was
+                    // already released.
+                    workspace.drainAgentPromptQueueIfReady(
+                        panelId: terminalPanel.id
+                    )
                 } else {
                     _ = tabManager.handlePromptSubmit(
                         workspaceId: workspaceId,
@@ -6348,9 +6370,6 @@ class TerminalController {
                         state: "confirmed"
                     )
                 }
-                // A human hook can release a queued request; a programmatic
-                // hook advances the next request in the same workspace FIFO.
-                drainAgentPromptQueue(workspaceID: workspaceId)
             }
         case .stop:
             let assistantFinalMessage = event.assistantFinalMessage
@@ -6367,7 +6386,25 @@ class TerminalController {
                         in: workspace,
                         event: event
                     ) {
-                        workspace.recordAgentTurnEnd(panelId: panel.id)
+                        let matchesCurrentSession =
+                            workspace.agentPromptHookMatchesSession(
+                                panelId: panel.id,
+                                hookSource: event.source,
+                                sessionID: event.sessionId
+                            )
+                        let didEndTurn = workspace.recordAgentTurnEnd(
+                            panelId: panel.id,
+                            sessionID: event.sessionId
+                        )
+                        if didEndTurn {
+                            _ = workspace.markAgentPromptResumeReady(
+                                panelId: panel.id
+                            )
+                        } else if matchesCurrentSession {
+                            _ = workspace.markAgentPromptResumeReady(
+                                panelId: panel.id
+                            )
+                        }
                     }
                 }
                 _ = tabManager.handleAssistantFinalMessage(
@@ -6375,10 +6412,6 @@ class TerminalController {
                     message: assistantFinalMessage,
                     iMessageModeEnabled: iMessageModeEnabled
                 )
-                // The stop hook ends the logical turn, but the terminal's
-                // prompt-idle or scope-rebind callback owns the next drain.
-                // Draining here can race the resumed agent's startup stream
-                // and send a queued prompt before its composer is ready.
             }
         default:
             break

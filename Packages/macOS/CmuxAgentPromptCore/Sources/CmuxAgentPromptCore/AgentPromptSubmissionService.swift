@@ -21,10 +21,14 @@ public final class AgentPromptSubmissionService {
     public typealias Receipt = AgentPromptSubmissionReceipt
 
     private let maximumPendingRequests: Int
-    private let maximumPendingBytes = 8 * 1_048_576
+    private let maximumPendingBytes: Int
     private let now: @Sendable () -> Date
     private var pendingByWorkspace: [UUID: [AgentPromptSubmissionPendingRequest]] = [:]
     private var pendingBytes = 0
+    /// Synchronous delivery callbacks can re-enter ``submit`` before the
+    /// first callback has returned. Keep that workspace in an admission state
+    /// until the callback's result has been reconciled.
+    private var deliveryInProgressWorkspaces: Set<UUID> = []
 
     /// One accepted request at a time is the workspace FIFO barrier.
     ///
@@ -52,6 +56,7 @@ public final class AgentPromptSubmissionService {
         now: @escaping @Sendable () -> Date = { Date.now }
     ) {
         self.maximumPendingRequests = max(1, maximumPendingRequests)
+        self.maximumPendingBytes = 8 * Self.maximumPromptBytes
         self.confirmationTimeout = max(0, confirmationTimeout)
         self.now = now
     }
@@ -129,7 +134,8 @@ public final class AgentPromptSubmissionService {
             )
         }
 
-        if pendingByWorkspace[workspaceID]?.isEmpty == false {
+        if deliveryInProgressWorkspaces.contains(workspaceID)
+            || pendingByWorkspace[workspaceID]?.isEmpty == false {
             let fifoSurfaceID = request.surfaceID
                 ?? pendingByWorkspace[workspaceID]?.first?.surfaceID
                 ?? inFlightByWorkspace[workspaceID]?.surfaceID
@@ -172,10 +178,13 @@ public final class AgentPromptSubmissionService {
             )
         }
 
-        let result = delivery(messageID)
+        // Install the re-entrancy barrier before invoking user-owned delivery
+        // code. A synchronous hook/observer callback may submit another
+        // message for this workspace from inside `delivery`.
+        let result = deliver(request)
         switch result {
         case .rejectedComposerBusy(let resolvedWorkspaceID, let surfaceID):
-            guard enqueue(request, surfaceID: surfaceID) else {
+            guard enqueue(request, surfaceID: surfaceID, atFront: true) else {
                 return Receipt(
                     messageID: messageID,
                     result: .submissionQueueFull(
@@ -193,7 +202,7 @@ public final class AgentPromptSubmissionService {
                 )
             )
         case .agentBusy(let resolvedWorkspaceID, let surfaceID):
-            guard enqueue(request, surfaceID: surfaceID) else {
+            guard enqueue(request, surfaceID: surfaceID, atFront: true) else {
                 return Receipt(
                     messageID: messageID,
                     result: .submissionQueueFull(
@@ -211,7 +220,7 @@ public final class AgentPromptSubmissionService {
                 )
             )
         case .agentScopeUnavailable(let resolvedWorkspaceID, let surfaceID):
-            guard enqueue(request, surfaceID: surfaceID) else {
+            guard enqueue(request, surfaceID: surfaceID, atFront: true) else {
                 return Receipt(
                     messageID: messageID,
                     result: .submissionQueueFull(
@@ -230,7 +239,7 @@ public final class AgentPromptSubmissionService {
             )
         case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
             if queued {
-                guard enqueue(request, surfaceID: surfaceID) else {
+                guard enqueue(request, surfaceID: surfaceID, atFront: true) else {
                     return Receipt(
                         messageID: messageID,
                         result: .submissionQueueFull(
@@ -261,6 +270,28 @@ public final class AgentPromptSubmissionService {
                     queued: false
                 )
             )
+        case .queued(let resolvedWorkspaceID, let surfaceID, let reason):
+            // A delivery implementation may itself defer a transaction. Keep
+            // the original request ahead of any submissions made re-entrantly
+            // by that implementation; otherwise the callback-created request
+            // would overtake the transaction it observed.
+            guard enqueue(request, surfaceID: surfaceID, atFront: true) else {
+                return Receipt(
+                    messageID: messageID,
+                    result: .submissionQueueFull(
+                        workspaceID: workspaceID,
+                        surfaceID: requestedSurfaceID
+                    )
+                )
+            }
+            return Receipt(
+                messageID: messageID,
+                result: .queued(
+                    workspaceID: resolvedWorkspaceID,
+                    surfaceID: surfaceID,
+                    reason: reason
+                )
+            )
         default:
             return Receipt(messageID: messageID, result: result)
         }
@@ -273,15 +304,18 @@ public final class AgentPromptSubmissionService {
     @discardableResult
     public func drain(workspaceID: UUID) -> [Receipt] {
         expireStaleInFlight(workspaceID: workspaceID)
+        guard !deliveryInProgressWorkspaces.contains(workspaceID) else {
+            return []
+        }
         guard inFlightByWorkspace[workspaceID] == nil else { return [] }
-        guard var pending = pendingByWorkspace[workspaceID], !pending.isEmpty else {
+        guard pendingByWorkspace[workspaceID]?.isEmpty == false else {
             pendingByWorkspace.removeValue(forKey: workspaceID)
             return []
         }
 
         var completed: [Receipt] = []
-        while let first = pending.first {
-            let result = first.delivery(first.messageID)
+        while let first = pendingByWorkspace[workspaceID]?.first {
+            let result = deliver(first)
             switch result {
             case .rejectedComposerBusy,
                  .agentBusy,
@@ -292,11 +326,13 @@ public final class AgentPromptSubmissionService {
                 // or hibernated surface is rebinding. Retain the request;
                 // explicit workspace/surface removal is the terminal cleanup
                 // path and prevents a prompt from being lost on a wake race.
-                pendingByWorkspace[workspaceID] = pending
                 return completed
             case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
                 if queued {
-                    pendingByWorkspace[workspaceID] = pending
+                    return completed
+                }
+                guard var pending = pendingByWorkspace[workspaceID],
+                      pending.first?.messageID == first.messageID else {
                     return completed
                 }
                 pending.removeFirst()
@@ -325,18 +361,29 @@ public final class AgentPromptSubmissionService {
                 // next FIFO entry must wait for this prompt's hook (or the
                 // explicit confirmation deadline) before delivery.
                 return completed
+            case .queued:
+                // The delivery closure already deferred this request. It is
+                // still the first FIFO item and must not be removed or retried
+                // recursively until a later readiness event calls `drain`.
+                return completed
             default:
                 // A permanently missing workspace or surface is terminal for
                 // the retained request; do not retry it forever.
+                guard var pending = pendingByWorkspace[workspaceID],
+                      pending.first?.messageID == first.messageID else {
+                    return completed
+                }
                 pending.removeFirst()
                 pendingBytes = max(0, pendingBytes - first.text.utf8.count)
-                completed.append(
-                    Receipt(messageID: first.messageID, result: result)
-                )
+                if pending.isEmpty {
+                    pendingByWorkspace.removeValue(forKey: workspaceID)
+                } else {
+                    pendingByWorkspace[workspaceID] = pending
+                }
+                completed.append(Receipt(messageID: first.messageID, result: result))
             }
         }
 
-        pendingByWorkspace.removeValue(forKey: workspaceID)
         return completed
     }
 
@@ -363,6 +410,14 @@ public final class AgentPromptSubmissionService {
         }
         inFlightByWorkspace.removeValue(forKey: workspaceID)
         return true
+    }
+
+    /// Whether a workspace currently has an accepted prompt awaiting its hook.
+    ///
+    /// Teardown code uses this to avoid cancelling a workspace deadline merely
+    /// because a different queued surface was removed.
+    public func hasInFlight(workspaceID: UUID) -> Bool {
+        inFlightByWorkspace[workspaceID] != nil
     }
 
     /// Drops all queued and awaiting requests for a closed workspace.
@@ -444,6 +499,23 @@ public final class AgentPromptSubmissionService {
         pendingByWorkspace.values.reduce(0) { $0 + $1.count }
     }
 
+    /// UTF-8 bytes currently retained by the bounded admission FIFO.
+    ///
+    /// This is an operational snapshot of the queue budget, not prompt
+    /// content; it lets package-level tests and diagnostics verify that every
+    /// terminal removal path reconciles its accounting.
+    var pendingByteCount: Int {
+        pendingBytes
+    }
+
+    private func deliver(
+        _ request: AgentPromptSubmissionPendingRequest
+    ) -> AgentPromptSubmissionResult {
+        deliveryInProgressWorkspaces.insert(request.workspaceID)
+        defer { deliveryInProgressWorkspaces.remove(request.workspaceID) }
+        return request.delivery(request.messageID)
+    }
+
     private func beginInFlight(
         messageID: UUID,
         workspaceID: UUID,
@@ -458,7 +530,8 @@ public final class AgentPromptSubmissionService {
 
     private func enqueue(
         _ request: AgentPromptSubmissionPendingRequest,
-        surfaceID: UUID? = nil
+        surfaceID: UUID? = nil,
+        atFront: Bool = false
     ) -> Bool {
         let requestBytes = request.text.utf8.count
         guard pendingCount < maximumPendingRequests,
@@ -472,7 +545,14 @@ public final class AgentPromptSubmissionService {
             text: request.text,
             delivery: request.delivery
         )
-        pendingByWorkspace[request.workspaceID, default: []].append(normalized)
+        if atFront {
+            pendingByWorkspace[request.workspaceID, default: []].insert(
+                normalized,
+                at: 0
+            )
+        } else {
+            pendingByWorkspace[request.workspaceID, default: []].append(normalized)
+        }
         pendingBytes += requestBytes
         return true
     }

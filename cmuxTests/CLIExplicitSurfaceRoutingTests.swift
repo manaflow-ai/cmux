@@ -932,12 +932,28 @@ struct CLIExplicitSurfaceRoutingTests {
         environment: [String: String],
         timeout: TimeInterval
     ) -> ProcessRunResult {
+        // Every child gets a private home so CLI config, hook state, and
+        // idempotency files cannot read or mutate the developer's account.
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cli-home-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try? FileManager.default.createDirectory(
+            at: isolatedHome,
+            withIntermediateDirectories: true
+        )
+        var childEnvironment = environment
+        childEnvironment["HOME"] = isolatedHome.path
+        childEnvironment["CFFIXED_USER_HOME"] = isolatedHome.path
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = childEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe

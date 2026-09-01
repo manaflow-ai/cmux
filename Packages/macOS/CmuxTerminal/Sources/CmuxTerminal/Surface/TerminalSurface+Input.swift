@@ -275,6 +275,10 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.keyText(text))
             if queued {
+                // A cold key-text write is already accepted by the caller.
+                // Record ownership now, before another addressed submission
+                // can inspect the still-cold surface and overtake this draft.
+                promptInputLedger.recordHumanInput(.unknown)
                 requestInputDemandSurfaceStartIfNeeded()
                 didAcceptExplicitInput()
             }
@@ -291,7 +295,8 @@ extension TerminalSurface {
     @MainActor
     private func sendKeyText(
         _ text: String,
-        to liveSurface: ghostty_surface_t
+        to liveSurface: ghostty_surface_t,
+        recordsPromptInput: Bool = true
     ) -> Bool {
 
         var keyEvent = ghostty_input_key_s()
@@ -308,7 +313,9 @@ extension TerminalSurface {
             }
         }
         if accepted {
-            promptInputLedger.recordHumanInput(.unknown)
+            if recordsPromptInput {
+                promptInputLedger.recordHumanInput(.unknown)
+            }
             didAcceptExplicitInput()
         }
         return accepted
@@ -521,6 +528,15 @@ extension TerminalSurface {
         guard preparationEvents.count == preparationKeys.count else {
             return .unknownKey
         }
+        if rejectIfHumanComposerBusy,
+           promptInputLedger.hasUnconfirmedHumanInput {
+            return .composerBusy
+        }
+        let hookConfirmedHumanInputSnapshot =
+            hookConfirmsHumanInput
+                ? promptInputLedger.humanInputSnapshot
+                : nil
+
         if deferDuringRuntimeClipboardRead {
             if deferInputDuringRuntimeClipboardRead(
                 estimatedBytes: data.count + preparationEvents.reduce(0) { $0 + $1.queuedByteCost },
@@ -532,7 +548,7 @@ extension TerminalSurface {
                         rejectIfHumanComposerBusy: rejectIfHumanComposerBusy,
                         hookRecordingSource: hookRecordingSource,
                         hookConfirmsHumanInput: hookConfirmsHumanInput,
-                        deferDuringRuntimeClipboardRead: true,
+                        deferDuringRuntimeClipboardRead: false,
                         messageID: admissionMessageID
                     )
                 }
@@ -540,14 +556,6 @@ extension TerminalSurface {
                 return .queued
             }
         }
-        if rejectIfHumanComposerBusy,
-           promptInputLedger.hasUnconfirmedHumanInput {
-            return .composerBusy
-        }
-        let hookConfirmedHumanInputSnapshot =
-            hookConfirmsHumanInput
-                ? promptInputLedger.humanInputSnapshot
-                : nil
 
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else {
@@ -1323,7 +1331,11 @@ extension TerminalSurface {
                 mods: submitKey.mods
             )
         case .keyText(let text):
-            _ = sendKeyText(text, to: targetSurface)
+            _ = sendKeyText(
+                text,
+                to: targetSurface,
+                recordsPromptInput: false
+            )
         }
         return false
     }

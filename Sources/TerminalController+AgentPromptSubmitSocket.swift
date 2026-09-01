@@ -133,7 +133,9 @@ extension TerminalController {
                 state: "queued",
                 reason: reason
             )
-            if reason == "prior_prompt_in_flight" {
+            if reason == "prior_prompt_in_flight",
+               agentPromptConfirmationFallbackSchedulers[workspaceID]?
+                   .isScheduled != true {
                 scheduleAgentPromptConfirmationFallback(workspaceID: workspaceID)
             }
         default:
@@ -228,10 +230,9 @@ extension TerminalController {
     /// Completes queued messages explicitly when their workspace is closed.
     @MainActor
     func discardAgentPromptQueue(workspaceID: UUID) {
+        discardMobileChatAttachmentDeliveries(workspaceID: workspaceID)
         let receipts = agentPromptSubmissionService.remove(workspaceID: workspaceID)
-        if !receipts.isEmpty {
-            cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
-        }
+        cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
         for receipt in receipts {
             CmuxEventBus.shared.publishAgentPromptDelivery(
                 messageID: receipt.messageID,
@@ -245,9 +246,19 @@ extension TerminalController {
 
     /// Completes messages explicitly bound to a surface that disappeared.
     @MainActor
-    func discardAgentPromptQueue(surfaceID: UUID, workspaceID: UUID) {
+    func discardAgentPromptQueue(
+        surfaceID: UUID,
+        workspaceID: UUID,
+        discardAttachments: Bool = false
+    ) {
+        if discardAttachments {
+            discardMobileChatAttachmentDeliveries(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            )
+        }
         let receipts = agentPromptSubmissionService.remove(surfaceID: surfaceID)
-        if !receipts.isEmpty {
+        if !agentPromptSubmissionService.hasInFlight(workspaceID: workspaceID) {
             cancelAgentPromptConfirmationFallback(workspaceID: workspaceID)
         }
         for receipt in receipts {
@@ -278,14 +289,6 @@ extension TerminalController {
         if let workspaceID { updated["workspace_id"] = workspaceID.uuidString }
         if let surfaceID { updated["surface_id"] = surfaceID.uuidString }
         return updated
-    }
-
-    /// Localized fallback for an impossible parser result.
-    nonisolated static var agentPromptInvalidPromptMessage: String {
-        String(
-            localized: "socket.workspace.agentSubmit.invalidPrompt",
-            defaultValue: "Invalid agent prompt."
-        )
     }
 
     /// Explains why the legacy synchronous worker seam cannot handle this
@@ -322,14 +325,15 @@ extension TerminalController {
             )
         }
         let parsed = Self.parseAgentPromptSubmit(params: requestParams)
-        guard case .success(let workspaceID, let surfaceID, let text) = parsed else {
-            guard case .failure(let error) = parsed else {
-                return .err(
-                    code: "invalid_params",
-                    message: Self.agentPromptInvalidPromptMessage,
-                    data: nil
-                )
-            }
+        let workspaceID: UUID
+        let surfaceID: UUID?
+        let text: String
+        switch parsed {
+        case .success(let parsedWorkspaceID, let parsedSurfaceID, let parsedText):
+            workspaceID = parsedWorkspaceID
+            surfaceID = parsedSurfaceID
+            text = parsedText
+        case .failure(let error):
             return error
         }
         let receipt = enqueueAgentPromptSubmission(
@@ -364,14 +368,15 @@ extension TerminalController {
             )
         }
         let parsed = Self.parseAgentPromptSubmit(params: requestParams)
-        guard case .success(let workspaceID, let surfaceID, let text) = parsed else {
-            guard case .failure(let error) = parsed else {
-                return v2Error(
-                    id: id?.foundationObject,
-                    code: "invalid_params",
-                    message: Self.agentPromptInvalidPromptMessage
-                )
-            }
+        let workspaceID: UUID
+        let surfaceID: UUID?
+        let text: String
+        switch parsed {
+        case .success(let parsedWorkspaceID, let parsedSurfaceID, let parsedText):
+            workspaceID = parsedWorkspaceID
+            surfaceID = parsedSurfaceID
+            text = parsedText
+        case .failure(let error):
             return v2Result(id: id?.foundationObject, error)
         }
         let receipt = await v2MainAsync {
