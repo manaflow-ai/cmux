@@ -739,8 +739,12 @@ final class TerminalMutationBus: @unchecked Sendable {
            token.surface != (approvalSurfaceGenerations[tokenSurfaceID] ?? 0) {
             return false
         }
+        // Resolution tokens may be workspace-agnostic after an owner mapping
+        // is retired; the surface generation above remains the stale-event
+        // fence. Only compare the live owner when the token captured one.
         if let tokenSurfaceID = token.surfaceID,
-           approvalWorkspaceBySurface[tokenSurfaceID] != token.workspaceID {
+           let tokenWorkspaceID = token.workspaceID,
+           approvalWorkspaceBySurface[tokenSurfaceID] != tokenWorkspaceID {
             return false
         }
         return true
