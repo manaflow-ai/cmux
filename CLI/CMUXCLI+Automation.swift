@@ -215,13 +215,21 @@ extension CMUXCLI {
         case "enable", "disable":
             let id = response["id"] as? String ?? "?"
             if (response["pending"] as? Bool) == true {
-                let key = subcommand == "enable"
-                    ? "cli.automation.output.enableRequested"
-                    : "cli.automation.output.disableRequested"
                 let fallback = subcommand == "enable"
                     ? "Enable request queued for %@. Run cmux automation logs to verify completion."
                     : "Disable request queued for %@. Run cmux automation logs to verify completion."
-                let format = String(localized: key, defaultValue: fallback)
+                let format: String
+                if subcommand == "enable" {
+                    format = String(
+                        localized: "cli.automation.output.enableRequested",
+                        defaultValue: fallback
+                    )
+                } else {
+                    format = String(
+                        localized: "cli.automation.output.disableRequested",
+                        defaultValue: fallback
+                    )
+                }
                 print(String.localizedStringWithFormat(format, id))
                 return
             }
