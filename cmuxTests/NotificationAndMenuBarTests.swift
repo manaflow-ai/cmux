@@ -863,6 +863,26 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(inventory.paneFlash)
     }
 
+    func testSessionRestoreRecoveryInventoryIncludesUniqueFallbackManager() {
+        let mainManager = TabManager()
+        let fallbackManager = TabManager()
+
+        let withFallback = AppDelegate.sessionRestoreRecoveryInventoryTabManagers(
+            mainWindowManagers: [mainManager],
+            fallback: fallbackManager
+        )
+        XCTAssertEqual(withFallback.count, 2)
+        XCTAssertTrue(withFallback.contains(where: { $0 === mainManager }))
+        XCTAssertTrue(withFallback.contains(where: { $0 === fallbackManager }))
+
+        let deduplicated = AppDelegate.sessionRestoreRecoveryInventoryTabManagers(
+            mainWindowManagers: [mainManager, mainManager],
+            fallback: mainManager
+        )
+        XCTAssertEqual(deduplicated.count, 1)
+        XCTAssertTrue(deduplicated[0] === mainManager)
+    }
+
     func testNotificationClickActionRoundTripsAndIsStored() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("AppDelegate.shared must be set for this test")

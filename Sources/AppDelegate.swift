@@ -3944,8 +3944,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Publishes one in-app, panel-targeted entry for every unsafe automatic restore.
     private func publishSessionRestoreRecoveryInventory() {
         var itemsByPanelID: [UUID: SessionRestoreRecoveryInventoryItem] = [:]
-        for context in mainWindowContexts.values {
-            let tabManager = context.tabManager
+        let managers = Self.sessionRestoreRecoveryInventoryTabManagers(
+            mainWindowManagers: mainWindowContexts.values.map(\.tabManager),
+            fallback: tabManager
+        )
+        for tabManager in managers {
             for workspace in tabManager.tabs {
                 for item in workspace.sessionRestoreRecoveryInventoryItems() {
                     itemsByPanelID[item.panelID] = item
@@ -3971,6 +3974,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }) {
             TerminalNotificationStore.shared.addSessionRestoreRecoveryInventoryItem(item)
         }
+    }
+
+    static func sessionRestoreRecoveryInventoryTabManagers(
+        mainWindowManagers: [TabManager],
+        fallback: TabManager?
+    ) -> [TabManager] {
+        var managers = mainWindowManagers
+        if let fallback {
+            managers.append(fallback)
+        }
+        var visited: Set<ObjectIdentifier> = []
+        return managers.filter { visited.insert(ObjectIdentifier($0)).inserted }
     }
 
     @discardableResult
