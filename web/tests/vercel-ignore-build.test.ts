@@ -105,9 +105,13 @@ test("builds when a web or shared build input changes", () => {
   const webChange = commit("web change");
   expect(ignoreBuild(base, webChange)).toBe(1);
 
+  rmSync(join(repository, "web", "page.tsx"));
+  const webDeletion = commit("web deletion");
+  expect(ignoreBuild(webChange, webDeletion)).toBe(1);
+
   writeFileSync(join(repository, "CHANGELOG.md"), "## [1.0.1] - 2026-01-02\n");
   const changelogChange = commit("changelog change");
-  expect(ignoreBuild(webChange, changelogChange)).toBe(1);
+  expect(ignoreBuild(webDeletion, changelogChange)).toBe(1);
 
   writeFileSync(join(repository, ".vercelignore"), "node_modules/\nbuild/\n");
   const vercelIgnoreChange = commit("Vercel ignore change");
