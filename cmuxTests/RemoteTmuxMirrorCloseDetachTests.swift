@@ -252,28 +252,37 @@ import Testing
             restoreEnvironment(sshLogKey, previousValue: previousLog)
         }
 
-        let harness = try Harness()
-        defer { harness.tearDown() }
-        let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
-        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
-        let controller = harness.controller
-        defer {
-            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            // This route is model-only: mounting the workspaces in a real window
+            // realizes Ghostty renderers that are unrelated to the close contract
+            // and can still be drawing while the fixture frees their surfaces.
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousAppDelegate }
+            let manager = TabManager()
+            let localWorkspace = try #require(manager.selectedWorkspace)
+            let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
+            let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+            let controller = appDelegate.remoteTmuxController
+            defer {
+                // Always remove the cached connection, including when setup fails
+                // before the mirror workspace is registered.
                 controller.detach(host: host, sessionName: "dev")
             }
+            controller.cacheConnection(connection)
+            #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: manager))
+            let mirrorWorkspace = try #require(manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+            #expect(manager.tabs.count == 2)
+
+            manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
+
+            let log = try await waitForSSHArgument("exit", at: logURL)
+            #expect(!log.contains("kill-session"), Comment(rawValue: log))
+            #expect(manager.tabs.map(\.id) == [localWorkspace.id])
+            #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+            #expect(connection.exited)
         }
-        controller.cacheConnection(connection)
-        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
-        let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
-        #expect(harness.manager.tabs.count == 2)
-
-        harness.manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
-
-        let log = try await waitForSSHArgument("exit", at: logURL)
-        #expect(!log.contains("kill-session"), Comment(rawValue: log))
-        #expect(harness.manager.tabs.map(\.id) == [harness.workspace.id])
-        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
-        #expect(connection.exited)
     }
 
     @Test func windowCreationFailureUsesLocalErrorMessage() {
