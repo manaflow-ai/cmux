@@ -1126,12 +1126,19 @@ private struct LocalLinuxTerminalRepresentable: UIViewRepresentable {
 
             outputGeneration &+= 1
             let generation = outputGeneration
-            outputTask = Task { @MainActor [weak self, generation] in
-                guard let self else { return }
+            // Snapshot the request before entering the asynchronous startup.
+            // The coordinator owns this task, so capturing `self` across the
+            // await would form a cycle and delay teardown if the C bridge open
+            // is slow or cancellation cannot interrupt it.
+            let controller = self.controller
+            let columns = lastGrid?.columns ?? 80
+            let rows = lastGrid?.rows ?? 24
+            outputTask = Task { @MainActor [weak self, controller, generation, columns, rows] in
                 let ready = await controller.startIfNeeded(
-                    columns: lastGrid?.columns ?? 80,
-                    rows: lastGrid?.rows ?? 24
+                    columns: columns,
+                    rows: rows
                 )
+                guard let self else { return }
                 guard !Task.isCancelled, self.outputGeneration == generation else {
                     if self.outputGeneration == generation {
                         self.outputTask = nil
