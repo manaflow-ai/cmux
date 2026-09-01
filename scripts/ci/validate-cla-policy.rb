@@ -29,7 +29,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "52bf04eff367cd8c23598783e6bf6231dee86d55f194de979bccec1f5e4a33ad"
+EXPECTED_GUARD_SCRIPT_DIGEST = "db82ef01a5e63966972dc2043f45222c868226d6f197067ddb16d5bcde8b3b8e"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -115,6 +115,13 @@ GUARD_CHECKOUT_WITH = {
   "sparse-checkout" => "scripts/ci/validate-cla-policy.rb",
   "sparse-checkout-cone-mode" => false
 }.freeze
+GUARD_TRIGGER_KEYS = %w[pull_request_target].freeze
+GUARD_TRIGGER = {
+  "branches" => ["main"],
+  "types" => %w[opened edited reopened synchronize]
+}.freeze
+GUARD_WORKFLOW_NAME = "CLA policy guard"
+GUARD_TIMEOUT_MINUTES = 10
 GUARD_VERIFY_ENV = {
   "WORKFLOW_SHA" => "${{ github.workflow_sha }}"
 }.freeze
@@ -694,6 +701,14 @@ def assert_action_inputs(step, expected, name)
   end
 end
 
+def assert_exact_typed_inputs(step, expected, name)
+  inputs = step["with"]
+  assert_exact_keys(inputs, expected.keys, "#{name}.with")
+  expected.each do |key, value|
+    fail!("#{name}.with.#{key} has the wrong YAML type or value") unless inputs[key].eql?(value)
+  end
+end
+
 def assert_exact_environment(step, expected, name)
   environment = step["env"]
   assert_exact_keys(environment, expected.keys, "#{name}.env")
@@ -755,12 +770,17 @@ def run_guard_contract_regression_matrix!
   end
 
   checkout = { "with" => GUARD_CHECKOUT_WITH.dup }
-  assert_action_inputs(checkout, GUARD_CHECKOUT_WITH, "regression guard checkout")
+  assert_exact_typed_inputs(checkout, GUARD_CHECKOUT_WITH, "regression guard checkout")
   checks += 1
   expect_failure.call("changed checkout ref") do
     changed = Marshal.load(Marshal.dump(checkout))
     changed["with"]["ref"] = "${{ github.event.pull_request.head.sha }}"
-    assert_action_inputs(changed, GUARD_CHECKOUT_WITH, "regression guard checkout")
+    assert_exact_typed_inputs(changed, GUARD_CHECKOUT_WITH, "regression guard checkout")
+  end
+  expect_failure.call("changed checkout input type") do
+    changed = Marshal.load(Marshal.dump(checkout))
+    changed["with"]["fetch-depth"] = "1"
+    assert_exact_typed_inputs(changed, GUARD_CHECKOUT_WITH, "regression guard checkout")
   end
 
   verification = { "env" => GUARD_VERIFY_ENV.dup, "run" => GUARD_VERIFY_RUN }
@@ -1394,14 +1414,14 @@ end
 def validate_guard_workflow(raw, authorize: true)
   document = parse_workflow(raw)
   digest = workflow_digest(raw)
+  fail!("guard workflow name is not the reviewed context") unless document["name"] == GUARD_WORKFLOW_NAME
   triggers = document["on"] || document[true]
   fail!("guard workflow has no mapping of triggers") unless triggers.is_a?(Hash)
+  fail!("guard workflow has unsupported triggers") unless triggers.keys.map(&:to_s).sort == GUARD_TRIGGER_KEYS.sort
   target = triggers["pull_request_target"]
-  fail!("guard workflow has unsafe triggers") unless
-    !triggers.key?("pull_request") &&
-    target.is_a?(Hash) &&
-    target["branches"] == ["main"] &&
-    target["types"] == %w[opened edited reopened synchronize]
+  fail!("guard workflow pull_request_target trigger is malformed") unless target.is_a?(Hash)
+  assert_exact_keys(target, GUARD_TRIGGER.keys, "guard workflow pull_request_target trigger")
+  fail!("guard workflow has unsafe triggers") unless target == GUARD_TRIGGER
   fail!("guard workflow must have empty top-level permissions") unless document["permissions"] == {}
   guard_top_level_keys = document.keys.map { |key| key == true ? "on" : key.to_s }
   fail!("guard workflow has unsupported top-level keys") unless
@@ -1414,6 +1434,8 @@ def validate_guard_workflow(raw, authorize: true)
   assert_exact_keys(guard_job, %w[name runs-on timeout-minutes permissions steps], "guard workflow validate job")
   assert_string(guard_job["name"], "guard workflow validate job name")
   assert_positive_integer(guard_job["timeout-minutes"], "guard workflow validate timeout")
+  fail!("guard workflow validate timeout is not the reviewed value") unless
+    guard_job["timeout-minutes"] == GUARD_TIMEOUT_MINUTES
   fail!("guard workflow must use an ephemeral GitHub-hosted runner") unless guard_job["runs-on"] == "ubuntu-24.04"
   fail!("guard workflow must use read-only permissions") unless
     guard_job["permissions"] == { "contents" => "read", "pull-requests" => "read" }
@@ -1424,7 +1446,7 @@ def validate_guard_workflow(raw, authorize: true)
   assert_step_keys(guard_steps[2], "guard validation step", %w[name env run])
   fail!("guard workflow checkout step is not the immutable checkout") unless
     guard_steps[0]["uses"] == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
-  assert_action_inputs(guard_steps[0], GUARD_CHECKOUT_WITH, "guard checkout step")
+  assert_exact_typed_inputs(guard_steps[0], GUARD_CHECKOUT_WITH, "guard checkout step")
   fail!("guard checkout step has an unexpected name") unless guard_steps[0]["name"] == "Checkout immutable guard revision"
   fail!("guard checkout step must pin the trusted repository") unless
     guard_steps[0].dig("with", "repository") == "${{ github.repository }}"
@@ -1484,11 +1506,16 @@ def validate_guard_script(raw)
     "def legacy_v2_base?",
     "EXPECTED_WORKFLOW_DIGEST",
     "assert_exact_environment",
+    "assert_exact_typed_inputs",
     "assert_exact_secret_paths",
     "assert_safe_run_text",
     "assert_exact_normalized_run",
     "run_guard_contract_regression_matrix!",
     "GUARD_CHECKOUT_WITH",
+    "GUARD_TRIGGER_KEYS",
+    "GUARD_TRIGGER",
+    "GUARD_WORKFLOW_NAME",
+    "GUARD_TIMEOUT_MINUTES",
     "GUARD_VERIFY_ENV",
     "GUARD_VALIDATE_ENV",
     "GUARD_VERIFY_RUN_HASH",
