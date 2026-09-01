@@ -2035,6 +2035,7 @@ impl Inner {
             return;
         }
         let removed = {
+            Self::revoke_publication(&attachment);
             attachment.closing.store(true, Ordering::Release);
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
