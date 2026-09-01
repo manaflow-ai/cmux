@@ -812,9 +812,11 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether first-run onboarding should present: only for a signed-in
-    /// account session, and only while a durable milestone remains unfinished.
-    /// Signed out, `rootContent` falls through to the sign-in screen instead.
+    /// Whether first-run onboarding should present: only for a settled,
+    /// signed-in account session, and only while a durable milestone remains
+    /// unfinished. During launch restore, `rootContent` falls through to the
+    /// sign-in screen instead of briefly presenting onboarding for a cached
+    /// identity that may still be rejected.
     /// Deliberately narrower than the composite `isAuthenticated`: a temporary
     /// attach-ticket authentication must reach the shell so the attach
     /// completes, not detour into the tour (whose discovery keep-alive
@@ -822,7 +824,8 @@ struct CMUXMobileRootView: View {
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
         return onboardingStore.progress.shouldShowOnboarding(
-            isAuthenticated: authManager.isAuthenticated
+            isAuthenticated: authManager.isAuthenticated,
+            isRestoringSession: authManager.isRestoringSession
         )
         #else
         return false
