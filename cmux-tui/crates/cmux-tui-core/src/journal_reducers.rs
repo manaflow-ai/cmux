@@ -218,6 +218,7 @@ impl AgentRoster {
         if source == AgentSource::Hook
             && let Some(existing) = self.entries.get(terminal_id)
             && existing.agent_source() == AgentSource::Hook
+            && event.kind != "agent.session.started"
             && match (existing.session.as_deref(), session.as_deref()) {
                 (Some(existing), Some(incoming)) => existing != incoming,
                 (Some(_), None) => true,

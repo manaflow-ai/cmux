@@ -1356,6 +1356,7 @@ struct TerminalAgentRecord {
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
+    agent: Option<String>,
     updated_at_ms: u64,
 }
 
@@ -9923,12 +9924,14 @@ impl Mux {
                         AgentSource::Hook
                     },
                     session: existing.source_session,
+                    agent: None,
                     updated_at_ms: existing.updated_at_ms,
                 },
                 None => TerminalAgentRecord {
                     state: agent_state,
                     source,
                     session: source_session,
+                    agent: agent_adapter.clone(),
                     updated_at_ms: now,
                 },
             },
@@ -9936,6 +9939,7 @@ impl Mux {
                 state: agent_state,
                 source,
                 session: source_session,
+                agent: agent_adapter.clone(),
                 updated_at_ms: now,
             },
         };
@@ -10020,7 +10024,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
-            agent: agent_adapter,
+            agent: record.agent.or(agent_adapter),
             updated_at_ms: record.updated_at_ms,
         };
         // The echo append re-enters the hook projector, which acquires the
