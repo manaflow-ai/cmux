@@ -34,6 +34,21 @@ fileprivate struct TerminalSocketMutationEntry {
     let performReplaceKey: TerminalMutationReplaceKey?
 }
 
+/// A lock-owned queue node with a stable identity for replacement lookups.
+///
+/// The mutation bus never exposes nodes outside its ordering lock. A weak
+/// backward link avoids a retain cycle while the forward links keep the
+/// pending FIFO alive from its head until each node is unlinked.
+fileprivate final class TerminalSocketMutationNode: @unchecked Sendable {
+    var entry: TerminalSocketMutationEntry
+    weak var previous: TerminalSocketMutationNode?
+    var next: TerminalSocketMutationNode?
+
+    init(entry: TerminalSocketMutationEntry) {
+        self.entry = entry
+    }
+}
+
 /// Identity for last-write-wins `.perform` mutations: a fresh enqueue removes
 /// the pending same-key entry, bounding `pending` at one entry per key even
 /// while the main actor is blocked and cannot drain. Shell activity is keyed
@@ -65,11 +80,15 @@ final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
 
     private let lock = NSLock()
-    private var pending: [TerminalSocketMutationEntry] = []
-    /// Direct lookup for the stable replacement keys used by hot lifecycle
-    /// hints. Structural queue removals rebuild this small index; replacement
-    /// itself stays O(1) while the main actor is backlogged.
-    private var pendingPerformReplaceIndices: [TerminalMutationReplaceKey: Int] = [:]
+    /// Lock-owned FIFO endpoints. Nodes retain stable identities so replacing
+    /// a keyed mutation never requires shifting or rescanning the backlog.
+    private var pendingHead: TerminalSocketMutationNode?
+    private var pendingTail: TerminalSocketMutationNode?
+    private var pendingCount = 0
+    /// Direct lookup for keyed mutations. The node is removed from this map
+    /// exactly when it leaves the FIFO, so the handle can never point at a
+    /// completed entry.
+    private var pendingPerformReplaceNodes: [TerminalMutationReplaceKey: TerminalSocketMutationNode] = [:]
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
@@ -219,10 +238,15 @@ final class TerminalMutationBus: @unchecked Sendable {
     nonisolated func pendingNotificationAddressesSnapshot() -> [(sequence: UInt64, tabId: UUID, surfaceId: UUID?)] {
         lock.lock()
         defer { lock.unlock() }
-        return pending.compactMap { entry in
-            guard case .deliverNotification(let notification) = entry.mutation else { return nil }
-            return (entry.sequence, notification.key.tabId, notification.key.surfaceId)
+        var addresses: [(sequence: UInt64, tabId: UUID, surfaceId: UUID?)] = []
+        var node = pendingHead
+        while let current = node {
+            if case .deliverNotification(let notification) = current.entry.mutation {
+                addresses.append((current.entry.sequence, notification.key.tabId, notification.key.surfaceId))
+            }
+            node = current.next
         }
+        return addresses
     }
 
     /// Phase 2: discard exactly the snapshotted entries; anything enqueued
@@ -230,13 +254,9 @@ final class TerminalMutationBus: @unchecked Sendable {
     nonisolated func discardPendingNotifications(sequences: Set<UInt64>) {
         guard !sequences.isEmpty else { return }
         lock.lock()
-        let beforeCount = pending.count
-        pending.removeAll { entry in
+        removePendingNodes { entry in
             guard case .deliverNotification = entry.mutation else { return false }
             return sequences.contains(entry.sequence)
-        }
-        if pending.count != beforeCount {
-            rebuildPendingPerformReplaceIndices()
         }
         lock.unlock()
     }
@@ -244,7 +264,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
         let shouldScheduleDrain: Bool
         let removedCount: Int
-        let pendingCount: Int
+        let pendingCountForLog: Int
         let sequence: UInt64
         let generation: UInt64
         lock.lock()
@@ -255,19 +275,16 @@ final class TerminalMutationBus: @unchecked Sendable {
                 notificationKey: notification.key
             )
             : nil
-        let beforeCount = pending.count
+        let beforeCount = self.pendingCount
         if let coalescingKey {
-            pending.removeAll { entry in
+            removePendingNodes { entry in
                 entry.notificationCoalescingKey == coalescingKey
             }
-            if pending.count != beforeCount {
-                rebuildPendingPerformReplaceIndices()
-            }
         }
-        removedCount = beforeCount - pending.count
+        removedCount = beforeCount - self.pendingCount
         nextSequence &+= 1
         sequence = nextSequence
-        pending.append(TerminalSocketMutationEntry(
+        appendPending(TerminalSocketMutationEntry(
             sequence: sequence,
             mutation: .deliverNotification(notification),
             notificationGeneration: generation,
@@ -278,12 +295,12 @@ final class TerminalMutationBus: @unchecked Sendable {
         if shouldScheduleDrain {
             drainScheduled = true
         }
-        pendingCount = pending.count
+        pendingCountForLog = self.pendingCount
         lock.unlock()
 
 #if DEBUG
         cmuxDebugLog(
-            "notification.queue.enqueue seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") coalesces=\(coalesces ? 1 : 0) removed=\(removedCount) pending=\(pendingCount) generation=\(generation) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
+            "notification.queue.enqueue seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") coalesces=\(coalesces ? 1 : 0) removed=\(removedCount) pending=\(pendingCountForLog) generation=\(generation) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
         )
 #endif
 
@@ -299,18 +316,14 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.lock()
         let boundary = currentNotificationGeneration
         currentNotificationGeneration &+= 1
-        let beforeCount = pending.count
-        pending.removeAll { entry in
+        removePendingNodes { entry in
             if case .deliverNotification(let notification) = entry.mutation {
                 return shouldDrop(notification)
             }
             return false
         }
-        if pending.count != beforeCount {
-            rebuildPendingPerformReplaceIndices()
-        }
         nextSequence &+= 1
-        pending.append(TerminalSocketMutationEntry(
+        appendPending(TerminalSocketMutationEntry(
             sequence: nextSequence,
             mutation: mutation(boundary),
             notificationGeneration: nil,
@@ -331,7 +344,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         let shouldScheduleDrain: Bool
         lock.lock()
         nextSequence &+= 1
-        pending.append(TerminalSocketMutationEntry(
+        appendPending(TerminalSocketMutationEntry(
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
@@ -367,20 +380,18 @@ final class TerminalMutationBus: @unchecked Sendable {
             lock.unlock()
             return false
         }
-        let beforeCount = pending.count
-        pending.removeAll { $0.performReplaceKey == replaceKey }
-        if pending.count != beforeCount {
-            rebuildPendingPerformReplaceIndices()
+        if let existing = pendingPerformReplaceNodes[replaceKey] {
+            removePending(existing)
         }
         nextSequence &+= 1
-        pending.append(TerminalSocketMutationEntry(
+        let node = appendPending(TerminalSocketMutationEntry(
             sequence: nextSequence,
             mutation: .perform(mutation),
             notificationGeneration: nil,
             notificationCoalescingKey: nil,
             performReplaceKey: replaceKey
         ))
-        pendingPerformReplaceIndices[replaceKey] = pending.count - 1
+        pendingPerformReplaceNodes[replaceKey] = node
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
             drainScheduled = true
@@ -411,9 +422,9 @@ final class TerminalMutationBus: @unchecked Sendable {
             lock.unlock()
             return false
         }
-        if let index = pendingPerformReplaceIndices[replaceKey], index < pending.count {
-            let existing = pending[index]
-            pending[index] = TerminalSocketMutationEntry(
+        if let node = pendingPerformReplaceNodes[replaceKey] {
+            let existing = node.entry
+            node.entry = TerminalSocketMutationEntry(
                 sequence: existing.sequence,
                 mutation: .perform(mutation),
                 notificationGeneration: nil,
@@ -424,14 +435,14 @@ final class TerminalMutationBus: @unchecked Sendable {
             return true
         }
         nextSequence &+= 1
-        pending.append(TerminalSocketMutationEntry(
+        let node = appendPending(TerminalSocketMutationEntry(
             sequence: nextSequence,
             mutation: .perform(mutation),
             notificationGeneration: nil,
             notificationCoalescingKey: nil,
             performReplaceKey: replaceKey
         ))
-        pendingPerformReplaceIndices[replaceKey] = pending.count - 1
+        pendingPerformReplaceNodes[replaceKey] = node
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain { drainScheduled = true }
         lock.unlock()
@@ -445,16 +456,12 @@ final class TerminalMutationBus: @unchecked Sendable {
         where shouldDiscard: (QueuedTerminalNotification, UInt64) -> Bool
     ) {
         lock.lock()
-        let beforeCount = pending.count
-        pending.removeAll { entry in
+        removePendingNodes { entry in
             guard case .deliverNotification(let notification) = entry.mutation,
                   let generation = entry.notificationGeneration else {
                 return false
             }
             return shouldDiscard(notification, generation)
-        }
-        if pending.count != beforeCount {
-            rebuildPendingPerformReplaceIndices()
         }
         if advanceGeneration {
             currentNotificationGeneration &+= 1
@@ -479,7 +486,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         let shouldScheduleDrain: Bool
         lock.lock()
         drainsSuspendedForTesting = suspended
-        shouldScheduleDrain = !suspended && drainScheduled && !pending.isEmpty
+        shouldScheduleDrain = !suspended && drainScheduled && pendingCount > 0
         lock.unlock()
 
         if shouldScheduleDrain {
@@ -511,7 +518,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         perform(batch)
 
         lock.lock()
-        let hasMore = !pending.isEmpty
+        let hasMore = pendingCount > 0
         if !hasMore {
             drainScheduled = false
         }
@@ -524,13 +531,13 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func takeNextBatch() -> [TerminalSocketMutationEntry] {
         lock.lock()
-        let count = min(maxMutationsPerDrain, pending.count)
-        let batch = Array(pending.prefix(count))
-        if !batch.isEmpty {
-            pending.removeFirst(count)
-            rebuildPendingPerformReplaceIndices()
+        var batch: [TerminalSocketMutationEntry] = []
+        batch.reserveCapacity(min(maxMutationsPerDrain, pendingCount))
+        while batch.count < maxMutationsPerDrain, let node = pendingHead {
+            batch.append(node.entry)
+            removePending(node)
         }
-        let remaining = pending.count
+        let remaining = pendingCount
         lock.unlock()
 #if DEBUG
         if !batch.isEmpty {
@@ -544,7 +551,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func markDrainCompleteIfEmpty() {
         lock.lock()
-        if pending.isEmpty {
+        if pendingCount == 0 {
             drainScheduled = false
             lock.unlock()
             return
@@ -603,11 +610,51 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    private func rebuildPendingPerformReplaceIndices() {
-        pendingPerformReplaceIndices.removeAll(keepingCapacity: true)
-        for (index, entry) in pending.enumerated() {
-            if let replaceKey = entry.performReplaceKey {
-                pendingPerformReplaceIndices[replaceKey] = index
+    /// Appends an entry to the lock-owned FIFO in O(1).
+    @discardableResult
+    private func appendPending(_ entry: TerminalSocketMutationEntry) -> TerminalSocketMutationNode {
+        let node = TerminalSocketMutationNode(entry: entry)
+        node.previous = pendingTail
+        pendingTail?.next = node
+        pendingTail = node
+        if pendingHead == nil { pendingHead = node }
+        pendingCount += 1
+        return node
+    }
+
+    /// Unlinks one node and its replacement handle in O(1).
+    private func removePending(_ node: TerminalSocketMutationNode) {
+        let previous = node.previous
+        let next = node.next
+        if let previous {
+            previous.next = next
+        } else {
+            pendingHead = next
+        }
+        if let next {
+            next.previous = previous
+        } else {
+            pendingTail = previous
+        }
+        if let replaceKey = node.entry.performReplaceKey,
+           pendingPerformReplaceNodes[replaceKey] === node {
+            pendingPerformReplaceNodes.removeValue(forKey: replaceKey)
+        }
+        node.previous = nil
+        node.next = nil
+        pendingCount -= 1
+    }
+
+    /// Removes matching nodes with one forward traversal. Each match is
+    /// unlinked incrementally; no queue-wide index rebuild is needed.
+    private func removePendingNodes(
+        where shouldRemove: (TerminalSocketMutationEntry) -> Bool
+    ) {
+        var node = pendingHead
+        while let current = node {
+            node = current.next
+            if shouldRemove(current.entry) {
+                removePending(current)
             }
         }
     }
