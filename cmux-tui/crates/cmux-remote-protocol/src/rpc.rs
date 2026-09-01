@@ -667,6 +667,38 @@ pub enum ProcessIo {
     },
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+enum StrictProcessIo {
+    Pipes {
+        stdin: bool,
+    },
+    Pty {
+        cols: u16,
+        rows: u16,
+        term: String,
+        #[serde(default, skip_serializing_if = "PtyEofPolicy::is_reject")]
+        eof: PtyEofPolicy,
+    },
+}
+
+impl From<StrictProcessIo> for ProcessIo {
+    fn from(value: StrictProcessIo) -> Self {
+        match value {
+            StrictProcessIo::Pipes { stdin } => Self::Pipes { stdin },
+            StrictProcessIo::Pty { cols, rows, term, eof } => Self::Pty { cols, rows, term, eof },
+        }
+    }
+}
+
+impl ProcessIo {
+    /// Parse process I/O using the strict schema for local validation paths.
+    /// Normal wire deserialization remains forward-compatible with additive fields.
+    pub fn from_value_strict(value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        serde_json::from_value::<StrictProcessIo>(value).map(Into::into)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessIoKind {
@@ -1088,15 +1120,28 @@ mod tests {
     }
 
     #[test]
-    fn process_io_rejects_unknown_variant_fields() {
-        let error = serde_json::from_value::<ProcessIo>(serde_json::json!({
+    fn process_io_accepts_additive_unknown_variant_fields() {
+        let io = serde_json::from_value::<ProcessIo>(serde_json::json!({
+            "type": "pty",
+            "cols": 80,
+            "rows": 24,
+            "term": "xterm-256color",
+            "x-future-field": true
+        }))
+        .expect("newer peers may add fields to the process I/O object");
+        assert!(matches!(io, ProcessIo::Pty { .. }));
+    }
+
+    #[test]
+    fn process_io_strict_validation_rejects_unknown_variant_fields() {
+        let error = ProcessIo::from_value_strict(serde_json::json!({
             "type": "pty",
             "cols": 80,
             "rows": 24,
             "term": "xterm-256color",
             "stdiin": true
         }))
-        .expect_err("a misspelled process I/O field must not be silently ignored");
+        .expect_err("the strict local path must reject misspelled process I/O fields");
         assert!(error.to_string().contains("unknown field"), "{error}");
     }
 
@@ -1214,7 +1259,8 @@ mod tests {
             "list-processes"
         );
         assert_eq!(
-            serde_json::to_value(WorkspaceRequest::SnapshotProcessTerminal { process }).unwrap()["type"],
+            serde_json::to_value(WorkspaceRequest::SnapshotProcessTerminal { process }).unwrap()
+                ["type"],
             "snapshot-process-terminal"
         );
         assert_eq!(
