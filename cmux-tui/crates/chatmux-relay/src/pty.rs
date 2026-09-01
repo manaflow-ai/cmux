@@ -2637,7 +2637,8 @@ impl Inner {
                 // identity is cached, and remove only this exact session so a
                 // replacement cannot be disturbed.
                 if cancellation.is_cancelled() {
-                    let removed = remove_cached_shell_if_same_without_viewers(&self, session, &shell_session);
+                    let removed =
+                        remove_cached_shell_if_same_without_viewers(&self, session, &shell_session);
                     if removed {
                         shell_session.control.kill();
                     }
