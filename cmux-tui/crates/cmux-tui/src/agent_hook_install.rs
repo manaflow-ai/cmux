@@ -2271,6 +2271,27 @@ mod tests {
     }
 
     #[test]
+    fn codex_session_end_hook_timeout_stays_within_the_codex_cap() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let hooks: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
+                .unwrap();
+        for event in CODEX_EVENTS {
+            let timeout = hooks["hooks"][*event][0]["hooks"][0]["timeout"].as_u64().unwrap();
+            let label = codex_event_state_label(event).unwrap();
+            assert_eq!(
+                timeout,
+                codex_normalized_timeout(label, Some(timeout)),
+                "{event}: codex must not clamp or floor the installed timeout"
+            );
+        }
+    }
+
+    #[test]
     fn codex_trust_keys_use_the_installed_group_position() {
         let root = tempfile::tempdir().unwrap();
         let context = context(root.path());
