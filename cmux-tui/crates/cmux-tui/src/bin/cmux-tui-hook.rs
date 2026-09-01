@@ -597,6 +597,7 @@ mod tests {
             b"{}\n",
             "request_missing_socket",
             Instant::now() + Duration::from_millis(100),
+            &|| {},
         );
 
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
