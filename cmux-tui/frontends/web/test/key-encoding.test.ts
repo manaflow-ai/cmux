@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { encodeTerminalKey, isMacEditingChord, type TerminalKeyEvent } from "../src/lib/keyEncoding";
+import {
+  browserIsMacPlatform,
+  encodeTerminalKey,
+  isMacEditingChord,
+  type TerminalKeyEvent,
+} from "../src/lib/keyEncoding";
 
 function key(value: string, overrides: Partial<TerminalKeyEvent> = {}): TerminalKeyEvent {
   return { key: value, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...overrides };
@@ -29,7 +34,7 @@ describe("render terminal key encoding", () => {
       key("Delete", { metaKey: true }),
       key("ArrowLeft", { metaKey: true }),
       key("ArrowRight", { metaKey: true }),
-    ].map(encodeTerminalKey)).toEqual([
+    ].map((event) => encodeTerminalKey(event, { macEditing: true }))).toEqual([
       { kind: "text", text: "\u0015" },
       { kind: "text", text: "\u000b" },
       { kind: "text", text: "\u0001" },
@@ -43,7 +48,7 @@ describe("render terminal key encoding", () => {
       key("Delete", { altKey: true }),
       key("ArrowLeft", { altKey: true }),
       key("ArrowRight", { altKey: true }),
-    ].map(encodeTerminalKey)).toEqual([
+    ].map((event) => encodeTerminalKey(event, { macEditing: true }))).toEqual([
       { kind: "text", text: "\u001b\u007f" },
       { kind: "text", text: "\u001bd" },
       { kind: "text", text: "\u001bb" },
@@ -53,8 +58,23 @@ describe("render terminal key encoding", () => {
       kind: "text",
       text: "\u001bx",
     });
-    expect(isMacEditingChord(key("Backspace", { altKey: true }))).toBe(true);
-    expect(isMacEditingChord(key("x", { altKey: true }))).toBe(false);
+    expect(isMacEditingChord(key("Backspace", { altKey: true }), { macEditing: true })).toBe(true);
+    expect(isMacEditingChord(key("x", { altKey: true }), { macEditing: true })).toBe(false);
+  });
+
+  it("keeps non-macOS Alt editing keys on the generic named-key path", () => {
+    expect([
+      key("Backspace", { altKey: true }),
+      key("Delete", { altKey: true }),
+      key("ArrowLeft", { altKey: true }),
+      key("ArrowRight", { altKey: true }),
+    ].map((event) => encodeTerminalKey(event, { macEditing: false }))).toEqual([
+      { kind: "key", key: "alt+backspace" },
+      { kind: "key", key: "alt+delete" },
+      { kind: "key", key: "alt+left" },
+      { kind: "key", key: "alt+right" },
+    ]);
+    expect(isMacEditingChord(key("Backspace", { altKey: true }), { macEditing: false })).toBe(false);
   });
 
   it("leaves browser shortcuts, modified selection, and IME composition alone", () => {
@@ -68,7 +88,14 @@ describe("render terminal key encoding", () => {
       const event = key("Backspace", { altKey: true, [modifier]: true });
       expect(isMacEditingChord(event)).toBe(false);
     }
-    expect(encodeTerminalKey(key("Process", { isComposing: true, metaKey: true }))).toBeNull();
-    expect(isMacEditingChord(key("Backspace", { altKey: true, isComposing: true }))).toBe(false);
+    expect(encodeTerminalKey(key("Process", { isComposing: true, metaKey: true }), { macEditing: true })).toBeNull();
+    expect(isMacEditingChord(key("Backspace", { altKey: true, isComposing: true }), { macEditing: true })).toBe(false);
+  });
+
+  it("recognizes macOS browser platform identifiers", () => {
+    expect(browserIsMacPlatform({ userAgentData: { platform: "macOS" } })).toBe(true);
+    expect(browserIsMacPlatform({ platform: "MacIntel" })).toBe(true);
+    expect(browserIsMacPlatform({ userAgent: "Mozilla/5.0 (X11; Linux x86_64)" })).toBe(false);
+    expect(browserIsMacPlatform({ platform: "Win32" })).toBe(false);
   });
 });

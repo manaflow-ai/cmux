@@ -1,6 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CmuxClient, DecodedAttachEvent } from "cmux/raw";
 import { useAttachedTerminal } from "../src/hooks/useAttachedTerminal";
 
@@ -110,9 +110,18 @@ function Harness({ client }: { client: CmuxClient }) {
 
 describe("attached terminal sizing", () => {
   const originalResizeObserver = globalThis.ResizeObserver;
+  const originalNavigatorPlatform = navigator.platform;
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+  });
 
   afterEach(() => {
     globalThis.ResizeObserver = originalResizeObserver;
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: originalNavigatorPlatform,
+    });
     terminalMocks.instances.length = 0;
   });
 
