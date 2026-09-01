@@ -277,6 +277,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// User-facing recovery copy for a terminal create that did not become
     /// ready within the bounded optimistic-selection window.
     public private(set) var terminalCreationError: String?
+    /// Remote workspace that owns ``terminalCreationError``. The local row id
+    /// can be remapped while snapshots converge, so recovery UI keys off the
+    /// stable RPC workspace identity.
+    public private(set) var terminalCreationErrorWorkspaceID: MobileWorkspacePreview.ID?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
@@ -8103,6 +8107,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         terminalCreationError = nil
+        terminalCreationErrorWorkspaceID = nil
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
@@ -8179,15 +8184,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             guard let self,
-                  self.createdTerminalSelection?.terminalID == terminalID,
+                  let selection = self.createdTerminalSelection,
+                  selection.terminalID == terminalID,
                   self.selectedTerminalID == terminalID else {
                 return
             }
+            let failedWorkspaceID = selection.remoteWorkspaceID
             self.clearCreatedTerminalSelection()
             self.terminalCreationError = L10n.string(
                 "mobile.terminal.creationTimeout",
                 defaultValue: "The new terminal did not finish starting."
             )
+            self.terminalCreationErrorWorkspaceID = failedWorkspaceID
             self.recordAppEvent(
                 .terminalCreateFailed,
                 correlationID: terminalID.rawValue,
@@ -11197,6 +11205,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingError() {
         connectionError = nil
         terminalCreationError = nil
+        terminalCreationErrorWorkspaceID = nil
         connectionErrorGuidance = nil
     }
 

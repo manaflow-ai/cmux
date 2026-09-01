@@ -181,7 +181,8 @@ struct WorkspaceDetailView: View {
         let content = Group {
             VStack(spacing: 0) {
                 if let message = store.terminalCreationError,
-                   store.selectedWorkspaceID == workspace.id {
+                   store.selectedWorkspaceID == workspace.id,
+                   store.terminalCreationErrorWorkspaceID == workspace.rpcWorkspaceID {
                     terminalCreationRecovery(message: message)
                 }
                 detailSurfaceContent
