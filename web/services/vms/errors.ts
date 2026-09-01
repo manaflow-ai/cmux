@@ -12,6 +12,15 @@ export class VmProviderOperationError extends Data.TaggedError("VmProviderOperat
   readonly cause: unknown;
 }> {}
 
+/**
+ * The provider deliberately does not implement this operation. Drivers throw
+ * this structured error so HTTP retry decisions never depend on provider text.
+ */
+export class VmOperationUnsupportedError extends Data.TaggedError("VmOperationUnsupportedError")<{
+  readonly provider: ProviderId;
+  readonly operation: string;
+}> {}
+
 export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
@@ -46,10 +55,22 @@ export class VmAccountDeletionInProgressError extends Data.TaggedError("VmAccoun
   readonly phase?: "create";
 }> {}
 
+/**
+ * Where the image that failed to resolve came from: the client body, an env
+ * selector, or the server's default selection (manifest defaults). The value
+ * is returned to clients, so it deliberately avoids implementation wording.
+ */
+export type VmImageSource = "request" | "env" | "default";
+
 export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
   readonly provider: ProviderId;
   readonly image?: string;
   readonly envVar?: string;
+  /** Requested machine kind when the caller asked by kind; kept as a string so bad input is reported verbatim. */
+  readonly kind?: string;
+  readonly source: VmImageSource;
+  /** Manifest image ids for the provider, so the error names what would have worked. */
+  readonly allowedImages: readonly string[];
   readonly reason: string;
 }> {}
 
@@ -91,6 +112,7 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
+  | VmOperationUnsupportedError
   | VmNotFoundError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
@@ -169,22 +191,35 @@ export function isVmProviderOperationError(err: unknown): err is VmProviderOpera
   return (err as { _tag?: string } | null)?._tag === "VmProviderOperationError";
 }
 
-const vmWorkflowErrorTags = new Set([
-  "VmDatabaseError",
-  "VmProviderOperationError",
-  "VmNotFoundError",
-  "VmFreeAccessExpiredError",
-  "VmCreateInProgressError",
-  "VmCreateFailedError",
-  "VmCreateDisabledError",
-  "VmAccountDeletionInProgressError",
-  "VmImageConfigError",
-  "VmLimitExceededError",
-  "VmCreateCreditsInsufficientError",
-  "VmBillingError",
-  "VmAttachTransportUnsupportedError",
-  "VmAccountDeletionIdentityRevocationError",
-]);
+export function isVmOperationUnsupportedError(err: unknown): err is VmOperationUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmOperationUnsupportedError";
+}
+
+// Derived from the union so the two can never drift again: `satisfies
+// Record<VmWorkflowError["_tag"], true>` makes a missing tag a compile error
+// (VmSnapshotNotFoundError was once omitted here, turning restore-of-unknown-
+// snapshot into a generic 500 instead of 404), and the `const` object rejects
+// tags that are not in the union.
+const vmWorkflowErrorTagRecord = {
+  VmDatabaseError: true,
+  VmProviderOperationError: true,
+  VmOperationUnsupportedError: true,
+  VmNotFoundError: true,
+  VmSnapshotNotFoundError: true,
+  VmFreeAccessExpiredError: true,
+  VmCreateInProgressError: true,
+  VmCreateFailedError: true,
+  VmCreateDisabledError: true,
+  VmAccountDeletionInProgressError: true,
+  VmImageConfigError: true,
+  VmLimitExceededError: true,
+  VmCreateCreditsInsufficientError: true,
+  VmBillingError: true,
+  VmAttachTransportUnsupportedError: true,
+  VmAccountDeletionIdentityRevocationError: true,
+} as const satisfies Record<VmWorkflowError["_tag"], true>;
+
+const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));
 
 export function vmWorkflowErrorCause(err: unknown): VmWorkflowError | null {
   if (!err || typeof err !== "object") return null;

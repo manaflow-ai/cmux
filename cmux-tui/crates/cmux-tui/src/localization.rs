@@ -248,6 +248,8 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
+    control_failed: &'static str,
+    control_unavailable: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -264,6 +266,14 @@ pub(crate) struct BrowserMessages {
 }
 
 impl BrowserMessages {
+    pub(crate) fn control_failed(&self, error: &str) -> String {
+        self.control_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn control_unavailable(&self) -> String {
+        self.control_failed.replace("{error}", self.control_unavailable)
+    }
+
     pub(crate) fn loading(&self, url: &str) -> String {
         self.loading.replace("{url}", url)
     }
@@ -388,6 +398,7 @@ pub(crate) struct RuntimeMessages {
     pub terminal_capacity_exhausted: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    session_transport_lost: &'static str,
     signal_handlers_failed: &'static str,
     terminal_restore_also_failed: &'static str,
 }
@@ -399,6 +410,10 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn session_transport_lost(&self) -> String {
+        self.session_transport_lost.to_owned()
     }
 
     pub(crate) fn signal_handlers_failed(&self, error: &str) -> String {
@@ -690,6 +705,7 @@ pub(crate) struct ConfigMessages {
     invalid_section: &'static str,
     unknown_field: &'static str,
     invalid_root: &'static str,
+    write_durability_warning: &'static str,
 }
 
 impl ConfigMessages {
@@ -704,6 +720,9 @@ impl ConfigMessages {
     }
     pub(crate) fn invalid_root(&self) -> &'static str {
         self.invalid_root
+    }
+    pub(crate) fn write_durability_warning(&self, error: &str) -> String {
+        self.write_durability_warning.replace("{error}", error)
     }
 }
 
@@ -872,7 +891,6 @@ pub(crate) struct SidebarMessages {
     pub machine_provider_lifecycle_update_failed: &'static str,
     pub machine_provider_workspace_update_failed: &'static str,
     pub machine_reconnect_failed: &'static str,
-    pub machine_terminal_colors_failed: &'static str,
     pub machine_provider_external_connect_unsupported: &'static str,
     pub machine_provider_external_connect_ambiguous: &'static str,
     pub machine_not_ready_to_connect: &'static str,
@@ -1323,6 +1341,8 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
+        control_failed: "browser command failed: {error}",
+        control_unavailable: "browser connection unavailable; retry the command",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1382,6 +1402,7 @@ edits shell files. Authenticate with the configured host before retrying.
         terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        session_transport_lost: "session connection lost. Reconnect and retry.",
         signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
@@ -1604,6 +1625,7 @@ OPTIONS:
         invalid_section: "cmux-tui: ignoring invalid config section {section}",
         unknown_field: "cmux-tui: ignoring unknown config field {field}",
         invalid_root: "cmux-tui: ignoring config because the root value is not an object",
+        write_durability_warning: "cmux-tui: config write committed, but parent directory durability is unconfirmed: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -1725,7 +1747,6 @@ OPTIONS:
         machine_provider_lifecycle_update_failed: "Machine provider lifecycle update failed",
         machine_provider_workspace_update_failed: "Machine provider workspace update failed",
         machine_reconnect_failed: "Could not reconnect machine",
-        machine_terminal_colors_failed: "Could not apply terminal colors",
         machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
         machine_provider_external_connect_ambiguous: "The previous connection attempt may have succeeded; reconnect the provider and retry with the same pairing code",
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
@@ -1967,6 +1988,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
+        control_failed: "ブラウザ操作に失敗しました: {error}",
+        control_unavailable: "ブラウザ接続を利用できません。コマンドを再試行してください",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
@@ -2026,6 +2049,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        session_transport_lost: "セッションへの接続が失われました。再接続して再試行してください。",
         signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
@@ -2245,6 +2269,7 @@ ID とセッション:
         invalid_section: "cmux-tui: 無効な設定セクション {section} を無視します",
         unknown_field: "cmux-tui: 不明な設定フィールド {field} を無視します",
         invalid_root: "cmux-tui: ルート値がオブジェクトではないため設定を無視します",
+        write_durability_warning: "cmux-tui: 設定の書き込みは完了しましたが、親ディレクトリの永続性を確認できません: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
@@ -2366,7 +2391,6 @@ ID とセッション:
         machine_provider_lifecycle_update_failed: "マシンプロバイダーのライフサイクル更新に失敗しました",
         machine_provider_workspace_update_failed: "マシンプロバイダーのワークスペース更新に失敗しました",
         machine_reconnect_failed: "マシンに再接続できませんでした",
-        machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
         machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
         machine_provider_external_connect_ambiguous: "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください",
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
@@ -2858,6 +2882,22 @@ mod tests {
                 japanese
             );
         }
+    }
+
+    #[test]
+    fn browser_control_failures_are_localized_at_the_ui_boundary() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "browser command failed: browser panes are not supported over attach yet"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "ブラウザ操作に失敗しました: browser panes are not supported over attach yet"
+        );
     }
 
     #[test]

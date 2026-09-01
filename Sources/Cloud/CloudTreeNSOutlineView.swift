@@ -7,12 +7,33 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
 
+    /// Keeps the outline delegate/source graph alive while AppKit owns a
+    /// native surface drag, including reconstruction between writer creation
+    /// and `willBeginAt`.
+    /// Strong coordinator owner for the active Cloud drag. The coordinator
+    /// clears this at the native terminal boundary; the distinct name makes
+    /// its ownership contract explicit (unlike weak File Explorer markers).
+    var activeNativeDragCoordinator: AnyObject?
+    var activeNativeDragSession: NSDraggingSession?
+    /// Invoked before a new pointer gesture. AppKit cannot deliver this
+    /// boundary while the previous native drag loop is active.
+    var onNativeDragPointerBoundary: (() -> Void)?
+
+    /// The active visual preset; the coordinator keeps this in step with the
+    /// style it lays rows out with (chevron centering depends on it).
+    var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
+
     var onOpenSelection: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
     var onQuickSearch: ((String) -> Void)?
     var onDidBecomeFirstResponder: (() -> Void)?
     private var quickSearchQuery: String?
+
+    override func mouseDown(with event: NSEvent) {
+        onNativeDragPointerBoundary?()
+        super.mouseDown(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         if handle(event) { return }
@@ -127,14 +148,15 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         var frame = super.frameOfOutlineCell(atRow: row)
         frame.origin.x += Self.leadingMargin
-        if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow {
+        if treeStyle.machineRowLayout == .twoLine,
+           let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow {
             // Multi-line machine rows: the chevron centers on the name line (first
             // line, after the row's top padding), not on the row's vertical middle,
             // so it reads with the name and the status dot. NSTableView is flipped.
             let rowFrame = rect(ofRow: row)
             let nameLineCenter = rowFrame.minY
-                + GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineVerticalPadding)
-                + GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineNameLineHeight) / 2
+                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding)
+                + GlobalFontMagnification.scaledSize(treeStyle.machineNameLineHeight) / 2
             frame.origin.y = (nameLineCenter - frame.height / 2).rounded()
         }
         return frame

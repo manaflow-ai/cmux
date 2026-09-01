@@ -21,10 +21,12 @@ Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
 Selection colors are resolved in this order: explicit cmux-tui config, Ghostty config keys `selection-background` and `selection-foreground`, then built-in defaults. Ghostty configs are read from `$XDG_CONFIG_HOME/ghostty/config` (when set), `~/.config/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config`; later entries in the file win.
 
+`theme.chrome` controls cmux-owned interface colors. `auto` selects light or dark chrome from this client's host background reported by OSC 11, then the configured Ghostty terminal background when the host does not report one, and uses dark when neither is available. `light` and `dark` select a fixed chrome theme. Host OSC 10/11 replies are local compatibility input for the attaching frontend; they do not replace shared session or application-authored terminal defaults.
+
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
+| `theme.chrome` | `auto`, `light`, or `dark` | `auto` | cmux-owned chrome theme for this client |
 | `theme.selection_background` | color | `#3a3a3a`, seeded from Ghostty when present | Selection background in PTY panes |
-| `theme.chrome` | `"auto"`, `"light"`, or `"dark"` | `"auto"` | Selects the chrome palette; `auto` follows the terminal/system appearance |
 | `theme.selection_foreground` | color or null | `null`, seeded from Ghostty when present | Selection foreground; `null` keeps each cell's foreground |
 | `theme.sidebar_rail` | color | `110` | Rail color for the active workspace rows |
 | `theme.sidebar_active_bg` | color | `236` | Background for the active workspace rows |
@@ -113,8 +115,13 @@ cmux sidebar plugin use fzf
 the optional build command, and verifies the resolved run command is
 executable. `sidebar plugin use <name>` writes `sidebar.plugin.command` as an absolute
 argv and `sidebar.plugin.cwd` as the plugin directory, preserving unrelated
-cmux-tui config keys. A running TUI applies it after config reload; `sidebar plugin use`
-sends that reload automatically when the resolved session socket is reachable.
+cmux-tui config keys. A running TUI applies changes after `cmux server reload-config`;
+the reload re-evaluates the path precedence described above using the running process's
+environment and the files that exist. It therefore can switch between the default and
+legacy fallback files when those files appear or disappear. Changing `CMUX_TUI_CONFIG`
+or `CMUX_MUX_CONFIG` in a separate shell does not change the running process environment.
+`sidebar plugin use` does not send this reload; run `cmux server reload-config`
+separately for a running local session whose socket is reachable.
 
 Return to the built-in sidebar with:
 
@@ -403,6 +410,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
 ```json
 {
   "theme": {
+    "chrome": "dark",
     "selection_background": "#355c7d",
     "selection_foreground": null,
     "sidebar_rail": "#87afd7",

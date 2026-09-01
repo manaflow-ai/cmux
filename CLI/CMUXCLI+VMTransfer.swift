@@ -605,7 +605,7 @@ extension CMUXCLI {
 
     static var vmRunUsage: String {
         """
-        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|32g>] [--timeout <seconds>] -- <command...>
+        Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <2g|4g|8g|16g|24g|32g>] [--timeout <seconds>] -- <command...>
 
         Run a command on a cloud machine without naming one: reuses an idle
         machine the router itself provisioned earlier (shown as "\(vmRunPoolLabel)"
@@ -989,7 +989,8 @@ extension CMUXCLI {
 
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
         var params: [String: Any] = [
-            "image": Self.cloudVMBaseImage,
+            // Pool machines are shell boxes; the backend maps the kind to its image.
+            "kind": VMMachineKind.base.rawValue,
             "persistent_home": true,
             "per_machine_home": true,
             // Fresh key per run: a failed create is simply retried by the next
@@ -1089,7 +1090,7 @@ extension CMUXCLI {
 extension CMUXCLI {
     static var vmRouteUsage: String {
         """
-        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <2g|4g|8g|16g|32g>] [--json]
+        Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <2g|4g|8g|16g|24g|32g>] [--json]
 
         Print the machine `cmux vm run` / `cmux vm agent` would use for work in a
         directory, and why — without running anything. The policy is the router's

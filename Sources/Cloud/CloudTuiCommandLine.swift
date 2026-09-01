@@ -41,9 +41,75 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", "create", "--name", name]
     }
 
+    /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).
+    static func closeTerminalArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "close"]
+    }
+
+    /// `tab <tab_id> close`: drop the tab that held a terminal whose process already
+    /// exited — cmux-tui no longer resolves such a terminal by its own selector.
+    static func closeTabArguments(socketPath: String, tabID: String) -> [String] {
+        ["--socket", socketPath, "--json", "tab", tabID, "close"]
+    }
+
+    /// `workspace <ws_id> close`: remove the workspace view. Its terminals detach
+    /// (alive, zero views) rather than die (`spec/cli.md`) — close them first for
+    /// a full delete.
+    static func closeWorkspaceArguments(socketPath: String, workspaceID: String) -> [String] {
+        ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
+    }
+
+    /// `workspace <ws_id> rename --name <name>` (verified live: the positional
+    /// form is `usage.invalid`; the name rides the `--name` flag).
+    static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
+        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
+    }
+
+    /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
+    /// land on the PTY as typed; no newline is added, send `keys enter` for that.
+    static func writeArguments(socketPath: String, terminalID: String, text: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--text", text]
+    }
+
+    /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as
+    /// `enter`, `tab`, `escape`, `up`, and `+`-joined chords such as `ctrl+c` (verified
+    /// live; `ctrl-c` is `validation.invalid`). The daemon rejects empty names.
+    static func keysArguments(socketPath: String, terminalID: String, keys: [String]) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "keys"] + keys
+    }
+
+    /// `terminal <term_id> screen read` (spec `terminal.screen.read`): the visible grid as
+    /// `{cols, rows, cursor_row, cursor_col, cursor_visible, text}`.
+    static func screenReadArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "read"]
+    }
+
+    /// `terminal <term_id> screen wait --pattern <regex> [--timeout-ms <n>]` (spec
+    /// `terminal.wait`): blocks until the screen matches, `{matched, text}`.
+    static func screenWaitArguments(socketPath: String, terminalID: String, pattern: String, timeoutMs: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "wait", "--pattern", pattern]
+        if let timeoutMs, timeoutMs > 0 {
+            arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.
     static func attachArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "attach", "--terminal", terminalID]
+    }
+
+    /// `session current terminal defaults set [--foreground #rrggbb] [--background #rrggbb]`
+    /// (spec `session.terminal_defaults.update`): the session defaults every PTY surface
+    /// renders with unless an application on the machine authored its own OSC 10/11.
+    /// Pushing this Mac's resolved Ghostty colors makes remote panes match the local
+    /// theme. (The flat `set-default-colors` verb in spec/commands.md is the protocol
+    /// name; the v2 resource CLI rejects it — verified live against a machine.)
+    static func setDefaultColorsArguments(socketPath: String, foreground: String?, background: String?) -> [String]? {
+        var arguments = ["--socket", socketPath, "--json", "session", "current", "terminal", "defaults", "set"]
+        if let foreground { arguments += ["--foreground", foreground] }
+        if let background { arguments += ["--background", background] }
+        return arguments.count > 8 ? arguments : nil
     }
 
     /// The argv `vm.terminal_new` runs in the machine when the caller gives none: a login

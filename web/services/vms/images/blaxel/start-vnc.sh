@@ -51,15 +51,40 @@ if ! pgrep -u "$(id -u)" -x openbox >/dev/null 2>&1; then
   dbus-launch openbox >>"$LOG_DIR/openbox.log" 2>&1 &
 fi
 
-if [ -f /usr/share/backgrounds/cmux/wallpaper.jpg ] && command -v feh >/dev/null 2>&1; then
-  feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 \
-    || xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
-else
-  xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
-fi
+set_wallpaper() {
+  if [ -f /usr/share/backgrounds/cmux/wallpaper.jpg ] && command -v feh >/dev/null 2>&1; then
+    feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 \
+      || xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
+  else
+    xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
+  fi
+}
+set_wallpaper
 
 if ! pgrep -u "$(id -u)" -x tint2 >/dev/null 2>&1; then
   tint2 -c /etc/cmux/tint2rc >>"$LOG_DIR/tint2.log" 2>&1 &
+fi
+
+# noVNC's remote resize grows the display live, but the root pixmap keeps its
+# old size (X tiles it: the doubled-wallpaper bug) and tint2 keeps its old
+# strut. Re-fill the wallpaper and nudge tint2 whenever the geometry changes.
+# `bash -c '…' cmux-desktop-resize-watch` puts the marker in $0 so the pgrep
+# guard finds the loop on the next idempotent pass.
+if ! pgrep -u "$(id -u)" -f cmux-desktop-resize-watch >/dev/null 2>&1; then
+  bash -c '
+    last=""
+    while :; do
+      now=$(xdpyinfo 2>/dev/null | awk "/dimensions:/ {print \$2}")
+      if [ -n "$now" ] && [ "$now" != "$last" ]; then
+        if [ -n "$last" ]; then
+          feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 || true
+          pkill -USR1 -U "$(id -u)" -x tint2 >/dev/null 2>&1 || true
+        fi
+        last="$now"
+      fi
+      sleep 2
+    done
+  ' cmux-desktop-resize-watch >>"$LOG_DIR/resize-watch.log" 2>&1 &
 fi
 
 # noVNC web client + websocket proxy on 6901 (the CLI's cloudVMDesktopPort).

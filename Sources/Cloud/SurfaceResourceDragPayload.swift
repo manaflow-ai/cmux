@@ -4,7 +4,7 @@ import Foundation
 /// Registers a Cloud tree row as the same live capability Bonsplit tab drags
 /// use, so every existing pane drop target accepts it, and stamps the item with
 /// the surface-resource type so the payload names catalog resources (terminals,
-/// screens, browsers on this Mac or on a machine — one, or a whole workspace's
+/// displays, browsers on this Mac or on a machine — one, or a whole workspace's
 /// worth), never a pane.
 struct SurfaceResourceDragPayload {
     static let pasteboardType = DragOverlayRoutingPolicy.surfaceResourceTransferType
@@ -22,7 +22,7 @@ struct SurfaceResourceDragPayload {
         case .terminal:
             kind = "terminal"
             icon = group.resources.count > 1 ? "square.stack" : "terminal.fill"
-        case .screen:
+        case .display:
             kind = "browser"
             icon = "display"
         case .browser:

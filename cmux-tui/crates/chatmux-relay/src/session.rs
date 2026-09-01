@@ -18,7 +18,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -51,10 +51,17 @@ use crate::wire::{
 const MAX_OUTBOUND_FRAMES: usize = 256;
 const MAX_WATCH_OUTBOUND_FRAMES: usize = 64;
 const MAX_OUTBOUND_BYTES: usize = 8 << 20;
+// Keep a small byte reserve outside the lossy watch/event budget. Watch
+// failures must still reach the client when watch frames consume all shared
+// bytes, so the client can re-open the stream instead of retaining a silent
+// watch ID.
+const MAX_CRITICAL_RESERVED_BYTES: usize = 64 << 10;
+const MAX_WATCH_BYTES: usize = MAX_OUTBOUND_BYTES - MAX_CRITICAL_RESERVED_BYTES;
 const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const CONNECTION_TASK_ABORT_TIMEOUT: Duration = Duration::from_secs(1);
 /// One suspend/read-liveness sample per period while a socket is open.
 const LIVENESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// Wall clock moving more than this relative to the monotonic clock between
@@ -90,20 +97,31 @@ struct AuthSnapshot {
 
 pub(crate) struct OutboundFrame {
     pub(crate) text: String,
+    pub(crate) live: Option<Arc<AtomicBool>>,
+    pub(crate) ack: Option<tokio::sync::oneshot::Sender<()>>,
     _bytes: OwnedSemaphorePermit,
+    _watch_bytes: Option<OwnedSemaphorePermit>,
+}
+
+impl OutboundFrame {
+    pub(crate) fn is_live(&self) -> bool {
+        self.live.as_ref().is_none_or(|live| live.load(Ordering::Acquire))
+    }
 }
 
 async fn send_socket_message<S>(
     socket: &Arc<AsyncMutex<S>>,
     message: Message,
-    cancellation: &CancellationToken,
+    process_cancellation: &CancellationToken,
+    connection_cancellation: &CancellationToken,
 ) -> Result<(), ()>
 where
     S: futures_util::Sink<Message> + Unpin,
 {
     tokio::select! {
         biased;
-        _ = cancellation.cancelled() => Err(()),
+        _ = process_cancellation.cancelled() => Err(()),
+        _ = connection_cancellation.cancelled() => Err(()),
         result = async {
             socket.lock().await.send(message).await
         } => result.map_err(|_| ()),
@@ -113,12 +131,19 @@ where
 async fn send_socket_text<S>(
     socket: &Arc<AsyncMutex<S>>,
     text: String,
-    cancellation: &CancellationToken,
+    process_cancellation: &CancellationToken,
+    connection_cancellation: &CancellationToken,
 ) -> Result<(), ()>
 where
     S: futures_util::Sink<Message> + Unpin,
 {
-    send_socket_message(socket, Message::Text(text.into()), cancellation).await
+    send_socket_message(
+        socket,
+        Message::Text(text.into()),
+        process_cancellation,
+        connection_cancellation,
+    )
+    .await
 }
 
 /// One socket's bounded outbound capacity. Critical request responses wait
@@ -129,7 +154,8 @@ pub(crate) struct OutboundSink {
     critical: mpsc::Sender<OutboundFrame>,
     watch: mpsc::Sender<OutboundFrame>,
     bytes: Arc<Semaphore>,
-    critical_overflow: Arc<std::sync::atomic::AtomicBool>,
+    watch_bytes: Arc<Semaphore>,
+    critical_overflow: Arc<AtomicBool>,
 }
 
 impl OutboundSink {
@@ -142,7 +168,8 @@ impl OutboundSink {
                 critical,
                 watch,
                 bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
-                critical_overflow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                watch_bytes: Arc::new(Semaphore::new(MAX_WATCH_BYTES)),
+                critical_overflow: Arc::new(AtomicBool::new(false)),
             },
             critical_rx,
             watch_rx,
@@ -159,14 +186,39 @@ impl OutboundSink {
     }
 
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
+        // Keep relay-loop callers nonblocking. Waiting for a writer
+        // acknowledgement here can deadlock because the loop also owns the
+        // outbound consumer. Token-aware producers use the explicit ack path.
+        self.critical_text_with_token_ack(text, None, None).await
+    }
+
+    pub(crate) async fn critical_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        self.critical_text_with_token_ack(text, live, Some(ack_tx)).await?;
+        ack_rx.await.map_err(|_| ())
+    }
+
+    pub(crate) async fn critical_text_with_token_ack(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+        ack: Option<tokio::sync::oneshot::Sender<()>>,
+    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
         if bytes as usize > MAX_OUTBOUND_BYTES {
             self.critical_overflow.store(true, Ordering::Release);
             return Err(());
         }
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
-        let result =
-            self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ());
+        let result = self
+            .critical
+            .send(OutboundFrame { text, live, ack, _bytes: permit, _watch_bytes: None })
+            .await
+            .map_err(|_| ());
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
         }
@@ -186,7 +238,15 @@ impl OutboundSink {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+            self.critical
+                .try_send(OutboundFrame {
+                    text,
+                    live: None,
+                    ack: None,
+                    _bytes: permit,
+                    _watch_bytes: None,
+                })
+                .map_err(|_| ())
         })();
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
@@ -195,13 +255,29 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_critical_text(&self, text: String) -> Result<(), ()> {
+        self.try_critical_text_with_token(text, None)
+    }
+
+    pub(crate) fn try_critical_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let result = (|| {
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
             if bytes as usize > MAX_OUTBOUND_BYTES {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+            self.critical
+                .try_send(OutboundFrame {
+                    text,
+                    live,
+                    ack: None,
+                    _bytes: permit,
+                    _watch_bytes: None,
+                })
+                .map_err(|_| ())
         })();
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
@@ -214,9 +290,30 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_watch_text(&self, text: String) -> Result<(), ()> {
+        self.try_watch_text_with_token(text, None)
+    }
+
+    pub(crate) fn try_watch_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        if bytes as usize > MAX_WATCH_BYTES {
+            return Err(());
+        }
         let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-        self.watch.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+        let watch_permit =
+            Arc::clone(&self.watch_bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+        self.watch
+            .try_send(OutboundFrame {
+                text,
+                live,
+                ack: None,
+                _bytes: permit,
+                _watch_bytes: Some(watch_permit),
+            })
+            .map_err(|_| ())
     }
 }
 
@@ -306,15 +403,40 @@ async fn wait_for_reconnect(cancellation: &CancellationToken, delay: Duration) -
     }
 }
 
-/// Cancel and await all work admitted by one physical socket. The timeout is
-/// a final guard for provider code that does not reach an async cancellation
-/// point; dropping the JoinSet after the timeout aborts the remaining handles.
+/// Observe every task result while a connection shuts down. `JoinSet::shutdown`
+/// would abort first and intentionally discard panic results, so keep the
+/// join loop explicit to preserve diagnostics for a task that fails while
+/// releasing its connection-owned resources.
+async fn observe_connection_tasks(connection_tasks: &mut JoinSet<()>) {
+    while let Some(joined) = connection_tasks.join_next().await {
+        if let Err(error) = joined
+            && error.is_panic()
+        {
+            eprintln!("Relay cleanup encountered an internal error.");
+        }
+    }
+}
+
+/// Cancel and await all work admitted by one physical socket. Give handlers
+/// a cooperative window first, then abort and observe the remaining handles
+/// within a shorter final window. A started blocking provider may still outlive
+/// its async wrapper, so the JoinSet is dropped when the bounded cleanup ends.
 async fn shutdown_connection_tasks(
     connection_tasks: &mut JoinSet<()>,
     cancellation: &CancellationToken,
 ) -> bool {
     cancellation.cancel();
-    timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown()).await.is_ok()
+    if timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, observe_connection_tasks(connection_tasks))
+        .await
+        .is_ok()
+    {
+        return true;
+    }
+
+    connection_tasks.abort_all();
+    let _ =
+        timeout(CONNECTION_TASK_ABORT_TIMEOUT, observe_connection_tasks(connection_tasks)).await;
+    false
 }
 
 /// Keep the machine online until the process cancellation token is raised.
@@ -327,6 +449,26 @@ pub async fn stay_online(
     cancellation: CancellationToken,
 ) -> Result<(), RelayError> {
     let runtime = SessionRuntime::with_roots(config.allowed_roots.clone());
+    // Tunnel-direct terminal data plane: serve terminals to spliced tunnel
+    // connections on loopback 127.0.0.1:9776. Managed sandboxes ONLY — this
+    // branch is the gate; paired human machines never start the listener.
+    // Best-effort: a failed bind degrades to the relay-socket terminal path.
+    #[cfg(unix)]
+    if state.managed {
+        match crate::tunnel_terminal::start_tunnel_terminal_listener(
+            Arc::clone(&runtime.pty),
+            cancellation.child_token(),
+            crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
+            crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
+        )
+        .await
+        {
+            Ok(_) => eprintln!("Tunnel terminal listener is up on loopback."),
+            Err(error) => eprintln!(
+                "Tunnel terminal listener bind failed: {error}. Terminals stay on the relay socket path."
+            ),
+        }
+    }
     let mut attempt: u32 = 0;
     loop {
         if cancellation.is_cancelled() {
@@ -400,7 +542,13 @@ fn unsupported_platform_pty_reply(frame_type: &str, raw: &Value) -> Option<Value
 }
 
 /// Build a per-frame FrameContext reading the current reconciled auth.
-fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapshot) -> FrameContext {
+fn make_context(
+    out: &OutboundSink,
+    pending: &Arc<AtomicU64>,
+    auth: &AuthSnapshot,
+    transport_id: &str,
+    cancellation: &CancellationToken,
+) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
@@ -431,6 +579,8 @@ fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapsho
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
+        transport_id: Some(transport_id.to_owned()),
+        cancellation: cancellation.clone(),
     }
 }
 
@@ -473,7 +623,7 @@ async fn relay_session(
     };
     let hello_text =
         serde_json::to_string(&hello).map_err(|error| RelayError::transient(error.to_string()))?;
-    if send_socket_text(&socket, hello_text, cancellation).await.is_err() {
+    if send_socket_text(&socket, hello_text, cancellation, cancellation).await.is_err() {
         return Ok(false);
     }
 
@@ -490,6 +640,12 @@ async fn relay_session(
     let connection_cancellation = cancellation.child_token();
     let mut connection_tasks = JoinSet::new();
 
+    // The PtyManager is shared with the managed tunnel listener. Every PTY
+    // this socket opens carries this connection's identity, so closing or
+    // reconnecting the socket cannot detach an independent tunnel attachment.
+    #[cfg(unix)]
+    let transport_id = format!("relay-{}", crate::pty::random_hex(16));
+
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
     #[cfg(unix)]
@@ -503,22 +659,24 @@ async fn relay_session(
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
-        let cancellation = connection_cancellation.clone();
+        let connection_token = connection_cancellation.clone();
+        let transport = transport_id.clone();
         connection_tasks.spawn(async move {
             loop {
                 let frame = tokio::select! {
                     biased;
-                    _ = cancellation.cancelled() => break,
+                    _ = connection_token.cancelled() => break,
                     frame = pty_rx.recv() => {
                         let Some(frame) = frame else { break };
                         frame
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot);
+                let context =
+                    make_context(&out, &pending, &snapshot, &transport, &connection_token);
                 tokio::select! {
                     biased;
-                    _ = cancellation.cancelled() => break,
+                    _ = connection_token.cancelled() => break,
                     _ = manager.handle_frame(&frame, &context) => {}
                 }
             }
@@ -577,6 +735,10 @@ async fn relay_session(
             if critical_burst >= 8 {
                 critical_burst = 0;
                 tokio::select! {
+                    // This arm is intentionally unbiased after each critical
+                    // burst. Keep cancellation as an explicit wake source so
+                    // it competes fairly with ready queues and timers.
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     frame = critical_rx.recv() => Wake::Outbound(true, frame),
                     frame = watch_rx.recv() => Wake::Outbound(false, frame),
                     _ = async {
@@ -586,12 +748,15 @@ async fn relay_session(
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
                     _ = liveness.tick() => Wake::Liveness,
-                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             } else {
                 tokio::select! {
                     biased;
+                    // `biased` polls in source order. Cancellation must be
+                    // first or a continuously-ready queue/heartbeat can
+                    // starve process shutdown indefinitely.
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     frame = critical_rx.recv() => Wake::Outbound(true, frame),
                     frame = watch_rx.recv() => Wake::Outbound(false, frame),
                     _ = async {
@@ -601,7 +766,6 @@ async fn relay_session(
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
                     _ = liveness.tick() => Wake::Liveness,
-                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             }
@@ -611,7 +775,10 @@ async fn relay_session(
             Wake::Heartbeat => {
                 critical_burst = 0;
                 let frame = heartbeat_frame(now_ms()).to_string();
-                if send_socket_text(&socket, frame, cancellation).await.is_err() {
+                if send_socket_text(&socket, frame, cancellation, &connection_cancellation)
+                    .await
+                    .is_err()
+                {
                     break Ok(connected);
                 }
             }
@@ -641,6 +808,12 @@ async fn relay_session(
                 }
             }
             Wake::Outbound(is_critical, Some(frame)) => {
+                if !frame.is_live() {
+                    if let Some(ack) = frame.ack {
+                        let _ = ack.send(());
+                    }
+                    continue;
+                }
                 if is_critical {
                     critical_burst += 1;
                 } else {
@@ -648,10 +821,14 @@ async fn relay_session(
                 }
                 let text = frame.text;
                 let size = text.len() as u64;
-                let sent = send_socket_text(&socket, text, cancellation).await;
+                let sent =
+                    send_socket_text(&socket, text, cancellation, &connection_cancellation).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
                     break Ok(connected);
+                }
+                if let Some(ack) = frame.ack {
+                    let _ = ack.send(());
                 }
             }
             Wake::Outbound(_, None) => {
@@ -670,8 +847,13 @@ async fn relay_session(
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Ping(payload) => {
-                        let _ = send_socket_message(&socket, Message::Pong(payload), cancellation)
-                            .await;
+                        let _ = send_socket_message(
+                            &socket,
+                            Message::Pong(payload),
+                            cancellation,
+                            &connection_cancellation,
+                        )
+                        .await;
                         continue;
                     }
                     Message::Close(_) => break Ok(connected),
@@ -753,7 +935,15 @@ async fn relay_session(
                                 || local_trust == Trust::Autonomous)
                         {
                             let frame = set_trust_frame(local_trust.as_str()).to_string();
-                            if send_socket_text(&socket, frame, cancellation).await.is_err() {
+                            if send_socket_text(
+                                &socket,
+                                frame,
+                                cancellation,
+                                &connection_cancellation,
+                            )
+                            .await
+                            .is_err()
+                            {
                                 break Ok(connected);
                             }
                         } else if !state.managed {
@@ -812,7 +1002,13 @@ async fn relay_session(
                                 save(config, config_path);
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
-                            let _ = send_socket_text(&socket, frame, cancellation).await;
+                            let _ = send_socket_text(
+                                &socket,
+                                frame,
+                                cancellation,
+                                &connection_cancellation,
+                            )
+                            .await;
                             workspace.set_local_observe(DEFAULT_RELAY_TRUST == Trust::Observe);
                             eprintln!(
                                 "Refused an autonomous trust acknowledgement without this \
@@ -938,7 +1134,13 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context = make_context(&out_tx, &pending, &snapshot);
+                                let context = make_context(
+                                    &out_tx,
+                                    &pending,
+                                    &snapshot,
+                                    &transport_id,
+                                    &connection_cancellation,
+                                );
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
@@ -976,11 +1178,13 @@ async fn relay_session(
                                         // outbound queue cannot block this loop and stop socket
                                         // ingress from being drained.
                                         let text = reply.to_string();
-                                        let sent = socket
-                                            .lock()
-                                            .await
-                                            .send(Message::Text(text.into()))
-                                            .await;
+                                        let sent = send_socket_text(
+                                            &socket,
+                                            text,
+                                            cancellation,
+                                            &connection_cancellation,
+                                        )
+                                        .await;
                                         if sent.is_err() {
                                             break Ok(connected);
                                         }
@@ -1040,20 +1244,28 @@ async fn relay_session(
         }
     };
 
+    // Workspace requests own Git children. Give them a cooperative
+    // cancellation window so each request can kill its process group and
+    // await the direct child before the socket connection is dropped.
+    if !workspace.shutdown().await {
+        eprintln!("Workspace request shutdown exceeded its bounded cleanup window.");
+    }
+    drop(workspace);
+
     // Handlers are owned by this socket. Cancel them before returning so a
     // dropped connection cannot leave work sending into a dead session. A
     // handler may be inside a non-cooperative provider call, so retain a hard
     // deadline for the final await instead of letting reconnect or process
     // shutdown wait forever.
     if !shutdown_connection_tasks(&mut connection_tasks, &connection_cancellation).await {
-        eprintln!(
-            "Relay connection task shutdown exceeded {CONNECTION_TASK_SHUTDOWN_TIMEOUT:?}; abandoning remaining handlers."
-        );
+        eprintln!("Relay cleanup did not finish before its safety deadline.");
     }
 
-    // Attachments die with the socket; sessions persist (docs/TERMINAL.md).
+    // This socket's attachments die with it; sessions persist, and the
+    // managed tunnel listener's attachments are another transport's — a
+    // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_all();
+    runtime.pty.detach_transport(&transport_id);
     result
 }
 
@@ -1143,11 +1355,52 @@ mod liveness_tests {
 
 #[cfg(test)]
 mod cancellation_tests {
-    use super::{shutdown_connection_tasks, wait_for_reconnect};
+    use super::{send_socket_text, shutdown_connection_tasks, wait_for_reconnect};
+    use futures_util::Sink;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
     use std::time::Duration;
 
+    use tokio::sync::{Mutex as AsyncMutex, Notify};
     use tokio::task::JoinSet;
+    use tokio_tungstenite::tungstenite::Message;
     use tokio_util::sync::CancellationToken;
+
+    struct PendingSink {
+        started: Arc<Notify>,
+    }
+
+    impl Sink<Message> for PendingSink {
+        type Error = ();
+
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            self.started.notify_one();
+            Poll::Pending
+        }
+
+        fn start_send(self: Pin<&mut Self>, _item: Message) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
 
     #[tokio::test]
     async fn reconnect_backoff_stops_when_process_is_cancelled() {
@@ -1174,5 +1427,77 @@ mod cancellation_tests {
         assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
         assert!(cancellation.is_cancelled());
         assert!(tasks.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn connection_shutdown_allows_cooperative_tasks_to_finish() {
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let completed = Arc::new(AtomicBool::new(false));
+        let worker_completed = Arc::clone(&completed);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async move {
+            started_tx.send(()).expect("test receiver is waiting");
+            worker_cancellation.cancelled().await;
+            worker_completed.store(true, Ordering::Release);
+        });
+        started_rx.await.expect("worker started");
+
+        assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
+        assert!(completed.load(Ordering::Acquire));
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_unblocks_a_send_waiting_on_the_socket() {
+        let started = Arc::new(Notify::new());
+        let socket = Arc::new(AsyncMutex::new(PendingSink { started: Arc::clone(&started) }));
+        let process_cancellation = CancellationToken::new();
+        let connection_cancellation = CancellationToken::new();
+        let task_socket = Arc::clone(&socket);
+        let task_process_cancellation = process_cancellation.clone();
+        let task_connection_cancellation = connection_cancellation.clone();
+        let send = tokio::spawn(async move {
+            send_socket_text(
+                &task_socket,
+                "blocked".to_owned(),
+                &task_process_cancellation,
+                &task_connection_cancellation,
+            )
+            .await
+        });
+
+        started.notified().await;
+        process_cancellation.cancel();
+        assert!(send.await.expect("send task joined").is_err());
+        assert!(!connection_cancellation.is_cancelled());
+    }
+}
+
+#[cfg(test)]
+mod outbound_frame_tests {
+    use super::OutboundSink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[tokio::test]
+    async fn token_frames_are_marked_stale_before_socket_delivery() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        let live = Arc::new(AtomicBool::new(false));
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        sink.critical_text_with_token_ack(
+            "stale".to_owned(),
+            Some(Arc::clone(&live)),
+            Some(ack_tx),
+        )
+        .await
+        .expect("queue frame");
+        let frame = critical.recv().await.expect("queued frame");
+        assert!(!frame.is_live());
+        live.store(true, Ordering::Release);
+        assert!(frame.is_live());
+        frame.ack.expect("ack sender").send(()).expect("ack receiver");
+        ack_rx.await.expect("ack");
     }
 }

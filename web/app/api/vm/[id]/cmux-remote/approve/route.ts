@@ -1,13 +1,12 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
-  vmFreeAccessExpiredResponse,
+  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
-import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../../services/vms/errors";
 import { approveVmCmuxRemoteEnrollment, runVmWorkflow } from "../../../../../../services/vms/workflows";
+import { parseLenientObjectBody } from "../../../../../../services/vms/routeInput";
 
 /**
  * Approves the cmux-tui device enrollment that a prior `attach-endpoint`
@@ -27,7 +26,7 @@ export async function POST(
     "/api/vm/[id]/cmux-remote/approve failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseBody(request);
+      const body = await parseLenientObjectBody(request);
       const raw = body.invitationId ?? body.invitation_id;
       const invitationId = typeof raw === "string" ? raw.trim() : "";
       if (!/^[A-Za-z0-9._-]{1,128}$/.test(invitationId)) {
@@ -51,23 +50,10 @@ export async function POST(
         setSpanAttributes(span, { "cmux.vm.cmux_remote.approval_state": result.state });
         return jsonResponse(result);
       } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        if (isVmFreeAccessExpiredError(err)) {
-          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
-        }
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },
   );
-}
-
-async function parseBody(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
 }

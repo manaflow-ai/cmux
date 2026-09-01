@@ -1428,6 +1428,16 @@ fn append_journal_ingress_transaction(
     if let Some(commit) =
         ingress_receipt(tx, &ingress.producer_id, origin, idempotency_key, fingerprint.as_slice())?
     {
+        if ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+            WorkspaceRegistry::stage_agent_hook_pending(
+                tx,
+                &ingress.producer_id,
+                origin,
+                idempotency_key,
+                commit.sequence,
+                ingress,
+            )?;
+        }
         return Ok(commit);
     }
     let installed = tx
@@ -1528,6 +1538,16 @@ fn append_journal_ingress_transaction(
             canonical_json(&result)?,
         ],
     )?;
+    if built_in_agent {
+        WorkspaceRegistry::stage_agent_hook_pending(
+            tx,
+            &ingress.producer_id,
+            origin,
+            idempotency_key,
+            sequence,
+            ingress,
+        )?;
+    }
     Ok(JournalAppendCommit { sequence, event_id, replayed: false })
 }
 

@@ -3807,7 +3807,7 @@ fn wait_for_socket(path: &Path) {
 }
 
 fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     let mut last = String::new();
     while Instant::now() < deadline {
         last = request(path, serde_json::json!({"cmd": "read-screen", "surface": surface}))["text"]
@@ -3823,7 +3823,7 @@ fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
 }
 
 fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, TerminalHostRecord)> {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let records = load_terminal_host_records(root).unwrap();
         if records.len() == expected {
@@ -3835,7 +3835,7 @@ fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, Terminal
 }
 
 fn wait_for_no_host_records(root: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     while Instant::now() < deadline {
         if load_terminal_host_records(root).unwrap().is_empty()
             && load_terminal_host_exit_records(root).unwrap().is_empty()

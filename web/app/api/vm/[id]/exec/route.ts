@@ -1,15 +1,19 @@
 import {
   jsonResponse,
-  notFoundVm,
-  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
+  vmResourceErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
 import { execVm, runVmWorkflow } from "../../../../../services/vms/workflows";
 
+
+// Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
+// The function budget must outlive that ceiling or the platform kills the
+// invocation mid-command; 960s = the 900s command ceiling plus attach and
+// auth overhead.
+export const maxDuration = 960;
 
 export async function POST(
   request: Request,
@@ -81,10 +85,8 @@ export async function POST(
         setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
         return jsonResponse(result);
       } catch (err) {
-        if (isVmFreeAccessExpiredError(err)) {
-          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
-        }
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },

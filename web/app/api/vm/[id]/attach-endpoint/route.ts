@@ -1,14 +1,17 @@
 import {
   jsonResponse,
-  notFoundVm,
-  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
+  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openAttachEndpoint, openVmCmuxRemote, runVmWorkflow } from "../../../../../services/vms/workflows";
-
+import {
+  capabilityList,
+  optionalClientIdentifier,
+  optionalString,
+  parseLenientObjectBody,
+} from "../../../../../services/vms/routeInput";
 
 export async function POST(
   request: Request,
@@ -21,7 +24,7 @@ export async function POST(
     "/api/vm/[id]/attach-endpoint failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseAttachBody(request);
+      const body = await parseLenientObjectBody(request);
       const requireDaemon = body.requireDaemon === true || body.require_daemon === true;
       let sessionId: string | undefined;
       let attachmentId: string | undefined;
@@ -67,10 +70,8 @@ export async function POST(
           }));
           return jsonResponse(endpoint);
         } catch (err) {
-          if (isVmNotFoundError(err)) return notFoundVm(id);
-          if (isVmFreeAccessExpiredError(err)) {
-            return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
-          }
+          const response = vmResourceErrorResponse(err, id);
+          if (response) return response;
           throw err;
         }
       }
@@ -95,48 +96,10 @@ export async function POST(
         setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
         return jsonResponse(endpoint);
       } catch (err) {
-        if (isVmFreeAccessExpiredError(err)) {
-          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
-        }
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },
   );
-}
-
-/** Client transport capabilities: short lowercase tokens, bounded, anything else dropped. */
-function capabilityList(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const tokens = value
-    .filter((entry): entry is string => typeof entry === "string")
-    .map((entry) => entry.trim())
-    .filter((entry) => /^[a-z0-9-]{1,64}$/.test(entry));
-  return tokens.length ? Array.from(new Set(tokens)).slice(0, 16) : undefined;
-}
-
-function optionalString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-function optionalClientIdentifier(value: unknown, fieldName: string): string | undefined {
-  const trimmed = optionalString(value);
-  if (!trimmed) return undefined;
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(trimmed)) {
-    throw new Error(`${fieldName} must be 1-128 characters of letters, numbers, dot, underscore, colon, or dash`);
-  }
-  return trimmed;
-}
-
-async function parseAttachBody(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
 }
