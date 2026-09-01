@@ -267,6 +267,15 @@ struct TuiManualIOPumpTests {
         #expect(split.remainder == Data("partial".utf8))
     }
 
+    @Test
+    func stderrAccumulatorCanAppendAndReadTheTail() {
+        let box = TuiManualIOStderrBox()
+        box.append(Data("first\n".utf8))
+        box.append(Data("exit\n".utf8))
+
+        #expect(box.text() == "first\nexit\n")
+    }
+
     // MARK: - Registry
 
     @MainActor
