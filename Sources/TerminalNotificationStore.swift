@@ -2007,7 +2007,6 @@ final class TerminalNotificationStore: ObservableObject {
             $0.tabId == tabId && $0.correlationKey == correlationKey ? $0.id : nil
         }
         ids.forEach(remove)
-        removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
     }
 
     /// Clears one surface notification by its producer correlation key. This
@@ -2039,7 +2038,6 @@ final class TerminalNotificationStore: ObservableObject {
             return notification.id
         }
         ids.forEach(remove)
-        removePendingNotificationRequests(withIdentifiers: ids.map { $0.uuidString })
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
