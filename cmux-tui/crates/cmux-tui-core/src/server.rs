@@ -31,7 +31,13 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 fn retry_accept_error(kind: std::io::ErrorKind) -> bool {
-    matches!(kind, std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock | std::io::ErrorKind::ResourceBusy)
+    matches!(
+        kind,
+        std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::ResourceBusy
+    )
 }
 
 use anyhow::Context;
