@@ -57,8 +57,9 @@ extension GitMetadataService {
             safetyConfiguration: safetyConfiguration,
             environment: environment
         )
-        let repositoryConfigURLs = repositoryConfigSnapshot.configURLs
-            + repositoryConfigSnapshot.watchFallbackURLs
+        let repositoryConfigURLs = configPathsByRepository?[repository.workTreeRoot]
+            .map { $0.map(URL.init(fileURLWithPath:)) }
+            ?? (repositoryConfigSnapshot.configURLs + repositoryConfigSnapshot.watchFallbackURLs)
         let sharedGlobalConfigURLs = repositoryConfigSnapshot.globalConfigURLs
         let rawGitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
@@ -530,8 +531,9 @@ extension GitMetadataService {
                 ],
                 environment: environment
             )
-            let localConfigURLs = localConfigSnapshot.configURLs
-                + localConfigSnapshot.watchFallbackURLs
+            let localConfigURLs = configPathsByRepository?[submoduleRepository.workTreeRoot]
+                .map { $0.map(URL.init(fileURLWithPath:)) }
+                ?? (localConfigSnapshot.configURLs + localConfigSnapshot.watchFallbackURLs)
             paths.append(
                 contentsOf: gitRepositoryMetadataWatchPaths(
                     repository: submoduleRepository,
