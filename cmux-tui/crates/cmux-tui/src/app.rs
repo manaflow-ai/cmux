@@ -27526,6 +27526,30 @@ mod tests {
     }
 
     #[test]
+    fn plain_click_clears_an_existing_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("plain-click-clears-selection-test", b"alpha beta gamma");
+        app.replace_selection(Some(Selection {
+            surface: surface.id,
+            anchor: (0, 0),
+            head: (4, 0),
+        }));
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert!(app.selection.is_none(), "a plain click must clear an existing selection");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn double_click_selects_a_complete_whitespace_run() {
         let (mut app, mux, surface, content) =
             selection_fixture("double-click-whitespace-selection-test", b"alpha   beta");
