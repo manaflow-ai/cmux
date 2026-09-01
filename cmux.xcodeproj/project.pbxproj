@@ -2762,6 +2762,7 @@
 		469200064692000146920001 /* VaultPaneDropTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200064692000146920002 /* VaultPaneDropTestSupport.swift */; };
 		469200044692000146920001 /* VaultPaneTransferLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200044692000146920002 /* VaultPaneTransferLifecycleTests.swift */; };
 		992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */; };
+		11296000000000000000000A /* VaultRestoreCompatibilitySecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000009 /* VaultRestoreCompatibilitySecurityTests.swift */; };
 		112960000000000000000001 /* VaultRestorePathGuaranteeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */; };
 		992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */; };
 		112960000000000000000005 /* VaultSessionDropLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000006 /* VaultSessionDropLauncher.swift */; };
@@ -5727,6 +5728,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		469200064692000146920002 /* VaultPaneDropTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultPaneDropTestSupport.swift; sourceTree = "<group>"; };
 		469200044692000146920002 /* VaultPaneTransferLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultPaneTransferLifecycleTests.swift; sourceTree = "<group>"; };
 		99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultQueuedRestoreIdentityTests.swift; sourceTree = "<group>"; };
+		112960000000000000000009 /* VaultRestoreCompatibilitySecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestoreCompatibilitySecurityTests.swift; sourceTree = "<group>"; };
 		112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestorePathGuaranteeTests.swift; sourceTree = "<group>"; };
 		992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestoreRelaunchPersistenceTests.swift; sourceTree = "<group>"; };
 		112960000000000000000006 /* VaultSessionDropLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionDropLauncher.swift; sourceTree = "<group>"; };
@@ -8411,6 +8413,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				8837A0020000000000000002 /* AgentResumeReturnShellStartupTests.swift */,
 				9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */,
 				992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */,
+				112960000000000000000009 /* VaultRestoreCompatibilitySecurityTests.swift */,
 				112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */,
 				992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */,
 				99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */,
@@ -12436,6 +12439,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				469200064692000146920001 /* VaultPaneDropTestSupport.swift in Sources */,
 				469200044692000146920001 /* VaultPaneTransferLifecycleTests.swift in Sources */,
 				992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */,
+				11296000000000000000000A /* VaultRestoreCompatibilitySecurityTests.swift in Sources */,
 				112960000000000000000001 /* VaultRestorePathGuaranteeTests.swift in Sources */,
 				992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */,
 				A3340002A3340002A3340002 /* ViewerNavigationTests.swift in Sources */,

@@ -452,32 +452,6 @@ struct VaultRestorePathGuaranteeTests {
         )
     }
 
-    @Test(arguments: ["claude", "codex"])
-    func invalidBuiltInSessionIDsAreQuotedInCompatibilityInput(_ rawKind: String) throws {
-        let unsafeSessionID = "bad;echo-pwned"
-        let specifics: AgentSpecifics = rawKind == "claude"
-            ? .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
-            : .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
-        let entry = SessionEntry(
-            id: "\(rawKind):\(unsafeSessionID)",
-            agent: rawKind == "claude" ? .claude : .codex,
-            sessionId: unsafeSessionID,
-            title: "Unsafe \(rawKind) session",
-            cwd: nil,
-            gitBranch: nil,
-            pullRequest: nil,
-            modified: Date(timeIntervalSince1970: 1_800_000_107),
-            fileURL: nil,
-            specifics: specifics
-        )
-        let launch = try #require(entry.resumeLaunch)
-
-        #expect(launch.strategy == .legacyCommand)
-        #expect(launch.legacyFallbackReason == .missingStructuredSnapshot)
-        #expect(!launch.initialInput.contains("--resume \(unsafeSessionID)"))
-        #expect(!launch.initialInput.contains("resume \(unsafeSessionID)"))
-    }
-
     private static func entry(for rawKind: String, cwd: String? = "/tmp/vault-project") -> SessionEntry {
         let sessionID = "vault-\(rawKind)-session"
         let specifics: AgentSpecifics
