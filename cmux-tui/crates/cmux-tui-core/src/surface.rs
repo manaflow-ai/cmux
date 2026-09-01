@@ -2563,9 +2563,13 @@ impl Surface {
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
+        let child_slot = Arc::new(Mutex::new(Some(child)));
+        let child_for_reaper = child_slot.clone();
+        let reaper = std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
             let surface = surface.clone();
             move || {
+                let mut child =
+                    child_for_reaper.lock().unwrap().take().expect("child reaper owns child");
                 let exit = wait_for_native_child_status(child.as_mut());
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
@@ -2573,7 +2577,14 @@ impl Surface {
                 close_local_terminal_master_after_exit(&surface);
                 publish_local_exit_if_ready(&surface);
             }
-        })?;
+        });
+        if let Err(error) = reaper {
+            if let Some(mut child) = child_slot.lock().unwrap().take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Err(error.into());
+        }
 
         Ok(surface)
     }
