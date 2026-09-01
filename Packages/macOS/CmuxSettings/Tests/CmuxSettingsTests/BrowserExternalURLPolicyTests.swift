@@ -24,6 +24,7 @@ struct BrowserExternalURLPolicyTests {
         ("foo|bar", "https://example.com/foo", true),
         ("example.com/(foo|bar)", "https://example.com/foo", true),
         ("example.com/[0-9]+", "https://example.com/42", true),
+        ("re:foo\\x2ecom.*", "https://foo.com/path", true),
         ("re:.*foo.*", "https://example.com/foo", true),
         ("re:https?://example\\.com/.*", "https://example.com/path", true),
         ("example.com", "https://other.test/", false),
@@ -109,6 +110,11 @@ struct BrowserExternalURLPolicyTests {
             patterns: ["re:a*aaa.*ab$"]
         )
         #expect(!overlappingQuantifiers.matches("aaaab"))
+
+        let overlappingFiniteQuantifier = BrowserExternalURLPolicy(
+            patterns: ["re:[ab]*a{0,16384}b"]
+        )
+        #expect(!overlappingFiniteQuantifier.matches("aaaaab"))
 
         let adjacentQuantifiers = BrowserExternalURLPolicy(
             patterns: ["re:a*a*a*a*a*a*a*a*b"]
