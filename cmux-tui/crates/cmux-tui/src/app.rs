@@ -8552,15 +8552,12 @@ impl MachineActionWorker {
     fn shutdown(&mut self) {
         self.stop.store(true, Ordering::Release);
         self.sender.take();
-        if self.worker.as_ref().is_some_and(JoinHandle::is_finished)
-            && let Some(worker) = self.worker.take()
-        {
+        // The stop flag is cooperative: an in-flight provider action returns
+        // at its transport deadline, then the worker observes stop and closes
+        // the controller. Join so provider cleanup cannot outlive the owner.
+        if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
-        // A provider action has a bounded transport deadline but may still be
-        // in progress. Dropping the handle detaches that bounded cleanup so
-        // quitting the TUI never waits for the provider deadline.
-        self.worker.take();
     }
 }
 
@@ -42698,7 +42695,7 @@ mod tests {
     }
 
     #[test]
-    fn machine_action_worker_shutdown_never_joins_a_blocked_action() {
+    fn machine_action_worker_shutdown_joins_after_cooperative_cancellation() {
         let (events, _event_receiver) = crossbeam_channel::bounded(4);
         let (started, starts) = std::sync::mpsc::channel();
         let (release, releases) = std::sync::mpsc::channel();
@@ -42717,11 +42714,8 @@ mod tests {
             .unwrap();
         assert_eq!(starts.recv_timeout(Duration::from_secs(1)).unwrap(), MachineKey(1));
 
-        let started_shutdown = Instant::now();
-        worker.shutdown();
-
-        assert!(started_shutdown.elapsed() < Duration::from_millis(50));
         release.send(()).unwrap();
+        worker.shutdown();
         closes.recv_timeout(Duration::from_secs(1)).unwrap();
     }
 
