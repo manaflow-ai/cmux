@@ -145,6 +145,10 @@ public final class NextTransportDialClient {
     /// Credentials from the most recent successful mint; their `expiresAt`
     /// claims drive the renewal schedule.
     private var mintedCredentials: [BrokerCredentialClient.Credential] = []
+    /// Capped retry delay after a failed renewal. Expiry-derived scheduling is
+    /// used only while the broker is healthy; failures must not collapse to a
+    /// permanent minimum-delay request storm.
+    private var renewalRetryDelaySeconds: Int64?
     /// Dial attempts since the last explicit configure, so reconnects (not
     /// first dials) refresh hints and prefer the relay path.
     private var dialAttemptIndex = 0
@@ -168,6 +172,18 @@ public final class NextTransportDialClient {
     private let keychainService: String
     private let pushedRelayKeychainService: String
     private let sleep: @Sendable (Duration) async throws -> Void
+
+    private struct RenewalRetryPolicy: Sendable {
+        let minimumDelaySeconds: Int64 = 10
+        let maximumDelaySeconds: Int64 = 300
+
+        func nextDelay(after previous: Int64?) -> Int64 {
+            guard let previous else { return minimumDelaySeconds }
+            return min(previous * 2, maximumDelaySeconds)
+        }
+    }
+
+    private let renewalRetryPolicy = RenewalRetryPolicy()
 
     /// `UserDefaults` is thread-safe in its documented API but lacks a
     /// `Sendable` conformance. This private box is only transferred to the
@@ -397,6 +413,7 @@ public final class NextTransportDialClient {
                     let credentials = try await broker.mint(preferredUrl: hostRelayURL)
                     guard gen == lifecycleGeneration, !Task.isCancelled else { return }
                     mintedCredentials = credentials
+                    renewalRetryDelaySeconds = nil
                     relays = credentials.map {
                         IrohSubstrate.RelayAccess(url: $0.relayUrl, authToken: $0.token)
                     }
@@ -717,6 +734,7 @@ public final class NextTransportDialClient {
     /// Seconds until the next renewal should fire, from the installed
     /// credentials' expiries (fallback cadence when none carry one).
     private func nextRenewalDelay() -> Int64 {
+        if let renewalRetryDelaySeconds { return renewalRetryDelaySeconds }
         let now = Int64(Date().timeIntervalSince1970)
         let jitter = Int64.random(in: 0...30)
         guard
@@ -740,6 +758,7 @@ public final class NextTransportDialClient {
                     config: RelayConfig(url: credential.relayUrl, authToken: credential.token))
             }
             mintedCredentials = fresh
+            renewalRetryDelaySeconds = nil
             appliedRelayToken = fresh.first?.token ?? appliedRelayToken
             let expiry = fresh.first?.expiresAt
             log(
@@ -749,6 +768,8 @@ public final class NextTransportDialClient {
                 \(Self.elapsedMs(since: renewStart))ms)
                 """)
         } catch {
+            renewalRetryDelaySeconds = renewalRetryPolicy.nextDelay(
+                after: renewalRetryDelaySeconds)
             log(
                 "credential renewal failed after \(Self.elapsedMs(since: renewStart))ms",
                 error: error)

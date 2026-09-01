@@ -11787,14 +11787,14 @@ class TerminalController {
             case .success(let ticket):
                 return ticket
             case .failure(let failure):
-                return String(
+                return "ERROR: " + String(
                     localized: "cli.nextTransport.ticketUnavailable",
                     defaultValue: "Next-transport ticket unavailable: \(failure). Enable it in Debug > Next Transport."
                 )
             }
         }
         #else
-        return String(
+        return "ERROR: " + String(
             localized: "cli.nextTransport.debugOnly",
             defaultValue: "Next transport is available only in a debug build."
         )
@@ -11806,7 +11806,7 @@ class TerminalController {
         #if DEBUG
         let parts = args.split(separator: " ").map(String.init)
         guard parts.count == 3, let key = Data(base64Encoded: parts[1]) else {
-            return String(
+            return "ERROR: " + String(
                 localized: "cli.nextTransport.grantUsage",
                 defaultValue: "Usage: next_transport_grant <deviceId> <devicePublicKeyB64> <appIdentity>"
             )
@@ -11818,14 +11818,14 @@ class TerminalController {
             case .success(let grant):
                 return grant
             case .failure(let failure):
-                return String(
+                return "ERROR: " + String(
                     localized: "cli.nextTransport.grantUnavailable",
                     defaultValue: "Next-transport grant unavailable: \(failure). Enable it in Debug > Next Transport."
                 )
             }
         }
         #else
-        return String(
+        return "ERROR: " + String(
             localized: "cli.nextTransport.debugOnly",
             defaultValue: "Next transport is available only in a debug build."
         )

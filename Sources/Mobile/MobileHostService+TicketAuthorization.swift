@@ -143,9 +143,16 @@ extension MobileHostService {
             // the phone lose this host-wide control.
             return nil
         case "mobile.next_transport.pair":
-            // DEBUG-only graduation bootstrap; Mac-scoped like host.status.
-            // The same-account gate is authoritative, and the minted grant
-            // binds to the exact device identity carried in the request.
+            // DEBUG-only graduation bootstrap. Unlike a read-only host.status,
+            // this mints a durable host-wide credential, so a workspace- or
+            // terminal-scoped attach ticket must not be widened into it.
+            let workspaceID = authorization.ticket.workspaceID
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let terminalID = authorization.ticket.terminalID?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard workspaceID.isEmpty, terminalID.isEmpty else {
+                return scopedTicketError
+            }
             return nil
         default:
             return scopedTicketError

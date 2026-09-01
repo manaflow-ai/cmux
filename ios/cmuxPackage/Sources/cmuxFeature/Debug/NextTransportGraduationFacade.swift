@@ -149,6 +149,11 @@ final class NextTransportGraduationFacade {
     /// Macs with a decided capability verdict this app run. Inconclusive
     /// probes are deliberately removed so the next healthy connection retries.
     private var probedThisRun: Set<String> = []
+    /// Consecutive next-transport unavailability observations. A capability
+    /// success is sticky while reachable, but a bounded run of timeouts lets
+    /// the legacy channel recover and re-probe when a dev host is disabled.
+    private var nextTransportFailureCounts: [String: Int] = [:]
+    private static let nextTransportFailureThreshold = 3
     /// Probe generations prevent a superseded shell connection from committing
     /// a late bootstrap or routing verdict.
     private var probeGenerations: [String: UUID] = [:]
@@ -283,6 +288,7 @@ final class NextTransportGraduationFacade {
             return nil
         }
         guard let connection = await client.admittedConnection() else {
+            await noteNextTransportFailure(macID: macID)
             graduationLog.notice(
                 """
                 admittedConnection nil mac=\(String(macID.prefix(8)), privacy: .public): \
@@ -291,6 +297,7 @@ final class NextTransportGraduationFacade {
             return nil
         }
         guard await !connection.isClosed else {
+            await noteNextTransportFailure(macID: macID)
             graduationLog.notice(
                 """
                 admittedConnection nil mac=\(String(macID.prefix(8)), privacy: .public): \
@@ -298,7 +305,28 @@ final class NextTransportGraduationFacade {
                 """)
             return nil
         }
+        nextTransportFailureCounts.removeValue(forKey: macID)
         return connection
+    }
+
+    /// Demotes a previously capable Mac after a bounded run of transport
+    /// failures. This is a reachability recovery, not a capability verdict:
+    /// the bootstrap remains stored and the next healthy legacy connection
+    /// issues the authoritative pair probe again.
+    private func noteNextTransportFailure(macID: String) async {
+        let count = nextTransportFailureCounts[macID, default: 0] + 1
+        nextTransportFailureCounts[macID] = count
+        guard count >= Self.nextTransportFailureThreshold else { return }
+        nextTransportFailureCounts.removeValue(forKey: macID)
+        guard routing(macID: macID) == .next else { return }
+        setRouting(.unknown, macID: macID)
+        probedThisRun.remove(macID)
+        let staleClient = clients.removeValue(forKey: macID)
+        clientStartupTasks[macID]?.task.cancel()
+        clientStartupTasks.removeValue(forKey: macID)
+        await staleClient?.disconnect()
+        graduationLog.notice(
+            "next-transport unavailable (Self.nextTransportFailureThreshold, privacy: .public) times for mac=\(String(macID.prefix(8)), privacy: .public); routing -> unknown for legacy recovery")
     }
 
     /// True when this request's Mac is a next-transport Mac: traffic MUST
@@ -508,6 +536,7 @@ final class NextTransportGraduationFacade {
             guard !Task.isCancelled, probeGenerations[macID] == generation else { return }
             probedThisRun.insert(macID)
             setRouting(.next, macID: macID)
+            nextTransportFailureCounts.removeValue(forKey: macID)
             _ = ensureClient(macID: macID)
             graduationLog.notice(
                 """

@@ -1163,7 +1163,10 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         MobileHostEventSubscriptionTracker.reset()
-        MobileHostPublicStatusCache.removeAll()
+        // The DEBUG next-transport runtime owns its endpoint and presence
+        // slot independently; stopping the legacy listener must not erase a
+        // still-live parallel-host advertisement.
+        MobileHostPublicStatusCache.removeLegacyAndIroh()
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
     }
