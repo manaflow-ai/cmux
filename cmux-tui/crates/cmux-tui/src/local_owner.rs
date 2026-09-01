@@ -134,6 +134,9 @@ fn wait_while_starting(
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
+        if !deadline_allows_attempt(deadline, Instant::now()) {
+            return Err(EnsureError::NotReady);
+        }
         match attempt(socket, expected_session, deadline)? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Absent => return Ok(None),
@@ -154,6 +157,9 @@ fn wait_until_ready(
     deadline: Instant,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
+        if !deadline_allows_attempt(deadline, Instant::now()) {
+            return Ok(None);
+        }
         if let Attempt::Ready(ready) = attempt(socket, expected_session, deadline)? {
             return Ok(Some(ready));
         }
@@ -162,6 +168,10 @@ fn wait_until_ready(
         }
         std::thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
     }
+}
+
+fn deadline_allows_attempt(deadline: Instant, now: Instant) -> bool {
+    now < deadline
 }
 
 #[cfg(test)]
@@ -181,6 +191,8 @@ fn attempt(
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Attempt, EnsureError> {
+    // The deadline gate prevents needless retries. `transport::connect` may
+    // still block according to the platform socket behavior.
     let stream = match transport::connect(socket) {
         Ok(stream) => stream,
         Err(_) => return Ok(Attempt::Absent),
