@@ -29,7 +29,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "168e43b661e1450e56ce8d1af11d58e78bf7b393d676fd47e909c17dbca2ad2a"
+EXPECTED_GUARD_SCRIPT_DIGEST = "01a363114d66fbf3802c94672232d3f7f71e11ebc31499682896bc30b447421e"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -96,6 +96,8 @@ RERUN_ENV = {
   "TARGET_BASE_REF" => "main",
   "SIGNATURE_RECORDED" => "${{ needs.CLALedgerWriter.outputs.signature_recorded || '' }}"
 }.freeze
+GITHUB_CONTEXT_IN_RUN = /\$\{\{[^}]*\bgithub\b[^}]*\}\}/im
+TOKEN_ENV_IN_RUN = /(?:\A|[^A-Za-z0-9_])(?:GITHUB_TOKEN|GH_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|RUNNER_TOKEN)(?:\z|[^A-Za-z0-9_])/i
 
 # Keep the admission contract in one small, executable specification. The
 # pull-request workflow is still checked as data below, but its shell cannot be
@@ -667,6 +669,18 @@ def assert_exact_secret_paths(document)
   fail!("CLA workflow token references are not the reviewed contract") unless actual == expected
 end
 
+def assert_safe_run_text(run, name)
+  fail!("#{name} must be a shell string") unless run.is_a?(String)
+  fail!("#{name} may not interpolate the GitHub context") if run.match?(GITHUB_CONTEXT_IN_RUN)
+  fail!("#{name} may not access a token environment variable") if run.match?(TOKEN_ENV_IN_RUN)
+end
+
+def assert_safe_run_values(document)
+  walk(document) do |key, value|
+    assert_safe_run_text(value, "workflow run step") if key == "run"
+  end
+end
+
 def assert_safe_job_common(job_value, name)
   # These keys are the complete job-level surface used by the reviewed policy.
   # In particular, environment, containers, services, defaults, and
@@ -895,6 +909,15 @@ def run_environment_regression_matrix!
     changed.dig("jobs", "CLACommentGate", "steps", 1, "env")["GITHUB_TOKEN"] =
       "${{ secrets.OTHER_TOKEN }}"
     assert_exact_secret_paths(changed)
+  end
+  expect_failure.call("bracket GitHub context") do
+    assert_safe_run_text("echo '${{ github['token'] }}'", "regression run")
+  end
+  expect_failure.call("serialized GitHub context") do
+    assert_safe_run_text("echo '${{ toJSON(github) }}'", "regression run")
+  end
+  expect_failure.call("token environment variable") do
+    assert_safe_run_text("echo \"$ACTIONS_RUNTIME_TOKEN\"", "regression run")
   end
 
   puts "PASS: CLA environment regression matrix (#{checks} cases)"
@@ -1221,6 +1244,7 @@ def validate_workflow(raw)
     assert_action_reference(reference, "CLA workflow action")
   end
   assert_exact_secret_paths(document)
+  assert_safe_run_values(document)
 
   raw
 rescue Psych::Exception => error
@@ -1314,6 +1338,9 @@ def validate_guard_script(raw)
     "EXPECTED_WORKFLOW_DIGEST",
     "assert_exact_environment",
     "assert_exact_secret_paths",
+    "assert_safe_run_text",
+    "GITHUB_CONTEXT_IN_RUN",
+    "TOKEN_ENV_IN_RUN",
     "TRUSTED_REVIEW_STATES",
     "base_workflow_digest",
     "validate_workflow(head_workflow)",
