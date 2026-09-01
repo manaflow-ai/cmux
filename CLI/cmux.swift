@@ -4183,9 +4183,21 @@ final class SocketClient {
             // raw authorization response: it describes process-ancestry policy and is not a safe
             // user-facing diagnostic.
             if line.hasPrefix("ERROR:") {
+                let localizedAccessDeniedResponse = "ERROR: " + String(
+                    localized: "socket.client.accessDenied",
+                    defaultValue: "Access denied - only processes started inside cmux can connect"
+                )
+                let isAccessDenied = line == localizedAccessDeniedResponse
+                    || line.hasPrefix("ERROR: Access denied")
+                if isAccessDenied {
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.connectionDenied",
+                        defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
+                    ))
+                }
                 throw CLIError(message: String(
-                    localized: "cli.events.error.connectionDenied",
-                    defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
+                    localized: "cli.events.error.server",
+                    defaultValue: "cmux returned an error while starting the event stream. Check the command and try again."
                 ))
             }
             try onLine(line)
