@@ -16941,11 +16941,14 @@ impl App {
                     })
                 }
                 SelectionMode::Line => {
-                    let first =
-                        terminal.select_line_screen(anchor_point).ok().flatten().or_else(|| {
-                            terminal.select_line_screen_untrimmed(anchor_point).ok().flatten()
-                        })?;
-                    let second = terminal.select_line_screen(current_point).ok().flatten()?;
+                    let select_line =
+                        |point| {
+                            terminal.select_line_screen(point).ok().flatten().or_else(|| {
+                                terminal.select_line_screen_untrimmed(point).ok().flatten()
+                            })
+                        };
+                    let first = select_line(anchor_point)?;
+                    let second = select_line(current_point)?;
                     let current_before_anchor = (current.1, current.0) < (anchor.1, anchor.0);
                     Some(if current_before_anchor {
                         SelectionRange { start: second.start, end: first.end }
