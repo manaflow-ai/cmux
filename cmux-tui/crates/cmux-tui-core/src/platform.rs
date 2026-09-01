@@ -1158,10 +1158,7 @@ mod tests {
             assert_eq!(terminal_pwd_to_local_path(path), None, "{path}");
         }
         assert_eq!(terminal_pwd_to_local_path(r"C:\Users\alice\src"), None);
-        assert_eq!(
-            terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
-            Some(PathBuf::from(r"C:\Users\alice\src"))
-        );
+        assert_eq!(terminal_pwd_to_local_path("file:///C:/Users/alice/src"), None);
     }
 
     #[cfg(windows)]
@@ -1409,6 +1406,7 @@ mod tests {
             terminal_pwd_to_local_path("file://localhost/tmp/local"),
             Some(PathBuf::from("/tmp/local"))
         );
+        assert_eq!(terminal_pwd_to_local_path("file:///tmp/hostless"), None);
         // Hostless absolute paths are ambiguous for hosted terminals. A
         // remote shell can emit one and otherwise redirect a local spawn.
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), None);
