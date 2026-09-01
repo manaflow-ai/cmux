@@ -530,7 +530,7 @@ mod unix {
             self.child.as_deref().expect("PTY child is present")
         }
 
-        fn child_mut(&mut self) -> &mut dyn cmux_pty::Child {
+        fn child_mut(&mut self) -> &mut (dyn cmux_pty::Child + Send + Sync) {
             self.child.as_deref_mut().expect("PTY child is present")
         }
     }
