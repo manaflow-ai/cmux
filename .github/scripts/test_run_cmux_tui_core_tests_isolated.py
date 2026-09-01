@@ -31,6 +31,10 @@ class PartitionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.partition_tests(["active_test"], ["missing_probe"])
 
+    def test_ignored_only_inventory_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "all listed tests are ignored"):
+            MODULE.partition_tests(["manual_probe"], ["manual_probe"])
+
 
 class InventoryTests(unittest.TestCase):
     def test_empty_ignored_inventory_is_allowed(self) -> None:
