@@ -49,7 +49,7 @@ struct MobilePairingTransportView: View {
     private static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
     var body: some View {
-        let transport = chosenTransport ?? .iroh
+        let transport = chosenTransport ?? (content.reachableViaIroh ? .iroh : .tailscale)
 
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .center, spacing: 14) {
@@ -95,7 +95,6 @@ struct MobilePairingTransportView: View {
             }
         }
         .frame(maxWidth: 480, alignment: .leading)
-        .onAppear { chosenTransport = nil }
     }
 
     private var transportPicker: some View {
