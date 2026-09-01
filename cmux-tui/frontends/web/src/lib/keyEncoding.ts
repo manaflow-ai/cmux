@@ -67,8 +67,32 @@ function isSingleCodePoint(value: string): boolean {
   return Array.from(value).length === 1;
 }
 
+/**
+ * Keep the browser's Command shortcuts intact, but mirror the small set of
+ * macOS editing chords that Ghostty sends to a terminal. These are raw
+ * readline-compatible bytes rather than named keys, so the behavior does not
+ * depend on the remote terminal's application-key or Kitty-keyboard mode.
+ */
+function macCommandEditingAction(event: TerminalKeyEvent): TerminalKeyAction | null {
+  if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
+
+  switch (event.key) {
+    case "Backspace":
+      return { kind: "text", text: "\u0015" }; // Ctrl-U, delete to line start.
+    case "Delete":
+      return { kind: "text", text: "\u000b" }; // Ctrl-K, delete to line end.
+    case "ArrowLeft":
+      return { kind: "text", text: "\u0001" }; // Ctrl-A, line start.
+    case "ArrowRight":
+      return { kind: "text", text: "\u0005" }; // Ctrl-E, line end.
+    default:
+      return null;
+  }
+}
+
 export function encodeTerminalKey(event: TerminalKeyEvent): TerminalKeyAction | null {
-  if (event.isComposing || event.metaKey || ignoredKeys.has(event.key)) return null;
+  if (event.isComposing || ignoredKeys.has(event.key)) return null;
+  if (event.metaKey) return macCommandEditingAction(event);
 
   if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey) {
     return { kind: "key", key: "backtab" };

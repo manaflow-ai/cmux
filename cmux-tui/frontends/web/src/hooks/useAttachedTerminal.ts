@@ -15,6 +15,7 @@ import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRec
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
+import { encodeTerminalKey } from "../lib/keyEncoding";
 import {
   colorsToCursorOptionsPatch,
   colorsToDynamicColorSequence,
@@ -58,6 +59,17 @@ export function useAttachedTerminal({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    // xterm.js deliberately leaves Command editing chords to the browser on
+    // macOS. Forward only the editing subset that the render-mode terminal
+    // handles, keeping Cmd-C/V/W and other browser shortcuts untouched.
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown" || !event.metaKey) return true;
+      const action = encodeTerminalKey(event);
+      if (action?.kind !== "text") return true;
+      event.preventDefault();
+      void client.send(surface, { text: action.text }).catch(onError);
+      return false;
+    });
     const webgl = tryLoadWebglRenderer(terminal);
     // Match desktop Ghostty's Display P3 presentation; no-op where the
     // browser (or the DOM fallback renderer) cannot retag the buffer.
