@@ -194706,6 +194706,12 @@
             "value": "app.appIcon app.appIconImagePath dock icon application icon app switcher alternate icon custom image file アプリアイコン ドック アイコン アプリ切り替え 代替アイコン カスタム画像 ファイル"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.appIcon app.appIconImagePath dock icon application icon app switcher alternate icon custom image file រូបតំណាងកម្មវិធី Dock កម្មវិធីប្ដូរ រូបតំណាងជំនួស រូបភាពផ្ទាល់ខ្លួន ឯកសារ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
