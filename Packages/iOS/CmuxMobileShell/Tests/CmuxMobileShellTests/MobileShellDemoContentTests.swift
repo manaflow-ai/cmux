@@ -404,6 +404,102 @@ import Testing
         }
     }
 
+    /// Live-repro regression (PR #11289 dogfood round 3, blank canvas +
+    /// `sinceOutput=-1`): the REAL mount order is gated. GhosttySurface's
+    /// first geometry callback must obtain a viewport preparation from
+    /// `prepareTerminalViewport` BEFORE the output consumer attaches the
+    /// stream (`waitForOutputStart`); only a non-nil preparation opens the
+    /// gate. `prepareTerminalViewport` resolves the workspace through the
+    /// foreground-scoped `workspaceID(forTerminalID:)`, which returned nil
+    /// for demo surfaces (demo rows are stamped with the demo mac id and the
+    /// demo Mac is never foreground) — so the gate never opened, the sink
+    /// never registered, and not one replay byte ever reached the surface.
+    /// This test drives that exact order: geometry preparation, viewport
+    /// report answer, THEN sink attach, THEN replay.
+    @Test func demoMountFollowsTheRealViewportGateOrder() async throws {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        let row = try #require(store.workspaces.first {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
+        await store.openWorkspace(row.id)
+        let surfaceID = try #require(row.terminals.first?.id.rawValue)
+
+        // 1. First geometry callback: the preparation must exist or the
+        //    output gate never opens.
+        let preparation = try #require(store.prepareTerminalViewport(
+            surfaceID: surfaceID,
+            columns: 80,
+            rows: 24
+        ))
+
+        // 2. The scheduled viewport report must answer with an effective
+        //    grid (locally, no Mac): a nil answer puts the real view into a
+        //    bounded retry loop and leaves the letterbox unsettled.
+        let grid = await store.updatePreparedTerminalViewport(preparation)
+        #expect(grid?.columns == 80)
+        #expect(grid?.rows == 24)
+
+        // 3. Only now does the consumer attach the sink; the cold replay
+        //    must arrive AFTER this registration.
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        let replay = try #require(await iterator.next())
+        let replayText = String(decoding: replay.data, as: UTF8.self)
+        #expect(replayText.contains("review PR #412"))
+    }
+
+    /// Live-repro regression (round 3, "Couldn’t send. Check the connection
+    /// and try again."): the composer band submits through
+    /// `submitComposerInput`/`submitComposer` → `terminal.paste` on the
+    /// foreground client, which is nil while only the demo Mac serves
+    /// content — so the send failed its connection gate before reaching the
+    /// demo input fence. Drives the composer's ACTUAL send entries.
+    @Test func composerSendEntriesDeliverToTheDemoTerminal() async throws {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        let row = try #require(store.workspaces.first {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        })
+        await store.openWorkspace(row.id)
+        let terminalID = try #require(store.selectedTerminalID)
+        #expect(store.demonstrationOwnsSurface(terminalID.rawValue))
+
+        var iterator = store.terminalOutputStream(surfaceID: terminalID.rawValue)
+            .makeAsyncIterator()
+        let replay = try #require(await iterator.next())
+        store.terminalOutputDidProcess(
+            surfaceID: terminalID.rawValue,
+            streamToken: replay.streamToken
+        )
+
+        // The text-only composer entry (Return key / send button).
+        store.terminalInputText = "echo from-composer"
+        let sent = await store.submitComposerInput()
+        // require (not expect): a failed send means no echo ever arrives,
+        // and awaiting the stream would hang the suite.
+        try #require(sent)
+        let echo = try #require(await iterator.next())
+        store.terminalOutputDidProcess(
+            surfaceID: terminalID.rawValue,
+            streamToken: echo.streamToken
+        )
+        #expect(String(decoding: echo.data, as: UTF8.self).contains("from-composer"))
+
+        // The full composer pipeline (the one whose failure shows the red
+        // "Couldn't send" banner through the terminal send status).
+        store.terminalInputText = "pwd"
+        let submitted = await store.submitComposer()
+        try #require(submitted)
+        #expect(store.terminalSendStatus(forTerminalID: terminalID.rawValue) != .failed)
+        let response = try #require(await iterator.next())
+        store.terminalOutputDidProcess(
+            surfaceID: terminalID.rawValue,
+            streamToken: response.streamToken
+        )
+        #expect(String(decoding: response.data, as: UTF8.self)
+            .contains("/Users/demo/code/api-server"))
+    }
+
     @Test func demoTerminalReplaysCannedSessionOnMount() async {
         let (store, _) = makeStore(demonstrationContentEnabled: true)
         store.signIn()
