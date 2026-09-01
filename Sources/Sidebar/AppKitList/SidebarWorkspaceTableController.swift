@@ -788,6 +788,52 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 pureEdit = SidebarWorkspaceTableRowEdit(from: previousIds, to: nextIds)
             }
         }
+        // Pure removal (closing tabs): the surviving rows keep their order,
+        // at most a few rows disappear. These animate out instead of
+        // reloading, so a closed tab leaves the way the peek panel does:
+        // sliding off, not blinking away.
+        var isSmallPureRemoval = false
+        var removedRowIndexes = IndexSet()
+        if hasStructuralChanges,
+           previousIds.count > nextIds.count,
+           previousIds.count - nextIds.count <= 3 {
+            var survivorCursor = 0
+            var removed = IndexSet()
+            for (index, id) in previousIds.enumerated() {
+                if survivorCursor < nextIds.count, nextIds[survivorCursor] == id {
+                    survivorCursor += 1
+                } else {
+                    removed.insert(index)
+                }
+            }
+            if survivorCursor == nextIds.count {
+                isSmallPureRemoval = true
+                removedRowIndexes = removed
+            }
+        }
+        // Pure insertion (creating workspaces): the existing rows keep their
+        // order, at most a few rows appear. These insert in place instead of
+        // reloading: reloadData tears down every visible cell just to add
+        // one row, which is both slower to first paint and visually abrupt.
+        var isSmallPureInsertion = false
+        var insertedRowIndexes = IndexSet()
+        if hasStructuralChanges,
+           nextIds.count > previousIds.count,
+           nextIds.count - previousIds.count <= 3 {
+            var existingCursor = 0
+            var inserted = IndexSet()
+            for (index, id) in nextIds.enumerated() {
+                if existingCursor < previousIds.count, previousIds[existingCursor] == id {
+                    existingCursor += 1
+                } else {
+                    inserted.insert(index)
+                }
+            }
+            if existingCursor == previousIds.count {
+                isSmallPureInsertion = true
+                insertedRowIndexes = inserted
+            }
+        }
         let requiresAtomicReorderReload =
             hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
         // A forced reload follows hidden-presentation pruning, where
@@ -875,6 +921,49 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     // counts) shifts with the edit even for rows whose own
                     // content did not; configure skips cells whose model is equal.
                     reconfigureLoadedRows(in: table)
+                }
+            } else if heightChanges.isEmpty, isSmallPureInsertion {
+                // In-place insert: existing cells stay alive, the new row
+                // arrives with a short fade-slide, and first paint beats the
+                // reload path because nothing else is rebuilt.
+                let table = containerView.tableView
+                performTableGeometryUpdateWithoutAnimation(in: table) {
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = 0.22
+                        context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.0, 0.4, 1.0)
+                        table.beginUpdates()
+                        table.insertRows(at: insertedRowIndexes, withAnimation: [.slideDown, .effectFade])
+                        table.endUpdates()
+                    }
+                    let visible = table.rows(in: table.visibleRect)
+                    if visible.length > 0 {
+                        reconfigureVisibleRows(
+                            IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
+                        )
+                    }
+                }
+            } else if heightChanges.isEmpty, isSmallPureRemoval {
+                // Animated close: the row slides out and its neighbours take
+                // up the space, all inside one update so the data source and
+                // the table never disagree.
+                let table = containerView.tableView
+                performTableGeometryUpdateWithoutAnimation(in: table) {
+                    // Nested group: the outer wrapper zeroes the context so
+                    // structural churn stays snap; the removal opts back in
+                    // with its own duration for the slide-out.
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = 0.25
+                        context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1.0, 0.4, 1.0)
+                        table.beginUpdates()
+                        table.removeRows(at: removedRowIndexes, withAnimation: [.slideLeft, .effectFade])
+                        table.endUpdates()
+                    }
+                    let visible = table.rows(in: table.visibleRect)
+                    if visible.length > 0 {
+                        reconfigureVisibleRows(
+                            IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
+                        )
+                    }
                 }
             } else {
                 let table = containerView.tableView
@@ -1426,6 +1515,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         session.animatesToStartingPositionsOnCancelOrFail = false
         if let workspaceId = pendingWorkspaceDragWorkspaceId
             ?? draggedRows.first.flatMap({ rows.indices.contains($0) ? rows[$0].workspaceId : nil }) {
+            // Aside behaviour: picking up a workspace you are not on switches
+            // to it, so the tab in your hand is the tab you are on. Single
+            // drags only; a multi-selection drag must not collapse the very
+            // selection it is moving.
+            if (actions?.movingWorkspaceCount?(workspaceId) ?? 1) <= 1,
+               let sourceRow = draggedRows.first,
+               rows.indices.contains(sourceRow),
+               rows[sourceRow].appKitWorkspaceRowModel?.isActive == false,
+               let rowActions = rows[sourceRow].appKitWorkspaceRowActions {
+                previewSelection(row: sourceRow, modifiers: [], hitView: nil)
+                rowActions.commands.updateSelection(modifiers: [])
+            }
             startReorderPoll(workspaceId: workspaceId)
         }
     }

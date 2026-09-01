@@ -2,6 +2,9 @@ import AppKit
 
 /// Coalesces rapid plain-click workspace selections to the latest request.
 ///
+/// The window is deliberately small: with recent workspaces kept mounted,
+/// a commit is cheap enough that responsiveness beats batching.
+///
 /// A selection commit re-renders the container and swaps the terminal
 /// content (~tens of ms); without coalescing, a burst of clicks queues one
 /// full commit per click and later selections feel progressively slower.
@@ -21,7 +24,7 @@ final class SidebarSelectionCoalescer<C: Clock> where C.Duration == Duration {
     private let window: Duration
     private let clock: C
 
-    init(window: Duration = .milliseconds(100), clock: C) {
+    init(window: Duration = .milliseconds(40), clock: C) {
         self.window = window
         self.clock = clock
     }
@@ -75,7 +78,7 @@ final class SidebarSelectionCoalescer<C: Clock> where C.Duration == Duration {
 }
 
 extension SidebarSelectionCoalescer where C == ContinuousClock {
-    convenience init(window: Duration = .milliseconds(100)) {
+    convenience init(window: Duration = .milliseconds(40)) {
         self.init(window: window, clock: ContinuousClock())
     }
 }
