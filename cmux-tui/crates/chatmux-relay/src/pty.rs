@@ -2962,7 +2962,10 @@ mod tests {
     fn scoped_cwd_rejects_relative_requests_and_defaults_null_or_empty() {
         let root = TestDirectory::new("cwd-default");
         assert_eq!(
-            scoped_cwd(Some("relative"), &root.path, None, None).unwrap_err(),
+            match scoped_cwd(Some("relative"), &root.path, None, None) {
+                Ok(_) => panic!("relative cwd must be rejected"),
+                Err(error) => error,
+            },
             "cwd must be absolute or home-relative"
         );
         assert_eq!(
