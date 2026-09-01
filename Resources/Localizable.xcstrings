@@ -57840,13 +57840,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; on macOS, clicking the group header opens a fresh workspace in the group while modifier-clicking selects the anchor for multi-selection. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
+            "value": "Manage collapsible workspace groups in the sidebar. Each group is owned by an \"anchor\" workspace; the group header IS the anchor's sidebar representation. Closing the anchor closes only that workspace and promotes the group's next member to be the new anchor, so the group and its other members stay intact. When the anchor is the group's only workspace, the group is removed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーで折りたたみ可能なワークスペースグループを管理します。各グループは「アンカー」ワークスペースが所有します。macOS では、グループヘッダーをクリックするとグループ内に新しいワークスペースが開き、修飾キーを押しながらクリックするとアンカーが複数選択されます。アンカーを閉じると、閉じられるのはそのワークスペースだけで、グループの次のメンバーが新しいアンカーに昇格するため、グループと他のメンバーはそのまま維持されます。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。"
+            "value": "サイドバーで折りたたみ可能なワークスペースグループを管理します。各グループは「アンカー」ワークスペースが所有し、サイドバーのグループヘッダーがそのアンカーを表します。アンカーを閉じると、閉じられるのはそのワークスペースだけで、グループの次のメンバーが新しいアンカーに昇格するため、グループと他のメンバーはそのまま維持されます。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。"
           }
         }
       }
