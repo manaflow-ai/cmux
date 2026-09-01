@@ -908,6 +908,31 @@ fn ensure_real_directory(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+fn ensure_private_directory(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    let metadata = fs::symlink_metadata(path)?;
+    anyhow::ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "plugin state directory is not a real directory"
+    );
+    anyhow::ensure!(
+        metadata.uid() == unsafe { libc::geteuid() },
+        "plugin state directory owner changed"
+    );
+    anyhow::ensure!(
+        metadata.permissions().mode() & 0o077 == 0,
+        "plugin state directory is accessible by another user"
+    );
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_private_directory(path: &Path) -> anyhow::Result<()> {
+    ensure_real_directory(path)
+}
+
 fn direct_child_named(parent: &Path, path: &Path, predicate: impl FnOnce(&str) -> bool) -> bool {
     path.parent() == Some(parent)
         && path.file_name().and_then(|name| name.to_str()).is_some_and(predicate)
@@ -1000,22 +1025,25 @@ fn validate_install_journal_paths(
 fn quarantine_install_journal(install_root: &Path, path: &Path) -> anyhow::Result<()> {
     let quarantine = install_root.join(INVALID_INSTALL_JOURNAL_DIR);
     match fs::symlink_metadata(&quarantine) {
-        Ok(metadata) => {
-            anyhow::ensure!(metadata.is_dir(), "invalid journal quarantine is not a directory")
-        }
+        Ok(_) => ensure_private_directory(&quarantine)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match fs::create_dir(&quarantine) {
+            #[cfg(unix)]
+            let create_result = {
+                use std::os::unix::fs::DirBuilderExt as _;
+                let mut builder = fs::DirBuilder::new();
+                builder.mode(0o700);
+                builder.create(&quarantine)
+            };
+            #[cfg(not(unix))]
+            let create_result = fs::create_dir(&quarantine);
+            match create_result {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    ensure_real_directory(&quarantine)?;
+                    ensure_private_directory(&quarantine)?;
                 }
                 Err(error) => return Err(error.into()),
             }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt as _;
-                fs::set_permissions(&quarantine, fs::Permissions::from_mode(0o700))?;
-            }
+            ensure_private_directory(&quarantine)?;
         }
         Err(error) => return Err(error.into()),
     }
@@ -1047,6 +1075,7 @@ fn rename_into_quarantine(
 ) -> std::io::Result<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
     use std::os::unix::io::{AsRawFd, FromRawFd};
 
     let root_name = CString::new(install_root.as_os_str().as_bytes())
@@ -1086,6 +1115,17 @@ fn rename_into_quarantine(
     }
     // SAFETY: `openat` returned a new owned descriptor.
     let quarantine = unsafe { fs::File::from_raw_fd(quarantine_fd) };
+
+    let quarantine_metadata = quarantine.metadata()?;
+    if !quarantine_metadata.is_dir()
+        || quarantine_metadata.uid() != unsafe { libc::geteuid() }
+        || quarantine_metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "invalid install journal quarantine directory",
+        ));
+    }
 
     let from = CString::new(
         path.file_name()
