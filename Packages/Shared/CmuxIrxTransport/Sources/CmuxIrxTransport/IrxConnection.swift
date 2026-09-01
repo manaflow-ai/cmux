@@ -138,6 +138,10 @@ public actor IrxConnection {
     nonisolated public let role: Role
     nonisolated public let remoteEndpointIDHex: String
     private let connection: Connection
+    /// Instant of the most recent keepalive pong; nil before the first pong.
+    /// Foreground staleness checks read this to decide zombie-vs-live after
+    /// a suspension (a QUIC connection can be long dead without isClosed).
+    public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
     private var closedFlag = false
     private var localTermination: IrxTermination?
@@ -233,8 +237,10 @@ public actor IrxConnection {
     /// Continuous client-side keepalive on a dedicated lane: one tiny ping
     /// every interval, pong deadline enforced per ping, every exchange
     /// journaled with RTT and the selected path (the soak's relay-attribution
-    /// evidence). A miss closes the connection with `keepalive-timeout` and
-    /// reports death so the engine redials immediately.
+    /// evidence). A single miss re-pings immediately (journaled as a `miss`,
+    /// not a death: one transient stall must never sever a healthy session);
+    /// `IrxProtocol.keepaliveStrikeLimit` consecutive misses close with
+    /// `keepalive-timeout` and report death so the engine redials at once.
     public func startClientKeepalive(
         interval: Duration = IrxProtocol.keepaliveInterval,
         deadline: Duration = IrxProtocol.keepaliveDeadline,
@@ -243,8 +249,11 @@ public actor IrxConnection {
         guard keepaliveTask == nil else { return }
         let lane = try await openLane(IrxLaneDescriptor(lane: .keepalive))
         keepaliveTask = Task { [journal] in
+            var strikes = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
+                if strikes == 0 {
+                    try? await Task.sleep(for: interval)
+                }
                 guard !Task.isCancelled else { return }
                 let seq = await self.nextPingSeq()
                 let sentAt = DispatchTime.now()
@@ -274,8 +283,22 @@ public actor IrxConnection {
                             "path": self.selectedPathDescription(),
                         ]
                     )
+                    await self.notePong()
+                    strikes = 0
                 } catch {
                     guard !Task.isCancelled else { return }
+                    strikes += 1
+                    if strikes < IrxProtocol.keepaliveStrikeLimit {
+                        journal.record(
+                            "keepalive", "miss",
+                            [
+                                "seq": String(seq),
+                                "strike": String(strikes),
+                                "path": self.selectedPathDescription(),
+                            ]
+                        )
+                        continue
+                    }
                     journal.record(
                         "keepalive", "timeout",
                         ["seq": String(seq), "path": self.selectedPathDescription()]
@@ -286,6 +309,30 @@ public actor IrxConnection {
                 }
             }
         }
+    }
+
+    /// Authorizes NAT traversal for this connection (automatic path mode
+    /// only): iroh then exchanges direct candidates over the relay side
+    /// channel and upgrades off the relay make-before-break. Failure is
+    /// journaled, never fatal — the relay path keeps carrying the session
+    /// when traversal cannot.
+    public func authorizeDirectPaths() async {
+        do {
+            try await connection.authorizeNatTraversal()
+            journal.record(
+                "endpoint", "nat-traversal-authorized",
+                ["remote": String(remoteEndpointIDHex.prefix(12))]
+            )
+        } catch {
+            journal.record(
+                "endpoint", "nat-traversal-authorize-failed",
+                ["error": String(describing: error)]
+            )
+        }
+    }
+
+    private func notePong() {
+        lastPongAt = ContinuousClock.now
     }
 
     /// Server-side keepalive responder for one accepted keepalive lane.

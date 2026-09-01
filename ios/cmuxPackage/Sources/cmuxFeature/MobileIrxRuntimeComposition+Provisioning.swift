@@ -38,7 +38,9 @@ extension MobileIrxRuntimeComposition {
                 platform: .ios,
                 displayName: nil,
                 cacheDirectory: stateDirectory,
-                identityGeneration: adopted.material.generation
+                identityGeneration: adopted.material.generation,
+                accountID: session.accountID,
+                keychainAccessGroup: keychainAccessGroup
             ),
             identity: identity,
             tokenSource: auth.accountPinnedIrohBrokerTokenSource(
@@ -118,6 +120,25 @@ extension MobileIrxRuntimeComposition {
             await pilot.stop()
             throw CancellationError()
         }
+
+        // Restore the account-scoped device-list lease before any dial can be
+        // requested. The control-plane socket then refreshes this in-memory
+        // gate with signed directory facts without blocking provisioning.
+        let listStore = IrxDeviceListStore(
+            secureStore: Self.deviceListSecureStore(
+                stateDirectory: stateDirectory,
+                keychainAccessGroup: keychainAccessGroup
+            ),
+            accountID: session.accountID,
+            backendHost: brokerBaseURL.host() ?? "unknown-broker",
+            journal: Self.journal
+        )
+        deviceListStore = listStore
+        if let persisted = await listStore.loadPersisted() {
+            deviceListBox.replace(persisted)
+            await projectDeviceListForUI(persisted)
+        }
+        startControlPlane(identity: identity)
 
         // Fire-and-forget refresh/warm-up work is retained and fenced so
         // sign-out can cancel it without allowing a late endpoint bind.

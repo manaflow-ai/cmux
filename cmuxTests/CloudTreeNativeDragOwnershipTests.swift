@@ -271,6 +271,7 @@ struct CloudTreeNativeDragOwnershipTests {
 
     private static let nodeActions = CloudTreeNodeActions(
         project: { _, _, _ in },
+        projectInLocalWorkspace: { _, _ in },
         newTerminal: { _, _ in },
         openGroup: { _, _, _, _ in },
         openGroupAsWorkspace: { _, _, _ in },

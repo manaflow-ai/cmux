@@ -182,7 +182,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
             transport: transport
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             _ = try await client.issueChallenge(try Self.challengeRequest)
         }
         #expect(await transport.requests().count == 1)
@@ -334,7 +334,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
             transport: transport
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             _ = try await client.issueChallenge(try Self.challengeRequest)
         }
         #expect(await source.forceRefreshCount == 1)
@@ -344,7 +344,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     @Test
     func cachedPolicyRecoveryFailsClosedForAuthRejections() {
         #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
-            CmxIrohTrustBrokerClientError.connectivity
+            CmxIrohTrustBrokerClientError.connectivity(nil)
         ))
         #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.rejected(

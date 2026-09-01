@@ -451,6 +451,16 @@ extension MobileIrxRuntimeComposition {
         }
         autopilot = nil
 
+        if let controlPlane {
+            await controlPlane.stop()
+        }
+        controlPlane = nil
+        // The dial gate is generation-scoped. Keep the durable lease until an
+        // explicit sign-out clears it, but never let a retired composition
+        // continue judging dials for the next account/session.
+        deviceListBox.clear()
+        deviceListStore = nil
+
         for engine in enginesByPeer.values {
             await engine.stop(code: .hostShutdown)
         }

@@ -250,7 +250,7 @@ struct MobileIrohRuntimeCompositionTests {
         _ = try #require(readiness.completeFailure(
             revision: 1,
             accountID: "account-a",
-            error: CmxIrohTrustBrokerClientError.connectivity,
+            error: CmxIrohTrustBrokerClientError.connectivity(nil),
             retryAfterSeconds: nil,
             now: start
         ))

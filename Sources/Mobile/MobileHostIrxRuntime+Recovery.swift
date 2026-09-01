@@ -135,6 +135,17 @@ extension MobileHostIrxRuntime {
             irxActivationState: state,
             failure: lastBrokerFailure
         )
+        let settingsPhase: SettingsPhase = switch state {
+        case .inactive:
+            .idle
+        case .activating, .retrying:
+            .activating
+        case .active:
+            .active
+        case .failed, .reauthenticationRequired:
+            .failed
+        }
+        setSettingsPhase(settingsPhase)
     }
 
     /// Chooses the counter that belongs to this failure without mutating it.
@@ -447,6 +458,16 @@ extension MobileHostIrxRuntime {
         }
         acceptLoop?.cancel()
         acceptLoop = nil
+        if let controlPlane {
+            await controlPlane.stop()
+        }
+        controlPlane = nil
+        // The in-memory directory is generation-scoped. The persisted lease
+        // remains available for the next same-account activation unless the
+        // auth transition explicitly clears it.
+        deviceListBox?.clear()
+        deviceListBox = nil
+        deviceListStore = nil
         if stopAutopilot, let autopilot {
             await autopilot.stop()
         }
@@ -490,6 +511,9 @@ extension MobileHostIrxRuntime {
         } else {
             setActivationState(.inactive)
         }
+        setSettingsPhase(
+            preserveReauthentication ? .failed : .idle
+        )
         Self.journal.record("host-runtime", "deactivated")
     }
 }

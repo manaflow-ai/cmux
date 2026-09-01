@@ -204,7 +204,7 @@ struct IrxHostActivationPolicyTests {
     func transientFailuresBackOff() {
         let failure = IrxBrokerFailure(
             operation: .discover,
-            error: CmxIrohTrustBrokerClientError.connectivity
+            error: CmxIrohTrustBrokerClientError.connectivity(nil)
         )
         let delays = (0 ..< 5).map { count in
             policy.decision(
@@ -244,7 +244,7 @@ struct IrxHostActivationPolicyTests {
     func repeatedFailuresStayWithinTheCap() {
         let failure = IrxBrokerFailure(
             operation: .register,
-            error: CmxIrohTrustBrokerClientError.connectivity
+            error: CmxIrohTrustBrokerClientError.connectivity(nil)
         )
         for count in 0 ... 100 {
             guard case let .retry(delay, _) = policy.decision(
@@ -436,7 +436,7 @@ struct IrxHostActivationPolicyTests {
         #expect(
             IrxBrokerFailure(
                 operation: .discover,
-                error: CmxIrohTrustBrokerClientError.connectivity
+                error: CmxIrohTrustBrokerClientError.connectivity(nil)
             ).diagnosticFailureKind == .offline
         )
     }

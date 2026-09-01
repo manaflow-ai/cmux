@@ -226,6 +226,13 @@ final class AppCompositionRoot {
                             refreshToken: refreshToken
                         )
                     }
+                    if let irx {
+                        // Drop the device-list lease (memory, Keychain/file,
+                        // UI projection) with the account's other state.
+                        group.addTask {
+                            await irx.handleSignOut()
+                        }
+                    }
                 }
                 // Auth has cleared the local session before this teardown
                 // runs, so the provisioning loop cannot start a replacement

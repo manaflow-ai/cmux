@@ -599,6 +599,7 @@
 		C12984000000000000000004 /* CLIStdioSIGPIPERegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12984000000000000000003 /* CLIStdioSIGPIPERegressionTests.swift */; };
 		B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */; };
 		7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */; };
+		C0DE11260000000000000001 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE11260000000000000002 /* CLITmuxCompatStoreConcurrencyTests.swift */; };
 		A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */; };
 		773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
 		773600000000000000000003 /* CLIWindowHandleRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000004 /* CLIWindowHandleRoutingTests.swift */; };
@@ -767,6 +768,7 @@
 		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */; };
 		9009A0019009A0019009A001 /* CMUXCLI+TmuxCompatLaunchContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0019009A0019009A002 /* CMUXCLI+TmuxCompatLaunchContext.swift */; };
 		7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */; };
+		C0DE11260000000000000021 /* CMUXCLI+TmuxCompatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE11260000000000000022 /* CMUXCLI+TmuxCompatStore.swift */; };
 		B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */; };
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */; };
@@ -1566,6 +1568,7 @@
 		C1B181000000000000000A /* MobileHostIrxRuntime+RecoveryScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B181000000000000001A /* MobileHostIrxRuntime+RecoveryScheduling.swift */; };
 		C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */; };
 		C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000011 /* MobileHostIrxRuntime.swift */; };
+		C1B1810000000000000005 /* MobileHostIrxSettingsMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */; };
 		C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
@@ -3666,6 +3669,7 @@
 		C12984000000000000000003 /* CLIStdioSIGPIPERegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIStdioSIGPIPERegressionTests.swift; sourceTree = "<group>"; };
 		B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatRemoteSplitTests.swift; sourceTree = "<group>"; };
 		7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatResizePaneTests.swift; sourceTree = "<group>"; };
+		C0DE11260000000000000002 /* CLITmuxCompatStoreConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatStoreConcurrencyTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMTransferTests.swift; sourceTree = "<group>"; };
 		773600000000000000000002 /* CLIWindowCommandMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowCommandMockServer.swift; sourceTree = "<group>"; };
 		773600000000000000000004 /* CLIWindowHandleRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowHandleRoutingTests.swift; sourceTree = "<group>"; };
@@ -3820,6 +3824,7 @@
 		B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatHUDSupport.swift"; sourceTree = "<group>"; };
 		9009A0019009A0019009A002 /* CMUXCLI+TmuxCompatLaunchContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatLaunchContext.swift"; sourceTree = "<group>"; };
 		7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatResizePane.swift"; sourceTree = "<group>"; };
+		C0DE11260000000000000022 /* CMUXCLI+TmuxCompatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatStore.swift"; sourceTree = "<group>"; };
 		B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatSupport.swift"; sourceTree = "<group>"; };
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TypedDiffViewer.swift"; sourceTree = "<group>"; };
@@ -4549,6 +4554,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C1B181000000000000001A /* MobileHostIrxRuntime+RecoveryScheduling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+RecoveryScheduling.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000011 /* MobileHostIrxRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxRuntime.swift; sourceTree = "<group>"; };
+		C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxSettingsMappingTests.swift; sourceTree = "<group>"; };
 		C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxTerminalLaneServer.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
@@ -8249,6 +8255,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
 				B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */,
 				7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */,
+				C0DE11260000000000000022 /* CMUXCLI+TmuxCompatStore.swift */,
 				9009A0019009A0019009A002 /* CMUXCLI+TmuxCompatLaunchContext.swift */,
 				9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */,
 				B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */,
@@ -9021,6 +9028,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CD3B5F249DECAB446CC71D32 /* MockBridgeInputCapture.swift */,
 				C12984000000000000000003 /* CLIStdioSIGPIPERegressionTests.swift */,
 				B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */,
+				C0DE11260000000000000002 /* CLITmuxCompatStoreConcurrencyTests.swift */,
 				7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */,
 				C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */,
 				C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */,
@@ -9086,6 +9094,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */,
 				ABMDPARTRES0000000000002 /* MobilePanelArtifactResolutionTests.swift */,
 				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
+				C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */,
 				A7C0F0010000000000000001 /* MacPairedMacBackupPublisherScopeTests.swift */,
 				5E2701030000000000000002 /* MacSentryStartupPolicyTests.swift */,
 			);
@@ -11649,6 +11658,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
 				9009A0019009A0019009A001 /* CMUXCLI+TmuxCompatLaunchContext.swift in Sources */,
 				7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */,
+				C0DE11260000000000000021 /* CMUXCLI+TmuxCompatStore.swift in Sources */,
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
@@ -11947,6 +11957,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C12984000000000000000004 /* CLIStdioSIGPIPERegressionTests.swift in Sources */,
 				B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */,
 				7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */,
+				C0DE11260000000000000001 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */,
 					773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */,
 					773600000000000000000003 /* CLIWindowHandleRoutingTests.swift in Sources */,
@@ -12157,6 +12168,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1A071000000000000000003 /* MobileHostConnectionLifecycleTests.swift in Sources */,
 				B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */,
 				C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */,
+				C1B1810000000000000005 /* MobileHostIrxSettingsMappingTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,

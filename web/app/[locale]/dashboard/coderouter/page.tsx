@@ -29,6 +29,10 @@ import {
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
 
+// Account authorization and the hosted account list must stay fresh for each
+// request. Keep the current tab visible while this page resolves instead of
+// caching mutable per-user data just to satisfy instant-navigation validation.
+export const instant = false;
 
 type PageProps = {
   params: Promise<{ locale: string }>;

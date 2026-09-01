@@ -2,6 +2,18 @@ import CMUXMobileCore
 import CmuxIrxTransport
 import Foundation
 
+/// Thrown for Settings mutations the irx runtime does not support yet.
+/// Keeping this explicit lets the UI show its save-failed state rather than
+/// implying that a relay preference was persisted when irx owns the fleet.
+struct MobileHostIrxSettingsUnsupportedError: LocalizedError {
+    var errorDescription: String? {
+        String(
+            localized: "settings.networking.irx.notConfigurable",
+            defaultValue: "This setting is not configurable with the current transport."
+        )
+    }
+}
+
 /// Settings and diagnostic projection for the irx-owned host runtime.
 ///
 /// The runtime remains the single lifecycle owner. This extension exposes a
@@ -97,14 +109,14 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
 
     func setIrohRelayPreference(_ preference: CmxIrohRelayPreferenceDraft) async throws {
         guard case .automatic = preference else {
-            throw CmxIrohSettingsControlError.unsupported
+            throw MobileHostIrxSettingsUnsupportedError()
         }
     }
 
     func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
         let expected: CmxIrohPathPreference = Self.forceRelayOnly ? .relayOnly : .automatic
         guard preference == expected else {
-            throw CmxIrohSettingsControlError.unsupported
+            throw MobileHostIrxSettingsUnsupportedError()
         }
     }
 
@@ -112,11 +124,11 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         _ relay: CmxIrohCustomRelayDraft,
         deviceSecret: String?
     ) async throws {
-        throw CmxIrohSettingsControlError.unsupported
+        throw MobileHostIrxSettingsUnsupportedError()
     }
 
     func removeIrohCustomRelay(id: String) async throws {
-        throw CmxIrohSettingsControlError.unsupported
+        throw MobileHostIrxSettingsUnsupportedError()
     }
 
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult {
@@ -124,14 +136,14 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     }
 
     func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws {
-        throw CmxIrohSettingsControlError.unsupported
+        throw MobileHostIrxSettingsUnsupportedError()
     }
 
     func removeIrohCustomPrivatePath(
         macDeviceID: String,
         instanceTag: String?
     ) async throws {
-        throw CmxIrohSettingsControlError.unsupported
+        throw MobileHostIrxSettingsUnsupportedError()
     }
 
     func resetIrohSettingsToDefaults() async throws {
@@ -139,7 +151,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         // forced relay-only mode the preference is managed by the launch
         // policy, so claiming a successful reset would leave the UI and the
         // persisted/runtime state unchanged.
-        throw CmxIrohSettingsControlError.unsupported
+        throw MobileHostIrxSettingsUnsupportedError()
     }
 
     func refreshIrohSettings() async {
@@ -280,7 +292,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         }
     }
 
-    private nonisolated static func relayLabels(
+    nonisolated static func relayLabels(
         for url: String
     ) -> (provider: String, region: String)? {
         guard let host = relayHost(url) else { return nil }
@@ -292,7 +304,7 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         )
     }
 
-    private nonisolated static func relayHost(_ url: String) -> String? {
+    nonisolated static func relayHost(_ url: String) -> String? {
         guard let host = URLComponents(string: url)?.host, !host.isEmpty else {
             return nil
         }
@@ -300,4 +312,105 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         return withoutDot.lowercased()
     }
 
+}
+
+// MARK: - Pure projection
+
+extension MobileHostIrxRuntime {
+    /// Projects the lifecycle phase into the settings-facing status without
+    /// consulting mutable runtime objects. Keeping this pure makes the status
+    /// mapping deterministic for both the app and its package tests.
+    nonisolated static func settingsRuntimeStatus(
+        phase: SettingsPhase,
+        endpointOnline: Bool,
+        selectedPath: CmxIrohSelectedTransportPath
+    ) -> CmxIrohSettingsSnapshot.RuntimeStatus {
+        switch phase {
+        case .idle:
+            .inactive
+        case .activating:
+            .starting
+        case .failed:
+            .degraded
+        case .active:
+            guard endpointOnline else { return .starting }
+            CmxIrohSettingsSnapshot.RuntimeStatus(activePath: selectedPath)
+        }
+    }
+
+    /// Resolves the redacted path shown by Settings for the irx endpoint.
+    nonisolated static func settingsSelectedPath(
+        phase: SettingsPhase,
+        endpointOnline: Bool,
+        homeRelayURL: String?
+    ) -> CmxIrohSelectedTransportPath {
+        guard phase == .active, endpointOnline, let homeRelayURL,
+              let labels = relayLabels(for: homeRelayURL) else {
+            return .unavailable
+        }
+        return .managedRelay(provider: labels.provider, region: labels.region)
+    }
+
+    /// Converts the signed relay fleet into stable, deduplicated Settings rows.
+    nonisolated static func settingsManagedRelays(
+        relayFleet: [String],
+        homeRelayURL: String?
+    ) -> [CmxIrohSettingsSnapshot.ManagedRelay] {
+        managedRelays(relayFleet, homeRelayURL: homeRelayURL)
+    }
+
+    /// Pure snapshot projection used by the macOS settings mapping tests.
+    /// `failureDescription` and `requiresReauthentication` are optional so
+    /// callers that only model ordinary lifecycle phases retain the compact
+    /// original API.
+    nonisolated static func settingsSnapshot(
+        phase: SettingsPhase,
+        forceRelayOnly: Bool,
+        endpointOnline: Bool,
+        homeRelayURL: String?,
+        relayFleet: [String],
+        hasTrustSnapshot: Bool,
+        hadLiveDiscovery: Bool,
+        credentialExpiry: Date?,
+        failureDescription: String? = nil,
+        requiresReauthentication: Bool = false
+    ) -> CmxIrohSettingsSnapshot {
+        let selectedPath = settingsSelectedPath(
+            phase: phase,
+            endpointOnline: endpointOnline,
+            homeRelayURL: homeRelayURL
+        )
+        #if DEBUG
+        let debugMode: CmxIrohTransportVerificationMode? =
+            forceRelayOnly ? .relayOnly : .automatic
+        #else
+        let debugMode: CmxIrohTransportVerificationMode? = nil
+        #endif
+        return CmxIrohSettingsSnapshot(
+            runtimeStatus: requiresReauthentication
+                ? .degraded
+                : settingsRuntimeStatus(
+                    phase: phase,
+                    endpointOnline: endpointOnline,
+                    selectedPath: selectedPath
+                ),
+            selectedTransportPath: selectedPath,
+            preference: .automatic,
+            pathPreference: forceRelayOnly ? .relayOnly : .automatic,
+            managedRelays: settingsManagedRelays(
+                relayFleet: relayFleet,
+                homeRelayURL: homeRelayURL
+            ),
+            customRelays: [],
+            policySource: hasTrustSnapshot
+                ? (hadLiveDiscovery ? .server : .cached)
+                : .unavailable,
+            policyExpiresAt: credentialExpiry,
+            failureDescription: failureDescription
+                ?? (phase == .failed ? "irx-activation-failed" : nil),
+            requiresReauthentication: requiresReauthentication,
+            supportsRelayConfiguration: false,
+            debugTransportVerificationMode: debugMode
+        )
+    }
 }
