@@ -760,6 +760,11 @@ mod tests {
     #[test]
     fn agent_report_lookup_failures_do_not_leak_internal_details() {
         let mux = Mux::new_for_test("aux-agent-error-privacy", SurfaceOptions::default());
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let diagnostics_for_reporter = Arc::clone(&diagnostics);
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            diagnostics_for_reporter.lock().unwrap().push(message.to_string());
+        })));
         crate::resource_router::handle_parsed_resource_request(
             &mux,
             request(
@@ -804,6 +809,15 @@ mod tests {
         for detail in [unknown_terminal_id.as_str(), "revision", "database", "projection"] {
             assert!(!encoded.contains(detail), "public error leaked {detail:?}: {encoded}");
         }
+        assert!(
+            diagnostics
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|message| message.contains("agent.report internal failure")
+                    && message.contains("unknown terminal")),
+            "the internal agent-report cause must reach the local diagnostic sink"
+        );
     }
 
     #[test]
