@@ -4917,6 +4917,7 @@ struct CMUXCLI {
         )
     }
 
+    /// Parses global options and dispatches the selected cmux CLI command.
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
