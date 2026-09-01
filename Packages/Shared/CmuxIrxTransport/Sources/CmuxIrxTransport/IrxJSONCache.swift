@@ -156,8 +156,11 @@ public struct IrxBrokerCacheScope: Sendable, Equatable {
 
 enum IrxBrokerCacheFactory {
     /// DEBUG: the byte-identical JSON file (dev tooling reads the state dir).
-    /// Release: keychain-backed with one-way file migration; falls back to
-    /// the file when no scope is available (identity not yet known).
+    /// Release: keychain-backed when the signed-in account scope is known.
+    /// Unscoped legacy files are deliberately discarded instead of imported:
+    /// their old format has no account/backend owner, so migration could hand
+    /// one account another account's binding or credentials. Before identity
+    /// is known, the file remains the temporary store.
     static func make<Value: Codable & Sendable>(
         kind: String,
         fileURL: URL,
@@ -168,12 +171,14 @@ enum IrxBrokerCacheFactory {
         return file
         #else
         guard let scope else { return file }
-        return IrxMigratingJSONCache(
-            primary: IrxKeychainJSONCache<Value>(
-                account: "\(kind)|\(scope.accountID)|\(scope.backendHost)",
-                accessGroup: scope.keychainAccessGroup
-            ),
-            legacy: file
+        // A legacy snapshot is not account/backend scoped. Never import it
+        // into the scoped keychain item, even when its shape happens to decode.
+        // Remove the old copy so a later unscoped bootstrap cannot resurrect
+        // credentials after sign-out or account switching.
+        file.clear()
+        return IrxKeychainJSONCache<Value>(
+            account: "\(kind)|\(scope.accountID)|\(scope.backendHost)",
+            accessGroup: scope.keychainAccessGroup
         )
         #endif
     }

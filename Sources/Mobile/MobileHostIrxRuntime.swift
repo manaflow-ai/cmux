@@ -454,7 +454,7 @@ final class MobileHostIrxRuntime {
     /// now with `.revoked`, not at its next admission).
     private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async {
         guard let deviceListBox, let deviceListStore else { return }
-        if let current = deviceListBox.current, fact.rev < current.rev {
+        if let current = deviceListBox.current, fact.rev <= current.rev {
             Self.journal.record(
                 "host-runtime", "device-list-stale-rev",
                 ["rev": String(fact.rev), "have": String(current.rev)]

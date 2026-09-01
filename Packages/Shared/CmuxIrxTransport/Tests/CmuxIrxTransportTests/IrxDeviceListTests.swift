@@ -76,15 +76,30 @@ struct IrxDeviceListSnapshotTests {
 
     @Test func restampOnlyMovesForward() {
         let base = ContinuousClock.now
+        let issuedAt = Date(timeIntervalSince1970: 100)
         let snapshot = makeSnapshot(
-            entries: [:], rev: 5, ttlSeconds: 100, receivedAtMonotonic: base)
+            entries: [:], rev: 5, ttlSeconds: 100,
+            receivedAtWall: issuedAt, receivedAtMonotonic: base)
         #expect(snapshot.restamped(
-            rev: 4, issuedAt: Date(), receivedAtWall: Date(),
+            rev: 4, issuedAt: issuedAt.addingTimeInterval(1),
+            receivedAtWall: issuedAt.addingTimeInterval(1),
+            receivedAtMonotonic: base) == nil)
+        #expect(snapshot.restamped(
+            rev: 6, issuedAt: issuedAt.addingTimeInterval(1),
+            receivedAtWall: issuedAt.addingTimeInterval(1),
+            receivedAtMonotonic: base) == nil)
+        #expect(snapshot.restamped(
+            rev: 5, issuedAt: issuedAt, receivedAtWall: issuedAt,
+            receivedAtMonotonic: base) == nil)
+        #expect(snapshot.restamped(
+            rev: 5, issuedAt: issuedAt.addingTimeInterval(-1),
+            receivedAtWall: issuedAt.addingTimeInterval(-1),
             receivedAtMonotonic: base) == nil)
         let stamped = snapshot.restamped(
-            rev: 6, issuedAt: Date(), receivedAtWall: Date(),
+            rev: 5, issuedAt: issuedAt.addingTimeInterval(1),
+            receivedAtWall: issuedAt.addingTimeInterval(1),
             receivedAtMonotonic: base.advanced(by: .seconds(50)))
-        #expect(stamped?.rev == 6)
+        #expect(stamped?.rev == 5)
         #expect(stamped?.isFresh(now: base.advanced(by: .seconds(120))) == true)
     }
 }

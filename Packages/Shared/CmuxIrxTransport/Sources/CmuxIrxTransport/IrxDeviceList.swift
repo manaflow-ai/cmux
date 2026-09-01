@@ -91,16 +91,17 @@ public struct IrxDeviceListSnapshot: Equatable, Sendable {
     }
 
     /// Re-stamps the lease from an explicit server freshness fact (`current`,
-    /// a re-stamped `snapshot_complete`, or a fresh directory carrying the
-    /// same content). Only ever moves FORWARD: an older revision's stamp is
-    /// refused.
+    /// or a re-stamped `snapshot_complete`). A freshness frame is not a
+    /// directory apply, so it must name the directory we already hold and
+    /// carry a strictly newer server stamp. This prevents replayed frames from
+    /// extending a revoked or dropped entry's authorization lease.
     public func restamped(
         rev: Int,
         issuedAt: Date,
         receivedAtWall: Date,
         receivedAtMonotonic: ContinuousClock.Instant
     ) -> IrxDeviceListSnapshot? {
-        guard rev >= self.rev else { return nil }
+        guard rev == self.rev, issuedAt > self.issuedAt else { return nil }
         var updated = self
         updated.rev = rev
         updated.issuedAt = issuedAt

@@ -316,7 +316,7 @@ public actor MobileIrxRuntimeComposition {
     /// (Enforcement on LIVE sessions is the Mac's job; the phone's gate
     /// bites at the next dial.)
     private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async {
-        if let current = deviceListBox.current, fact.rev < current.rev {
+        if let current = deviceListBox.current, fact.rev <= current.rev {
             Self.journal.record(
                 "client-runtime", "device-list-stale-rev",
                 ["rev": String(fact.rev), "have": String(current.rev)]
