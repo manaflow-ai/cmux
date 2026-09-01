@@ -259,16 +259,18 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         let panel = TerminalPanel(workspaceId: UUID())
         let coordinator = GhosttyTerminalView.Coordinator()
+        var ownsPane = true
         coordinator.attachGeneration = 1
         coordinator.hostedView = panel.hostedView
         coordinator.desiredIsVisibleInUI = true
+        coordinator.desiredShowsUnreadNotificationRing = true
         let snapshot = TerminalPortalReconciliationSnapshot(
             attachGeneration: coordinator.attachGeneration,
             expectedSurfaceId: panel.surface.id,
             expectedSurfaceGeneration: panel.surface.portalBindingGeneration(),
             paneId: PaneID(),
             ownershipGeneration: 1,
-            isCurrentPaneOwner: { true },
+            isCurrentPaneOwner: { ownsPane },
             workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: "#FF69B4"),
             sessionContentWidthPresentation: .disabled,
             onFocus: nil,
@@ -300,10 +302,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         await flushPortalReconciliationPasses()
         #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: host))
         #expect(!panel.hostedView.isHidden)
+        #expect(!panel.hostedView.debugNotificationRingState().isHidden)
 
         host.removeFromSuperview()
         #expect(host.window == nil)
+        ownsPane = false
         coordinator.desiredIsVisibleInUI = false
+        coordinator.desiredShowsUnreadNotificationRing = false
         GhosttyTerminalView.stagePortalReconciliation(
             hostedView: panel.hostedView,
             host: host,
@@ -314,6 +319,10 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             reason: "test.detachedHide"
         )
         coordinator.portalReconciliationScheduler.flushPendingReconciliation()
+        #expect(
+            panel.hostedView.debugNotificationRingState().isHidden,
+            "A reconciliation that no longer owns the portal must still project the latest ring state"
+        )
 
         // Reattach before the queued geometry pass can prune the detached,
         // hidden entry. Synchronizing now distinguishes persisted visibility

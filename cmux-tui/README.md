@@ -36,7 +36,6 @@ cargo build -p cmux-tui
 cd cmux-tui
 cargo run -p cmux-tui
 cargo run -p cmux-tui -- --session agents
-cargo run -p cmux-tui -- --headless --session agents
 cargo run -p cmux-tui -- server start --session agents
 cargo run -p cmux-tui -- server status --session agents
 cargo run -p cmux-tui -- server stop --session agents
@@ -46,6 +45,9 @@ cargo run -p cmux-tui -- machine-agent --session agents
 ```
 
 The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
+
+`server start` is the canonical durable headless session command. The older
+`--headless` spelling remains a compatibility alias.
 
 `attach --terminal <id>` attaches one PTY terminal by its stable ID from `cmux terminal list`. It uses the full host terminal without the sidebar, status bar, pane border, or other tabs.
 
@@ -65,18 +67,19 @@ session. `server stop` is idempotent when absent and preserves saved topology.
 Shared routing options can precede the scope, as in
 `cmux --session agents server status`. Lifecycle JSON errors use stable codes
 and do not expose raw transport or server error text.
-Use `cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
-`remote known-daemons` for authenticated network access. `remote stop` stops
-only a replaceable SSH sidecar. Stop a listener embedded by `server start` with
-`server stop`; this also stops its local owner and workspaces. Start the owning
-process with `server start` and explicit remote-listener flags.
+Use the `remote` command group for authenticated network access:
+`cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
+`remote known-daemons`. `remote stop` stops only a replaceable SSH sidecar.
+Use `server stop` for a listener owned by `server start`; it also stops the
+local owner and its workspaces. Start the owning process with `server start`
+and explicit remote-listener flags.
 The old top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle. Detached local startup is deferred until cmux
 has an explicit supervisor and readiness contract.
 
 Resource IDs are opaque typed strings. Selectors also accept `current` or an exact name. Duplicate names return `selector.ambiguous` with every candidate ID; use an ID to choose one. Prefix a reserved or ID-shaped name with `name:`.
 
-Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, other Unix sockets, and sessions reached through SSH. It is disabled by default and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. `npx cmux --cloud` composes those local targets with the Cloud catalog and enables temporary machine connections without sending local SSH details to Cloud. The rail uses the same managed connection path as `cmux ssh`: it probes compatibility, packaged releases can install their pinned remote binary, and it starts the named remote session on demand. Source builds require the exact matching binary to be installed remotely. SSH remains noninteractive with strict host-key checking and disabled forwarding. See [Machines and remote sessions](docs/machines.md).
+Packaged builds can run as `npx cmux`. The optional machine rail lets that local client switch among the current session, Unix sockets, and SSH sessions. It is disabled by default and activates when machine sidebar settings or a valid `machines` entry enable it. Packaged releases install a pinned remote binary when needed; source builds require the exact matching binary remotely. SSH remains noninteractive with strict host-key checking and disabled forwarding. See [Machines and remote sessions](docs/machines.md).
 
 ```bash
 npx cmux
@@ -85,7 +88,7 @@ npx cmux ssh dev@buildbox --session agents
 ssh -T dev@buildbox cmux relay --session agents
 ```
 
-The Unix-only `machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command is a low-level raw JSON-lines diagnostic; the machine rail and `cmux ssh` use the managed remote lifecycle instead.
+The Unix-only `machine-agent` shares an existing local session through one outbound SSH registration with cmux.cloud. It prints a one-time pairing code and opens no listener. The final command is a low-level raw JSON-lines diagnostic. Use the machine rail or `cmux ssh` for the managed remote lifecycle.
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the terminal runtime default, with `CMUX_MUX_TERM` retained as a legacy fallback.
 

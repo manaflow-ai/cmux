@@ -53,6 +53,7 @@ extension DockSplitStore {
     /// command here, keeping every Dock entrypoint on the same ownership path.
     @discardableResult
     func performShortcutCommand(_ command: DockShortcutCommand) -> Bool {
+        guard !isRetired else { return false }
         switch command {
         case .selectNextSurface:
             bonsplitController.selectNextTab()
@@ -476,7 +477,9 @@ extension DockSplitStore {
             return false
         }
         browser.startFind()
-        return browser.searchState != nil
+        // A diff viewer page owns find in-page; the native bar stays hidden
+        // but the shortcut was handled.
+        return browser.searchState != nil || browser.isDiffViewerFindOwner
     }
 
     private func performDockFindNavigation(
