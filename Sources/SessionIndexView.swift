@@ -131,11 +131,11 @@ struct SessionIndexView: View {
             Button {
                 store.reload()
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .cmuxFont(size: 10, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "arrow.clockwise", pointSize: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
+            .accessibilityLabel(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
             .disabled(store.isLoading)
             .titlebarInteractiveControl()
         }
@@ -273,26 +273,6 @@ struct SessionIndexView: View {
     }
 }
 
-private struct AgentIconImage: View, Equatable {
-    let agent: SessionAgent
-    let size: CGFloat
-
-    var body: some View {
-        if let assetName = agent.assetName {
-            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
-                source: .asset(name: assetName, bundle: .main),
-                size: NSSize(width: size, height: size)
-            ))
-            .frame(width: size, height: size)
-        } else {
-            Image(systemName: agent.systemImageName ?? "person.crop.circle")
-                .cmuxFont(size: max(size - 2, 10), weight: .regular)
-                .foregroundColor(.secondary)
-                .frame(width: size, height: size)
-        }
-    }
-}
-
 private struct GroupingButton: View {
     let mode: SessionGrouping
     let isSelected: Bool
@@ -302,12 +282,11 @@ private struct GroupingButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 3) {
-                Image(systemName: mode.symbolName)
-                    .symbolRenderingMode(.monochrome)
-                    .cmuxFont(
-                        size: RightSidebarChromeControlStyle.secondaryIconSize,
-                        weight: RightSidebarChromeControlStyle.iconWeight
-                    )
+                CmuxSystemSymbolImage(
+                    magnified: mode.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.secondaryIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight
+                )
                 Text(mode.label)
                     .cmuxFont(
                         size: RightSidebarChromeControlStyle.labelSize,
@@ -469,8 +448,7 @@ struct IndexSectionView: View, Equatable {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Image(systemName: "chevron.down")
-                    .cmuxFont(size: 9, weight: .semibold)
+                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 9, weight: .semibold)
                     .foregroundColor(.secondary.opacity(0.6))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
@@ -497,17 +475,8 @@ struct IndexSectionView: View, Equatable {
         }
     }
 
-    @ViewBuilder
     private var sectionIconView: some View {
-        switch section.icon {
-        case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
-        case .folder:
-            Image(systemName: "folder")
-                .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
-        }
+        SessionIndexSectionIconImage(icon: section.icon, size: 14)
     }
 }
 
@@ -601,7 +570,7 @@ private struct SessionRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
+            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
             Text(entry.displayTitle)
                 .cmuxFont(size: 13)
                 .foregroundColor(.primary.opacity(0.92))
@@ -763,7 +732,7 @@ struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            AgentIconImage(agent: entry.agent, size: 14)
+            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .cmuxFont(size: 13, weight: .semibold)
@@ -779,8 +748,7 @@ struct SessionTranscriptPreviewView: View {
                 }
             }
             Spacer(minLength: 8)
-            Image(systemName: "xmark")
-                .cmuxFont(size: 11, weight: .semibold)
+            CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold)
                 .foregroundColor(closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
@@ -843,8 +811,7 @@ struct SessionTranscriptPreviewView: View {
 
     private func statusRow(systemImage: String, text: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .cmuxFont(size: 12, weight: .medium)
+            CmuxSystemSymbolImage(magnified: systemImage, pointSize: 12, weight: .medium)
                 .foregroundColor(.secondary)
             Text(text)
                 .cmuxFont(size: 12)
@@ -2008,8 +1975,7 @@ struct SectionPopoverView: View {
             .padding(.bottom, 6)
 
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .cmuxFont(size: 11, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "magnifyingglass", pointSize: 11, weight: .medium)
                     .foregroundColor(.secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
@@ -2023,11 +1989,11 @@ struct SectionPopoverView: View {
                     Button {
                         query = ""
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .cmuxFont(size: 11)
+                        CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "historyPane.search.clear", defaultValue: "Clear search"))
                 }
             }
             .padding(.horizontal, 8)
@@ -2045,8 +2011,7 @@ struct SectionPopoverView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .cmuxFont(size: 10)
+                            CmuxSystemSymbolImage(magnified: "exclamationmark.triangle.fill", pointSize: 10)
                                 .foregroundColor(.orange)
                             Text(msg)
                                 .cmuxFont(size: 11)
@@ -2288,17 +2253,8 @@ struct SectionPopoverView: View {
         return .directory(nil)
     }
 
-    @ViewBuilder
     private var sectionIconView: some View {
-        switch section.icon {
-        case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
-        case .folder:
-            Image(systemName: "folder")
-                .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
-        }
+        SessionIndexSectionIconImage(icon: section.icon, size: 14)
     }
 }
 
@@ -2341,7 +2297,7 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
+            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
