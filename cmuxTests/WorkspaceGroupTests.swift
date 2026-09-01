@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwiftUI
 
 import CmuxFoundation
 import CmuxSettings
@@ -859,6 +860,39 @@ struct WorkspaceGroupTests {
         #expect(otherMemberIds.allSatisfy { id in
             manager.tabs.contains(where: { $0.id == id && $0.groupId == groupId })
         })
+    }
+
+    /// Retained group actions select the promoted anchor without creating a workspace.
+    @Test func groupHeaderSelectionSurvivesAnchorPromotion() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let outsiderId = manager.tabs[0].id
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "G", childWorkspaceIds: Array(manager.tabs.dropFirst().map(\.id)))
+        )
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let staleAnchorId = group.anchorWorkspaceId
+
+        manager.selectWorkspace(try #require(manager.tabs.first { $0.id == outsiderId }))
+        manager.closeWorkspace(try #require(manager.tabs.first { $0.id == staleAnchorId }))
+
+        let promotedAnchorId = try #require(manager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId)
+        let countBeforeSelection = manager.tabs.count
+        var selectedIds = Set([outsiderId])
+        var lastSelectionIndex: Int?
+        VerticalTabsSidebar.focusWorkspaceGroupAnchor(
+            groupId: groupId,
+            modifiers: [],
+            tabManager: manager,
+            selectedTabIds: Binding(get: { selectedIds }, set: { selectedIds = $0 }),
+            lastSidebarSelectionIndex: Binding(get: { lastSelectionIndex }, set: { lastSelectionIndex = $0 })
+        )
+
+        #expect(selectedIds == [promotedAnchorId])
+        #expect(manager.tabs.count == countBeforeSelection)
+        #expect(manager.selectedTabId == promotedAnchorId)
+        #expect(lastSelectionIndex == manager.tabs.firstIndex { $0.id == promotedAnchorId })
     }
 
     @Test func closingSoleAnchorWorkspaceRemovesGroup() throws {

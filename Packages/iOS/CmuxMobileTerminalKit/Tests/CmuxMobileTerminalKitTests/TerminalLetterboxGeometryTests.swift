@@ -113,7 +113,7 @@ struct TerminalLetterboxGeometryTests {
     private static let toolbar: CGFloat = 44
     private static let keyboard: CGFloat = 336
 
-    @Test("bare container: full bounds minus only the safe area (no composer/toolbar)")
+    @Test("bare container: full bounds minus the safe area and the dock seam")
     func fullHeightBare() {
         let size = TerminalLetterboxGeometry.terminalContainerSize(
             bounds: Self.phoneBounds,
@@ -123,10 +123,10 @@ struct TerminalLetterboxGeometryTests {
             chromeHidden: false
         )
         #expect(size.width == 402)
-        #expect(size.height == 840) // 874 - 34
+        #expect(size.height == 832) // 874 - 34 - 8 seam
     }
 
-    @Test("chrome visible: reserves safe area + toolbar + composer band")
+    @Test("chrome visible: reserves safe area + toolbar + composer band + seam")
     func fullHeightWithChrome() {
         let composer: CGFloat = 120
         let size = TerminalLetterboxGeometry.terminalContainerSize(
@@ -136,8 +136,74 @@ struct TerminalLetterboxGeometryTests {
             bottomSafeAreaInset: Self.homeIndicator,
             chromeHidden: false
         )
-        // 874 - (34 safe area + 44 toolbar + 120 composer) = 676.
-        #expect(size.height == 676)
+        // 874 - (34 safe area + 44 toolbar + 120 composer + 8 seam) = 668.
+        #expect(size.height == 668)
+    }
+
+    // The seam is a design constant, not a derived value: the bottom-pinned
+    // render must keep a small band of clear air above the composer bar
+    // instead of pressing the last row of content into the toolbar pills.
+    @Test("dock seam padding is a small stable constant reserved in the grid")
+    func dockSeamPaddingContract() {
+        #expect(TerminalLetterboxGeometry.dockSeamPadding == 8)
+    }
+
+    // MARK: - Scroll-edge band (top content inset)
+
+    // With the surface extended under the top bar for the scroll-edge band,
+    // the bounds grow by the top safe area and the SAME amount is reserved,
+    // so the grid is identical to the un-expanded layout: the band is
+    // render-only and never costs (or gains) a grid row.
+    @Test("top content inset reserves the band without changing the grid")
+    func topContentInsetReservesBand() {
+        let topInset: CGFloat = 106
+        let expanded = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: CGSize(
+                width: Self.phoneBounds.width,
+                height: Self.phoneBounds.height + topInset
+            ),
+            composerBandHeight: 0,
+            toolbarHeight: 0,
+            bottomSafeAreaInset: Self.homeIndicator,
+            chromeHidden: false,
+            topContentInset: topInset
+        )
+        let unexpanded = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: Self.phoneBounds,
+            composerBandHeight: 0,
+            toolbarHeight: 0,
+            bottomSafeAreaInset: Self.homeIndicator,
+            chromeHidden: false
+        )
+        #expect(expanded == unexpanded)
+    }
+
+    // HIDE suppresses the bottom dock only; the navigation bar is still
+    // overlaid, so the band above the grid stays reserved.
+    @Test("chrome hidden keeps the top band reserved")
+    func chromeHiddenKeepsTopBand() {
+        let size = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: Self.phoneBounds,
+            composerBandHeight: 120,
+            toolbarHeight: Self.toolbar,
+            bottomSafeAreaInset: Self.homeIndicator,
+            chromeHidden: true,
+            topContentInset: 106
+        )
+        #expect(size.height == 768) // 874 - 106 band
+    }
+
+    @Test("negative top content inset is clamped to zero")
+    func negativeTopContentInsetClamps() {
+        let size = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: Self.phoneBounds,
+            composerBandHeight: 0,
+            toolbarHeight: 0,
+            bottomSafeAreaInset: Self.homeIndicator,
+            chromeHidden: false,
+            topContentInset: -20
+        )
+        #expect(size.height == 832)
     }
 
     // The keyboard is not a parameter of `terminalContainerSize` AT ALL: the

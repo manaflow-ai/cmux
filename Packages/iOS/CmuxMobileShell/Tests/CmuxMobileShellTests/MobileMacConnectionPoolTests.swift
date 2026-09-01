@@ -3393,7 +3393,8 @@ import Testing
                 macDeviceID: "mac-b",
                 displayName: "Mac B",
                 instanceTag: "pflow",
-                role: .focused
+                role: .focused,
+                routeKind: .debugLoopback
             ),
         ])
         subscription.detachKeepingClient()
@@ -3663,7 +3664,8 @@ import Testing
                 macDeviceID: "mac-a",
                 displayName: "Mac A",
                 instanceTag: nil,
-                role: .focused
+                role: .focused,
+                routeKind: .debugLoopback
             ),
         ])
         #expect(shell.secondaryMacDrainReservation(
@@ -5371,7 +5373,8 @@ import Testing
                 macDeviceID: "mac-late",
                 displayName: "Late Mac",
                 instanceTag: "mmpool",
-                role: .focused
+                role: .focused,
+                routeKind: .debugLoopback
             ),
         ])
         #expect(shell.connections["mac-late"]?.client === client)
