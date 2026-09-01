@@ -8,7 +8,7 @@ struct CmuxValidatedImageAssetTests {
     @Test
     func resolvesRelativeImageAndRejectsUnsafeSVG() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-validated-image-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-validated-image-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -25,7 +25,7 @@ struct CmuxValidatedImageAssetTests {
             globalConfigPath: configURL.path
         )
         guard case .success(let asset) = prepared else {
-            Issue.record("A valid relative PNG should pass validation: (prepared)")
+            Issue.record("A valid relative PNG should pass validation: \(prepared)")
             return
         }
         #expect(asset.resolvedPath == imageURL.standardizedFileURL.path)
@@ -40,7 +40,7 @@ struct CmuxValidatedImageAssetTests {
             globalConfigPath: configURL.path
         )
         guard case .success = validSVG else {
-            Issue.record("A plain SVG with text content should pass validation: (validSVG)")
+            Issue.record("A plain SVG with text content should pass validation: \(validSVG)")
             return
         }
 
@@ -58,7 +58,7 @@ struct CmuxValidatedImageAssetTests {
     @Test
     func rejectsOversizedFilesBeforeReading() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-validated-image-large-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-validated-image-large-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -81,7 +81,7 @@ struct CmuxValidatedImageAssetTests {
     @Test
     func rejectsNamespacedAndEscapedSVGContent() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-validated-image-svg-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-validated-image-svg-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -114,7 +114,7 @@ struct CmuxValidatedImageAssetTests {
             )
             #expect(
                 result == .failure(.unsafeSVG),
-                "Expected (fileName) to be rejected, got (result)"
+                "Expected \(fileName) to be rejected, got \(result)"
             )
         }
     }
