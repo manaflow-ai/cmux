@@ -40,18 +40,18 @@ final class CLISocketSentryTelemetry {
         let data: [String: Any]
     }
 
-    private struct CLIErrorMetadata {
-        let code: String?
-        let socketPathMissing: Bool
-        let legacyMessage: String?
-        let isStructuredProtocolResponse: Bool
-    }
+    private typealias CLIErrorMetadata = (
+        code: String?,
+        socketPathMissing: Bool,
+        legacyMessage: String?,
+        isStructuredProtocolResponse: Bool
+    )
 
-    private struct ErrorClassification {
-        let errorDescription: String
-        let metadata: CLIErrorMetadata
-        let isExpected: Bool
-    }
+    private typealias ErrorClassification = (
+        errorDescription: String,
+        metadata: CLIErrorMetadata,
+        isExpected: Bool
+    )
 
     private let command: String
     private let subcommand: String
@@ -311,7 +311,7 @@ final class CLISocketSentryTelemetry {
         let isExpectedProtocolOutcome =
             cliErrorMetadata.isStructuredProtocolResponse &&
             noiseFilter.isExpectedCLIProtocolOutcomeCode(cliErrorMetadata.code)
-        return ErrorClassification(
+        return (
             errorDescription: errorDescription,
             metadata: cliErrorMetadata,
             isExpected: isExpectedAgentHookCLIError ||
@@ -362,7 +362,7 @@ final class CLISocketSentryTelemetry {
     /// state from localized text when the protocol already supplied a code.
     private func metadata(for error: Error) -> CLIErrorMetadata {
         if let cliError = error as? CLIError {
-            return CLIErrorMetadata(
+            return (
                 code: cliError.v2Code,
                 socketPathMissing: cliError.socketFailureKind == .pathMissing,
                 legacyMessage: String(describing: cliError),
@@ -377,7 +377,7 @@ final class CLISocketSentryTelemetry {
         var remaining = 8
         while let candidate = current, remaining > 0 {
             if let underlying = candidate.userInfo[NSUnderlyingErrorKey] as? CLIError {
-                return CLIErrorMetadata(
+                return (
                     code: underlying.v2Code,
                     socketPathMissing: underlying.socketFailureKind == .pathMissing,
                     legacyMessage: String(describing: underlying),
@@ -387,7 +387,7 @@ final class CLISocketSentryTelemetry {
             current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
             remaining -= 1
         }
-        return CLIErrorMetadata(
+        return (
             code: nil,
             socketPathMissing: false,
             legacyMessage: nil,
