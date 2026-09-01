@@ -1,5 +1,4 @@
-import XCTest
-import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,36 +6,64 @@ import AppKit
 @testable import cmux
 #endif
 
-final class GhosttyCopyActionResolverTests: XCTestCase {
-    func testStandardCopyBindingUsesConfiguredPlainFlavor() {
-        let resolver = GhosttyCopyActionResolver()
-        let binding = GhosttyCopyActionResolver.Binding(
-            flavor: .plain,
-            shortcut: GhosttyCopyActionResolver.standardCopyShortcut
-        )
+@Suite struct GhosttyCopyActionResolverTests {
+    private let resolver = GhosttyCopyActionResolver()
 
-        XCTAssertEqual(
-            resolver.resolve(bindings: [binding]),
-            "copy_to_clipboard:plain"
+    private func binding(
+        _ flavor: GhosttyCopyActionResolver.Flavor,
+        shortcut: StoredShortcut = GhosttyCopyActionResolver.standardCopyShortcut
+    ) -> GhosttyCopyActionResolver.Binding {
+        GhosttyCopyActionResolver.Binding(flavor: flavor, shortcut: shortcut)
+    }
+
+    @Test func mixedFlavorUsesGhosttyDefaultActionSpelling() {
+        #expect(
+            GhosttyCopyActionResolver.Flavor.mixed.bindingAction
+                == GhosttyCopyActionResolver.defaultAction
         )
     }
 
-    func testNoStandardFlavorOverrideKeepsGhosttyMixedDefault() {
-        let resolver = GhosttyCopyActionResolver()
-        let binding = GhosttyCopyActionResolver.Binding(
-            flavor: .plain,
-            shortcut: StoredShortcut(
-                key: "c",
-                command: true,
-                shift: true,
-                option: false,
-                control: false
+    @Test func everyFlavorIsPassedThroughToGhostty() {
+        let standard = GhosttyCopyActionResolver.standardCopyShortcut
+
+        for flavor in GhosttyCopyActionResolver.Flavor.allCases {
+            #expect(
+                resolver.resolve(bindings: [binding(flavor, shortcut: standard)])
+                    == flavor.bindingAction
             )
+        }
+    }
+
+    @Test func standardCopyBindingUsesConfiguredPlainFlavor() {
+        #expect(
+            resolver.resolve(bindings: [binding(.plain)])
+                == "copy_to_clipboard:plain"
+        )
+    }
+
+    @Test func noStandardFlavorOverrideKeepsGhosttyMixedDefault() {
+        let nonStandardShortcut = StoredShortcut(
+            key: "c",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
         )
 
-        XCTAssertEqual(
-            resolver.resolve(bindings: [binding]),
-            GhosttyCopyActionResolver.defaultAction
+        #expect(
+            resolver.resolve(bindings: [binding(.plain, shortcut: nonStandardShortcut)])
+                == GhosttyCopyActionResolver.defaultAction
+        )
+    }
+
+    @Test func conflictingStandardFlavorBindingsFallBackToMixedDefault() {
+        let standard = GhosttyCopyActionResolver.standardCopyShortcut
+
+        #expect(
+            resolver.resolve(bindings: [
+                binding(.plain, shortcut: standard),
+                binding(.html, shortcut: standard),
+            ]) == GhosttyCopyActionResolver.defaultAction
         )
     }
 }

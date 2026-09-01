@@ -10,7 +10,14 @@ struct GhosttyCopyActionResolver {
         case mixed
 
         var bindingAction: String {
-            "copy_to_clipboard:\(rawValue)"
+            switch self {
+            case .mixed:
+                // Keep the parameterless spelling as the default action so
+                // native Copy retains Ghostty's version-defined mixed default.
+                "copy_to_clipboard"
+            case .plain, .vt, .html:
+                "copy_to_clipboard:\(rawValue)"
+            }
         }
     }
 
@@ -39,8 +46,32 @@ struct GhosttyCopyActionResolver {
 
     /// Returns the configured copy action for the native Copy surfaces.
     func resolve(bindings: [Binding]) -> String {
-        // The implementation is completed in the fix commit. Keeping the
-        // default here makes the regression test fail against this commit.
-        Self.defaultAction
+        // Ghostty's reverse trigger lookup omits `performable` bindings. The
+        // standard Cmd+C binding is therefore only present here when the user
+        // explicitly overrides it with a non-performable `copy_to_clipboard`
+        // action (the form that AppKit routes through the native menu). If a
+        // malformed config exposes multiple flavors for the same trigger, use
+        // the safe mixed default instead of inventing an ordering Ghostty did
+        // not expose through its reverse map.
+        let matchingBindings = bindings.filter {
+            $0.shortcut == Self.standardCopyShortcut
+        }
+        guard matchingBindings.count == 1,
+              let binding = matchingBindings.first else {
+            return Self.defaultAction
+        }
+        return binding.flavor.bindingAction
+    }
+}
+
+extension GhosttyApp {
+    /// The copy action native menu surfaces should send to Ghostty.
+    var configuredCopyToClipboardAction: String {
+        let bindings = GhosttyCopyActionResolver.Flavor.allCases.compactMap { flavor in
+            storedShortcut(forBindingAction: flavor.bindingAction).map {
+                GhosttyCopyActionResolver.Binding(flavor: flavor, shortcut: $0)
+            }
+        }
+        return GhosttyCopyActionResolver().resolve(bindings: bindings)
     }
 }
