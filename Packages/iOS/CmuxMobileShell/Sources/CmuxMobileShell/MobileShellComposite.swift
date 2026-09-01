@@ -2672,7 +2672,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
 
-        guard let directRoute = try? Self.manualHostRoute(
+        guard let directRoute = try? manualHostRoute(
             host: normalizedHost,
             port: port
         ) else {
@@ -4682,7 +4682,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
-    static func manualHostRoute(
+    func manualHostRoute(
         host: String,
         port: Int,
         preferredKind: CmxAttachTransportKind? = nil

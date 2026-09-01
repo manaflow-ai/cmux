@@ -55,7 +55,7 @@ extension MobileShellComposite {
         attemptStartedAt: Date?,
         probeClient: MobileCoreRPCClient? = nil
     ) async throws -> CmxAttachTicket {
-        let directRoute = try Self.manualHostRoute(
+        let directRoute = try manualHostRoute(
             host: host,
             port: port
         )
