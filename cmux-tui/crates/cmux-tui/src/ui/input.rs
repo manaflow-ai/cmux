@@ -559,4 +559,14 @@ mod tests {
         assert_eq!(shown, "abc");
         assert_eq!(cursor, 0);
     }
+
+    #[test]
+    fn viewport_scan_keeps_wide_graphemes_in_order() {
+        let input = text_input("界界界界");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "界");
+        assert_eq!(cursor, 2);
+    }
 }

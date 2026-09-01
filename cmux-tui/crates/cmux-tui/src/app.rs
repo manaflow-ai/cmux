@@ -24926,6 +24926,29 @@ mod tests {
     }
 
     #[test]
+    fn prompt_render_persists_text_input_viewport_before_left_movement() {
+        let mux = Mux::new("text-input-viewport-lifecycle-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.prompt = Some(Prompt::new(
+            "Rename",
+            "abcdefghijklmnopqrstuvwxyz0123456789".to_string(),
+            PromptTarget::Workspace(1),
+        ));
+        let mut terminal = Terminal::new(TestBackend::new(24, 12)).unwrap();
+
+        app.draw_terminal(&mut terminal, RenderAction::Draw).unwrap();
+
+        let before = app.prompt.as_ref().unwrap().input.visible_text_and_cursor(18);
+        assert!(before.1 > 0);
+        app.handle_prompt_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)).unwrap();
+        let after = app.prompt.as_ref().unwrap().input.visible_text_and_cursor(18);
+
+        assert_eq!(after.0, before.0);
+        assert_eq!(after.1, before.1 - 1);
+        mux.shutdown();
+    }
+
+    #[test]
     fn enhanced_control_text_uses_prompt_and_omnibar_shortcuts() {
         let mux = Mux::new("enhanced-overlay-shortcut-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
