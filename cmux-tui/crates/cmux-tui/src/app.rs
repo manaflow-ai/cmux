@@ -17102,10 +17102,7 @@ impl App {
                         } else {
                             range.end
                         };
-                        SelectionRange {
-                            start,
-                            end,
-                        }
+                        SelectionRange { start, end }
                     })
                     .unwrap_or(range)
             } else {
