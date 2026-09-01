@@ -190,6 +190,10 @@ extension TerminalSurface {
         if !spawnPolicy.ampHooksEnabled {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
+        setManagedEnvironmentValue(
+            Self.computerUseAppEnabledEnvironmentKey,
+            spawnPolicy.computerUseEnabled ? "1" : "0"
+        )
 
         if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin") {
             let cliBinPath = cliBinURL.path
@@ -291,8 +295,11 @@ extension TerminalSurface {
             isManualSurface: ioMode.usesManualIO,
             hasManagedShellIntegration: managedShellCommand != nil
         )
+        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
+            ? startupRestoreAdmissionCommandOverride
+            : initialCommand
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
-            initialCommand: initialCommand,
+            initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
             managedShellCommand: shellModeOverride ?? managedShellCommand,
@@ -301,6 +308,9 @@ extension TerminalSurface {
         let resolvedInitialInput: String? = {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
                 return runtimeInitialInput
+            }
+            if suppressConfiguredInitialInput {
+                return nil
             }
             if let initialInput, !initialInput.isEmpty {
                 return initialInput

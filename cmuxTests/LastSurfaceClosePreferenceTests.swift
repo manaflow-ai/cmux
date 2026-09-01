@@ -243,7 +243,7 @@ struct LastSurfaceClosePreferenceTests {
                 tabStripClose: true,
                 tabCloseButton: true
             ))
-            let remainingPanel = secondWorkspace.createReplacementTerminalPanel()
+            let remainingPanel = try #require(secondWorkspace.createReplacementTerminalPanel())
             #expect(secondWorkspace.closePanel(closingPanelId, force: true))
             drainMainQueue()
             drainMainQueue()

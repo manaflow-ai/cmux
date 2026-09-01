@@ -12,13 +12,15 @@ public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
     /// ``allowsDeclarativeStartupDefaults``: an explicit local command still
     /// needs the configured cwd, while its shell startup mode is suppressed.
     public let allowsDeclarativeWorkingDirectoryDefaults: Bool
+    let cancelsStartupRestoreAdmissionOnExplicitInput: Bool
 
     /// Creates the native runtime surface as soon as its view is ready.
     public static let immediate = Self(
         spawnTiming: .immediate,
         requiresStartupRestoreAdmission: false,
         allowsDeclarativeStartupDefaults: true,
-        allowsDeclarativeWorkingDirectoryDefaults: true
+        allowsDeclarativeWorkingDirectoryDefaults: true,
+        cancelsStartupRestoreAdmissionOnExplicitInput: false
     )
 
     /// Paces creation through the restore queue to avoid a login-shell stampede.
@@ -26,7 +28,8 @@ public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
         spawnTiming: .pacedSessionRestore,
         requiresStartupRestoreAdmission: false,
         allowsDeclarativeStartupDefaults: false,
-        allowsDeclarativeWorkingDirectoryDefaults: false
+        allowsDeclarativeWorkingDirectoryDefaults: false,
+        cancelsStartupRestoreAdmissionOnExplicitInput: false
     )
 
     /// Holds otherwise-immediate creation until the restore owner admits it.
@@ -34,7 +37,8 @@ public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
         spawnTiming: .immediate,
         requiresStartupRestoreAdmission: true,
         allowsDeclarativeStartupDefaults: false,
-        allowsDeclarativeWorkingDirectoryDefaults: false
+        allowsDeclarativeWorkingDirectoryDefaults: false,
+        cancelsStartupRestoreAdmissionOnExplicitInput: false
     )
 
     /// Adds explicit restore admission without discarding the current timing.
@@ -48,7 +52,25 @@ public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
             spawnTiming: spawnTiming,
             requiresStartupRestoreAdmission: true,
             allowsDeclarativeStartupDefaults: allowsDeclarativeStartupDefaults,
-            allowsDeclarativeWorkingDirectoryDefaults: allowsDeclarativeWorkingDirectoryDefaults
+            allowsDeclarativeWorkingDirectoryDefaults: allowsDeclarativeWorkingDirectoryDefaults,
+            cancelsStartupRestoreAdmissionOnExplicitInput:
+                cancelsStartupRestoreAdmissionOnExplicitInput
+        )
+    }
+
+    /// Holds a deferred agent resume until ownership is freshly resolved.
+    ///
+    /// Unlike a topology commit gate, explicit user input cancels this pending
+    /// automatic resume before a shell runtime can receive the command.
+    ///
+    /// - Returns: A policy with the same spawn timing and a cancellable gate.
+    public func requiringDeferredAgentResumeAdmission() -> Self {
+        Self(
+            spawnTiming: spawnTiming,
+            requiresStartupRestoreAdmission: true,
+            allowsDeclarativeStartupDefaults: allowsDeclarativeStartupDefaults,
+            allowsDeclarativeWorkingDirectoryDefaults: allowsDeclarativeWorkingDirectoryDefaults,
+            cancelsStartupRestoreAdmissionOnExplicitInput: true
         )
     }
 
@@ -70,7 +92,9 @@ public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
             spawnTiming: spawnTiming,
             requiresStartupRestoreAdmission: requiresStartupRestoreAdmission,
             allowsDeclarativeStartupDefaults: false,
-            allowsDeclarativeWorkingDirectoryDefaults: allowsDeclarativeWorkingDirectoryDefaults
+            allowsDeclarativeWorkingDirectoryDefaults: allowsDeclarativeWorkingDirectoryDefaults,
+            cancelsStartupRestoreAdmissionOnExplicitInput:
+                cancelsStartupRestoreAdmissionOnExplicitInput
         )
     }
 
@@ -83,7 +107,9 @@ public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
             spawnTiming: spawnTiming,
             requiresStartupRestoreAdmission: requiresStartupRestoreAdmission,
             allowsDeclarativeStartupDefaults: allowsDeclarativeStartupDefaults,
-            allowsDeclarativeWorkingDirectoryDefaults: false
+            allowsDeclarativeWorkingDirectoryDefaults: false,
+            cancelsStartupRestoreAdmissionOnExplicitInput:
+                cancelsStartupRestoreAdmissionOnExplicitInput
         )
     }
 
@@ -96,7 +122,9 @@ public struct TerminalSurfaceRuntimeSpawnPolicy: Equatable, Sendable {
             spawnTiming: spawnTiming,
             requiresStartupRestoreAdmission: requiresStartupRestoreAdmission,
             allowsDeclarativeStartupDefaults: false,
-            allowsDeclarativeWorkingDirectoryDefaults: false
+            allowsDeclarativeWorkingDirectoryDefaults: false,
+            cancelsStartupRestoreAdmissionOnExplicitInput:
+                cancelsStartupRestoreAdmissionOnExplicitInput
         )
     }
 

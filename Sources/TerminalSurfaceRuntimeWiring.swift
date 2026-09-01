@@ -50,6 +50,8 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
     private let declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
+    private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
 
     init(
         declarativeTerminalConfigurationSource: any DeclarativeTerminalConfigurationProviding
@@ -82,7 +84,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
-            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
+            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
+            computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
         )
     }
 

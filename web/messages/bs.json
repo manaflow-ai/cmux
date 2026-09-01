@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Nastavite u terminalu",
@@ -43,6 +46,7 @@
     "blog": "Blog",
     "changelog": "Zapisnik promjena",
     "community": "Zajednica",
+    "jobs": "Poslovi",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +56,10 @@
     "social": "Društvene mreže",
     "blog": "Blog",
     "community": "Zajednica",
+    "jobs": "Poslovi",
     "docs": "Dokumentacija",
     "changelog": "Zapisnik promjena",
+    "support": "Podrška",
     "privacy": "Privatnost",
     "terms": "Uslovi korištenja",
     "eula": "EULA",
@@ -68,6 +74,79 @@
     "openSource": "Otvoreni kod",
     "guides": "Vodiči",
     "compare": "Uporedi"
+  },
+  "jobs": {
+    "metaTitle": "Founding Engineer u cmuxu",
+    "metaDescription": "Pridružite se cmuxu kao Founding Engineer i gradite budućnost programiranja uz AI na macOS-u, Windowsu, Linuxu, iOS-u i Cloudu.",
+    "section": "Poslovi",
+    "eyebrow": "Zapošljavamo",
+    "title": "Founding Engineer",
+    "tagline": "Gradite budućnost programiranja uz AI.",
+    "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
+    "hiring": "Tražimo talentovane inženjere da s nama grade budućnost programiranja uz AI.",
+    "whatYoullDo": "Šta ćete raditi",
+    "whatYoullDoItems": [
+      "Gradite napredne alate za programere kroz cijeli stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux i više.",
+      "Pomažete izmisliti najkorisniji proizvod za programere koji rade s AI-jem.",
+      "Preuzimate proizvode i funkcije od početka do kraja, uključujući povratne informacije korisnika.",
+      "Stalno koristite, testirate i provjeravate cmux; koristite cmux da izgradite cmux."
+    ],
+    "excitedLead": "Posebno nas raduje ako:",
+    "excitedItems": [
+      "Koristite više od 10B tokena dnevno.",
+      "Svestrani ste i kreativno rješavate probleme.",
+      "Imate odličan osjećaj za dizajn i brinete o zanatu.",
+      "Imate iskustvo sa Swift/AppKit, C++, Rustom, Go-om ili Chromiumom.",
+      "Održavate open source, bivši ste osnivač ili ste isporučili kompletne proizvode.",
+      "Šaljete cmux PR-ove na pregled ili demonstrirate vlastite plugine i tokove rada."
+    ],
+    "details": "Detalji",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Naknada",
+    "compensation": "$130k–$170k + 0,5%–1,5% udjela",
+    "benefitsLabel": "Pogodnosti",
+    "benefits": "Zdravstveno, stomatološko i osiguranje vida",
+    "locationLabel": "Lokacija",
+    "location": "San Francisco",
+    "applyAriaLabel": "Prijavite se e-mailom za Founding Engineer poziciju",
+    "applyEmailSubject": "Prijava za Founding Engineer u cmuxu",
+    "applyCta": "Pošalji e-mail",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer u cmuxu",
+      "metaDescription": "Pridružite se cmuxu kao Founding Designer i dizajnirajte budućnost programiranja uz AI na macOS-u, TUI-ju, Windowsu, Linuxu, iOS-u, Cloudu, cmux.comu i chatmuxu.",
+      "section": "Poslovi",
+      "eyebrow": "O ulozi",
+      "title": "Founding Designer",
+      "tagline": "Dizajnirajte budućnost programiranja uz AI.",
+      "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
+      "hiring": "Tražimo talentovanog dizajnera da s nama dizajnira budućnost programiranja uz AI.",
+      "whatYoullDo": "Šta ćete raditi",
+      "whatYoullDoItems": [
+        "Dizajnirate napredne alate za programere kroz cijeli stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux i više.",
+        "Pomažete dizajnirati najkorisniji proizvod za programere koji rade s AI-jem.",
+        "Preuzimate izgled, osjećaj i model interakcije od početka do kraja, uključujući povratne informacije.",
+        "Stalno koristite cmux, pravite prototipe i isporučujete."
+      ],
+      "excitedLead": "Posebno nas raduje ako:",
+      "excitedItems": [
+        "Živa ste enciklopedija dizajnerskih komponenti iz svih vrsta aplikacija.",
+        "Ljudi vas stalno pitaju za dizajnerske reference.",
+        "Opsesivno volite nativne macOS aplikacije i alate za programere.",
+        "Prototipizirate u kodu i isporučujete pravi UI.",
+        "Brinete o tipografiji, pokretu i sistemskom razmišljanju, do svakog 1px detalja i razmaka."
+      ],
+      "details": "Detalji",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Naknada",
+      "compensation": "$130k–$170k + 0,5%–1,5% udjela",
+      "benefitsLabel": "Pogodnosti",
+      "benefits": "Zdravstveno, stomatološko i osiguranje vida",
+      "locationLabel": "Lokacija",
+      "location": "San Francisco",
+      "applyAriaLabel": "Prijavite se e-mailom za Founding Designer poziciju",
+      "applyEmailSubject": "Prijava za Founding Designer u cmuxu",
+      "applyCta": "Pošalji e-mail"
+    }
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -3711,6 +3790,52 @@
       "secondaryCta": "Debian paket (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Jednom pokrenite instalacijski program za trenutnog korisnika. Instalirat će cmux u ~/.local bez root ovlaštenja i omogućiti potpisana ažuriranja unutar aplikacije. Ako želite da ažuriranjima upravlja vaš upravitelj paketa, umjesto toga odaberite Debian paket."
+    }
+  },
+  "support": {
+    "metaTitle": "Podrška | cmux",
+    "metaDescription": "Dobij pomoć za cmux. Pošalji nam poruku i odgovorit ćemo ti emailom, ili nas potraži na Discordu i GitHub-u.",
+    "section": "Podrška",
+    "title": "Dobij pomoć za cmux.",
+    "body": "Pošalji nam poruku i odgovorit ćemo ti emailom. Napiši šta si radio, šta si očekivao i šta se desilo umjesto toga, da ti možemo brže pomoći.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentacija",
+        "description": "Vodiči za početak rada, konfiguraciju i rješavanje problema."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Pitaj zajednicu i tim u realnom vremenu."
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "Prijavi greške i predloži nove funkcije javno."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Više voliš email? Piši nam direktno."
+      }
+    },
+    "formAriaLabel": "Kontakt forma za podršku",
+    "form": {
+      "name": "Ime",
+      "email": "Email adresa",
+      "topic": "Tema",
+      "message": "Kako ti možemo pomoći?",
+      "selectPlaceholder": "Odaberi jedno",
+      "topicOptions": [
+        "Prijava greške",
+        "Naplata ili pretplata",
+        "Račun ili prijava",
+        "Cloud VMs",
+        "Prijedlog za funkciju",
+        "Ostalo"
+      ],
+      "privacy": "Tvoju email adresu koristimo samo za odgovor na tvoj zahtjev za podršku. Ne prodajemo kontakt podatke.",
+      "submit": "Pošalji poruku",
+      "submitting": "Slanje…",
+      "success": "Hvala. Primili smo tvoju poruku i odgovorit ćemo ti na email sa adrese founders@manaflow.com.",
+      "error": "Nešto je pošlo po zlu. Pokušaj ponovo ili nam piši na founders@manaflow.com."
     }
   },
   "emails": {

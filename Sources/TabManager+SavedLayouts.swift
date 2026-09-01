@@ -7,14 +7,16 @@ extension TabManager {
         let resolvedCwd = CmuxConfigStore.resolveCwd(cwdOverride ?? layout.workspace.cwd, relativeTo: baseCwd)
         // The initial terminal is a topology placeholder when a declarative
         // layout or setup command replaces or uses it.
-        let workspace = addWorkspace(
+        guard let workspace = addWorkspaceIfActive(
             title: layout.workspace.name ?? layout.name,
             workingDirectory: resolvedCwd,
             workspaceEnvironment: layout.workspace.env ?? [:],
             inheritWorkingDirectory: false,
             select: focus,
             initialRuntimeSpawnPolicy: layout.workspace.initialRuntimeSpawnPolicy
-        )
+        ) else {
+            return nil
+        }
         if let color = layout.workspace.color {
             setTabColor(tabId: workspace.id, color: color)
         }

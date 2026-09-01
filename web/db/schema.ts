@@ -15,7 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona"]);
+export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona", "blaxel"]);
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -25,7 +25,7 @@ export const vmStatus = pgEnum("vm_status", [
   "destroyed",
 ]);
 
-export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
+export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh", "preview"]);
 
 export const cloudVmSessionStatus = pgEnum("cloud_vm_session_status", [
   "running",
@@ -58,6 +58,9 @@ export const cloudVms = pgTable(
     billingPlanId: text("billing_plan_id"),
     provider: vmProvider("provider").notNull(),
     providerVmId: text("provider_vm_id"),
+    // User-chosen label shown in machine lists. The provider VM id stays the
+    // machine's address (URLs, CLI verbs); this is display-only.
+    displayName: text("display_name"),
     imageId: text("image_id").notNull(),
     imageVersion: text("image_version"),
     status: vmStatus("status").notNull().default("provisioning"),
@@ -690,6 +693,30 @@ export const proWelcomeFulfillments = pgTable(
   },
   (table) => [
     index("pro_welcome_fulfillments_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
+/**
+ * Durable idempotency ledger for the sign-in link sent after a paid checkout.
+ * It is separate from the Pro welcome ledger because the two messages have
+ * different owners and retry policies.
+ */
+export const billingEmailVerificationDeliveries = pgTable(
+  "billing_email_verification_deliveries",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    email: text("email").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("billing_email_verification_deliveries_stack_user_idx").on(table.stackUserId),
   ],
 );
 

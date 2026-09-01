@@ -30,7 +30,7 @@ extension AppDelegate {
         }
 
         let title = String(localized: "account.signIn.workspace.title", defaultValue: "Sign In")
-        let workspace = manager.addWorkspace(
+        guard let workspace = manager.addWorkspaceIfActive(
             title: title,
             select: true,
             eagerLoadTerminal: false,
@@ -38,7 +38,9 @@ extension AppDelegate {
             autoRefreshMetadata: false,
             allowTextBoxFocusDefault: false,
             initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
-        )
+        ) else {
+            return false
+        }
         guard let initialPanelID = workspace.focusedPanelId,
               let paneID = workspace.paneId(forPanelId: initialPanelID),
               let panel = workspace.newAccountSignInSurface(inPane: paneID, flow: flow, focus: true) else {

@@ -211,7 +211,7 @@ extension Workspace {
             return false
         }
 
-        let forkWorkspace = owningTabManager.addWorkspace(
+        guard let forkWorkspace = owningTabManager.addWorkspaceIfActive(
             workingDirectory: nil,
             initialTerminalCommand: remoteConfiguration.terminalStartupCommand,
             initialTerminalInput: startupInput,
@@ -219,7 +219,9 @@ extension Workspace {
             inheritWorkingDirectory: false,
             autoWelcomeIfNeeded: false,
             initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
-        )
+        ) else {
+            return false
+        }
         forkWorkspace.configureRemoteConnection(
             remoteConfiguration,
             autoConnect: true
@@ -255,7 +257,7 @@ extension Workspace {
             return false
         }
 
-        let forkWorkspace = owningTabManager.addWorkspace(
+        guard let forkWorkspace = owningTabManager.addWorkspaceIfActive(
             workingDirectory: launch.terminalWorkingDirectory,
             initialTerminalCommand: launch.initialTerminalCommand,
             initialTerminalInput: launch.initialTerminalInput,
@@ -265,7 +267,9 @@ extension Workspace {
             initialRuntimeSpawnPolicy: launch.remoteConfiguration == nil
                 ? .immediate
                 : .immediate.withoutDeclarativeDefaults()
-        )
+        ) else {
+            return false
+        }
         if let remoteConfiguration = launch.remoteConfiguration {
             forkWorkspace.configureRemoteConnection(
                 remoteConfiguration,

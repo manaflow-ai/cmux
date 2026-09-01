@@ -618,7 +618,11 @@ type ProcessInfoResult struct {
 	Executable *string  `json:"executable,omitempty"`
 	Argv       []string `json:"argv"`
 	CWD        *string  `json:"cwd,omitempty"`
-	Children   []uint32 `json:"children"`
+	// ForegroundCWD is the working directory of the process group that owns
+	// the PTY, read at request time. It is nil when the lookup fails or
+	// when an older server omits the field.
+	ForegroundCWD *string  `json:"foreground_cwd,omitempty"`
+	Children      []uint32 `json:"children"`
 }
 
 type CellPixelsResult struct {

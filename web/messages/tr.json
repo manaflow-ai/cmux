@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "Bir hesap bulduysak, sonraki adımlar için e-postanı kontrol et"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Terminalde devam edin",
@@ -43,6 +46,7 @@
     "blog": "Blog",
     "changelog": "Değişiklik Günlüğü",
     "community": "Topluluk",
+    "jobs": "Kariyer",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +56,10 @@
     "social": "Sosyal Medya",
     "blog": "Blog",
     "community": "Topluluk",
+    "jobs": "Kariyer",
     "docs": "Belgeler",
     "changelog": "Değişiklik Günlüğü",
+    "support": "Destek",
     "privacy": "Gizlilik",
     "terms": "Koşullar",
     "eula": "EULA",
@@ -68,6 +74,79 @@
     "openSource": "Açık kaynak",
     "guides": "Kılavuzlar",
     "compare": "Karşılaştır"
+  },
+  "jobs": {
+    "metaTitle": "cmux Founding Engineer pozisyonu",
+    "metaDescription": "cmux’a Founding Engineer olarak katılın; macOS, Windows, Linux, iOS ve Cloud için yapay zekâ ile kodlamanın geleceğini inşa edin.",
+    "section": "Kariyer",
+    "eyebrow": "Ekibimize katılın",
+    "title": "Founding Engineer",
+    "tagline": "Yapay zekâ ile kodlamanın geleceğini inşa edin.",
+    "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
+    "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte kuracak yetenekli mühendisler arıyoruz.",
+    "whatYoullDo": "Neler yapacaksınız",
+    "whatYoullDoItems": [
+      "Tüm yığında öncü geliştirici araçları oluşturmak: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux ve daha fazlası.",
+      "Geliştiricilerin yapay zekâ ile çalışması için en kullanışlı ürünü icat etmeye yardım etmek.",
+      "Kullanıcı geri bildirim döngüleri dahil ürün ve özelliklerin uçtan uca sorumluluğunu almak.",
+      "cmux’ı sürekli kullanmak, test etmek ve doğrulamak; cmux ile cmux inşa etmek."
+    ],
+    "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
+    "excitedItems": [
+      "Günde 10B’den fazla token kullanıyorsunuz.",
+      "Çok yönlüsünüz ve sorunları yaratıcı biçimde çözüyorsunuz.",
+      "Güçlü bir tasarım zevkiniz var ve işçiliğe önem veriyorsunuz.",
+      "Swift/AppKit, C++, Rust, Go veya Chromium deneyiminiz var.",
+      "Açık kaynak maintainer’ı, eski kurucu ya da tamamlanmış ürünler göndermiş birisiniz.",
+      "İncelememiz için cmux PR’ları gönderiyor veya özel eklenti ve iş akışlarınızı sergiliyorsunuz."
+    ],
+    "details": "Ayrıntılar",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Ücret",
+    "compensation": "$130k–$170k + %0,5–%1,5 hisse",
+    "benefitsLabel": "Yan haklar",
+    "benefits": "Sağlık, diş ve göz sigortası",
+    "locationLabel": "Konum",
+    "location": "San Francisco",
+    "applyAriaLabel": "Founding Engineer roluna e-posta ile başvurun",
+    "applyEmailSubject": "cmux Founding Engineer başvurusu",
+    "applyCta": "E-posta gönder",
+    "foundingDesigner": {
+      "metaTitle": "cmux Founding Designer pozisyonu",
+      "metaDescription": "cmux’a Founding Designer olarak katılın; macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com ve chatmux için yapay zekâ ile kodlamanın geleceğini tasarlayın.",
+      "section": "Kariyer",
+      "eyebrow": "Rol hakkında",
+      "title": "Founding Designer",
+      "tagline": "Yapay zekâ ile kodlamanın geleceğini tasarlayın.",
+      "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
+      "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte tasarlayacak yetenekli bir tasarımcı arıyoruz.",
+      "whatYoullDo": "Neler yapacaksınız",
+      "whatYoullDoItems": [
+        "Tüm yığında öncü geliştirici araçları tasarlamak: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux ve daha fazlası.",
+        "Geliştiricilerin yapay zekâ ile çalışması için en kullanışlı ürünü tasarlamaya yardım etmek.",
+        "Kullanıcı geri bildirim döngüleri dahil görünüm, his ve etkileşim modelinin uçtan uca sorumluluğunu almak.",
+        "cmux’ı sürekli kullanmak, prototip oluşturmak ve yayınlamak."
+      ],
+      "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
+      "excitedItems": [
+        "Her tür uygulamanın tasarım bileşenleri konusunda yürüyen bir ansiklopedisiniz.",
+        "İnsanlar sizden sürekli tasarım referansları istiyor.",
+        "Yerel macOS uygulamalarına ve geliştirici araçlarına karşı takıntılı bir zevkiniz var.",
+        "Kodla prototip oluşturuyor ve gerçek UI yayınlıyorsunuz.",
+        "Tipografi, hareket ve sistem düşüncesine önem veriyor; her 1px ayrıntıyı ve boşluğu gözetiyorsunuz."
+      ],
+      "details": "Ayrıntılar",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Ücret",
+      "compensation": "$130k–$170k + %0,5–%1,5 hisse",
+      "benefitsLabel": "Yan haklar",
+      "benefits": "Sağlık, diş ve göz sigortası",
+      "locationLabel": "Konum",
+      "location": "San Francisco",
+      "applyAriaLabel": "Founding Designer roluna e-posta ile başvurun",
+      "applyEmailSubject": "cmux Founding Designer başvurusu",
+      "applyCta": "E-posta gönder"
+    }
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
@@ -3709,6 +3788,52 @@
       "secondaryCta": "Debian paketi (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Kullanıcıya özel yükleyiciyi bir kez çalıştırın. cmux'u root yetkisi gerektirmeden ~/.local altına kurar ve imzalı uygulama içi güncellemeleri etkinleştirir. Güncellemelerin paket yöneticiniz tarafından yönetilmesini istiyorsanız bunun yerine Debian paketini seçin."
+    }
+  },
+  "support": {
+    "metaTitle": "Destek | cmux",
+    "metaDescription": "cmux ile ilgili yardım alın. Bize bir mesaj gönderin, e-postayla yanıtlayalım; ayrıca Discord ve GitHub üzerinden de bize ulaşabilirsiniz.",
+    "section": "Destek",
+    "title": "cmux ile ilgili yardım alın.",
+    "body": "Bize bir mesaj gönderin, e-postayla yanıtlayalım. Daha hızlı yardımcı olabilmemiz için ne yaptığınızı, ne beklediğinizi ve bunun yerine ne olduğunu yazın.",
+    "channels": {
+      "docs": {
+        "label": "Belgeler",
+        "description": "Başlarken, yapılandırma ve sorun giderme kılavuzları."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Topluluğa ve ekibe gerçek zamanlı soru sorun."
+      },
+      "github": {
+        "label": "GitHub Issues",
+        "description": "Hataları bildirin, özellik isteklerinizi herkese açık şekilde iletin."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "E-postayı mı tercih ediyorsunuz? Doğrudan bize yazın."
+      }
+    },
+    "formAriaLabel": "Destek iletişim formu",
+    "form": {
+      "name": "Ad",
+      "email": "E-posta adresi",
+      "topic": "Konu",
+      "message": "Size nasıl yardımcı olabiliriz?",
+      "selectPlaceholder": "Birini seçin",
+      "topicOptions": [
+        "Hata bildirimi",
+        "Faturalandırma veya abonelik",
+        "Hesap veya oturum açma",
+        "Cloud VMs",
+        "Özellik isteği",
+        "Diğer"
+      ],
+      "privacy": "E-posta adresinizi yalnızca destek talebinize yanıt vermek için kullanırız. İletişim bilgilerini satmayız.",
+      "submit": "Mesaj gönder",
+      "submitting": "Gönderiliyor…",
+      "success": "Teşekkürler. Mesajınızı aldık; founders@manaflow.com adresinden e-postanıza yanıt vereceğiz.",
+      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@manaflow.com adresine e-posta gönderin."
     }
   },
   "emails": {

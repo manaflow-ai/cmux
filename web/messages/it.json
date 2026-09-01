@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "Se abbiamo trovato un account, controlla la tua email per i prossimi passaggi"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Continua nel terminale",
@@ -43,6 +46,7 @@
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Community",
+    "jobs": "Posizioni aperte",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +56,10 @@
     "social": "Social",
     "blog": "Blog",
     "community": "Community",
+    "jobs": "Posizioni aperte",
     "docs": "Docs",
     "changelog": "Changelog",
+    "support": "Supporto",
     "privacy": "Privacy",
     "terms": "Termini",
     "eula": "EULA",
@@ -68,6 +74,79 @@
     "openSource": "Open source",
     "guides": "Guide",
     "compare": "Confronta"
+  },
+  "jobs": {
+    "metaTitle": "Founding Engineer in cmux",
+    "metaDescription": "Unisciti a cmux come Founding Engineer e costruisci il futuro del coding con l’AI su macOS, Windows, Linux, iOS e Cloud.",
+    "section": "Posizioni aperte",
+    "eyebrow": "Stiamo assumendo",
+    "title": "Founding Engineer",
+    "tagline": "Costruisci il futuro del coding con l’AI.",
+    "intro": "cmux è un terminale macOS nativo basato su Ghostty, progettato per eseguire più agenti di coding AI in parallelo. Centinaia di migliaia di sviluppatori usano cmux per i loro flussi di lavoro di coding agentico.",
+    "hiring": "Cerchiamo ingegneri di talento per costruire con noi il futuro del coding con l’AI.",
+    "whatYoullDo": "Cosa farai",
+    "whatYoullDoItems": [
+      "Costruisci strumenti per sviluppatori all’avanguardia in tutto lo stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux e altro.",
+      "Aiuti a inventare il prodotto più utile per lavorare con l’AI.",
+      "Possiedi prodotti e funzionalità end-to-end, inclusi i cicli di feedback degli utenti.",
+      "Usi, testi e verifichi continuamente cmux; usi cmux per costruire cmux."
+    ],
+    "excitedLead": "Ci entusiasma in particolare se:",
+    "excitedItems": [
+      "Usi più di 10B token al giorno.",
+      "Sei una persona completa e risolvi i problemi in modo creativo.",
+      "Hai grande gusto per il design e cura per il mestiere.",
+      "Hai esperienza con Swift/AppKit, C++, Rust, Go o Chromium.",
+      "Sei maintainer open source, ex founder o hai lanciato prodotti completi.",
+      "Invii PR di cmux da esaminare o mostri plugin e workflow personalizzati."
+    ],
+    "details": "Dettagli",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Compenso",
+    "compensation": "$130k–$170k + 0,5%–1,5% di equity",
+    "benefitsLabel": "Benefici",
+    "benefits": "Assicurazione sanitaria, dentistica e oftalmica",
+    "locationLabel": "Sede",
+    "location": "San Francisco",
+    "applyAriaLabel": "Candidati via e-mail al ruolo di Founding Engineer",
+    "applyEmailSubject": "Candidatura Founding Engineer in cmux",
+    "applyCta": "Invia e-mail",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer in cmux",
+      "metaDescription": "Unisciti a cmux come Founding Designer e progetta il futuro del coding con l’AI su macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com e chatmux.",
+      "section": "Posizioni aperte",
+      "eyebrow": "Informazioni sul ruolo",
+      "title": "Founding Designer",
+      "tagline": "Progetta il futuro del coding con l’AI.",
+      "intro": "cmux è un terminale macOS nativo basato su Ghostty, progettato per eseguire più agenti di coding AI in parallelo. Centinaia di migliaia di sviluppatori usano cmux per i loro flussi di lavoro di coding agentico.",
+      "hiring": "Cerchiamo un designer di talento per progettare con noi il futuro del coding con l’AI.",
+      "whatYoullDo": "Cosa farai",
+      "whatYoullDoItems": [
+        "Progetti strumenti per sviluppatori all’avanguardia in tutto lo stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux e altro.",
+        "Aiuti a progettare il prodotto più utile per lavorare con l’AI.",
+        "Possiedi look, feel e modello di interazione end-to-end, inclusi i cicli di feedback degli utenti.",
+        "Usi cmux, crei prototipi e rilasci continuamente."
+      ],
+      "excitedLead": "Ci entusiasma in particolare se:",
+      "excitedItems": [
+        "Sei un’enciclopedia vivente dei componenti di design di ogni tipo di app.",
+        "Le persone ti chiedono continuamente riferimenti di design.",
+        "Hai un gusto ossessivo per le app macOS native e gli strumenti per sviluppatori.",
+        "Prototipi con il codice e rilasci UI reale.",
+        "Curi tipografia, movimento e sistemi, fino a ogni dettaglio di 1 px e a ogni spazio."
+      ],
+      "details": "Dettagli",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Compenso",
+      "compensation": "$130k–$170k + 0,5%–1,5% di equity",
+      "benefitsLabel": "Benefici",
+      "benefits": "Assicurazione sanitaria, dentistica e oftalmica",
+      "locationLabel": "Sede",
+      "location": "San Francisco",
+      "applyAriaLabel": "Candidati via e-mail al ruolo di Founding Designer",
+      "applyEmailSubject": "Candidatura Founding Designer in cmux",
+      "applyCta": "Invia e-mail"
+    }
   },
   "home": {
     "taglinePrefix": "Il terminale progettato per ",
@@ -3711,6 +3790,52 @@
       "secondaryCta": "Pacchetto Debian (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Esegui una volta il programma di installazione per utente. Installa cmux in ~/.local senza privilegi di root e abilita gli aggiornamenti firmati nell’app. Se vuoi che gli aggiornamenti siano gestiti dal tuo gestore pacchetti, scegli invece il pacchetto Debian."
+    }
+  },
+  "support": {
+    "metaTitle": "Supporto | cmux",
+    "metaDescription": "Ricevi assistenza con cmux. Inviaci un messaggio e ti risponderemo via email, oppure contattaci su Discord e GitHub.",
+    "section": "Supporto",
+    "title": "Ricevi assistenza con cmux.",
+    "body": "Inviaci un messaggio e ti risponderemo via email. Includi cosa stavi facendo, cosa ti aspettavi e cosa è successo invece, così potremo aiutarti più rapidamente.",
+    "channels": {
+      "docs": {
+        "label": "Documentazione",
+        "description": "Guide per iniziare, configurare e risolvere i problemi."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Fai domande alla community e al team in tempo reale."
+      },
+      "github": {
+        "label": "Issue GitHub",
+        "description": "Segnala bug e richiedi funzionalità pubblicamente."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Preferisci l'email? Scrivici direttamente."
+      }
+    },
+    "formAriaLabel": "Modulo di contatto del supporto",
+    "form": {
+      "name": "Nome",
+      "email": "Indirizzo email",
+      "topic": "Argomento",
+      "message": "Come possiamo aiutarti?",
+      "selectPlaceholder": "Seleziona un'opzione",
+      "topicOptions": [
+        "Segnalazione di bug",
+        "Fatturazione o abbonamento",
+        "Account o accesso",
+        "Cloud VMs",
+        "Richiesta di funzionalità",
+        "Altro"
+      ],
+      "privacy": "Utilizziamo il tuo indirizzo email solo per rispondere alla tua richiesta di supporto. Non vendiamo le informazioni di contatto.",
+      "submit": "Invia messaggio",
+      "submitting": "Invio in corso...",
+      "success": "Grazie. Abbiamo ricevuto il tuo messaggio e ti risponderemo via email da founders@manaflow.com.",
+      "error": "Si è verificato un errore. Riprova oppure scrivi a founders@manaflow.com."
     }
   },
   "emails": {

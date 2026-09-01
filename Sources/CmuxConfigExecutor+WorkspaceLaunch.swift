@@ -152,14 +152,16 @@ extension CmuxConfigExecutor {
         // layout or workspace-level setup will replace/use it. Keep the
         // ordinary new-surface defaults out of that bootstrap shell; the
         // layout/setup transaction supplies its own startup work below.
-        let newWorkspace = tabManager.addWorkspace(
+        guard let newWorkspace = tabManager.addWorkspaceIfActive(
             title: workspaceName,
             titleSource: .auto,
             workingDirectory: resolvedCwd,
             workspaceEnvironment: wsDef.env ?? [:],
             applyCreationTitleAsCustomTitle: false,
             initialRuntimeSpawnPolicy: wsDef.initialRuntimeSpawnPolicy
-        )
+        ) else {
+            return false
+        }
         tabManager.setCustomTitle(tabId: newWorkspace.id, title: workspaceName, source: .auto)
         if let color = wsDef.color {
             tabManager.setTabColor(tabId: newWorkspace.id, color: color)

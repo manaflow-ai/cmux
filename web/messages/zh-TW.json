@@ -1,4 +1,7 @@
 {
+  "billingRecovery": {
+    "message": "如果我們找到帳戶，請查看你的電子郵件以了解下一步"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "在終端機中繼續",
@@ -43,6 +46,7 @@
     "blog": "部落格",
     "changelog": "更新日誌",
     "community": "社群",
+    "jobs": "職缺",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +56,10 @@
     "social": "社群媒體",
     "blog": "部落格",
     "community": "社群",
+    "jobs": "職缺",
     "docs": "文件",
     "changelog": "更新日誌",
+    "support": "支援",
     "privacy": "隱私權",
     "terms": "服務條款",
     "eula": "EULA",
@@ -68,6 +74,79 @@
     "openSource": "開源",
     "guides": "指南",
     "compare": "比較"
+  },
+  "jobs": {
+    "metaTitle": "cmux 創始工程師職缺",
+    "metaDescription": "加入 cmux，成為創始工程師，在 macOS、Windows、Linux、iOS 與 Cloud 上共同打造 AI 程式設計的未來。",
+    "section": "職缺",
+    "eyebrow": "我們正在招募",
+    "title": "Founding Engineer",
+    "tagline": "一起打造 AI 程式設計的未來。",
+    "intro": "cmux 是一款建基於 Ghostty 的原生 macOS 終端機，專為平行執行多個 AI 程式設計代理而設計。數十萬名開發者使用 cmux 推動他們的代理程式設計工作流程。",
+    "hiring": "我們正在招募優秀的工程師，與我們一起打造 AI 程式設計的未來。",
+    "whatYoullDo": "你將做什麼",
+    "whatYoullDoItems": [
+      "打造橫跨整個技術堆疊的前沿開發者工具：cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux 等。",
+      "協助創造最適合開發者利用 AI 工作的產品。",
+      "端到端負責產品與功能，包括使用者回饋循環。",
+      "持續親自使用、測試與驗證 cmux；用 cmux 打造 cmux。"
+    ],
+    "excitedLead": "以下特質會讓我們特別期待：",
+    "excitedItems": [
+      "每天使用 10B+ tokens。",
+      "全方位人才，能以創意解決問題。",
+      "具備出色的設計品味，重視工藝。",
+      "具備 Swift/AppKit、C++、Rust、Go 或 Chromium 經驗。",
+      "開源維護者、前創辦人，或曾交付完整產品的人。",
+      "提交 cmux PR 供我們審查，或展示自訂 cmux 外掛程式/工作流程。"
+    ],
+    "details": "詳細資訊",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "薪酬",
+    "compensation": "$130k–$170k + 0.5%–1.5% 股權",
+    "benefitsLabel": "福利",
+    "benefits": "醫療、牙科與視力保險",
+    "locationLabel": "地點",
+    "location": "舊金山",
+    "applyAriaLabel": "以電子郵件申請 Founding Engineer 職位",
+    "applyEmailSubject": "申請 cmux 創始工程師",
+    "applyCta": "寄送電子郵件",
+    "foundingDesigner": {
+      "metaTitle": "cmux 創始設計師職缺",
+      "metaDescription": "加入 cmux，成為創始設計師，設計 macOS、TUI、Windows、Linux、iOS、Cloud、cmux.com 與 chatmux 上 AI 程式設計的未來。",
+      "section": "職缺",
+      "eyebrow": "關於這個職位",
+      "title": "Founding Designer",
+      "tagline": "設計 AI 程式設計的未來。",
+      "intro": "cmux 是一款建基於 Ghostty 的原生 macOS 終端機，專為平行執行多個 AI 程式設計代理而設計。數十萬名開發者使用 cmux 推動他們的代理程式設計工作流程。",
+      "hiring": "我們正在招募一位優秀的設計師，與我們一起設計 AI 程式設計的未來。",
+      "whatYoullDo": "你將做什麼",
+      "whatYoullDoItems": [
+        "設計橫跨整個技術堆疊的前沿開發者工具：cmux macOS、cmux TUI、cmux Windows/Linux、cmux iOS、cmux Cloud、cmux.com、chatmux 等。",
+        "協助設計最適合開發者利用 AI 工作的產品。",
+        "端到端負責產品的視覺、感受與互動模型，包括使用者回饋循環。",
+        "持續親自使用、製作原型並交付。"
+      ],
+      "excitedLead": "以下特質會讓我們特別期待：",
+      "excitedItems": [
+        "你熟悉各種應用程式的設計元件，像一本行走的設計百科全書。",
+        "人們總是向你詢問設計參考。",
+        "對原生 macOS 應用程式與開發者工具有極高品味並且熱愛。",
+        "你用程式碼製作原型，並交付真正的 UI。",
+        "重視字體、動態效果與系統思維，在 1px 細節和間距上都很講究。"
+      ],
+      "details": "詳細資訊",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "薪酬",
+      "compensation": "$130k–$170k + 0.5%–1.5% 股權",
+      "benefitsLabel": "福利",
+      "benefits": "醫療、牙科與視力保險",
+      "locationLabel": "地點",
+      "location": "舊金山",
+      "applyAriaLabel": "以電子郵件申請 Founding Designer 職位",
+      "applyEmailSubject": "申請 cmux 創始設計師",
+      "applyCta": "寄送電子郵件"
+    }
   },
   "home": {
     "taglinePrefix": "開源終端，專為 ",
@@ -3710,6 +3789,52 @@
       "secondaryCta": "Debian 套件（.deb）",
       "requirements": "Linux · x64",
       "installBody": "執行一次使用者層級安裝程式。cmux 會在不需要 root 權限的情況下安裝到 ~/.local，並啟用經簽署的 App 內更新。若希望由套件管理員管理更新，請改選 Debian 套件。"
+    }
+  },
+  "support": {
+    "metaTitle": "支援 | cmux",
+    "metaDescription": "取得 cmux 協助。傳訊息給我們，我們會透過電子郵件回覆；也可以在 Discord 和 GitHub 上與我們聯絡。",
+    "section": "支援",
+    "title": "取得 cmux 協助。",
+    "body": "傳訊息給我們，我們會透過電子郵件回覆。請說明你當時在做什麼、預期的結果以及實際發生了什麼，這樣我們能更快幫上忙。",
+    "channels": {
+      "docs": {
+        "label": "文件",
+        "description": "涵蓋入門、設定與疑難排解的指南。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "即時向社群和團隊提問。"
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "公開回報 bug 和提出功能請求。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "偏好使用電子郵件？直接寫信給我們。"
+      }
+    },
+    "formAriaLabel": "支援聯絡表單",
+    "form": {
+      "name": "姓名",
+      "email": "電子郵件地址",
+      "topic": "主題",
+      "message": "我們可以幫你什麼？",
+      "selectPlaceholder": "請選擇",
+      "topicOptions": [
+        "Bug 回報",
+        "帳單或訂閱",
+        "帳號或登入",
+        "Cloud VMs",
+        "功能請求",
+        "其他"
+      ],
+      "privacy": "我們只會使用你的電子郵件地址回覆你的支援請求，不會出售聯絡資訊。",
+      "submit": "傳送訊息",
+      "submitting": "正在傳送…",
+      "success": "謝謝。我們已收到你的訊息，會從 founders@manaflow.com 回覆到你的電子郵件。",
+      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@manaflow.com。"
     }
   },
   "emails": {
