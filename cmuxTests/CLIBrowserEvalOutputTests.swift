@@ -87,6 +87,41 @@ final class CLIBrowserEvalOutputTests {
         #expect(formatter.string(from: [String: Any]()) == "{}")
     }
 
+    @Test("browser storage text output cannot emit terminal control characters")
+    func browserStorageTextOutputSanitizesTerminalControlCharacters() throws {
+        let responseObject: [String: Any] = [
+            "id": NSNull(),
+            "ok": true,
+            "result": [
+                "type": "local",
+                "key": "unsafe",
+                "value": "\u{001B}[2J\u{0007}stored",
+            ],
+        ]
+        let responseData = try JSONSerialization.data(withJSONObject: responseObject)
+        let response = try #require(String(data: responseData, encoding: .utf8))
+        let socketPath = "/tmp/cmux-browser-storage-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = try runProcess(
+            executablePath: BundledCLITestSupport.bundledCLIPath(for: Self.self),
+            arguments: ["browser", "surface:1", "storage", "local", "get", "unsafe"],
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output.debugDescription))
+        #expect(result.status == 0, Comment(rawValue: result.output.debugDescription))
+        #expect(result.output == "�[2J�stored\n", Comment(rawValue: result.output.debugDescription))
+    }
+
     private struct BrowserReadCase {
         let name: String
         let arguments: [String]
