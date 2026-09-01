@@ -69,7 +69,7 @@ final class AgentApprovalNotificationCoordinator {
         settleDelay: TimeInterval = 0.1,
         tombstoneLifetime: TimeInterval = 1,
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        schedule: @escaping Scheduler = Self.scheduleOnMainActor(delay:action:),
+        schedule: @escaping Scheduler = AgentApprovalNotificationCoordinator.scheduleOnMainActor(delay:action:),
         dispatchScheduledAction: @escaping ScheduledActionDispatcher,
         deliver: @escaping @MainActor (Delivery) -> Void,
         clear: @escaping @MainActor (Clear) -> Void
