@@ -3869,7 +3869,7 @@ class TerminalController {
 
     nonisolated func v2Ok(id: Any?, result: Any) -> String {
         guard let idValue = Self.v2WireId(id),
-              let payload = JSONValue(foundationObject: result) else {
+              let payload = CmuxControlSocket.JSONValue(foundationObject: result) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
         return Self.v2Encoder.ok(id: idValue, result: payload)
@@ -3878,9 +3878,9 @@ class TerminalController {
     /// Bridges a legacy `Any?` request id to the wire value: missing ids
     /// encode as JSON `null`; an unencodable id reports overall encode
     /// failure (the legacy `isValidJSONObject` behavior).
-    private nonisolated static func v2WireId(_ id: Any?) -> JSONValue? {
+    private nonisolated static func v2WireId(_ id: Any?) -> CmuxControlSocket.JSONValue? {
         guard let id else { return .null }
-        return JSONValue(foundationObject: id)
+        return CmuxControlSocket.JSONValue(foundationObject: id)
     }
 
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
@@ -4012,9 +4012,9 @@ class TerminalController {
         guard let idValue = Self.v2WireId(id) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
-        var dataValue: JSONValue?
+        var dataValue: CmuxControlSocket.JSONValue?
         if let data {
-            guard let bridgedData = JSONValue(foundationObject: data) else {
+            guard let bridgedData = CmuxControlSocket.JSONValue(foundationObject: data) else {
                 return ControlResponseEncoder.encodeFailureResponse
             }
             dataValue = bridgedData
@@ -4056,7 +4056,7 @@ class TerminalController {
     }
 
     private nonisolated func v2Encode(_ object: Any) -> String {
-        guard let value = JSONValue(foundationObject: object) else {
+        guard let value = CmuxControlSocket.JSONValue(foundationObject: object) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
         return Self.v2Encoder.encode(value)

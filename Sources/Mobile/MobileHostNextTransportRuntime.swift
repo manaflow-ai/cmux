@@ -1,5 +1,6 @@
 #if DEBUG
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxNextTransport
 import Foundation
