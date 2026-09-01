@@ -384,6 +384,18 @@ final class BrowserShortcutCaptureTests {
                     "p",
                     35
                 ),
+                (
+                    BrowserCaptureStoredShortcut(
+                        key: "space",
+                        command: false,
+                        shift: false,
+                        option: false,
+                        control: false
+                    ),
+                    " ",
+                    " ",
+                    49
+                ),
             ]
 
             for (shortcut, characters, charactersIgnoringModifiers, keyCode) in cases {

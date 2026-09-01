@@ -291,6 +291,7 @@ extension AppDelegate {
     /// Chord handling intentionally does not call this helper mid-dispatch,
     /// because the same NSEvent can cross several AppKit routing boundaries.
     func clearShortcutEventBrowserWebViewCache(for event: NSEvent) {
+        guard event.cmuxBrowserWebViewCache != nil else { return }
         event.cmuxBrowserWebViewCache = nil
     }
 
