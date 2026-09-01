@@ -1270,15 +1270,33 @@ mod tests {
     fn retry_wait_releases_mux_before_waiting() {
         let mux = Mux::new("journal-retry-wait-drop", crate::SurfaceOptions::default());
         let weak = Arc::downgrade(&mux);
-        let started = Instant::now();
+        let journal = mux.shared_journal_handle();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            wait_for_journal_retry(mux, Duration::from_secs(60));
+            done_tx.send(()).unwrap();
+        });
 
-        wait_for_journal_retry(mux, Duration::from_secs(5));
-
-        assert!(weak.upgrade().is_none(), "retry wait retained the owning mux");
+        // The waiter must release its owning Arc before entering the long wait.
+        // Yield a bounded number of times for the thread to start, without using
+        // wall-clock timing as a correctness assertion.
+        let released = (0..10_000).any(|_| {
+            if weak.upgrade().is_none() {
+                true
+            } else {
+                std::thread::yield_now();
+                false
+            }
+        });
+        assert!(released, "retry wait retained the owning mux");
         assert!(
-            started.elapsed() < Duration::from_millis(500),
-            "shutdown wake did not interrupt the retry wait"
+            done_rx.try_recv().is_err(),
+            "retry wait returned before its wake"
         );
+
+        journal.wake_waiters();
+        done_rx.recv().unwrap();
+        waiter.join().unwrap();
     }
 
     #[test]
