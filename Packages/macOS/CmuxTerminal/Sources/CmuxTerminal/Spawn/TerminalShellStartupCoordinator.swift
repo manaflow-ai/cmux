@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Coordinates managed shell integration with the declarative login mode.
 ///
