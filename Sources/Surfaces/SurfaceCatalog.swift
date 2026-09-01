@@ -19,9 +19,18 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// End a terminal on this machine (the process and its remote tab). Providers that
+    /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
+    func closeTerminal(_ id: SurfaceResourceID) async throws
     /// Create a new, empty workspace on this machine, directly (not as a side effect of
     /// creating a terminal). Providers without remote workspaces refuse.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
+    /// Close a workspace view on this machine. Its terminals detach into the pool
+    /// (`spec/cli.md`: only `terminal close` kills); callers wanting a full delete
+    /// close each terminal first.
+    func closeRemoteWorkspace(id: String) async throws
+    /// Rename a remote workspace.
+    func renameRemoteWorkspace(id: String, name: String) async throws
     /// Close a projection's pane: a materialization that lost a race with an existing
     /// projection, or a URL-backed pane whose machine was unregistered. The default
     /// implementation handles providers that use the shared pane factory; providers may
@@ -32,10 +41,18 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
+    }
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
-
+    func closeRemoteWorkspace(id: String) async throws {
+        throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
+    }
+    func renameRemoteWorkspace(id: String, name: String) async throws {
+        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+    }
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
@@ -59,13 +76,13 @@ final class SurfaceCatalog {
     /// A provider call with no remaining caller must not occupy a resource forever when the
     /// provider ignores task cancellation. The deadline starts only after the last caller
     /// detaches, so a slow but observed materialization is still allowed to finish normally.
-    static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
-    static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
-    static let defaultCompletedMaterializationRetention: Duration = .seconds(30)
+    nonisolated static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
+    nonisolated static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
+    nonisolated static let defaultCompletedMaterializationRetention: Duration = .seconds(30)
     /// The coordinator never allows more than this many tasks from one machine to remain tracked
     /// while cancellation is unresolved. This prevents one unhealthy machine from blocking
     /// unrelated machines while also bounding repeated provider replacements.
-    static let defaultMaximumTrackedMaterializations = 16
+    nonisolated static let defaultMaximumTrackedMaterializations = 16
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
 
@@ -202,17 +219,26 @@ final class SurfaceCatalog {
 
     /// The only open path. Reuses an existing projection when `reuseExisting` is set and one
     /// exists (focusing it), otherwise asks the provider to materialize a pane.
+    ///
+    /// `reuseInWorkspace` narrows reuse to projections in that local workspace: a pane
+    /// showing the resource in ANOTHER workspace neither satisfies the open nor steals
+    /// focus — the resource materializes at `destination` instead. A workspace's own
+    /// Desktop row uses this so "open this workspace's screen" never teleports to a
+    /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
-    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true) async throws -> (projection: SurfaceProjection, reused: Bool) {
+    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
-        if reuseExisting, let existing = projections.first(where: { $0.resource == id }) {
+        if reuseExisting, let existing = projections.first(where: { $0.resource == id && (reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace) }) {
             try claimCompletedMaterializationIfNeeded(id, projection: existing)
             if focus { focusProjection?(existing) }
             return (existing, true)
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
 
-        if reuseExisting {
+        // Workspace-scoped reuse missed: an in-flight materialization bound elsewhere
+        // must not be adopted either (it would land — and focus — in that other
+        // workspace), so scoped calls go straight to a fresh materialization.
+        if reuseExisting, reuseInWorkspace == nil {
             let waiterID = UUID()
             let result = try await withTaskCancellationHandler {
                 try await awaitMaterialization(
@@ -449,14 +475,14 @@ final class SurfaceCatalog {
     private func completedMaterializationCleanupTask(id: SurfaceResourceID, token: UUID) -> Task<Void, Never> {
         let timeout = completedMaterializationRetention
         let clock = materializationClock
-        return Task { [weak self, clock] in
+        return Task { @MainActor [weak self, clock] in
             do {
                 try await clock.sleep(for: timeout)
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
-            await self?.expireCompletedMaterialization(id, token: token)
+            self?.expireCompletedMaterialization(id, token: token)
         }
     }
 
@@ -537,14 +563,14 @@ final class SurfaceCatalog {
             let token = inFlight.token
             let timeout = abandonedMaterializationTimeout
             let clock = materializationClock
-            inFlight.abandonmentDeadlineTask = Task { [weak self, clock] in
+            inFlight.abandonmentDeadlineTask = Task { @MainActor [weak self, clock] in
                 do {
                     try await clock.sleep(for: timeout)
                 } catch {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                await self?.expireAbandonedMaterialization(id, token: token)
+                self?.expireAbandonedMaterialization(id, token: token)
             }
         }
         inFlightProjects[id] = inFlight
@@ -573,14 +599,14 @@ final class SurfaceCatalog {
         retiredMaterializationTokens.insert(token)
         let timeout = retiredMaterializationRetention
         let clock = materializationClock
-        let evictionTask = Task { [weak self, clock] in
+        let evictionTask = Task { @MainActor [weak self, clock] in
             do {
                 try await clock.sleep(for: timeout)
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
-            await self?.evictRetiredMaterialization(token)
+            self?.evictRetiredMaterialization(token)
         }
         guard retiredMaterializationTokens.contains(token) else {
             evictionTask.cancel()

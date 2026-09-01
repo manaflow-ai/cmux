@@ -22,6 +22,13 @@ VT stream-boundary visibility at `9513174f2`, and Hangul canonical font
 resolution at `3fbdd078d`, plus the fractional pixel-scroll renderer changes
 at `39ade10b6` and `5045df3f2`.
 
+The parent repository has been synchronized with cmux `main` while retaining
+this topic pin: replacing it with mainline's `466f85867` compatibility pin
+would drop the renderer-state recovery in this PR. The `466f85867` artifact
+remains checksum-pinned for the mainline pin. After Ghostty PR #208 lands,
+rebase this branch onto the fork-main merge and publish a new artifact before
+changing the parent pointer.
+
 ### Renderer state recovery after interrupted updates
 
 - Fixes:
@@ -93,6 +100,11 @@ at `39ade10b6` and `5045df3f2`.
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3da10da73ae848c0310e3e0f0cb29e509c2f6963-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `6a02a2ec3794de79a02af993083292a89517d2533eb20c746deca377f23456bd`
     is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The pinned lineage also contains the hard-newline URL boundary fix from
+Ghostty PR #183. Its regression test and width-filled-row guard keep a short
+slash-terminated URL from absorbing unrelated output on the next hard newline,
+while preserving indented continuations and terminal soft wraps.
 
 ### VT formatter cursor restoration after margins
 
@@ -945,9 +957,17 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
   - Keeps conservative boundaries for explicit schemes and roots, semantic
     prompt transitions, unrelated indentation, and trailing sentence
     punctuation.
-  - Conflict note: link-grid expansion and newline normalization must continue
-    to share the classifier; duplicating the continuation decision can make
-    hover and activation disagree.
+- Conflict note: link-grid expansion and newline normalization must continue
+  to share the classifier; duplicating the continuation decision can make
+  hover and activation disagree.
+- Follow-up regression coverage:
+  - Pull request: https://github.com/ghostty-org/ghostty/pull/183
+  - Test commit: `28baa8649` rejects a short `https://google.com/` row from
+    joining the unrelated `foobar` row.
+  - Fix commit: `589856524` requires the upper physical row to be width-filled
+    (including a wide-glyph spacer head) before an unindented continuation joins.
+  - Merge commit: `1f78a79aa` carries the fix on fork `main`; the shared
+    classifier keeps hover, copy, preview, and activation consistent.
 
 ### Bounded Kitty graphics state
 

@@ -418,7 +418,12 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return runtimeSurfaceOwners[UInt(bitPattern: surface)]
     }
 
-    /// The registered surface with the given id, if it is still alive.
+    /// The newest registered surface with the given id, if it is still alive.
+    ///
+    /// Surface replacement can briefly overlap the outgoing and incoming
+    /// models under one logical id. Registration order is the ownership order:
+    /// the newest live model is canonical until it unregisters, at which point
+    /// the prior live registration is promoted.
     public func surface(id: UUID) -> (any TerminalSurfacing)? {
         lock.lock()
         let live = liveRegistrationsLocked(for: id)
@@ -531,16 +536,50 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         return isRightSidebarDock
     }
 
-    /// Re-records the focus placement for a live surface that moved between the
-    /// workspace area and the right-sidebar dock. No-op when the id is not
-    /// currently registered, so a stale move cannot resurrect a dropped entry.
-    public func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {
+    /// Re-records the focus placement for an exact live surface registration.
+    /// No-op when that registration is gone, so an outgoing model cannot
+    /// mutate its replacement's placement.
+    ///
+    /// - Parameters:
+    ///   - surface: The exact registered model whose placement changed.
+    ///   - placement: The surface's new focus-routing placement.
+    public func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
+        lock.lock()
+        let registration = registrationsByObjectId[ObjectIdentifier(surface)]
+        let registeredSurface = registration?.surface
+        guard let registration,
+              registration.isTraversalRegistered,
+              registeredSurface === surface else {
+            lock.unlock()
+            withExtendedLifetime(registeredSurface) {}
+            return
+        }
+        registration.focusPlacement = placement
+        lock.unlock()
+        withExtendedLifetime(registeredSurface) {}
+    }
+
+    /// Re-records the canonical registration's placement for callers that
+    /// only have a stable surface id.
+    ///
+    /// This compatibility API intentionally updates only the newest live
+    /// registration, so an outgoing duplicate-id model cannot mutate its
+    /// replacement.
+    public func updateFocusPlacement(
+        id: UUID,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
         lock.lock()
         let live = liveRegistrationsLocked(for: id)
         let shouldScheduleRouteRetireSweep =
             live.removedDeadRegistration && claimRouteRetireSweepLocked()
-        for snapshot in live.liveRegistrations {
-            snapshot.registration.focusPlacement = placement
+        if let canonical = live.liveRegistrations.max(
+            by: { $0.registration.sequence < $1.registration.sequence }
+        ) {
+            canonical.registration.focusPlacement = placement
         }
         lock.unlock()
         withExtendedLifetime(live.liveRegistrations) {}
