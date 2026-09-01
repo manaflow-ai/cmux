@@ -12,6 +12,9 @@ on:
       - scripts/ghosttykit-checksums.txt
       - tests/test_ci_ghosttykit_release_check.sh
       - tests/test_ci_change_areas.py
+      # Keep fork documentation changes on the same provenance/CI path as the
+      # gitlink and checksum they describe.
+      - docs/ghostty-fork.md
       - .github/workflows/ci.yml
   workflow_dispatch:
 
