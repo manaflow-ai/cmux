@@ -1174,7 +1174,9 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                     0,
                     &host.roster.snapshot().to_string(),
                 ) {
-                    eprintln!("cmux-tui: clearing the unreplayable agent roster snapshot failed: {reset_error}");
+                    eprintln!(
+                        "cmux-tui: clearing the unreplayable agent roster snapshot failed: {reset_error}"
+                    );
                 }
                 return Ok(AgentRosterHost::default());
             }
@@ -23849,8 +23851,10 @@ mod tests {
 
     #[test]
     fn invalid_agent_roster_snapshot_clears_its_cursor() {
-        let root = std::env::temp_dir()
-            .join(format!("cmux-roster-invalid-snapshot-{}", crate::workspace_registry::new_uuid_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "cmux-roster-invalid-snapshot-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
         let session = "roster-invalid-snapshot";
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
         registry
