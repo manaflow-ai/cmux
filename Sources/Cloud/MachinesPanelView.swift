@@ -120,12 +120,15 @@ struct MachinesPanelView: View {
                     .foregroundColor(.orange.opacity(0.9))
                     .help(viewModel.lastErrorDescription ?? "")
                 } else if let treeError = viewModel.treeErrorDescription {
-                    HStack(spacing: 5) {
+                    // The message itself, not a generic label: a failed tree verb (New
+                    // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
+                    // with the only explanation hidden behind a hover tooltip.
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 10, weight: .semibold))
-                        Text(String(localized: "machines.tree.error", defaultValue: "Cloud tree error"))
+                        Text(treeError)
                             .cmuxFont(size: 11)
-                            .lineLimit(1)
+                            .lineLimit(2)
                             .truncationMode(.tail)
                     }
                     .foregroundColor(.orange.opacity(0.9))
