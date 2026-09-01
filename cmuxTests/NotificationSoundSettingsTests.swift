@@ -106,7 +106,9 @@ import CmuxSettings
     // on the per-play decision, not on the pure predicate.
 
     @Test func firstPlayAfterFocusActivationIsSuppressed() async throws {
-        let fixture = try ActiveFocusFixture()
+        let fixture = try ActiveFocusFixture(
+            selectedSound: NotificationSoundOverride.defaultValue
+        )
         defer { fixture.cleanUp() }
 
         try fixture.writeAssertions(#"{"data":[{"storeAssertionRecords":[{"a":1}]}]}"#)

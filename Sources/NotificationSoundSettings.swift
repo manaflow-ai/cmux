@@ -30,10 +30,6 @@ nonisolated enum NotificationSoundSettings {
     private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
     private static var activeCustomCommandCount = 0
     private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
-    private static let dndAssertionQueue = DispatchQueue(
-        label: "com.cmuxterm.notification-dnd-assertion",
-        qos: .utility
-    )
     private static let customCommandQueue = DispatchQueue(
         label: "com.cmuxterm.notification-custom-command",
         qos: .utility,
@@ -267,23 +263,24 @@ nonisolated enum NotificationSoundSettings {
         }
     }
 
-    private static func activeFocusSuppression(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private static func activeFocusSuppression(
         assertionsFileURL: URL
     ) async -> Bool {
-        await withCheckedContinuation { continuation in
-            dndAssertionQueue.async {
-                let suppressed = isSuppressedByActiveFocus(
-                    assertionsFileURL: assertionsFileURL
-                )
+        let suppressed = isSuppressedByActiveFocus(
+            assertionsFileURL: assertionsFileURL
+        )
 #if DEBUG
-                let storeReadable = (try? Data(contentsOf: assertionsFileURL)) != nil
-                cmuxDebugLog(
-                    "notification.sound.focusGate suppressed=\(suppressed ? 1 : 0) storeReadable=\(storeReadable ? 1 : 0)"
-                )
+        let storeReadable = (try? Data(contentsOf: assertionsFileURL)) != nil
+        cmuxDebugLog(
+            "notification.sound.focusGate suppressed=\(suppressed ? 1 : 0) storeReadable=\(storeReadable ? 1 : 0)"
+        )
 #endif
-                continuation.resume(returning: suppressed)
-            }
-        }
+        return suppressed
     }
 
     static func stagedSystemSoundFileName(for value: String) -> String {

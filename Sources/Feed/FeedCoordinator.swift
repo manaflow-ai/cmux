@@ -258,12 +258,16 @@ final class FeedCoordinator: @unchecked Sendable {
         let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
             ? Self.resolveAttentionTargetSynchronously(event: event)
             : nil
+        let remainingDeliveryTimeout = Self.remainingIngressTime(until: deliveryDeadline)
+        guard remainingDeliveryTimeout > 0 else {
+            return IngestBlockingOutcome(result: .unavailable, authoritativeEvent: nil)
+        }
         let semaphore = DispatchSemaphore(value: 0)
         let waiter = PendingWaiter(semaphore: semaphore)
 
         let acceptance = performAcceptedEventDelivery(
             for: [event],
-            timeout: waitTimeout
+            timeout: remainingDeliveryTimeout
         ) { result in
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
@@ -1298,7 +1302,11 @@ private extension FeedCoordinator {
             case .authorized, .provisional:
                 break
             case .notDetermined:
-                let authorization = await center.requestAuthorization(options: [.alert, .sound])
+                var authorizationOptions: UNAuthorizationOptions = [.alert]
+                if effectiveEffects.sound {
+                    authorizationOptions.insert(.sound)
+                }
+                let authorization = await center.requestAuthorization(options: authorizationOptions)
                 guard self.isAwaitingDecision(requestId: requestId) else { return }
                 guard case .success(true) = authorization else {
                     // A non-grant without an error is the user declining

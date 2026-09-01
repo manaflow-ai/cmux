@@ -30455,11 +30455,13 @@ struct CMUXCLI {
             localized: "agent.codex.input.body.needsInput",
             defaultValue: "Codex is asking a question"
         )
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         if let surfaceId, !surfaceId.isEmpty {
             let payload = notificationPayload(
                 title: String(
                     localized: "cli.codexMonitor.notification.title",
-                    defaultValue: "Codex"
+                    defaultValue: "Codex",
+                    bundle: bundle
                 ),
                 subtitle: subtitle,
                 body: body,
@@ -30484,11 +30486,13 @@ struct CMUXCLI {
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         if let surfaceId, !surfaceId.isEmpty {
             let payload = notificationPayload(
                 title: String(
                     localized: "cli.codexMonitor.notification.title",
-                    defaultValue: "Codex"
+                    defaultValue: "Codex",
+                    bundle: bundle
                 ),
                 subtitle: summary.subtitle,
                 body: summary.body,

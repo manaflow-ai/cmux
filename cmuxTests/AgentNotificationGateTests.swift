@@ -204,7 +204,20 @@ import Testing
         #expect(parsed.soundContext?.alertType == .turnDone)
     }
 
-    @Test func contextualMetaRejectsCategoryAlertMismatchAndMalformedAgent() {
+    @Test func contextualMetaRejectsCategoryAlertMismatchAndMalformedAgent() throws {
+        let generatedErrorMeta = try #require(
+            AgentHookNotifyCategory.other.metaSegment(
+                pending: false,
+                agentID: "claude",
+                alertType: .errorStalled
+            )
+        )
+        let generatedError = try #require(AgentNotificationMeta(meta: generatedErrorMeta))
+        #expect(generatedError.category == .other)
+        #expect(generatedError.soundContext == NotificationSoundOverrideContext(
+            agentID: "claude",
+            alertType: .errorStalled
+        ))
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=0;a=claude;s=needsInput") == nil)
         #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;evil;s=needsInput") == nil)
         #expect(AgentNotificationMeta(meta: "c=other;p=0;a=claude;s=turnDone") == nil)

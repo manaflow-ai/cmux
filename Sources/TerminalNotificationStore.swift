@@ -2520,48 +2520,41 @@ final class TerminalNotificationStore: ObservableObject {
                 let commandSubtitle = content.subtitle
                 let commandBody = content.body
 
-                nativeDeliveryHooks.schedule(request) { [weak self] scheduleError in
-                    if let scheduleError {
-                        terminalNotificationLogger.error(
-                            "Failed to schedule notification error=\(scheduleError.localizedDescription, privacy: .private)"
-                        )
-                        Task {
-                            await NotificationSoundSettings.deferPendingNotificationSound(
-                                referenceID: notificationIdentifier
-                            )
-                        }
-                        Task { @MainActor [weak self] in
-                            guard let self,
-                                  self.isNotificationDeliveryAdmitted(
-                                      notificationID: notificationId,
-                                      recordsNotification: effects.record
-                                  ) else { return }
-                            self.enqueueNotificationFeedback(ownerID: fallbackOwnerID) { [weak self] in
-                                guard let self,
-                                      self.isNotificationDeliveryAdmitted(
-                                          notificationID: notificationId,
-                                          recordsNotification: effects.record
-                                      ) else { return }
-                                await nativeDeliveryHooks.playUnavailableFeedback(
-                                    effects: effects,
-                                    soundContext: notificationSoundContext
-                                )
-                            }
-                        }
-                    } else if effects.command {
-                        Task { @MainActor [weak self] in
-                            guard let self,
-                                  self.isNotificationDeliveryAdmitted(
-                                      notificationID: notificationId,
-                                      recordsNotification: effects.record
-                                  ) else { return }
-                            nativeDeliveryHooks.runCommand(
-                                title: commandTitle,
-                                subtitle: commandSubtitle,
-                                body: commandBody
-                            )
-                        }
-                    }
+                let scheduleError = await nativeDeliveryHooks.schedule(request)
+                guard self.isNotificationDeliveryAdmitted(
+                    notificationID: notificationId,
+                    recordsNotification: effects.record
+                ) else {
+                    await NotificationSoundSettings.releasePendingNotificationSound(
+                        referenceID: notificationIdentifier
+                    )
+                    return
+                }
+                if let scheduleError {
+                    terminalNotificationLogger.error(
+                        "Failed to schedule notification error=\(scheduleError.localizedDescription, privacy: .private)"
+                    )
+                    await NotificationSoundSettings.deferPendingNotificationSound(
+                        referenceID: notificationIdentifier
+                    )
+                    guard self.isNotificationDeliveryAdmitted(
+                        notificationID: notificationId,
+                        recordsNotification: effects.record
+                    ) else { return }
+                    await nativeDeliveryHooks.playUnavailableFeedback(
+                        effects: effects,
+                        soundContext: notificationSoundContext
+                    )
+                } else if effects.command {
+                    guard self.isNotificationDeliveryAdmitted(
+                        notificationID: notificationId,
+                        recordsNotification: effects.record
+                    ) else { return }
+                    nativeDeliveryHooks.runCommand(
+                        title: commandTitle,
+                        subtitle: commandSubtitle,
+                        body: commandBody
+                    )
                 }
             }
         }

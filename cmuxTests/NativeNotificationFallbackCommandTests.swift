@@ -292,7 +292,7 @@ struct NativeNotificationFallbackCommandTests {
 
 extension AgentNotificationRegressionTests {
     @Test("An unresponsive notification center never blocks its calling executor")
-    func unresponsiveNativeNotificationCenterDoesNotBlockCallingExecutor() {
+    func unresponsiveNativeNotificationCenterDoesNotBlockCallingExecutor() async {
         var hooks = NativeNotificationDeliveryHooks(
             userNotificationCenter: UserNotificationCenterService(
                 center: .current()
@@ -303,22 +303,24 @@ extension AgentNotificationRegressionTests {
         // Safety: written by the wedged scheduler thread, read by the test
         // after schedule() returns.
         let schedulerFinished = OSAllocatedUnfairLock(initialState: false)
-        hooks.scheduler = { _, _ in
+        hooks.scheduler = { _, completion in
             schedulerEntered.signal()
             // Stand-in for the framework blocking before it wires up its
             // completion. The deadline exists only so a regression fails the
             // test instead of wedging a runner thread indefinitely.
             _ = releaseScheduler.wait(timeout: .now() + 5)
             schedulerFinished.withLock { $0 = true }
+            completion(nil)
         }
-        let content = UNMutableNotificationContent()
-        let request = UNNotificationRequest(
-            identifier: "never-completes",
-            content: content,
-            trigger: nil
-        )
-
-        hooks.schedule(request) { _ in }
+        let hooksSnapshot = hooks
+        let scheduleTask = Task.detached(priority: .utility) {
+            let request = UNNotificationRequest(
+                identifier: "never-completes",
+                content: UNMutableNotificationContent(),
+                trigger: nil
+            )
+            await hooksSnapshot.schedule(request)
+        }
 
         // Causal ordering: schedule() must hand back control while the wedged
         // framework call still has not finished (it cannot finish until the
@@ -329,5 +331,6 @@ extension AgentNotificationRegressionTests {
         )
         #expect(schedulerEntered.wait(timeout: .now() + 5) == .success)
         releaseScheduler.signal()
+        _ = await scheduleTask.value
     }
 }
