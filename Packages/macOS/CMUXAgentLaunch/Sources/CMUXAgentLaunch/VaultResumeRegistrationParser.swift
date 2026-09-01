@@ -15,7 +15,9 @@ struct VaultResumeRegistrationParser: Sendable {
         _ registration: VaultResumeLaunchRequest.Registration
     ) -> VaultResumeParsedRegistration {
         let words = shellWordRanges(registration.resumeCommand)
-        let commandStartIndex = leadingRegistrationCommandIndex(in: words)
+        guard let commandStartIndex = leadingRegistrationCommandIndex(in: words) else {
+            return unsupportedRegistration(registration)
+        }
         guard words.indices.contains(commandStartIndex) else {
             return VaultResumeParsedRegistration(
                 registration: registration,
@@ -93,7 +95,7 @@ struct VaultResumeRegistrationParser: Sendable {
     /// Finds an `env` token after the generated leading cwd guard.
     private func leadingRegistrationCommandIndex(
         in words: [ShellWordRange]
-    ) -> Int {
+    ) -> Int? {
         guard let first = words.first?.value,
               first == "cd" || first == "{" else {
             return 0
@@ -101,11 +103,20 @@ struct VaultResumeRegistrationParser: Sendable {
         for index in words.indices where index > words.startIndex {
             guard words[index - 1].value == "&&" else { continue }
             let candidate = words[index].value
-            if (candidate as NSString).lastPathComponent == "env" {
-                return index
-            }
+            return (candidate as NSString).lastPathComponent == "env" ? index : nil
         }
-        return 0
+        return nil
+    }
+
+    /// Returns a fail-closed result for a cwd guard that cannot be normalized.
+    private func unsupportedRegistration(
+        _ registration: VaultResumeLaunchRequest.Registration
+    ) -> VaultResumeParsedRegistration {
+        VaultResumeParsedRegistration(
+            registration: registration,
+            environment: [:],
+            isSupported: false
+        )
     }
 
     /// Decodes the ASCII-octal command-substitution form used for Unicode values.

@@ -18,9 +18,10 @@ struct VaultResumeRegistrationTemplate: Sendable {
     ) -> [String] {
         let templateParts = splitShellWords(registration.resumeCommand)
         guard !templateParts.isEmpty else { return [] }
-        let executable = launchArguments.first
-            ?? normalized(registration.defaultExecutable)
-            ?? registration.id
+        guard let executable = normalized(launchArguments.first)
+            ?? normalized(registration.defaultExecutable) else {
+            return []
+        }
         let sessionDirectory = normalized(registration.sessionDirectory).map {
             ($0 as NSString).expandingTildeInPath
         }
@@ -94,7 +95,7 @@ struct VaultResumeRegistrationTemplate: Sendable {
                 escaping = false
                 continue
             }
-            if character == "\\" {
+            if character == "\\", quote != .single {
                 escaping = true
                 continue
             }

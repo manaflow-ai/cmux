@@ -71,7 +71,7 @@ public struct VaultResumeLaunchPlanner: Sendable {
         )
         return VaultResumeLaunchPlan(
             strategy: .restoreVerb,
-            posixCommand: " cmux restore \(selectorKind.rawValue) \(sessionID)",
+            posixCommand: " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(selectorKind.rawValue) \(sessionID)",
             workingDirectory: workingDirectory,
             structuredSnapshot: snapshot,
             legacyFallbackReason: nil
@@ -288,11 +288,13 @@ public struct VaultResumeLaunchPlanner: Sendable {
         approvalPolicy: String?,
         sandboxMode: String?
     ) -> [String] {
+        let approvalPolicy = nonEmpty(approvalPolicy)
+        let sandboxMode = nonEmpty(sandboxMode)
         if approvalPolicy == "never", sandboxMode == "disabled" {
             return ["--dangerously-bypass-approvals-and-sandbox"]
         }
         var arguments: [String] = []
-        if let approvalPolicy, !approvalPolicy.isEmpty {
+        if let approvalPolicy {
             arguments.append(contentsOf: ["-a", approvalPolicy])
         }
         let allowedModes: Set<String> = ["read-only", "workspace-write", "danger-full-access"]

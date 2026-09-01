@@ -25,6 +25,9 @@ struct VaultSessionDropLauncher {
         let remoteStartupCommand = workspace.isRemoteWorkspace
             ? workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration)
             : nil
+        guard !workspace.isRemoteWorkspace || remoteStartupCommand != nil else {
+            return false
+        }
         let isRemoteHost = remoteStartupCommand != nil
         let dialect: TerminalStartupShellDialect = isRemoteHost ? .remoteHost : .loginShell
         let initialInput = launch.startupInput(for: dialect)

@@ -44,7 +44,10 @@ struct VaultResumeLaunchPlannerTests {
         let snapshot = try #require(plan.structuredSnapshot)
 
         #expect(plan.strategy == .restoreVerb)
-        #expect(plan.startupInput(for: .posix) == " cmux restore \(kind) vault-\(kind)-session\n")
+        #expect(
+            plan.startupInput(for: .posix)
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) vault-\(kind)-session\n"
+        )
         #expect(snapshot.kind == kind)
         #expect(snapshot.workingDirectory == "/tmp/project")
         #expect(!snapshot.preparedResumeArguments.isEmpty)
@@ -62,6 +65,24 @@ struct VaultResumeLaunchPlannerTests {
         let arguments = try #require(plan.structuredSnapshot?.preparedResumeArguments)
 
         #expect(arguments == ["acli", "rovodev", "run", "--restore", "rovo-session"])
+    }
+
+    @Test("Codex policy values are trimmed before they become flags")
+    func codexPolicyValuesAreTrimmed() {
+        let planner = VaultResumeLaunchPlanner()
+
+        #expect(
+            planner.codexApprovalSandboxArgumentTokens(
+                approvalPolicy: " never ",
+                sandboxMode: " disabled "
+            ) == ["--dangerously-bypass-approvals-and-sandbox"]
+        )
+        #expect(
+            planner.codexApprovalSandboxArgumentTokens(
+                approvalPolicy: "   ",
+                sandboxMode: " read-only "
+            ) == ["-s", "read-only"]
+        )
     }
 
     @Test(arguments: ["pi", "omp", "campfire", "antigravity", "grok", "kimi"])
@@ -112,6 +133,29 @@ struct VaultResumeLaunchPlannerTests {
         #expect(snapshot.preparedResumeArguments == ["grok", "-r", "grok-session"])
     }
 
+    @Test("A later env after a setup chain stays compatibility-only")
+    func laterEnvironmentCommandIsNotTruncatedIntoTheRecord() throws {
+        let registration = VaultResumeLaunchRequest.Registration(
+            id: "setup-agent",
+            defaultExecutable: "setup-agent",
+            resumeCommand: "cd -- '/tmp/project' && setup-agent-prepare && env GROK_HOME='/tmp/grok' setup-agent --session {{sessionId}}",
+            workingDirectoryPolicy: .preserve,
+            sessionDirectory: nil,
+            registeredResumeKind: nil
+        )
+        let plan = try #require(planner.plan(for: VaultResumeLaunchRequest(
+            kind: "setup-agent",
+            sessionID: "setup-session",
+            workingDirectory: "/tmp/project",
+            profile: .registered(registration),
+            legacyCommand: "setup-agent --session setup-session"
+        )))
+
+        #expect(plan.strategy == .legacyCommand)
+        #expect(plan.legacyFallbackReason == .unrepresentableRegistration)
+        #expect(plan.structuredSnapshot == nil)
+    }
+
     @Test("Registration paths remain byte-for-byte identical")
     func registrationEnvironmentDoesNotMigratePaths() throws {
         let exactValue = "~/.subrouter/codex/claude/account one"
@@ -132,6 +176,52 @@ struct VaultResumeLaunchPlannerTests {
         )))
 
         #expect(plan.structuredSnapshot?.environment["CLAUDE_CONFIG_DIR"] == exactValue)
+    }
+
+    @Test("Registration templates fail closed without an executable")
+    func registrationTemplateRequiresExecutable() throws {
+        let registration = VaultResumeLaunchRequest.Registration(
+            id: "identity-only",
+            defaultExecutable: "   ",
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            workingDirectoryPolicy: .preserve,
+            sessionDirectory: nil,
+            registeredResumeKind: nil
+        )
+        let plan = try #require(planner.plan(for: VaultResumeLaunchRequest(
+            kind: "identity-only",
+            sessionID: "identity-session",
+            workingDirectory: nil,
+            profile: .registered(registration),
+            legacyCommand: "identity-only --session identity-session"
+        )))
+
+        #expect(plan.strategy == .legacyCommand)
+        #expect(plan.legacyFallbackReason == .unavailableStructuredArguments)
+    }
+
+    @Test("Single-quoted template backslashes remain literal")
+    func singleQuotedBackslashIsPreserved() throws {
+        let registration = VaultResumeLaunchRequest.Registration(
+            id: "path-agent",
+            defaultExecutable: "path-agent",
+            resumeCommand: "{{executable}} --path 'a\\b' --session {{sessionId}}",
+            workingDirectoryPolicy: .preserve,
+            sessionDirectory: nil,
+            registeredResumeKind: nil
+        )
+        let plan = try #require(planner.plan(for: VaultResumeLaunchRequest(
+            kind: "path-agent",
+            sessionID: "path-session",
+            workingDirectory: nil,
+            profile: .registered(registration),
+            legacyCommand: nil
+        )))
+
+        #expect(
+            plan.structuredSnapshot?.preparedResumeArguments
+                == ["path-agent", "--path", "a\\b", "--session", "path-session"]
+        )
     }
 
     @Test("Unicode printf environment values are decoded without executing shell text")

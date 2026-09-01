@@ -1,6 +1,8 @@
 import AppKit
+import Bonsplit
 import CMUXAgentLaunch
 import CmuxCore
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -279,6 +281,35 @@ struct VaultRestorePathGuaranteeTests {
         #expect(restoredWorkspace.focusedTerminalPanel?.requestedWorkingDirectory == localDefaultDirectory)
     }
 
+    @Test(arguments: [false, true])
+    func remoteDropWithoutStartupCommandFailsClosed(isSplit: Bool) throws {
+        let workspace = Workspace(workingDirectory: "/tmp/vault-remote-drop", initialTerminalInput: nil)
+        defer { workspace.teardownAllPanels() }
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "vault-drop.example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let baselinePanelIDs = Set(workspace.panels.keys)
+        let destination: BonsplitController.ExternalTabDropRequest.Destination = isSplit
+            ? .split(targetPane: paneID, orientation: .horizontal, insertFirst: false)
+            : .insert(targetPane: paneID, targetIndex: 0)
+
+        #expect(!workspace.handleSessionDrop(
+            entry: Self.entry(for: "codex", cwd: "/tmp/vault-remote-drop"),
+            destination: destination
+        ))
+        #expect(Set(workspace.panels.keys) == baselinePanelIDs)
+    }
+
     @Test
     func localPaneDropSeedsTheSameRestoreRecordAsResume() throws {
         let workingDirectory = "/tmp/vault-drop-restore"
@@ -293,7 +324,7 @@ struct VaultRestorePathGuaranteeTests {
         let baselinePanelIDs = Set(workspace.panels.keys)
         let handled = workspace.handleSessionDrop(
             entry: entry,
-            destination: .insert(paneID, 0)
+            destination: .insert(targetPane: paneID, targetIndex: 0)
         )
 
         #expect(handled)
@@ -330,7 +361,7 @@ struct VaultRestorePathGuaranteeTests {
 
         let handled = workspace.handleSessionDrop(
             entry: Self.entry(for: "codex", cwd: "/tmp/vault-drop-index"),
-            destination: .insert(paneID, 0)
+            destination: .insert(targetPane: paneID, targetIndex: 0)
         )
 
         #expect(handled)
