@@ -1195,7 +1195,7 @@ mod tests {
     }
 
     #[test]
-    fn screen_detect_tracker_rejects_osc_metadata_from_before_identity_edge() {
+    fn screen_detect_tracker_keeps_first_acquisition_osc_evidence_and_fences_replacements() {
         let mut tracker = ScreenDetectTracker::default();
         let t0 = Instant::now();
 
@@ -1206,16 +1206,51 @@ mod tests {
             Some(41),
             t0,
         ));
+        // Herdr keeps evidence emitted before the first process probe. The
+        // userland equivalent does not require a revision on this edge.
+        assert!(tracker.metadata_is_fresh("term_a", Some(41)));
+        assert!(tracker.metadata_is_fresh("term_a", Some(40)));
+
+        // A replacement must not inherit the previous process's OSC fields.
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("claude"),
+            None,
+            Some(41),
+            t0,
+        ));
         assert!(!tracker.metadata_is_fresh("term_a", Some(41)));
         assert!(tracker.metadata_is_fresh("term_a", Some(42)));
-        assert!(!tracker.metadata_is_fresh("term_a", Some(40)));
+
+        // A confirmed exit also leaves a fence. The host cannot clear its
+        // retained fields, so the next acquisition waits for new output.
+        for attempt in 0..AGENT_MISS_CONFIRMATION_ATTEMPTS {
+            let edge = tracker.note_foreground_job_at_with_revision(
+                "term_a",
+                None,
+                None,
+                Some(42),
+                t0,
+            );
+            assert_eq!(edge, attempt + 1 == AGENT_MISS_CONFIRMATION_ATTEMPTS);
+        }
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            Some(42),
+            t0,
+        ));
+        assert!(!tracker.metadata_is_fresh("term_a", Some(42)));
+        assert!(tracker.metadata_is_fresh("term_a", Some(43)));
+
         // An older daemon has no revision. Keep its metadata usable because
         // the plugin cannot prove that it predates the identity edge.
         assert!(tracker.metadata_is_fresh("term_a", None));
 
-        // If the catalog omitted the revision on the edge but the screen read
-        // provides it, a steady positive probe enriches the identity without
-        // restarting grace and fences retained metadata from that point.
+        // If the catalog omitted the revision on a first acquisition, a later
+        // revision does not change the first-acquisition policy. The evidence
+        // may have been emitted before the process probe caught up.
         assert!(tracker.note_foreground_job_at_with_revision(
             "term_b",
             Some("codex"),
@@ -1230,8 +1265,42 @@ mod tests {
             Some(41),
             t0,
         ));
-        assert!(!tracker.metadata_is_fresh("term_b", Some(41)));
+        assert!(tracker.metadata_is_fresh("term_b", Some(41)));
         assert!(tracker.metadata_is_fresh("term_b", Some(42)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_keeps_first_acquisition_without_revision_unfenced() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            None,
+            t0,
+        ));
+        assert!(tracker.metadata_is_fresh("term_a", None));
+
+        // Once a replacement is observed, a later revision enriches the
+        // identity and starts the fence even if the edge had no revision.
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("claude"),
+            None,
+            None,
+            t0,
+        ));
+        assert!(!tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("claude"),
+            None,
+            Some(9),
+            t0,
+        ));
+        assert!(!tracker.metadata_is_fresh("term_a", Some(9)));
+        assert!(tracker.metadata_is_fresh("term_a", Some(10)));
     }
 
     #[test]
