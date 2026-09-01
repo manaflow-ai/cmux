@@ -4,6 +4,9 @@ import Foundation
 /// AppKit-backed config model. The CLI and the published JSON Schema use the
 /// same shape checks for the sections that contain executable actions.
 struct CmuxConfigValidationIssue: Equatable, Sendable, CustomStringConvertible {
+    /// Keep diagnostic details stable and English: this Foundation-only value is
+    /// shared by the CLI and app, while each presentation surface localizes its
+    /// surrounding report text without translating paths or schema tokens.
     let path: String
     let message: String
 
