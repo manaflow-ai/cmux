@@ -573,7 +573,8 @@ mod tests {
     }
 
     #[test]
-    fn filtered_view_header_keeps_a_marker_at_minimum_width() {
+    fn filtered_agents_view_header_keeps_a_marker_at_minimum_width() {
+        let area = Rect { x: 0, y: 0, width: 10, height: 1 };
         let mut terminal = Terminal::new(TestBackend::new(10, 1)).unwrap();
         let palette = RailPalette {
             base: Style::default(),
@@ -586,9 +587,10 @@ mod tests {
         };
         terminal
             .draw(|frame| {
+                prepare(frame, area, palette);
                 view_header_with_filter(
                     frame,
-                    Rect { x: 0, y: 0, width: 10, height: 1 },
+                    area,
                     0,
                     "agents",
                     "priority",
