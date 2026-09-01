@@ -448,7 +448,10 @@ async function billingDunningInput(
   const customer = await stripeCustomerForDunning(invoice, dependencies);
   return {
     invoiceId: invoice.id,
-    email: invoice.customer_email,
+    // The invoice snapshot's customer_email is nullable; the retrieved
+    // Customer's email is the durable fallback so a valid notice is never
+    // dropped as no_customer_email.
+    email: invoice.customer_email ?? customer?.email ?? null,
     customerName: invoice.customer_name,
     portalUrl: portalUrl.toString(),
     locale: dunningLocale(customer),
