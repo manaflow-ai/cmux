@@ -2924,7 +2924,8 @@ impl Surface {
         // Snapshot CWD values are terminal-reported metadata, including for
         // legacy protocol versions. Reject ambiguous plain paths and emit a
         // diagnostic instead of silently inheriting the daemon default.
-        let snapshot_cwd = snapshot.cwd.as_deref().and_then(platform::terminal_pwd_to_local_path);
+        let snapshot_cwd =
+            snapshot.cwd.as_deref().and_then(platform::snapshot_cwd_to_local_path);
         if snapshot.cwd.is_some() && snapshot_cwd.is_none() {
             eprintln!("cmux-tui: discarded untrusted terminal-host snapshot cwd");
         }
