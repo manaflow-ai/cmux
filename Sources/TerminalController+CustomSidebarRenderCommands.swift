@@ -1,70 +1,138 @@
 import AppKit
+import CmuxControlSocket
 import CmuxSettings
 import CmuxSwiftRenderUI
 import Foundation
 import OSLog
 
-nonisolated private let customSidebarRenderLogger = Logger(
+private nonisolated let customSidebarRenderLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "CustomSidebarRender"
 )
 
+private nonisolated struct CustomSidebarRenderRequest: Sendable {
+    let name: String
+    let fileURL: URL
+    let plan: CustomSidebarRenderPlan
+    let width: Int
+    let height: Int
+    let outputURL: URL
+}
+
+private nonisolated struct CustomSidebarRenderFailure: Sendable {
+    let name: String?
+    let path: String?
+    let kind: String?
+    let message: String
+}
+
+private nonisolated enum CustomSidebarRenderPreparation: Sendable {
+    case ready(CustomSidebarRenderRequest)
+    case failure(CustomSidebarRenderFailure)
+}
+
+private nonisolated enum CustomSidebarRenderExecution: Sendable {
+    case success(CustomSidebarRenderArtifact)
+    case failure(String)
+}
+
 extension TerminalController {
-    /// Evaluates a custom sidebar, mounts its production content view, and
-    /// writes a PNG artifact. Source preparation stays on the socket worker;
-    /// only the AppKit/SwiftUI mount crosses to the main actor.
-    nonisolated func v2CustomSidebarRender(params: [String: Any]) -> V2CallResult {
+    /// Evaluates, mounts, and renders a custom sidebar on the main actor.
+    /// Socket connections use ``v2CustomSidebarRenderAsync(request:)`` so the
+    /// worker task suspends while AppKit performs the mount instead of waiting
+    /// synchronously on the main queue. This synchronous entry remains for
+    /// the legacy in-process dispatcher, whose main-actor hop preserves its
+    /// existing response contract.
+    @MainActor
+    func v2CustomSidebarRender(params: [String: Any]) -> V2CallResult {
+        switch prepareCustomSidebarRender(params: params) {
+        case .failure(let failure):
+            return Self.legacyV2CallResult(Self.customSidebarRenderFailureResult(failure))
+        case .ready(let request):
+            return Self.legacyV2CallResult(
+                Self.customSidebarRenderResult(
+                    request: request,
+                    execution: executeCustomSidebarRender(request)
+                )
+            )
+        }
+    }
+
+    /// Prepares a render off the main actor, then suspends until the main
+    /// actor has mounted and captured the sidebar. The response is encoded
+    /// after the await on the socket connection task.
+    nonisolated func v2CustomSidebarRenderAsync(request: ControlRequest) async -> String {
+        let bridgedParams = request.params.mapValues(\.foundationObject)
+        let result: ControlCallResult
+        switch prepareCustomSidebarRender(params: bridgedParams) {
+        case .failure(let failure):
+            result = Self.customSidebarRenderFailureResult(failure)
+        case .ready(let renderRequest):
+            let execution = await v2MainAsync {
+                self.executeCustomSidebarRender(renderRequest)
+            }
+            result = Self.customSidebarRenderResult(
+                request: renderRequest,
+                execution: execution
+            )
+        }
+        return Self.v2Encoder.response(id: request.id, result)
+    }
+
+    private nonisolated func prepareCustomSidebarRender(
+        params: [String: Any]
+    ) -> CustomSidebarRenderPreparation {
         let maximumDimension = CustomSidebarRenderDiagnostic.maximumDimension
         guard let name = v2String(params, "name") else {
-            return v2CustomSidebarRenderFailure(
-                name: nil,
-                path: nil,
-                kind: nil,
-                message: String(
-                    localized: "socket.sidebar.custom.render.missingName",
-                    defaultValue: "Render requires a sidebar name."
+            return .failure(
+                CustomSidebarRenderFailure(
+                    name: nil,
+                    path: nil,
+                    kind: nil,
+                    message: String(
+                        localized: "socket.sidebar.custom.render.missingName",
+                        defaultValue: "Render requires a sidebar name."
+                    )
                 )
             )
         }
         guard let width = v2StrictInt(params, "width"),
               let height = v2StrictInt(params, "height") else {
-            return v2CustomSidebarRenderFailure(
-                name: name,
-                path: nil,
-                kind: nil,
-                message: String(
-                    format: String(
-                        localized: "socket.sidebar.custom.render.invalidSize",
-                        defaultValue: "Render width and height must be between 1 and %d."
-                    ),
-                    maximumDimension
+            return .failure(
+                CustomSidebarRenderFailure(
+                    name: name,
+                    path: nil,
+                    kind: nil,
+                    message: Self.customSidebarRenderInvalidSizeMessage(
+                        maximumDimension: maximumDimension
+                    )
                 )
             )
         }
         guard let output = v2String(params, "output") else {
-            return v2CustomSidebarRenderFailure(
-                name: name,
-                path: nil,
-                kind: nil,
-                message: String(
-                    localized: "socket.sidebar.custom.render.missingOutput",
-                    defaultValue: "Render requires an output path."
+            return .failure(
+                CustomSidebarRenderFailure(
+                    name: name,
+                    path: nil,
+                    kind: nil,
+                    message: String(
+                        localized: "socket.sidebar.custom.render.missingOutput",
+                        defaultValue: "Render requires an output path."
+                    )
                 )
             )
         }
         guard width > 0, height > 0,
               width <= maximumDimension,
               height <= maximumDimension else {
-            return v2CustomSidebarRenderFailure(
-                name: name,
-                path: nil,
-                kind: nil,
-                message: String(
-                    format: String(
-                        localized: "socket.sidebar.custom.render.invalidSize",
-                        defaultValue: "Render width and height must be between 1 and %d."
-                    ),
-                    maximumDimension
+            return .failure(
+                CustomSidebarRenderFailure(
+                    name: name,
+                    path: nil,
+                    kind: nil,
+                    message: Self.customSidebarRenderInvalidSizeMessage(
+                        maximumDimension: maximumDimension
+                    )
                 )
             )
         }
@@ -73,13 +141,15 @@ extension TerminalController {
         guard let fileURL = CustomSidebarValidator()
             .discover(in: directory, name: name)
             .first else {
-            return v2CustomSidebarRenderFailure(
-                name: name,
-                path: directory.appendingPathComponent("\(name).swift").path,
-                kind: nil,
-                message: String(
-                    localized: "socket.sidebar.custom.render.missing",
-                    defaultValue: "Sidebar file is missing."
+            return .failure(
+                CustomSidebarRenderFailure(
+                    name: name,
+                    path: directory.appendingPathComponent("\(name).swift").path,
+                    kind: nil,
+                    message: String(
+                        localized: "socket.sidebar.custom.render.missing",
+                        defaultValue: "Sidebar file is missing."
+                    )
                 )
             )
         }
@@ -89,63 +159,135 @@ extension TerminalController {
         do {
             plan = try diagnostic.prepare(fileURL: fileURL)
         } catch {
-            let message = customSidebarRenderFailureMessage(
-                error,
-                stage: "prepare",
-                path: fileURL.path
-            )
-            return v2CustomSidebarRenderFailure(
-                name: name,
-                path: fileURL.path,
-                kind: fileURL.pathExtension.lowercased(),
-                message: message
+            return .failure(
+                CustomSidebarRenderFailure(
+                    name: name,
+                    path: fileURL.path,
+                    kind: fileURL.pathExtension.lowercased(),
+                    message: customSidebarRenderFailureMessage(
+                        error,
+                        stage: "prepare",
+                        path: fileURL.path
+                    )
+                )
             )
         }
 
-        let outputURL = URL(
-            fileURLWithPath: (output as NSString).expandingTildeInPath,
-            isDirectory: false
-        )
-        let renderResult: Result<CustomSidebarRenderArtifact, Error> = v2MainSync {
-            Result {
-                try diagnostic.render(
-                    plan: plan,
-                    width: width,
-                    height: height,
-                    outputURL: outputURL
-                )
-            }
-        }
-        switch renderResult {
-        case let .success(artifact):
-            return .ok([
-                "name": name,
-                "path": fileURL.path,
-                "kind": plan.kind.rawValue,
-                "render_ok": true,
-                "mounted": true,
-                "artifact_path": artifact.outputURL.path,
-                "artifact_format": "png",
-                "width": artifact.width,
-                "height": artifact.height,
-                "visible_pixel_count": artifact.visiblePixelCount,
-                "byte_count": artifact.byteCount,
-                "error_count": 0,
-                "error": NSNull()
-            ])
-        case let .failure(error):
-            let message = customSidebarRenderFailureMessage(
-                error,
-                stage: "render",
-                path: fileURL.path
-            )
-            return v2CustomSidebarRenderFailure(
+        return .ready(
+            CustomSidebarRenderRequest(
                 name: name,
-                path: fileURL.path,
-                kind: plan.kind.rawValue,
-                message: message
+                fileURL: fileURL,
+                plan: plan,
+                width: width,
+                height: height,
+                outputURL: URL(
+                    fileURLWithPath: (output as NSString).expandingTildeInPath,
+                    isDirectory: false
+                )
+            )
+        )
+    }
+
+    @MainActor
+    private func executeCustomSidebarRender(
+        _ request: CustomSidebarRenderRequest
+    ) -> CustomSidebarRenderExecution {
+        do {
+            let artifact = try CustomSidebarRenderDiagnostic().render(
+                plan: request.plan,
+                width: request.width,
+                height: request.height,
+                outputURL: request.outputURL
+            )
+            return .success(artifact)
+        } catch {
+            return .failure(
+                customSidebarRenderFailureMessage(
+                    error,
+                    stage: "render",
+                    path: request.fileURL.path
+                )
             )
         }
+    }
+
+    private nonisolated static func customSidebarRenderResult(
+        request: CustomSidebarRenderRequest,
+        execution: CustomSidebarRenderExecution
+    ) -> ControlCallResult {
+        switch execution {
+        case .success(let artifact):
+            return .ok(.object([
+                "name": .string(request.name),
+                "path": .string(request.fileURL.path),
+                "kind": .string(request.plan.kind.rawValue),
+                "render_ok": .bool(true),
+                "mounted": .bool(true),
+                "artifact_path": .string(artifact.outputURL.path),
+                "artifact_format": .string("png"),
+                "width": .int(Int64(artifact.width)),
+                "height": .int(Int64(artifact.height)),
+                "visible_pixel_count": .int(Int64(artifact.visiblePixelCount)),
+                "byte_count": .int(Int64(artifact.byteCount)),
+                "error_count": .int(0),
+                "error": .null,
+            ]))
+        case .failure(let message):
+            return Self.customSidebarRenderFailureResult(
+                CustomSidebarRenderFailure(
+                    name: request.name,
+                    path: request.fileURL.path,
+                    kind: request.plan.kind.rawValue,
+                    message: message
+                )
+            )
+        }
+    }
+
+    private nonisolated static func customSidebarRenderFailureResult(
+        _ failure: CustomSidebarRenderFailure
+    ) -> ControlCallResult {
+        .ok(.object([
+            "name": jsonStringOrNull(failure.name),
+            "path": jsonStringOrNull(failure.path),
+            "kind": jsonStringOrNull(failure.kind),
+            "render_ok": .bool(false),
+            "mounted": .bool(false),
+            "error_count": .int(1),
+            "error": .string(failure.message),
+        ]))
+    }
+
+    private nonisolated static func jsonStringOrNull(_ value: String?) -> JSONValue {
+        guard let value else { return .null }
+        return .string(value)
+    }
+
+    private nonisolated static func legacyV2CallResult(
+        _ result: ControlCallResult
+    ) -> V2CallResult {
+        switch result {
+        case .ok(let payload):
+            return .ok(payload.foundationObject)
+        case .err(let code, let message, let data):
+            return .err(
+                code: code,
+                message: message,
+                data: data?.foundationObject
+            )
+        }
+    }
+
+    private nonisolated static func customSidebarRenderInvalidSizeMessage(
+        maximumDimension: Int
+    ) -> String {
+        String(
+            format: String(
+                localized: "socket.sidebar.custom.render.invalidSize",
+                defaultValue: "Render width and height must be between 1 and %d."
+            ),
+            maximumDimension
+        )
     }
 
     private nonisolated func customSidebarRenderFailureMessage(
@@ -164,22 +306,5 @@ extension TerminalController {
             localized: "socket.sidebar.custom.render.failed",
             defaultValue: "Sidebar render failed. Check the sidebar file and output path, then try again."
         )
-    }
-
-    private nonisolated func v2CustomSidebarRenderFailure(
-        name: String?,
-        path: String?,
-        kind: String?,
-        message: String
-    ) -> V2CallResult {
-        .ok([
-            "name": v2OrNull(name),
-            "path": v2OrNull(path),
-            "kind": v2OrNull(kind),
-            "render_ok": false,
-            "mounted": false,
-            "error_count": 1,
-            "error": message
-        ])
     }
 }

@@ -1159,6 +1159,11 @@ class TerminalController {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        // The async socket dispatcher has a dedicated render path that
+        // suspends across the AppKit mount. Keep the synchronous compatibility
+        // dispatcher on the shared main-actor response seam instead of calling
+        // the render body directly from a worker.
+        "sidebar.custom.render",
     ]
 
     nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
@@ -1596,8 +1601,6 @@ class TerminalController {
             return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
         case "sidebar.custom.open":
             return v2Result(id: request.id, v2CustomSidebarOpen(params: request.params))
-        case "sidebar.custom.render":
-            return v2Result(id: request.id, v2CustomSidebarRender(params: request.params))
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
@@ -2609,6 +2612,8 @@ class TerminalController {
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
+        case "sidebar.custom.render":
+            return v2Result(id: id, self.v2CustomSidebarRender(params: params))
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
