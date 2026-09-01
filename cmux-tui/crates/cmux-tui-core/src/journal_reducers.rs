@@ -228,7 +228,8 @@ impl AgentRoster {
         let socket_echo = event.adapter_id() == Some(SOCKET_REPORT_ADAPTER);
         let detected_echo = event.adapter_id() == Some(DETECTED_REPORT_ADAPTER);
         let external_echo = socket_echo || detected_echo;
-        if let Some(retired_at) = self.retired_terminals.get(terminal_id).copied() {
+        let retired_at = self.retired_terminals.get(terminal_id).copied();
+        if let Some(retired_at) = retired_at {
             // A terminal retirement fences records through the committed
             // cursor that caused it. A strictly newer hook session start is a
             // new lifecycle, so clear only that terminal's fence and let the
@@ -240,7 +241,6 @@ impl AgentRoster {
             {
                 return Vec::new();
             }
-            self.retired_terminals.remove(terminal_id);
         }
         let (state, source, session, agent, updated_at_ms) = if external_echo {
             // Socket echo: explicit state and timestamp carried in the
@@ -326,6 +326,12 @@ impl AgentRoster {
                 } else if !is_session_start || !fence.ended || event.sequence <= fence.sequence {
                     return Vec::new();
                 }
+            }
+            // Clear the retirement fence only after the event passes all
+            // session-generation checks. An invalid newer start must leave
+            // the tombstone intact for later replay.
+            if retired_at.is_some() {
+                self.retired_terminals.remove(terminal_id);
             }
             self.hook_fences.insert(
                 terminal_id.to_string(),
