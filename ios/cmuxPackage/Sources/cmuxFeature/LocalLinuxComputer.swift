@@ -93,6 +93,11 @@ public final class LocalLinuxComputerController {
     /// non-blocking tty bridge when its line buffer is full.
     private static let wouldBlockErrno: Int32 = -11
 
+    private struct PendingGrid: Equatable, Sendable {
+        let columns: Int
+        let rows: Int
+    }
+
     /// The injected actor that owns the process-global kernel configuration.
     /// Exposed so DEBUG harnesses can use the same instance as production.
     @ObservationIgnored public let runtime: LocalLinuxRuntime
@@ -112,6 +117,11 @@ public final class LocalLinuxComputerController {
     @ObservationIgnored private var inputQueue: [Data] = []
     @ObservationIgnored private var inputQueueByteCount = 0
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    /// The latest grid reported by Ghostty, including while boot or pty open
+    /// is still suspended. UIKit can report the real size before the local
+    /// session exists, so dropping that report would leave the shell at the
+    /// 80x24 fallback until a later resize.
+    @ObservationIgnored private var pendingGrid: PendingGrid?
     @ObservationIgnored private var pendingInput = Data()
     @ObservationIgnored private var lifecycleGeneration: UInt64 = 0
     @ObservationIgnored private var retryableFailure = false
@@ -133,6 +143,7 @@ public final class LocalLinuxComputerController {
     public func startIfNeeded(columns: Int = 80, rows: Int = 24) async -> Bool {
         let columns = max(1, columns)
         let rows = max(1, rows)
+        rememberGrid(columns: columns, rows: rows)
 
         // Boot failures are intentionally sticky for this controller and its
         // injected runtime. Re-entering the destination must not repeatedly
@@ -158,7 +169,16 @@ public final class LocalLinuxComputerController {
 
         let generation = lifecycleGeneration
         if let startTask, startTaskGeneration == generation {
-            return await startTask.value
+            let ready = await startTask.value
+            // A resize callback may have arrived while the shared startup
+            // task was importing the rootfs or opening the pty. The install
+            // path applies the latest grid too, and this second application
+            // closes the small window after install but before this waiter
+            // resumes.
+            if ready {
+                applyPendingResizeIfRunning()
+            }
+            return ready
         }
 
         state = .starting
@@ -329,6 +349,7 @@ public final class LocalLinuxComputerController {
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
+        rememberGrid(columns: columns, rows: rows)
         guard let session else { return }
         let generation = lifecycleGeneration
         resizeTask?.cancel()
@@ -368,6 +389,7 @@ public final class LocalLinuxComputerController {
         session?.closeSynchronously()
         session = nil
         ring = nil
+        pendingGrid = nil
         pendingInput.removeAll(keepingCapacity: false)
         state = .ended
         retryableFailure = false
@@ -485,7 +507,8 @@ public final class LocalLinuxComputerController {
             self.session = session
             ring = newRing
             acceptsInput = true
-            resize(columns: columns, rows: rows)
+            let grid = pendingGrid ?? PendingGrid(columns: columns, rows: rows)
+            resize(columns: grid.columns, rows: grid.rows)
             if !pendingInput.isEmpty {
                 let bytes = pendingInput
                 pendingInput.removeAll(keepingCapacity: false)
@@ -620,6 +643,15 @@ public final class LocalLinuxComputerController {
                 }
             }
         }
+    }
+
+    private func rememberGrid(columns: Int, rows: Int) {
+        pendingGrid = PendingGrid(columns: columns, rows: rows)
+    }
+
+    private func applyPendingResizeIfRunning() {
+        guard self.session != nil, let grid = pendingGrid else { return }
+        resize(columns: grid.columns, rows: grid.rows)
     }
 
     /// Marks a renderer setup failure so the destination does not remain on a
