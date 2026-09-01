@@ -131,6 +131,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_term_candidates="$cmux_ssh_auth_state_dir/term-candidates"
           cmux_ssh_auth_stop_candidates="$cmux_ssh_auth_state_dir/stop-candidates"
           cmux_ssh_auth_kill_candidates="$cmux_ssh_auth_state_dir/kill-candidates"
+          cmux_ssh_auth_root_identity_file="$cmux_ssh_auth_state_dir/root-identity"
+          cmux_ssh_auth_root_identity_candidate="$cmux_ssh_auth_state_dir/root-identity-candidate"
+          cmux_ssh_auth_root_identity=
           cmux_ssh_auth_term_event_dir="${TMPDIR:-/tmp}/cmux-ssh-auth-term.$cmux_ssh_auth_tree_root_pid"
           cmux_ssh_auth_term_event_fifo="$cmux_ssh_auth_term_event_dir/done"
           cmux_ssh_auth_term_event_owned=0
@@ -145,9 +148,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_extract_tree() {
             : > "$cmux_ssh_auth_members"
             : > "$cmux_ssh_auth_groups"
+            : > "$cmux_ssh_auth_root_identity_candidate"
             /usr/bin/awk \
               -v cmux_root="$cmux_ssh_auth_tree_root_pid" \
               -v cmux_root_parent="$cmux_ssh_auth_tree_root_parent" \
+              -v cmux_root_identity_candidate="$cmux_ssh_auth_root_identity_candidate" \
               -v cmux_caller_group_file="$cmux_ssh_auth_caller_group_file" '
                 NF >= 9 {
                   cmux_pid = $1
@@ -165,6 +170,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                       cmux_state[cmux_root] ~ /Z/) {
                     exit 1
                   }
+                  print cmux_root " " cmux_parent[cmux_root] " " cmux_group[cmux_root] " " cmux_started[cmux_root] > cmux_root_identity_candidate
                   cmux_queue[1] = cmux_root
                   cmux_queue_head = 1
                   cmux_queue_tail = 1
@@ -193,6 +199,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               ' "$cmux_ssh_auth_snapshot" > "$cmux_ssh_auth_members"
             cmux_ssh_auth_extract_status=$?
             if [ "$cmux_ssh_auth_extract_status" -ne 0 ]; then return "$cmux_ssh_auth_extract_status"; fi
+            cmux_ssh_auth_root_identity_candidate_value=
+            if ! IFS= read -r cmux_ssh_auth_root_identity_candidate_value < "$cmux_ssh_auth_root_identity_candidate"; then
+              return 1
+            fi
+            if [ -z "$cmux_ssh_auth_root_identity" ]; then
+              cmux_ssh_auth_root_identity="$cmux_ssh_auth_root_identity_candidate_value"
+              printf '%s\n' "$cmux_ssh_auth_root_identity" > "$cmux_ssh_auth_root_identity_file" || return 1
+            elif [ "$cmux_ssh_auth_root_identity" != "$cmux_ssh_auth_root_identity_candidate_value" ]; then
+              return 1
+            fi
             cmux_ssh_auth_caller_group=""
             if [ -s "$cmux_ssh_auth_caller_group_file" ]; then
               IFS= read -r cmux_ssh_auth_caller_group < "$cmux_ssh_auth_caller_group_file"
@@ -237,6 +253,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exec 9>&-
           }
 
+          cmux_ssh_auth_resume_journal_directly() {
+            cmux_ssh_auth_resume_path="$1"
+            while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_state cmux_started; do
+              case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
+              # This path is CONT-only. The journal records a successful STOP
+              # from this helper, so recovery must not depend on another fork.
+              kill -CONT "$cmux_pid" >/dev/null 2>&1 || true
+            done < "$cmux_ssh_auth_resume_path"
+          }
+
           # A successful STOP pins a process in place. If the identity check
           # fails, resume every current process with the recorded PID that is
           # either a different identity or no longer stopped. This undoes a
@@ -244,23 +270,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_resume_unconfirmed_stops() {
             cmux_ssh_auth_resume_path="$1"
             [ -s "$cmux_ssh_auth_resume_path" ] || return 0
-            cmux_ssh_auth_take_snapshot || return 0
-            cmux_ssh_auth_resume_pids=$(
-              /usr/bin/awk '
-                FILENAME == ARGV[1] {
-                  cmux_expected_pid[$2] = 1
-                  cmux_expected[$2 SUBSEP $4 SUBSEP $6] = 1
-                  next
-                }
-                NF >= 9 {
-                  cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                  cmux_key = $1 SUBSEP $3 SUBSEP cmux_started
-                  if (($1 in cmux_expected_pid) &&
-                      (!(cmux_key in cmux_expected) || $4 !~ /T/) &&
-                      $4 !~ /Z/) print $1
-                }
-              ' "$cmux_ssh_auth_resume_path" "$cmux_ssh_auth_snapshot"
-            ) || return 0
+            if ! cmux_ssh_auth_take_snapshot; then
+              cmux_ssh_auth_resume_journal_directly "$cmux_ssh_auth_resume_path"
+              return 0
+            fi
+            if ! cmux_ssh_auth_resume_pids=$(
+                /usr/bin/awk '
+                  FILENAME == ARGV[1] {
+                    cmux_expected_pid[$2] = 1
+                    cmux_expected[$2 SUBSEP $4 SUBSEP $6] = 1
+                    next
+                  }
+                  NF >= 9 {
+                    cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+                    cmux_key = $1 SUBSEP $3 SUBSEP cmux_started
+                    if (($1 in cmux_expected_pid) &&
+                        (!(cmux_key in cmux_expected) || $4 !~ /T/) &&
+                        $4 !~ /Z/) print $1
+                  }
+                ' "$cmux_ssh_auth_resume_path" "$cmux_ssh_auth_snapshot"
+              ); then
+              cmux_ssh_auth_resume_journal_directly "$cmux_ssh_auth_resume_path"
+              return 0
+            fi
             for cmux_ssh_auth_resume_pid in $cmux_ssh_auth_resume_pids; do
               case "$cmux_ssh_auth_resume_pid" in ''|*[!0-9]*) continue ;; esac
               kill -CONT "$cmux_ssh_auth_resume_pid" >/dev/null 2>&1 || true
@@ -307,19 +339,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_resume_file() {
             cmux_ssh_auth_resume_path="$1"
             [ -s "$cmux_ssh_auth_resume_path" ] || return 0
-            cmux_ssh_auth_take_snapshot || return 0
-            cmux_ssh_auth_resume_pids=$(
-              /usr/bin/awk '
-                FILENAME == ARGV[1] {
-                  cmux_expected[$2 SUBSEP $4 SUBSEP $6] = 1
-                  next
-                }
-                NF >= 9 {
-                  cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                  if (($1 SUBSEP $3 SUBSEP cmux_started) in cmux_expected && $4 !~ /Z/) print $1
-                }
-              ' "$cmux_ssh_auth_resume_path" "$cmux_ssh_auth_snapshot"
-            ) || return 0
+            if ! cmux_ssh_auth_take_snapshot; then
+              cmux_ssh_auth_resume_journal_directly "$cmux_ssh_auth_resume_path"
+              return 0
+            fi
+            if ! cmux_ssh_auth_resume_pids=$(
+                /usr/bin/awk '
+                  FILENAME == ARGV[1] {
+                    cmux_expected[$2 SUBSEP $4 SUBSEP $6] = 1
+                    next
+                  }
+                  NF >= 9 {
+                    cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+                    if (($1 SUBSEP $3 SUBSEP cmux_started) in cmux_expected && $4 !~ /Z/) print $1
+                  }
+                ' "$cmux_ssh_auth_resume_path" "$cmux_ssh_auth_snapshot"
+              ); then
+              cmux_ssh_auth_resume_journal_directly "$cmux_ssh_auth_resume_path"
+              return 0
+            fi
             for cmux_ssh_auth_resume_pid in $cmux_ssh_auth_resume_pids; do
               case "$cmux_ssh_auth_resume_pid" in ''|*[!0-9]*) continue ;; esac
               kill -CONT "$cmux_ssh_auth_resume_pid" >/dev/null 2>&1 || true
@@ -341,6 +379,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_live" "$cmux_ssh_auth_term" \
               "$cmux_ssh_auth_term_candidates" "$cmux_ssh_auth_stop_candidates" \
               "$cmux_ssh_auth_kill_candidates" "$cmux_ssh_auth_caller_group_file" \
+              "$cmux_ssh_auth_root_identity_file" "$cmux_ssh_auth_root_identity_candidate" \
               2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_state_dir" 2>/dev/null || true
           }

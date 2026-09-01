@@ -760,7 +760,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             &info,
             Int32(expectedSize)
         )
-        guard size == expectedSize else { return false }
+        guard Int(size) == expectedSize else { return false }
         return info.pbi_status != UInt32(SZOMB)
     }
 }
