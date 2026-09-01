@@ -24,6 +24,12 @@ pub mod transport {
         inner: imp::Listener,
     }
 
+    /// A path-independent wakeup for one local listener accept loop.
+    #[derive(Clone)]
+    pub struct ListenerWake {
+        inner: imp::ListenerWake,
+    }
+
     pub fn listen(path: &Path) -> io::Result<Listener> {
         imp::listen(path).map(|inner| Listener { inner })
     }
@@ -36,19 +42,49 @@ pub mod transport {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
         }
+
+        pub fn wake_handle(&self) -> io::Result<ListenerWake> {
+            self.inner.wake_handle().map(|inner| ListenerWake { inner })
+        }
+
+        /// Wait for a client or the retained listener-local wakeup.
+        ///
+        /// `None` means the wakeup fired and the caller should close this
+        /// listener instead of accepting another client.
+        pub fn accept_with_wake(&self, wake: &ListenerWake) -> io::Result<Option<Box<dyn Stream>>> {
+            self.inner.accept_with_wake(&wake.inner)
+        }
+    }
+
+    impl ListenerWake {
+        pub fn wake(&self) -> io::Result<()> {
+            self.inner.wake()
+        }
     }
 
     #[cfg(unix)]
     mod imp {
-        use std::io;
+        use std::io::{self, Write};
+        use std::os::fd::AsRawFd;
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
+        use std::sync::{Arc, Mutex};
         use std::time::Duration;
 
         use super::Stream;
 
         pub(super) struct Listener {
             inner: UnixListener,
+        }
+
+        #[derive(Clone)]
+        pub(super) struct ListenerWake {
+            inner: Arc<ListenerWakeState>,
+        }
+
+        struct ListenerWakeState {
+            reader: UnixStream,
+            writer: Mutex<UnixStream>,
         }
 
         pub(super) fn listen(path: &Path) -> io::Result<Listener> {
@@ -63,6 +99,66 @@ pub mod transport {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
                 Ok(Box::new(stream))
+            }
+
+            pub(super) fn wake_handle(&self) -> io::Result<ListenerWake> {
+                let (reader, writer) = UnixStream::pair()?;
+                writer.set_nonblocking(true)?;
+                Ok(ListenerWake {
+                    inner: Arc::new(ListenerWakeState { reader, writer: Mutex::new(writer) }),
+                })
+            }
+
+            pub(super) fn accept_with_wake(
+                &self,
+                wake: &ListenerWake,
+            ) -> io::Result<Option<Box<dyn Stream>>> {
+                loop {
+                    let mut descriptors = [
+                        libc::pollfd {
+                            fd: self.inner.as_raw_fd(),
+                            events: libc::POLLIN,
+                            revents: 0,
+                        },
+                        libc::pollfd {
+                            fd: wake.inner.reader.as_raw_fd(),
+                            events: libc::POLLIN,
+                            revents: 0,
+                        },
+                    ];
+                    // SAFETY: both descriptors point at live sockets owned by
+                    // this listener and wake handle for the duration of poll.
+                    let result =
+                        unsafe { libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, -1) };
+                    if result < 0 {
+                        let error = io::Error::last_os_error();
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    if descriptors[1].revents != 0 {
+                        return Ok(None);
+                    }
+                    if descriptors[0].revents != 0 {
+                        return self.accept().map(Some);
+                    }
+                }
+            }
+        }
+
+        impl ListenerWake {
+            pub(super) fn wake(&self) -> io::Result<()> {
+                let mut writer =
+                    self.inner.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                loop {
+                    match writer.write(&[1]) {
+                        Ok(_) => return Ok(()),
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(error) => return Err(error),
+                    }
+                }
             }
         }
 
@@ -87,15 +183,30 @@ pub mod transport {
 
     #[cfg(windows)]
     mod imp {
-        use std::io;
+        use std::io::{self, Write};
+        use std::os::windows::io::AsRawSocket;
         use std::path::Path;
+        use std::sync::{Arc, Mutex};
         use std::time::Duration;
 
         use super::Stream;
         use uds_windows::{UnixListener, UnixStream};
+        use windows_sys::Win32::Networking::WinSock::{
+            POLLERR, POLLHUP, POLLIN, POLLNVAL, WSAGetLastError, WSAPOLLFD, WSAPoll,
+        };
 
         pub(super) struct Listener {
             inner: UnixListener,
+        }
+
+        #[derive(Clone)]
+        pub(super) struct ListenerWake {
+            inner: Arc<ListenerWakeState>,
+        }
+
+        struct ListenerWakeState {
+            reader: UnixStream,
+            writer: Mutex<UnixStream>,
         }
 
         pub(super) fn listen(path: &Path) -> io::Result<Listener> {
@@ -110,6 +221,62 @@ pub mod transport {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
                 Ok(Box::new(stream))
+            }
+
+            pub(super) fn wake_handle(&self) -> io::Result<ListenerWake> {
+                let (reader, writer) = UnixStream::pair()?;
+                writer.set_nonblocking(true)?;
+                Ok(ListenerWake {
+                    inner: Arc::new(ListenerWakeState { reader, writer: Mutex::new(writer) }),
+                })
+            }
+
+            pub(super) fn accept_with_wake(
+                &self,
+                wake: &ListenerWake,
+            ) -> io::Result<Option<Box<dyn Stream>>> {
+                loop {
+                    let mut descriptors = [
+                        WSAPOLLFD { fd: self.inner.as_raw_socket(), events: POLLIN, revents: 0 },
+                        WSAPOLLFD {
+                            fd: wake.inner.reader.as_raw_socket(),
+                            events: POLLIN,
+                            revents: 0,
+                        },
+                    ];
+                    // SAFETY: both descriptors point at live sockets owned by
+                    // this listener and wake handle for the duration of poll.
+                    let result =
+                        unsafe { WSAPoll(descriptors.as_mut_ptr(), descriptors.len() as u32, -1) };
+                    if result < 0 {
+                        let error = io::Error::from_raw_os_error(unsafe { WSAGetLastError() });
+                        if error.kind() == io::ErrorKind::Interrupted {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                    if descriptors[1].revents & (POLLIN | POLLERR | POLLHUP | POLLNVAL) != 0 {
+                        return Ok(None);
+                    }
+                    if descriptors[0].revents != 0 {
+                        return self.accept().map(Some);
+                    }
+                }
+            }
+        }
+
+        impl ListenerWake {
+            pub(super) fn wake(&self) -> io::Result<()> {
+                let mut writer =
+                    self.inner.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                loop {
+                    match writer.write(&[1]) {
+                        Ok(_) => return Ok(()),
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(error) => return Err(error),
+                    }
+                }
             }
         }
 
