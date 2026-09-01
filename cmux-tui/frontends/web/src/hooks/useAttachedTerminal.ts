@@ -226,10 +226,16 @@ export function useAttachedTerminal({
               terminal.write((event as DecodedOutputEvent).data);
             } else if (event.event === "resized") {
               const resized = event as DecodedResizedEvent;
+              // A resize replay replaces xterm's entire buffer. Keep the
+              // transport closed for the whole reset/write transaction so a
+              // user key cannot land between the reset and authoritative
+              // replay.
+              terminal.options.disableStdin = true;
               terminal.reset();
               terminal.resize(resized.cols, resized.rows);
               await writeReplay(resized.data, resized.colors);
               if (cancelled) return;
+              terminal.options.disableStdin = false;
             } else if (event.event === "colors-changed") {
               const colors = event as ColorsChangedEvent;
               applyCursorDefaults(colors);
