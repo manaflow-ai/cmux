@@ -494,9 +494,11 @@ extension TerminalController {
         if let bindingSelection,
            bindingSelection.discardsRecordedCwdOptions,
            var command = binding.launchCommand {
-            let builtInAgentKind: String? = if let restorableAgent = target.restorableAgent {
-                restorableAgent.workingDirectoryOptionPolicyBuiltInKind
-            } else if RestorableAgentKind.allCases.contains(where: {
+            // This binding-only branch has no provenance-matched snapshot.
+            // Only an unambiguous native kind may enable provider-specific
+            // cwd stripping; registry-owned ids (such as `kimi`) can belong
+            // to a custom Vault registration and must retain their options.
+            let builtInAgentKind: String? = if RestorableAgentKind.allCases.contains(where: {
                 $0.rawValue == normalizedKind.lowercased()
             }) {
                 normalizedKind
