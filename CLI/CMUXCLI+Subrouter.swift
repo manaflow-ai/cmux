@@ -13,7 +13,7 @@ extension CMUXCLI {
     /// roughly 150s on a cold remote pool.
     private static let subrouterDataResponseTimeout: TimeInterval = 240
 
-    static let subrouterUsage = """
+    static let subrouterUsage = String(localized: "cli.subrouter.help", defaultValue: """
         Usage: cmux subrouter [setup|status|accounts|usage|switch|sessions|reload] [--json]
 
           cmux subrouter
@@ -49,7 +49,7 @@ extension CMUXCLI {
           cmux subrouter usage
           cmux subrouter switch codex dev@example.com
           cmux subrouter switch claude work
-        """
+        """)
 
     func runSubrouterNamespace(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
         guard let sub = commandArgs.first?.lowercased() else {
@@ -92,12 +92,12 @@ extension CMUXCLI {
         case "switch":
             let positionals = rest.filter { !$0.hasPrefix("-") }
             guard positionals.count == 2 else {
-                throw CLIError(message: """
+                throw CLIError(message: String(localized: "cli.subrouter.switchUsage", defaultValue: """
                     subrouter switch requires a provider and an account.
 
                       cmux subrouter switch codex dev@example.com
                       cmux subrouter switch claude work
-                    """)
+                    """))
             }
             // The app-side switch deadline is 90s (sr subprocess + daemon
             // reload + refresh); the client must outlive it or a slow
@@ -111,9 +111,13 @@ extension CMUXCLI {
                 print(jsonString(response))
                 return
             }
-            print("Switched \(positionals[0].lowercased()) → \(positionals[1])")
+            print(Self.cliFormat(
+                "cli.subrouter.switched",
+                defaultValue: "Switched %@ → %@",
+                positionals[0].lowercased(), positionals[1]
+            ))
             if let warning = response["warning"] as? String {
-                print("  warning: \(warning)")
+                print(Self.cliFormat("cli.subrouter.warning", defaultValue: "  warning: %@", warning))
             }
 
         case "sessions":
@@ -124,7 +128,7 @@ extension CMUXCLI {
             }
             let sessions = (response["sessions"] as? [[String: Any]]) ?? []
             if sessions.isEmpty {
-                print("No active agent sessions.")
+                print(Self.cliText("cli.subrouter.sessions.empty", defaultValue: "No active agent sessions."))
                 return
             }
             for session in sessions {
@@ -132,7 +136,11 @@ extension CMUXCLI {
                 let sessionID = Self.sanitizeForTerminal((session["session_id"] as? String) ?? "?")
                 let account = Self.sanitizeForTerminal((session["account_id"] as? String) ?? "?")
                 let updated = Self.sanitizeForTerminal((session["updated_at"] as? String) ?? "")
-                print("\(agent)  \(sessionID.prefix(16))  → \(account)  \(updated)")
+                print(Self.cliFormat(
+                    "cli.subrouter.sessions.row",
+                    defaultValue: "%@  %@  → %@  %@",
+                    agent, String(sessionID.prefix(16)), account, updated
+                ))
             }
 
         case "reload":
@@ -143,7 +151,11 @@ extension CMUXCLI {
             }
             let accounts = (response["accounts"] as? Int) ?? 0
             let refreshed = (response["usage_refreshed"] as? Int) ?? 0
-            print("Reloaded \(accounts) account(s), \(refreshed) usage score(s) refreshed.")
+            print(Self.cliFormat(
+                "cli.subrouter.reloaded",
+                defaultValue: "Reloaded %lld account(s), %lld usage score(s) refreshed.",
+                accounts, refreshed
+            ))
 
         default:
             // Anything else is an sr verb (add, list, pick, server, claude,
@@ -191,7 +203,7 @@ extension CMUXCLI {
     /// re-running on a healthy setup just prints status and next steps.
     private func runSubrouterWelcome(client: SocketClient) throws {
         try requireSubrouterIntegrationEnabled(client: client)
-        print("cmux ⨯ subrouter — route agents across subscription accounts")
+        print(Self.cliText("cli.subrouter.welcome.title", defaultValue: "cmux ⨯ subrouter — route agents across subscription accounts"))
         print("")
 
         // 1. The sr CLI. Prefer installing from the app's own bundled
@@ -202,7 +214,7 @@ extension CMUXCLI {
         var srPath = resolveSubrouterBinaryRefreshingManagedInstall()
         if srPath == nil, let installed = installBundledSubrouterIntoHomeBin() {
             srPath = installed
-            print("✓ Installed the bundled sr CLI (\(installed))")
+            print(Self.cliFormat("cli.subrouter.welcome.installed", defaultValue: "✓ Installed the bundled sr CLI (%@)", installed))
         }
         if srPath == nil {
             print(String(
@@ -210,14 +222,14 @@ extension CMUXCLI {
                 defaultValue: "subrouter is not installed. Install it explicitly from github.com/manaflow-ai/subrouter, then run cmux subrouter again."
             ))
         } else {
-            print("✓ sr CLI installed (\(srPath ?? ""))")
+            print(Self.cliFormat("cli.subrouter.welcome.installed", defaultValue: "✓ sr CLI installed (%@)", srPath ?? ""))
         }
 
         // 2. The daemon, through the app (which follows sr's server selection).
         var statusResponse = try? client.sendV2(method: "subrouter.status", responseTimeout: Self.subrouterDataResponseTimeout)
         if statusResponse == nil {
-            print("✗ The cmux subrouter integration is disabled.")
-            print("  Enable it in Settings → Agent Accounts, or set {\"subrouter\": {\"enabled\": true}} in ~/.config/cmux/cmux.json.")
+            print(Self.cliText("cli.subrouter.welcome.disabled", defaultValue: "✗ The cmux subrouter integration is disabled."))
+            print(Self.cliText("cli.subrouter.welcome.enableHint", defaultValue: "  Enable it in Settings → Agent Accounts, or set {\"subrouter\": {\"enabled\": true}} in ~/.config/cmux/cmux.json."))
         } else if let daemon = statusResponse?["daemon"] as? [String: Any],
                   (daemon["state"] as? String) != "healthy",
                   let srPath {
@@ -229,7 +241,7 @@ extension CMUXCLI {
                 ))
                 return
             }
-            print("Starting the local subrouter daemon…")
+            print(Self.cliText("cli.subrouter.welcome.starting", defaultValue: "Starting the local subrouter daemon…"))
             let daemonSetup = CLIProcessRunner.runProcess(executablePath: srPath, arguments: ["install-daemon"], timeout: 60)
             if daemonSetup.status == 0 {
                 // Poll the cheap health probe instead of the full status
@@ -253,7 +265,7 @@ extension CMUXCLI {
                     }
                 }
             } else {
-                print("  ✗ install-daemon failed; run `\(srPath) install-daemon` manually.")
+                print(Self.cliFormat("cli.subrouter.welcome.installFailed", defaultValue: "  ✗ install-daemon failed; run `%@ install-daemon` manually.", srPath))
             }
         }
         if let statusResponse {
@@ -265,20 +277,20 @@ extension CMUXCLI {
         let accountCount = (statusResponse?["account_count"] as? Int) ?? 0
         print("")
         if accountCount == 0 {
-            print("Add your first accounts:")
+            print(Self.cliText("cli.subrouter.welcome.addAccounts", defaultValue: "Add your first accounts:"))
         } else {
-            print("Manage accounts:")
+            print(Self.cliText("cli.subrouter.welcome.manageAccounts", defaultValue: "Manage accounts:"))
         }
-        print("  sr import                    adopt your current ~/.codex login")
-        print("  sr add                       add another Codex account (OAuth)")
-        print("  sr                           interactive usage overview")
+        print(Self.cliText("cli.subrouter.welcome.import", defaultValue: "  sr import                    adopt your current ~/.codex login"))
+        print(Self.cliText("cli.subrouter.welcome.add", defaultValue: "  sr add                       add another Codex account (OAuth)"))
+        print(Self.cliText("cli.subrouter.welcome.interactive", defaultValue: "  sr                           interactive usage overview"))
         print("")
-        print("Then, in cmux:")
-        print("  Ctrl+6 (or the sidebar Subrouter tab)   live usage and switching")
-        print("  cmux subrouter usage                    quota windows per account")
-        print("  cmux subrouter switch codex <email>     switch the active account")
+        print(Self.cliText("cli.subrouter.welcome.then", defaultValue: "Then, in cmux:"))
+        print(Self.cliText("cli.subrouter.welcome.live", defaultValue: "  Ctrl+7 (or the sidebar Subrouter tab)   live usage and switching"))
+        print(Self.cliText("cli.subrouter.welcome.usage", defaultValue: "  cmux subrouter usage                    quota windows per account"))
+        print(Self.cliText("cli.subrouter.welcome.switch", defaultValue: "  cmux subrouter switch codex <email>     switch the active account"))
         print("")
-        print("Team server? `sr server add <name> --url <url> --default` — cmux follows sr's selection automatically.")
+        print(Self.cliText("cli.subrouter.welcome.teamServer", defaultValue: "Team server? `sr server add <name> --url <url> --default` — cmux follows sr's selection automatically."))
     }
 
     /// Gives the just-launched daemon a bounded half-second interval between
@@ -313,46 +325,49 @@ extension CMUXCLI {
         let endpoint = Self.sanitizeForTerminal((response["endpoint"] as? String) ?? "")
         switch state {
         case "healthy":
-            print("Daemon:   healthy (\(endpoint))")
+            print(Self.cliFormat("cli.subrouter.status.healthy", defaultValue: "Daemon:   healthy (%@)", endpoint))
+            if let lastError = response["last_error"] as? String, !lastError.isEmpty {
+                print(Self.cliFormat("cli.subrouter.status.warning", defaultValue: "  warning: data refresh failed (%@)", Self.sanitizeForTerminal(lastError)))
+            }
         case "unreachable":
             let failures = (daemon["consecutive_failures"] as? Int) ?? 0
-            print("Daemon:   unreachable (\(endpoint), \(failures) consecutive failure(s))")
+            print(Self.cliFormat("cli.subrouter.status.unreachable", defaultValue: "Daemon:   unreachable (%@, %lld consecutive failure(s))", endpoint, failures))
             if let lastError = response["last_error"] as? String {
-                print("  error:  \(Self.sanitizeForTerminal(lastError))")
+                print(Self.cliFormat("cli.subrouter.status.error", defaultValue: "  error:  %@", Self.sanitizeForTerminal(lastError)))
             }
             if Self.isLoopbackSubrouterEndpoint(endpoint) {
-                print("  hint:   install or start it with: ~/bin/subrouter install-daemon")
+                print(Self.cliText("cli.subrouter.status.localHint", defaultValue: "  hint:   install or start it with: ~/bin/subrouter install-daemon"))
             } else {
-                print("  hint:   check the configured remote server and retry")
+                print(Self.cliText("cli.subrouter.status.remoteHint", defaultValue: "  hint:   check the configured remote server and retry"))
             }
         default:
-            print("Daemon:   \(state) (\(endpoint))")
+            print(Self.cliFormat("cli.subrouter.status.state", defaultValue: "Daemon:   %@ (%@)", state, endpoint))
         }
         let accountCount = (response["account_count"] as? Int) ?? 0
         let attentionCount = (response["attention_count"] as? Int) ?? 0
         let sessionCount = (response["session_count"] as? Int) ?? 0
         if attentionCount > 0 {
-            print("Accounts: \(accountCount) (\(attentionCount) need(s) attention)")
+            print(Self.cliFormat("cli.subrouter.status.accountsAttention", defaultValue: "Accounts: %lld (%lld need(s) attention)", accountCount, attentionCount))
         } else {
-            print("Accounts: \(accountCount)")
+            print(Self.cliFormat("cli.subrouter.status.accounts", defaultValue: "Accounts: %lld", accountCount))
         }
-        print("Sessions: \(sessionCount)")
+        print(Self.cliFormat("cli.subrouter.status.sessions", defaultValue: "Sessions: %lld", sessionCount))
         if let updated = response["last_updated"] as? String {
-            print("Updated:  \(Self.sanitizeForTerminal(updated))")
+            print(Self.cliFormat("cli.subrouter.status.updated", defaultValue: "Updated:  %@", Self.sanitizeForTerminal(updated)))
         }
     }
 
     private func printSubrouterAccounts(_ response: [String: Any], includeWindows: Bool) {
         let accounts = (response["accounts"] as? [[String: Any]]) ?? []
         if accounts.isEmpty {
-            print("No accounts configured. Add accounts with the sr CLI.")
+            print(Self.cliText("cli.subrouter.accounts.empty", defaultValue: "No accounts configured. Add accounts with the sr CLI."))
             return
         }
         var lastProvider = ""
         for account in accounts {
             let provider = Self.sanitizeForTerminal((account["provider"] as? String) ?? "?")
             if provider != lastProvider {
-                print("\(provider):")
+                print(Self.cliFormat("cli.subrouter.account.provider", defaultValue: "%@:", provider))
                 lastProvider = provider
             }
             let id = Self.sanitizeForTerminal((account["id"] as? String) ?? "?")
@@ -362,15 +377,15 @@ extension CMUXCLI {
             let authChecked = (account["auth_checked"] as? Bool) == true
             let authValid = (account["auth_valid"] as? Bool) == true
             var flags: [String] = []
-            if active { flags.append("ACTIVE") }
-            if quota == "cooked" { flags.append("COOKED") }
-            if quota == "temp_cooked" { flags.append("COOLING") }
-            if authChecked && !authValid { flags.append("AUTH-EXPIRED") }
+            if active { flags.append(Self.cliText("cli.subrouter.flag.active", defaultValue: "ACTIVE")) }
+            if quota == "cooked" { flags.append(Self.cliText("cli.subrouter.flag.cooked", defaultValue: "COOKED")) }
+            if quota == "temp_cooked" { flags.append(Self.cliText("cli.subrouter.flag.cooling", defaultValue: "COOLING")) }
+            if authChecked && !authValid { flags.append(Self.cliText("cli.subrouter.flag.authExpired", defaultValue: "AUTH-EXPIRED")) }
             let flagText = flags.isEmpty ? "" : "  [\(flags.joined(separator: ", "))]"
             let planText = plan.isEmpty ? "" : "  (\(plan))"
-            print("  \(id)\(planText)\(flagText)")
+            print(Self.cliFormat("cli.subrouter.account.row", defaultValue: "  %@%@%@", id, planText, flagText))
             if let error = account["error"] as? String, !error.isEmpty {
-                print("      error: \(Self.sanitizeForTerminal(error))")
+                print(Self.cliFormat("cli.subrouter.account.error", defaultValue: "      error: %@", Self.sanitizeForTerminal(error)))
             }
             guard includeWindows else { continue }
             let windows = (account["windows"] as? [[String: Any]]) ?? []
@@ -378,30 +393,59 @@ extension CMUXCLI {
                 let name = Self.sanitizeForTerminal((window["name"] as? String) ?? "?")
                 let used = (window["used_percent"] as? Double) ?? 0
                 let reset = (window["reset_after_seconds"] as? Int) ?? 0
-                var line = "      \(name): \(Int(min(max(used, 0), 100).rounded()))% used"
+                var line = Self.cliFormat(
+                    "cli.subrouter.account.window",
+                    defaultValue: "      %@: %lld%% used",
+                    name, Int(min(max(used, 0), 100).rounded())
+                )
                 if reset > 0 {
-                    line += ", resets in \(Self.subrouterDurationText(seconds: reset))"
+                    line += Self.cliFormat("cli.subrouter.account.reset", defaultValue: ", resets in %@", Self.subrouterDurationText(seconds: reset))
                 }
                 print(line)
             }
             if let credits = account["credits"] as? [String: Any],
                (credits["has_credits"] as? Bool) == true,
                let balance = credits["balance"] as? String, !balance.isEmpty {
-                print("      credits: \(Self.sanitizeForTerminal(balance))")
+                print(Self.cliFormat("cli.subrouter.account.credits", defaultValue: "      credits: %@", Self.sanitizeForTerminal(balance)))
             }
         }
     }
 
     /// Formats seconds the way `sr` does: `2d 4h`, `3h 12m`, `<1m`.
     static func subrouterDurationText(seconds: Int) -> String {
-        guard seconds > 0 else { return "now" }
+        guard seconds > 0 else {
+            return Self.cliText("cli.subrouter.duration.now", defaultValue: "now")
+        }
         let days = seconds / 86_400
         let hours = (seconds % 86_400) / 3600
         let minutes = (seconds % 3600) / 60
         var parts: [String] = []
-        if days > 0 { parts.append("\(days)d") }
-        if hours > 0 { parts.append("\(hours)h") }
-        if minutes > 0 && days == 0 { parts.append("\(minutes)m") }
-        return parts.isEmpty ? "<1m" : parts.joined(separator: " ")
+        if days > 0 {
+            parts.append(Self.cliFormat("cli.subrouter.duration.day", defaultValue: "%lldd", days))
+        }
+        if hours > 0 {
+            parts.append(Self.cliFormat("cli.subrouter.duration.hour", defaultValue: "%lldh", hours))
+        }
+        if minutes > 0 && days == 0 {
+            parts.append(Self.cliFormat("cli.subrouter.duration.minute", defaultValue: "%lldm", minutes))
+        }
+        return parts.isEmpty
+            ? Self.cliText("cli.subrouter.duration.lessMinute", defaultValue: "<1m")
+            : parts.joined(separator: " ")
+    }
+
+    private static func cliText(_ key: String, defaultValue: String) -> String {
+        String(localized: key, defaultValue: defaultValue)
+    }
+
+    private static func cliFormat(
+        _ key: String,
+        defaultValue: String,
+        _ arguments: CVarArg...
+    ) -> String {
+        String(
+            format: String(localized: key, defaultValue: defaultValue),
+            arguments: arguments
+        )
     }
 }

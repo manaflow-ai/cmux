@@ -61,6 +61,11 @@ actor ManualSubrouterPollClock: SubrouterPollClock {
     func resumeNext() {
         guard !sleepers.isEmpty else { return }
         sleepers.removeFirst().continuation.resume(returning: ())
+        if sleepers.isEmpty {
+            while !emptyWaiters.isEmpty {
+                emptyWaiters.removeFirst().resume()
+            }
+        }
     }
 
     var lastRecordedDuration: TimeInterval? {

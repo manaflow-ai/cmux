@@ -46,6 +46,8 @@ final class SubrouterAppRuntime {
     // `sr server use` edits the registry outside UserDefaults, so relying on
     // activation alone can leave a visible panel pinned to the old daemon.
     private var serverRegistryWatch: DispatchSourceFileSystemObject?
+    private var serverRegistryWatchRefreshTask: Task<Void, Never>?
+    private var serverRegistryWatchRefreshPending = false
 
     /// The cached `sr server` default from `~/.subrouter/codex/servers.json`.
     /// Loaded off-main before any visible/socket surface is enabled — the
@@ -93,6 +95,7 @@ final class SubrouterAppRuntime {
             task.cancel()
         }
         selectionRefreshTask?.cancel()
+        serverRegistryWatchRefreshTask?.cancel()
         // `deinit` is nonisolated for a main-actor class; cancelling the
         // source directly avoids an actor hop while its cancel handler closes
         // the descriptor.
@@ -182,17 +185,17 @@ final class SubrouterAppRuntime {
         let registryURL = SubrouterIntegrationSettings.serverRegistryURL()
         let codexDirectory = registryURL.deletingLastPathComponent()
         let subrouterDirectory = codexDirectory.deletingLastPathComponent()
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
-        // Watch the nearest existing parent on first run. Setup may create
-        // `.subrouter/codex` after the panel is already visible; the parent
-        // event then triggers a refresh and this method re-arms on codex.
+        // Watch the nearest existing narrow parent. If the state tree has not
+        // been created yet, skip the watcher rather than observing the whole
+        // home directory; panel/activation boundaries still perform an
+        // authoritative read and can arm this watcher once setup creates it.
         let registryDirectory: URL
         if FileManager.default.fileExists(atPath: codexDirectory.path) {
             registryDirectory = codexDirectory
         } else if FileManager.default.fileExists(atPath: subrouterDirectory.path) {
             registryDirectory = subrouterDirectory
         } else {
-            registryDirectory = homeDirectory
+            return
         }
         let descriptor = open(registryDirectory.path, O_EVTONLY)
         guard descriptor >= 0 else { return }
@@ -203,12 +206,7 @@ final class SubrouterAppRuntime {
         )
         source.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.refreshServerSelectionAndApply()
-                // An atomic replace can invalidate the watched directory;
-                // re-arm against the current path after every event.
-                self.stopServerRegistryWatch()
-                self.startServerRegistryWatchIfNeeded()
+                self?.scheduleServerRegistryRefreshFromWatch()
             }
         }
         source.setCancelHandler {
@@ -216,6 +214,34 @@ final class SubrouterAppRuntime {
         }
         serverRegistryWatch = source
         source.resume()
+    }
+
+    /// Coalesces a burst of vnode events into one registry read and, at most,
+    /// one follow-up for an event that arrived while that read was in flight.
+    private func scheduleServerRegistryRefreshFromWatch() {
+        guard serverRegistryWatchRefreshTask == nil else {
+            serverRegistryWatchRefreshPending = true
+            return
+        }
+        serverRegistryWatchRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshServerSelectionAndApply()
+            // An atomic replace can invalidate the watched directory; re-arm
+            // against the current narrow path after the read settles.
+            self.stopServerRegistryWatch()
+            self.serverRegistryWatchRefreshTask = nil
+            let shouldRemainVisible = self.appIsActive
+                && (self.agentsPanelVisibleCount > 0 || self.footerVisibleCount > 0)
+            guard shouldRemainVisible else {
+                self.serverRegistryWatchRefreshPending = false
+                return
+            }
+            self.startServerRegistryWatchIfNeeded()
+            if self.serverRegistryWatchRefreshPending {
+                self.serverRegistryWatchRefreshPending = false
+                self.scheduleServerRegistryRefreshFromWatch()
+            }
+        }
     }
 
     private func stopServerRegistryWatch() {

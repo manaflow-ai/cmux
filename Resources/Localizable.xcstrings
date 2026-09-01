@@ -151790,13 +151790,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|agents|cloud|machines|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|agents|cloud|machines|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -267170,6 +267170,68 @@
         }
       }
     },
+    "cli.subrouter.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Usage: cmux subrouter [setup|status|accounts|usage|switch|sessions|reload] [--json]\n\n  cmux subrouter\n      First-run welcome: installs the sr CLI if missing, starts the\n      configured daemon, and shows how to add accounts. Safe to re-run.\n\nInspect and switch the AI-agent accounts managed by the configured\nsubrouter daemon (local or remote). Requires the subrouter integration to\nbe enabled in Settings.\n\n  cmux subrouter status [--json]\n      Daemon reachability, endpoint, account/session counts.\n\n  cmux subrouter accounts [--json]\n      Configured accounts per provider with active/auth state.\n\n  cmux subrouter usage [--json]\n      Accounts with live quota windows and reset times.\n\n  cmux subrouter switch <codex|claude> <account> [--json]\n      Switch the provider's active account via the sr CLI.\n\n  cmux subrouter sessions [--json]\n      Live agent-session to account pinning.\n\n  cmux subrouter reload [--json]\n      Ask the daemon to hot-reload its on-disk account store.\n\nExamples:\n  cmux subrouter usage\n  cmux subrouter switch codex dev@example.com\n  cmux subrouter switch claude work"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "使用法: cmux subrouter [setup|status|accounts|usage|switch|sessions|reload] [--json]\n\n  cmux subrouter\n      初回セットアップ: sr CLI がなければインストールし、デーモンを\n      起動してアカウント追加方法を表示します。何度でも実行できます。\n\n設定済み subrouter デーモン（ローカルまたはリモート）のアカウントを\n確認・切り替えます。設定で subrouter 連携を有効にしてください。\n\n  cmux subrouter status [--json]\n      デーモン接続状態、エンドポイント、アカウント/セッション数。\n\n  cmux subrouter accounts [--json]\n      プロバイダー別のアカウントと認証状態。\n\n  cmux subrouter usage [--json]\n      クォータ使用量とリセット時刻。\n\n  cmux subrouter switch <codex|claude> <account> [--json]\n      sr CLI でプロバイダーのアクティブアカウントを切り替えます。\n\n  cmux subrouter sessions [--json]\n      エージェントセッションとアカウントの割り当て。\n\n  cmux subrouter reload [--json]\n      デーモンにアカウントストアの再読み込みを依頼します。\n\n例:\n  cmux subrouter usage\n  cmux subrouter switch codex dev@example.com\n  cmux subrouter switch claude work"}}
+      }
+    },
+    "cli.subrouter.switchUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "subrouter switch requires a provider and an account.\n\n  cmux subrouter switch codex dev@example.com\n  cmux subrouter switch claude work"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "subrouter switch にはプロバイダーとアカウントが必要です。\n\n  cmux subrouter switch codex dev@example.com\n  cmux subrouter switch claude work"}}
+      }
+    },
+    "cli.subrouter.switched": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Switched %@ → %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "%@ を %@ に切り替えました"}}}},
+    "cli.subrouter.warning": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  warning: %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "  警告: %@"}}}},
+    "cli.subrouter.reloaded": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reloaded %lld account(s), %lld usage score(s) refreshed."}}, "ja": {"stringUnit": {"state": "translated", "value": "%lld 件のアカウントを再読み込みし、%lld 件の使用量を更新しました。"}}}},
+    "cli.subrouter.sessions.empty": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "No active agent sessions."}}, "ja": {"stringUnit": {"state": "translated", "value": "アクティブなエージェントセッションはありません。"}}}},
+    "cli.subrouter.sessions.row": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%@  %@  → %@  %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "%@  %@  → %@  %@"}}}},
+    "cli.subrouter.welcome.title": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "cmux ⨯ subrouter — route agents across subscription accounts"}}, "ja": {"stringUnit": {"state": "translated", "value": "cmux ⨯ subrouter — サブスクリプションのアカウント間でエージェントを振り分けます"}}}},
+    "cli.subrouter.welcome.installed": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "✓ sr CLI installed (%@)"}}, "ja": {"stringUnit": {"state": "translated", "value": "✓ sr CLI をインストールしました (%@)"}}}},
+    "cli.subrouter.welcome.disabled": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "✗ The cmux subrouter integration is disabled."}}, "ja": {"stringUnit": {"state": "translated", "value": "✗ cmux の subrouter 連携は無効です。"}}}},
+    "cli.subrouter.welcome.enableHint": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  Enable it in Settings → Agent Accounts, or set {\"subrouter\": {\"enabled\": true}} in ~/.config/cmux/cmux.json."}}, "ja": {"stringUnit": {"state": "translated", "value": "  設定 → Agent Accounts で有効にするか、~/.config/cmux/cmux.json に {\"subrouter\": {\"enabled\": true}} を設定してください。"}}}},
+    "cli.subrouter.welcome.starting": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Starting the local subrouter daemon…"}}, "ja": {"stringUnit": {"state": "translated", "value": "ローカル subrouter デーモンを起動しています…"}}}},
+    "cli.subrouter.welcome.installFailed": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  ✗ install-daemon failed; run `%@ install-daemon` manually."}}, "ja": {"stringUnit": {"state": "translated", "value": "  ✗ install-daemon に失敗しました。`%@ install-daemon` を手動で実行してください。"}}}},
+    "cli.subrouter.welcome.addAccounts": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Add your first accounts:"}}, "ja": {"stringUnit": {"state": "translated", "value": "最初のアカウントを追加:"}}}},
+    "cli.subrouter.welcome.manageAccounts": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Manage accounts:"}}, "ja": {"stringUnit": {"state": "translated", "value": "アカウントを管理:"}}}},
+    "cli.subrouter.welcome.import": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  sr import                    adopt your current ~/.codex login"}}, "ja": {"stringUnit": {"state": "translated", "value": "  sr import                    現在の ~/.codex ログインを取り込む"}}}},
+    "cli.subrouter.welcome.add": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  sr add                       add another Codex account (OAuth)"}}, "ja": {"stringUnit": {"state": "translated", "value": "  sr add                       Codex アカウントを追加 (OAuth)"}}}},
+    "cli.subrouter.welcome.interactive": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  sr                           interactive usage overview"}}, "ja": {"stringUnit": {"state": "translated", "value": "  sr                           使用状況のインタラクティブ表示"}}}},
+    "cli.subrouter.welcome.then": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Then, in cmux:"}}, "ja": {"stringUnit": {"state": "translated", "value": "次に cmux で:"}}}},
+    "cli.subrouter.welcome.live": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  Ctrl+7 (or the sidebar Subrouter tab)   live usage and switching"}}, "ja": {"stringUnit": {"state": "translated", "value": "  Ctrl+7 (またはサイドバーの Subrouter)   使用状況と切り替え"}}}},
+    "cli.subrouter.welcome.usage": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  cmux subrouter usage                    quota windows per account"}}, "ja": {"stringUnit": {"state": "translated", "value": "  cmux subrouter usage                    アカウントごとのクォータ"}}}},
+    "cli.subrouter.welcome.switch": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  cmux subrouter switch codex <email>     switch the active account"}}, "ja": {"stringUnit": {"state": "translated", "value": "  cmux subrouter switch codex <email>     アクティブなアカウントを切り替え"}}}},
+    "cli.subrouter.welcome.teamServer": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Team server? `sr server add <name> --url <url> --default` — cmux follows sr's selection automatically."}}, "ja": {"stringUnit": {"state": "translated", "value": "チームサーバー? `sr server add <name> --url <url> --default` — cmux は sr の選択に従います。"}}}},
+    "cli.subrouter.status.healthy": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Daemon:   healthy (%@)"}}, "ja": {"stringUnit": {"state": "translated", "value": "デーモン:   正常 (%@)"}}}},
+    "cli.subrouter.status.warning": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  warning: data refresh failed (%@)"}}, "ja": {"stringUnit": {"state": "translated", "value": "  警告: データ更新に失敗しました (%@)"}}}},
+    "cli.subrouter.status.unreachable": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Daemon:   unreachable (%@, %lld consecutive failure(s))"}}, "ja": {"stringUnit": {"state": "translated", "value": "デーモン:   到達不能 (%@、連続失敗 %lld 回)"}}}},
+    "cli.subrouter.status.error": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  error:  %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "  エラー:  %@"}}}},
+    "cli.subrouter.status.localHint": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  hint:   install or start it with: ~/bin/subrouter install-daemon"}}, "ja": {"stringUnit": {"state": "translated", "value": "  ヒント:   ~/bin/subrouter install-daemon でインストールまたは起動"}}}},
+    "cli.subrouter.status.remoteHint": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  hint:   check the configured remote server and retry"}}, "ja": {"stringUnit": {"state": "translated", "value": "  ヒント:   リモートサーバーを確認して再試行"}}}},
+    "cli.subrouter.status.state": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Daemon:   %@ (%@)"}}, "ja": {"stringUnit": {"state": "translated", "value": "デーモン:   %@ (%@)"}}}},
+    "cli.subrouter.status.accountsAttention": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Accounts: %lld (%lld need(s) attention)"}}, "ja": {"stringUnit": {"state": "translated", "value": "アカウント: %lld (要確認 %lld)"}}}},
+    "cli.subrouter.status.accounts": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Accounts: %lld"}}, "ja": {"stringUnit": {"state": "translated", "value": "アカウント: %lld"}}}},
+    "cli.subrouter.status.sessions": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Sessions: %lld"}}, "ja": {"stringUnit": {"state": "translated", "value": "セッション: %lld"}}}},
+    "cli.subrouter.status.updated": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Updated:  %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "更新:  %@"}}}},
+    "cli.subrouter.accounts.empty": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "No accounts configured. Add accounts with the sr CLI."}}, "ja": {"stringUnit": {"state": "translated", "value": "アカウントが設定されていません。sr CLI で追加してください。"}}}},
+    "cli.subrouter.account.error": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "      error: %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "      エラー: %@"}}}},
+    "cli.subrouter.account.reset": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": ", resets in %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "、%@ 後にリセット"}}}},
+    "cli.subrouter.account.row": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "  %@%@%@"}}, "ja": {"stringUnit": {"state": "translated", "value": "  %@%@%@"}}}},
+    "cli.subrouter.account.window": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "      %@: %lld%% used"}}, "ja": {"stringUnit": {"state": "translated", "value": "      %@: 使用 %lld%%"}}}},
+    "cli.subrouter.account.provider": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%@:"}}, "ja": {"stringUnit": {"state": "translated", "value": "%@:"}}}},
+    "cli.subrouter.account.credits": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "      credits: %@"}}, "ja": {"stringUnit": {"state": "translated", "value": "      クレジット: %@"}}}},
+    "cli.subrouter.flag.active": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "ACTIVE"}}, "ja": {"stringUnit": {"state": "translated", "value": "使用中"}}}},
+    "cli.subrouter.flag.cooked": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "COOKED"}}, "ja": {"stringUnit": {"state": "translated", "value": "使い切り"}}}},
+    "cli.subrouter.flag.cooling": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "COOLING"}}, "ja": {"stringUnit": {"state": "translated", "value": "冷却中"}}}},
+    "cli.subrouter.flag.authExpired": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "AUTH-EXPIRED"}}, "ja": {"stringUnit": {"state": "translated", "value": "認証期限切れ"}}}},
+    "cli.subrouter.duration.now": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "now"}}, "ja": {"stringUnit": {"state": "translated", "value": "今"}}}},
+    "cli.subrouter.duration.day": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%lldd"}}, "ja": {"stringUnit": {"state": "translated", "value": "%lld日"}}}},
+    "cli.subrouter.duration.hour": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%lldh"}}, "ja": {"stringUnit": {"state": "translated", "value": "%lld時間"}}}},
+    "cli.subrouter.duration.minute": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "%lldm"}}, "ja": {"stringUnit": {"state": "translated", "value": "%lld分"}}}},
+    "cli.subrouter.duration.lessMinute": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "<1m"}}, "ja": {"stringUnit": {"state": "translated", "value": "<1分"}}}},
     "featureFlags.subrouter.description": {
       "extractionState": "manual",
       "localizations": {
@@ -268095,13 +268157,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leave empty for the default, http://127.0.0.1:31415."
+            "value": "Leave empty to follow the selected sr server; without one, cmux uses http://127.0.0.1:31415."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "空欄の場合はデフォルトの http://127.0.0.1:31415 を使用します。"
+            "value": "空欄の場合は sr server use で選択したサーバーに従い、選択がなければ http://127.0.0.1:31415 を使用します。"
           }
         }
       }

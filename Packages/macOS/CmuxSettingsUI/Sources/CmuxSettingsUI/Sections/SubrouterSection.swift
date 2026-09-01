@@ -93,7 +93,7 @@ public struct SubrouterSection: View {
             configurationReview: .json("subrouter.endpoint"),
             searchAnchorID: "setting:subrouter:endpoint",
             String(localized: "settings.subrouter.endpoint", defaultValue: "Daemon Endpoint"),
-            subtitle: String(localized: "settings.subrouter.endpoint.subtitle", defaultValue: "Leave empty for the default, http://127.0.0.1:31415.")
+            subtitle: String(localized: "settings.subrouter.endpoint.subtitle", defaultValue: "Leave empty to follow the selected sr server; without one, cmux uses http://127.0.0.1:31415.")
         ) {
             TextField(
                 String(localized: "settings.subrouter.endpoint.placeholder", defaultValue: "e.g. 127.0.0.1:31415"),

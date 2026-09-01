@@ -15,6 +15,7 @@ public struct SubrouterAccountSwitcherPopoverView: View {
 
     public var body: some View {
         let snapshot = store.snapshot
+        let accountsByProvider = Dictionary(grouping: snapshot.usageStatuses, by: \.provider)
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "subrouter.popover.title", defaultValue: "Agent Accounts"))
                 .font(.system(size: 11, weight: .semibold))
@@ -33,7 +34,7 @@ public struct SubrouterAccountSwitcherPopoverView: View {
                     .foregroundStyle(.orange)
             }
             ForEach(snapshot.providers, id: \.rawValue) { provider in
-                providerPicker(provider: provider, snapshot: snapshot)
+                providerPicker(provider: provider, accounts: accountsByProvider[provider] ?? [])
             }
             if snapshot.daemonState.isHealthy && snapshot.usageStatuses.isEmpty {
                 Text(String(
@@ -49,8 +50,10 @@ public struct SubrouterAccountSwitcherPopoverView: View {
     }
 
     @ViewBuilder
-    private func providerPicker(provider: SubrouterProvider, snapshot: SubrouterSnapshot) -> some View {
-        let accounts = snapshot.accounts(for: provider)
+    private func providerPicker(
+        provider: SubrouterProvider,
+        accounts: [SubrouterAccountUsageStatus]
+    ) -> some View {
         // The popover is the quick-switch surface: signed-out accounts are
         // not useful switch targets, so only the active account and healthy
         // candidates appear here. The Agents panel keeps the full list.

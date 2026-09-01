@@ -45,6 +45,7 @@ public struct AgentsPanelView: View {
         let snapshot = store.snapshot
         let configuration = store.configuration
         let accountTarget = configuration.accountTarget
+        let accountsByProvider = Dictionary(grouping: snapshot.usageStatuses, by: \.provider)
         ScrollView {
             // Sections sit flat on the panel (no card boxes), so the gap
             // between providers is the only separator — keep it generous.
@@ -70,7 +71,7 @@ public struct AgentsPanelView: View {
                 ForEach(snapshot.sectionProviders, id: \.rawValue) { provider in
                     SubrouterProviderSectionView(
                         provider: provider,
-                        accounts: snapshot.accounts(for: provider),
+                        accounts: accountsByProvider[provider] ?? [],
                         pendingSwitch: store.pendingSwitch,
                         actionsForAccount: { account in
                             rowActions(

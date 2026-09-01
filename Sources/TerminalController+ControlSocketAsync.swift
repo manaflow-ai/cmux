@@ -1,10 +1,137 @@
 import CmuxControlSocket
 import Foundation
+import os
 
 /// Async socket-dispatch helpers kept separate from the legacy synchronous
 /// dispatcher. Socket connections use these methods; in-process callers retain
 /// the synchronous `handleSocketLine` contract.
+
+/// Owns the one-shot continuation and the two unstructured tasks used by an
+/// async socket deadline. The lock is deliberately limited to the synchronous
+/// exactly-once handoff; no mutable domain state is held across an `await`.
+private final class V2AsyncResultWaiter: @unchecked Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<String, Never>?
+        var pendingResponse: String?
+        var operationTask: Task<Void, Never>?
+        var timeoutTask: Task<Void, Never>?
+        var isFinished = false
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func start(
+        continuation: CheckedContinuation<String, Never>,
+        operation: @escaping @Sendable () async -> String,
+        timeoutNanoseconds: UInt64,
+        timeoutResponse: String
+    ) {
+        var responseIfAlreadyFinished: String?
+        state.withLock { state in
+            if state.isFinished {
+                responseIfAlreadyFinished = state.pendingResponse
+                state.pendingResponse = nil
+            } else {
+                state.continuation = continuation
+            }
+        }
+        if let responseIfAlreadyFinished {
+            continuation.resume(returning: responseIfAlreadyFinished)
+            return
+        }
+
+        let operationTask = Task { [weak self] in
+            let response = await operation()
+            self?.finish(response)
+        }
+        let timeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+            } catch {
+                return
+            }
+            self?.finish(timeoutResponse)
+        }
+        state.withLock { state in
+            if state.isFinished {
+                operationTask.cancel()
+                timeoutTask.cancel()
+            } else {
+                state.operationTask = operationTask
+                state.timeoutTask = timeoutTask
+            }
+        }
+    }
+
+    func finish(_ response: String) {
+        var continuation: CheckedContinuation<String, Never>?
+        var operationTask: Task<Void, Never>?
+        var timeoutTask: Task<Void, Never>?
+        state.withLock { state in
+            guard !state.isFinished else { return }
+            state.isFinished = true
+            continuation = state.continuation
+            state.continuation = nil
+            state.pendingResponse = continuation == nil ? response : nil
+            operationTask = state.operationTask
+            timeoutTask = state.timeoutTask
+            state.operationTask = nil
+            state.timeoutTask = nil
+        }
+        operationTask?.cancel()
+        timeoutTask?.cancel()
+        continuation?.resume(returning: response)
+    }
+}
+
 extension TerminalController {
+    /// Runs one long-lived worker operation without blocking a socket
+    /// connection thread on a semaphore. The operation and deadline run as
+    /// cancellable unstructured tasks; the one-shot waiter returns at the
+    /// deadline even if a legacy worker ignores cancellation.
+    nonisolated func v2AsyncResultCallAsync(
+        id: Any?,
+        timeoutSeconds: TimeInterval,
+        _ work: @escaping @Sendable () async -> String
+    ) async -> String {
+        let safeTimeout: TimeInterval
+        if timeoutSeconds.isNaN || timeoutSeconds <= 0 {
+            safeTimeout = 0
+        } else if timeoutSeconds.isFinite {
+            // Cap at whole seconds representable by UInt64 nanoseconds; using
+            // the floored integer avoids a Double-rounding overflow at max.
+            let maximumTimeoutSeconds = Double(UInt64.max / 1_000_000_000)
+            safeTimeout = min(timeoutSeconds, maximumTimeoutSeconds)
+        } else {
+            safeTimeout = Double(UInt64.max / 1_000_000_000)
+        }
+        let timeoutNanoseconds = UInt64(safeTimeout * 1_000_000_000)
+        let displayTimeoutSeconds = Int(min(safeTimeout, Double(Int.max)))
+        let timeoutResponse = v2Error(
+            id: id,
+            code: "timeout",
+            message: "Request timed out after \(displayTimeoutSeconds) seconds"
+        )
+        let cancelledResponse = v2Error(
+            id: id,
+            code: "cancelled",
+            message: "Request was cancelled"
+        )
+        let waiter = V2AsyncResultWaiter()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                waiter.start(
+                    continuation: continuation,
+                    operation: work,
+                    timeoutNanoseconds: timeoutNanoseconds,
+                    timeoutResponse: timeoutResponse
+                )
+            }
+        }, onCancel: {
+            waiter.finish(cancelledResponse)
+        })
+    }
+
     /// Processes one authenticated socket line without synchronously waiting
     /// for the main actor. The returned authorization value is connection
     /// local and must be fed into the next line in FIFO order.
@@ -180,6 +307,18 @@ extension TerminalController {
                 )
             }
             return response
+        }
+
+        if request.method.hasPrefix("subrouter.") {
+            // Subrouter status/accounts/usage/sessions/switch/reload all
+            // await network or subprocess work. Keep them on this async
+            // connection task instead of falling through to the legacy
+            // semaphore-backed synchronous worker response.
+            return await socketWorkerSubrouterResponseAsync(
+                method: request.method,
+                id: request.id,
+                params: request.params
+            )
         }
 
         return socketWorkerV2Response(handling: request)

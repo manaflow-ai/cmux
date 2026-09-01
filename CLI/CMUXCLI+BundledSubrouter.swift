@@ -263,17 +263,6 @@ extension CMUXCLI {
             .resolvingSymlinksInPath().path
         let managedRoot = Self.bundledSubrouterInstallRoot
             .resolvingSymlinksInPath().path
-        let homeBin = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("bin", isDirectory: true)
-            .resolvingSymlinksInPath().path
-        if FileManager.default.fileExists(atPath: Self.bundledSubrouterManagedMarker.path),
-           resolved.hasPrefix(homeBin + "/"),
-           let refreshed = Self.extractedSubrouterBinary(persona: "sr") {
-            // `sr install-daemon` may replace the managed `subrouter` link
-            // with a regular file while leaving the marker. Prefer the fresh
-            // app extraction for that known managed installation.
-            return refreshed
-        }
         if target == managedDir || target.hasPrefix(managedDir + "/") {
             // Best-effort: a failed refresh leaves the previous (still
             // executable) extraction in place.

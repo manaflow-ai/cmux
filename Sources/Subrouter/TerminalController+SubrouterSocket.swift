@@ -93,6 +93,74 @@ extension TerminalController {
         }
     }
 
+    /// Async socket counterpart for Subrouter verbs. Socket connections use
+    /// this path so long daemon/`sr` work suspends the connection task instead
+    /// of parking a worker thread in ``v2AsyncResultCall``.
+    nonisolated func socketWorkerSubrouterResponseAsync(
+        method: String,
+        id: JSONValue?,
+        params: [String: JSONValue]
+    ) async -> String {
+        await v2AsyncResultCallAsync(
+            id: id?.foundationObject,
+            timeoutSeconds: Self.subrouterDataResponseTimeoutSeconds
+        ) {
+            let foundationParams = params.mapValues(\.foundationObject)
+            let result = await Self.subrouterAsyncResult(method: method, params: foundationParams)
+            return Self.v2EncodedResult(id: id, result)
+        }
+    }
+
+    private nonisolated static func subrouterAsyncResult(
+        method: String,
+        params: [String: Any]
+    ) async -> TerminalController.V2CallResult {
+        switch method {
+        case "subrouter.status":
+            if params["refresh"] as? Bool == false {
+                return await Self.subrouterGateResult()
+            }
+            if params["probe"] as? String == "health" {
+                return await Self.subrouterHealthProbeResult()
+            }
+            let result = await Self.subrouterRefreshResult(requiresHealthyDaemon: false) { snapshot, configuration in
+                var payload = Self.subrouterStatusPayload(snapshot: snapshot)
+                payload["endpoint"] = configuration.endpoint.baseURL.absoluteString
+                payload["account_count"] = snapshot.usageStatuses.count
+                payload["attention_count"] = snapshot.attentionCount
+                payload["session_count"] = snapshot.sessions.count
+                return payload
+            }
+            return result
+        case "subrouter.accounts":
+            return await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
+                ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: false) }]
+            }
+        case "subrouter.usage":
+            return await Self.subrouterRefreshResult(requiresHealthyDaemon: true, includeSessions: false) { snapshot, _ in
+                ["accounts": snapshot.usageStatuses.map { Self.subrouterAccountPayload($0, includeWindows: true) }]
+            }
+        case "subrouter.sessions":
+            return await Self.subrouterRefreshResult(requiresHealthyDaemon: true) { snapshot, _ in
+                ["sessions": snapshot.sessions.map(Self.subrouterSessionPayload)]
+            }
+        case "subrouter.switch":
+            guard let providerRaw = Self.subrouterString(params["provider"]),
+                  let accountID = Self.subrouterString(params["account"]) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "subrouter.switch requires `provider` (codex|claude) and `account`.",
+                    data: nil
+                )
+            }
+            return await Self.subrouterSwitchResult(providerRaw: providerRaw, accountID: accountID)
+        case "subrouter.reload":
+            return await Self.subrouterReloadResult()
+        default:
+            return .err(code: "method_not_found", message: "Unknown method", data: nil)
+        }
+    }
+
     // MARK: - Store access
 
     /// Returns the effective integration gate without contacting the daemon.
