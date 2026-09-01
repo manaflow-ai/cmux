@@ -66,6 +66,8 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    /// Verifies cmux-managed shell integration leaves Ghostty's prompt cursor
+    /// feature disabled, preserving the user's configured cursor shape.
     func testCmuxShellIntegrationDoesNotEnableGhosttyPromptCursor() {
         guard let config = GhosttyApp.shared.config else {
             XCTFail("Expected loaded Ghostty config")
