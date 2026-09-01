@@ -25,6 +25,8 @@ final class AppCompositionRoot {
     /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
     /// `.iroh` route; nil when the legacy runtime is active.
     let irx: MobileIrxRuntimeComposition?
+    /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
+    let irxDiscovery: MobileIrxDiscoveryProvider?
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -87,6 +89,7 @@ final class AppCompositionRoot {
         auth: MobileAuthComposition,
         iroh: MobileIrohRuntimeComposition,
         irx: MobileIrxRuntimeComposition? = nil,
+        irxDiscovery: MobileIrxDiscoveryProvider? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -101,6 +104,7 @@ final class AppCompositionRoot {
         self.auth = auth
         self.iroh = iroh
         self.irx = irx
+        self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
@@ -221,6 +225,13 @@ final class AppCompositionRoot {
                             accessToken: accessToken,
                             refreshToken: refreshToken
                         )
+                    }
+                    if let irx {
+                        // Drop the device-list lease (memory, Keychain/file,
+                        // UI projection) with the account's other state.
+                        group.addTask {
+                            await irx.handleSignOut()
+                        }
                     }
                 }
                 await diagnosticLog.clear()

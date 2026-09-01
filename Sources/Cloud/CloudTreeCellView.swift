@@ -138,7 +138,9 @@ final class CloudTreeRowView: NSTableRowView {
         guard isSelected else { return }
         let insetRect = bounds.insetBy(dx: 6, dy: 1)
         let path = NSBezierPath(roundedRect: insetRect, xRadius: 4, yRadius: 4)
-        (isKeyboardFocusActive ? NSColor.controlAccentColor.withAlphaComponent(0.20) : NSColor.labelColor.withAlphaComponent(0.08)).setFill()
+        // Gray in both focus states (no accent blue); keyboard focus reads as a
+        // slightly stronger shade.
+        NSColor.labelColor.withAlphaComponent(isKeyboardFocusActive ? 0.12 : 0.07).setFill()
         path.fill()
     }
 
@@ -154,6 +156,8 @@ final class CloudTreeRowView: NSTableRowView {
     }
 
     override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        isSelected && isKeyboardFocusActive ? .emphasized : .normal
+        // The gray highlight keeps normal label colors; .emphasized would flip
+        // the text to white as if on an accent fill.
+        .normal
     }
 }

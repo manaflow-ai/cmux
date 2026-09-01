@@ -24,6 +24,7 @@ describe("Blaxel baked image template", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
       "WALLPAPER.md",
+      "agent-config.sh",
       "blaxel.toml",
       "chrome-managed-policy.json",
       "cmux-bashrc",
@@ -39,7 +40,7 @@ describe("Blaxel baked image template", () => {
   });
 
   test("every shell file parses (bash -n)", () => {
-    for (const name of ["entrypoint.sh", "start-vnc.sh", "cmux-bashrc"]) {
+    for (const name of ["entrypoint.sh", "start-vnc.sh", "cmux-bashrc", "agent-config.sh"]) {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
@@ -112,6 +113,27 @@ describe("Blaxel baked image template", () => {
     expect(read("seed-history")).toBe("claude --dangerously-skip-permissions\ncodex --yolo\n");
     expect(bashrc).toContain("source /usr/local/share/blesh/ble.sh --noattach");
     expect(bashrc).toContain("ble-attach");
+    // ble.sh tput caches are baked and seeded, so no pane ever opens on
+    // "ble/term.sh: updating tput cache ... done". Both cache homes are
+    // covered: <blesh>/cache.d/<uid> (what a shell uses while ~/.cache does
+    // not exist yet) bakes in the image; the XDG copy seeds per HOME from
+    // /etc/cmux/blesh-cache-seed. The runtime copy must NOT preserve seed
+    // mtimes (ble.sh loads the cache only when it is newer than
+    // lib/init-term.sh), so it is a plain cp -R.
+    expect(dockerfile).toContain("/etc/cmux/blesh-cache-seed");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
+    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/1000");
+    // The bake must prove every seeded TERM generated, not just the first two.
+    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
+      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
+    }
+    // Per-file seeding with the same freshness rule ble.sh applies, so durable
+    // homes from older images (stale or missing entries) reseed too.
+    expect(bashrc).toContain("/etc/cmux/blesh-cache-seed/blesh/*/term.*");
+    expect(bashrc).toContain('[ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]');
+    expect(bashrc.indexOf("blesh-cache-seed")).toBeLessThan(
+      bashrc.indexOf("source /usr/local/share/blesh/ble.sh"),
+    );
     // half-life prompt with the machine name kept (\h): machines are addressed by name.
     expect(bashrc).toContain("PS1='\\[\\e[38;5;135m\\]\\u@\\h");
     expect(dockerfile).toContain("echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf");
@@ -120,11 +142,68 @@ describe("Blaxel baked image template", () => {
     }
   });
 
+  test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
+    // User feedback 2026-08-31: any token highlighting (colored backgrounds
+    // under mistyped commands included) reads as noise. The bashrc turns the
+    // highlight layers off entirely and keeps only gray history ghost text.
+    expect(bashrc).toContain("bleopt highlight_syntax= highlight_filename= highlight_variable=");
+    const faceLines = bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"));
+    expect(faceLines).toEqual(["  ble-face auto_complete=fg=245"]);
+    for (const line of faceLines) {
+      expect(line).not.toContain("bg=");
+    }
+  });
+
+  test("agent config generator wires the coderouter model plane per HOME", () => {
+    const agentConfig = read("agent-config.sh");
+    // Sourced for login/exec shells and every interactive HOME.
+    expect(dockerfile).toContain(
+      "'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh",
+    );
+    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cua/.bashrc"]) {
+      expect(dockerfile).toContain(
+        `'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${target}`,
+      );
+    }
+    // Boot env is persisted on the durable home volume (Blaxel create-time
+    // envs are not replayed on resurrect) and re-sourced when absent.
+    expect(agentConfig).toContain('model-plane.env');
+    expect(agentConfig).toContain("umask 077");
+    expect(agentConfig).toContain('. "$HOME/.config/cmux/model-plane.env"');
+    // codex rides a custom provider on the /v1 Responses plane with env auth.
+    expect(agentConfig).toContain('model_provider = \\"cmux\\"');
+    expect(agentConfig).toContain('wire_api = \\"responses\\"');
+    expect(agentConfig).toContain('env_key = \\"OPENAI_API_KEY\\"');
+    // Write-if-missing keeps the user in control of their harness config.
+    expect(agentConfig).toContain('[ ! -e "$HOME/.codex/config.toml" ]');
+    // pi overrides the built-in openai-codex provider (its codex Responses
+    // dialect is what the plane proxies); the route token rides the
+    // x-coderouter-route-token header as a request-time env reference, so
+    // the file carries no secret and survives token rotation.
+    expect(agentConfig).toContain('"openai-codex"');
+    expect(agentConfig).toContain('"x-coderouter-route-token": "$OPENAI_API_KEY"');
+    expect(agentConfig).toContain('[ ! -e "$HOME/.pi/agent/models.json" ]');
+    // opencode fetches the live rewritten catalog from the coderouter config
+    // endpoint and de-tokenizes it to a runtime env reference.
+    expect(agentConfig).toContain("/api/coderouter/opencode/config");
+    expect(agentConfig).toContain("{env:OPENAI_API_KEY}");
+    expect(agentConfig).toContain('[ ! -e "$HOME/.config/opencode/opencode.json" ]');
+    // The Dockerfile proves generation under a throwaway HOME and proves the
+    // image ships no generated config for /root.
+    expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
+    expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
+    expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
+  });
+
   test("declares the Blaxel template with the ports cmux opens", () => {
     expect(toml).toContain('name = "cmux-devbox"');
     expect(toml).toContain('type = "sandbox"');
-    expect(toml).toContain("target = 7777");
     expect(toml).toContain("target = 6901");
+    // The cmuxd-era 7777 port is gone: cmux-tui (1337) is reached through
+    // driver-minted previews, which need no template port declaration.
+    expect(toml).not.toContain("7777");
+    expect(dockerfile).not.toContain("7777");
   });
 
   test("desktop polish: pre-accepted Chrome, CC0 wallpaper, no clock, dock order", () => {
@@ -163,6 +242,36 @@ describe("Blaxel baked image template", () => {
         "launcher_item_app = /etc/cmux/apps/ghostty-cmux.desktop",
       ].join("\n"),
     );
+  });
+
+  test("tint2rc defines every background before the line that references it", () => {
+    // tint2 resolves `*_background_id = N` while parsing, against the backgrounds
+    // defined ABOVE that line (id 0 is the built-in transparent one; each
+    // `rounded =` opens the next). A forward reference clamps to -1 and hands the
+    // panel a garbage Background (out-of-bounds g_array_index): garbage borders
+    // make the launcher's icon size negative, every scaled icon comes back NULL,
+    // and the whole dock paints nothing — the 2026-08-27 invisible-toolbar
+    // regression on real machines. Order is the contract, so pin it.
+    const lines = read("tint2rc").split("\n");
+    let backgrounds = 1;
+    for (const [index, raw] of lines.entries()) {
+      const line = raw.trim();
+      if (line.startsWith("rounded")) backgrounds += 1;
+      const ref = /^([a-z_]+_background_id)\s*=\s*(\d+)/.exec(line);
+      if (!ref) continue;
+      const id = Number(ref[2]);
+      if (id >= backgrounds) {
+        throw new Error(
+          `tint2rc line ${index + 1}: ${ref[1]} = ${id} references a background that is not defined yet (${backgrounds} known so far)`,
+        );
+      }
+    }
+    expect(backgrounds).toBeGreaterThan(1);
+    // Every launcher entry is a template file whose icon is a baked PNG.
+    for (const line of lines.filter((l) => l.startsWith("launcher_item_app"))) {
+      const file = path.basename(line.split("=")[1].trim());
+      expect(read(file)).toMatch(/^Icon=\/etc\/cmux\/icons\/[a-z-]+\.png$/m);
+    }
   });
 
   test("never installs docker (unsupported in Blaxel microVMs)", () => {
