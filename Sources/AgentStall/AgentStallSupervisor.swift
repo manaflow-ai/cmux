@@ -128,11 +128,28 @@ final class AgentStallSupervisor {
         }
         if let expectedTurnID = state.turnID {
             if lifecycle == .running {
-                // A new turn on the same managed process starts a fresh
-                // generation; handleRunningLifecycle will replace the state.
                 if let reportedTurnID = identity?.turnID, expectedTurnID == reportedTurnID {
+                    // A same-turn running callback is only valid while the
+                    // turn is still open, or while it acknowledges injected
+                    // retry input. It must not reopen an idle/error boundary.
+                    guard state.phase == .running || state.phase == .retrying else {
+                        Self.logger.debug(
+                            "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=committed-turn-reopened"
+                        )
+                        return false
+                    }
                     return true
                 }
+                if identity?.turnID == nil,
+                   state.phase != .running,
+                   state.phase != .retrying {
+                    Self.logger.debug(
+                        "event=lifecycle-rejected provider=\(provider, privacy: .public) panel=\(panelID, privacy: .public) reason=missing-new-turn"
+                    )
+                    return false
+                }
+                // A different turn id proves a new generation; the running
+                // handler below replaces the committed state.
             } else {
                 guard identity?.turnID == expectedTurnID else {
                     Self.logger.debug(

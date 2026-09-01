@@ -28493,7 +28493,7 @@ struct CMUXCLI {
         turnID: String? = nil,
         terminalLifecycleID: UUID? = nil
     ) {
-        guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
+        guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
             cliWriteStderr("Warning: unsupported agent lifecycle key\n")
             return
         }

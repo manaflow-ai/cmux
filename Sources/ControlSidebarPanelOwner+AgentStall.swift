@@ -177,9 +177,8 @@ extension ControlSidebarPanelOwner {
     ) -> [String] {
         let providerKey = provider == "claude" ? "claude_code" : provider
         if provider == "claude" {
-            // A PID report can race the binding publication. The panel-scoped
-            // fallback keeps that early report attributable without falling
-            // back to the workspace-global bare `claude_code` key.
+            // Keep recognizing a panel-scoped key written by an older
+            // migration while preferring the current session-scoped spelling.
             return [
                 "\(providerKey).\(checkpointID)",
                 "\(providerKey).panel.\(panelID.uuidString.lowercased())",

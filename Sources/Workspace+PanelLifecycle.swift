@@ -221,7 +221,10 @@ extension Workspace {
            !checkpointID.isEmpty {
             return "claude_code.\(checkpointID)"
         }
-        return "claude_code.panel.\(panelId.uuidString.lowercased())"
+        // Unbound/manual callers still rely on the historical status-key
+        // projection (`agentPIDs["claude_code"]`), so retain that spelling
+        // until a managed binding supplies a session identity.
+        return key
     }
 
     @discardableResult
@@ -334,12 +337,14 @@ extension Workspace {
     ) -> Bool {
         let scopedKey = scopedAgentPIDKey(key: key, panelId: panelId)
         var candidateKeys = [scopedKey]
-        if key == "claude_code", let panelId {
+        if key == "claude_code" {
             // Session teardown can clear the binding before issuing the legacy
             // bare-key command. Include every Claude-scoped key still owned by
-            // this panel, but never touch another panel's generation.
+            // the requested panel, or every owner for a workspace-scoped
+            // clear/status operation.
             candidateKeys.append(contentsOf: agentPIDPanelIdsByKey.compactMap { candidate, owner in
-                candidate.hasPrefix("claude_code.") && owner == panelId ? candidate : nil
+                guard candidate.hasPrefix("claude_code.") else { return nil }
+                return panelId == nil || owner == panelId ? candidate : nil
             })
             if scopedKey != key { candidateKeys.append(key) }
         }

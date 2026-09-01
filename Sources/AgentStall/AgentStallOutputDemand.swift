@@ -46,6 +46,10 @@ final class AgentStallOutputCaptureBuffer: @unchecked Sendable {
     // PTY chunk once the tail reaches capacity.
     private static let maximumBufferedBytes = maximumTailBytes * 2
     private let hasCaptureDemand = AtomicBooleanGate(false)
+    /// Advances at every capture handoff so a callback that observed the old
+    /// demand cannot append bytes after `finishCapture`/`beginCapture` swap in
+    /// the next turn's state.
+    private let captureGeneration = AtomicUInt64Generation()
     // A synchronous libghostty PTY callback cannot await an actor while it
     // borrows its byte buffer. This is the narrow callback-seam carve-out:
     // the lock protects only the bounded capture handoff, never supervisor
@@ -54,6 +58,7 @@ final class AgentStallOutputCaptureBuffer: @unchecked Sendable {
 
     func beginCapture(_ descriptor: AgentStallOutputDemandDescriptor) {
         lock.withLock { capture in
+            captureGeneration.advanceRelaxed()
             capture = CaptureState(descriptor: descriptor)
             // Publish the demand while the state lock is held. A callback that
             // observes `true` can therefore always find the descriptor; bytes
@@ -68,9 +73,12 @@ final class AgentStallOutputCaptureBuffer: @unchecked Sendable {
     func append(_ bytes: UnsafeBufferPointer<UInt8>) {
         guard hasCaptureDemand.loadAcquire() else { return }
         guard let baseAddress = bytes.baseAddress, bytes.count > 0 else { return }
+        let observedGeneration = captureGeneration.loadRelaxed()
         let chunk = SynchronousBytes(baseAddress: baseAddress, count: bytes.count)
         lock.withLock { state in
-            guard let capture = state else { return }
+            guard captureGeneration.loadRelaxed() == observedGeneration,
+                  hasCaptureDemand.loadAcquire(),
+                  let capture = state else { return }
             if chunk.count >= Self.maximumTailBytes {
                 capture.tail = Data(
                     bytes: chunk.baseAddress.advanced(by: chunk.count - Self.maximumTailBytes),
@@ -88,6 +96,7 @@ final class AgentStallOutputCaptureBuffer: @unchecked Sendable {
     /// Atomically removes and returns the tail for a proven prompt boundary.
     func finishCapture() -> AgentStallOutputCapture? {
         let result = lock.withLock { state -> AgentStallOutputCapture? in
+            captureGeneration.advanceRelaxed()
             guard let capture = state else {
                 hasCaptureDemand.storeRelease(false)
                 return nil
@@ -106,6 +115,7 @@ final class AgentStallOutputCaptureBuffer: @unchecked Sendable {
 
     func clearCapture() {
         lock.withLock {
+            captureGeneration.advanceRelaxed()
             $0 = nil
             hasCaptureDemand.storeRelease(false)
         }
