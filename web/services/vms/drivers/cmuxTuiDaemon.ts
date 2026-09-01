@@ -225,8 +225,11 @@ shift || true
 [ -n "\${CMUX_NATIVE_RELAY_TICKET_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_BOOTSTRAP_TOKEN:-}" ] || exit 78
 # Native helpers are installed only for relay mode. Do not fall back to an
 # unauthenticated public WebSocket listener when bootstrap configuration is
-# missing.
-set -- server start --session cloud "\$@"
+# missing. The legacy bind argument is accepted for supervisor API
+# compatibility, but native relay mode must never pass it to cmux-tui or open
+# a direct listener.
+[ "\$#" -eq 0 ] || exit 64
+set -- server start --session cloud
 [ -n "\${CMUX_NATIVE_RELAY_1_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_1_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_1_ID:-}" ] || exit 78
 [ -n "\${CMUX_NATIVE_RELAY_2_URL:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_2_SLOT:-}" ] && [ -n "\${CMUX_NATIVE_RELAY_2_ID:-}" ] || exit 78
 if [ -n "\${CMUX_NATIVE_RELAY_1_URL:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_1_SLOT:-}" ] || [ -n "\${CMUX_NATIVE_RELAY_1_ID:-}" ]; then

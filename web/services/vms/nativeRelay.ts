@@ -159,7 +159,7 @@ export function nativeRelayShardsForVm(
   return [config.shards[first]!, config.shards[second]!];
 }
 
-/** Build the secret-free values a provider gives to its daemon supervisor. */
+/** Build the provider bootstrap values for its daemon supervisor. */
 export function nativeRelayBootstrapForVm(
   vmId: string,
   config: NativeRelayConfig | null = readNativeRelayConfig(),

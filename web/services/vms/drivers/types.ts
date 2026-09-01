@@ -66,7 +66,7 @@ export type VMHandle = {
   providerMetadata?: Record<string, unknown>;
 };
 
-/** Non-secret configuration that lets a VM daemon refresh its relay ticket. */
+/** Provider bootstrap values that let a VM daemon refresh its relay ticket. */
 export type NativeRelayBootstrap = {
   readonly slot: string;
   readonly ticketUrl: string;
