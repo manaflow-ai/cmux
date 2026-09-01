@@ -1,4 +1,5 @@
 import Foundation
+import CmuxIrohTransport
 
 extension IrxBrokerService {
     /// Attributes an error to the broker operation that owns the call. The

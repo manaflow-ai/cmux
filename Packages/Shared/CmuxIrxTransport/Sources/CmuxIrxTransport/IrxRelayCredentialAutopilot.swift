@@ -32,6 +32,7 @@ public actor IrxRelayCredentialAutopilot {
     private var loopGeneration: UInt64 = 0
     /// Independent hint recovery never waits for the next credential mint.
     private var hintRetryTask: Task<Void, Never>?
+    private var hintRetryID: UUID?
     private var hintRetryGeneration: UInt64 = 0
     private var hintRetryFailureCount = 0
     /// Runs after every successful rotation. Hosts re-register here so their
@@ -212,20 +213,29 @@ public actor IrxRelayCredentialAutopilot {
         )
         hintRetryFailureCount = min(hintRetryFailureCount + 1, 20)
         let deadline = clock.now().addingTimeInterval(delay)
+        let retryID = UUID()
+        hintRetryID = retryID
         journal.record(
             "credential-autopilot", "hint-retry-scheduled",
             ["retry_delay_s": String(Int(delay.rounded()))]
         )
         hintRetryTask = Task {
+            defer {
+                self.clearHintRetryIfCurrent(id: retryID, generation: generation)
+            }
             do {
                 try await clock.sleep(until: deadline)
             } catch {
                 return
             }
             guard !Task.isCancelled,
-                  self.hintRetryGeneration == generation else { return }
+                  self.hintRetryGeneration == generation,
+                  self.hintRetryID == retryID else { return }
             let outcome = await self.refreshHint()
+            guard self.hintRetryGeneration == generation,
+                  self.hintRetryID == retryID else { return }
             self.hintRetryTask = nil
+            self.hintRetryID = nil
             switch outcome {
             case .succeeded:
                 self.hintRetryFailureCount = 0
@@ -241,7 +251,14 @@ public actor IrxRelayCredentialAutopilot {
         hintRetryGeneration &+= 1
         hintRetryTask?.cancel()
         hintRetryTask = nil
+        hintRetryID = nil
         hintRetryFailureCount = 0
+    }
+
+    private func clearHintRetryIfCurrent(id: UUID, generation: UInt64) {
+        guard hintRetryID == id, hintRetryGeneration == generation else { return }
+        hintRetryTask = nil
+        hintRetryID = nil
     }
 
     /// Retries a failed hint registration without minting another credential.

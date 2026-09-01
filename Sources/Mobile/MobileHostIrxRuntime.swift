@@ -77,7 +77,11 @@ final class MobileHostIrxRuntime {
         retrySchedule: CmxIrohRetrySchedule(
             initialDelay: 30,
             maximumDelay: 300
-        )
+        ),
+        // Registration/discovery can briefly observe the broker's old token
+        // during propagation; match the renewal lane's four-attempt window
+        // before presenting a definitive sign-in prompt.
+        postRecoveryUnauthorizedFailureLimit: 4
     )
     /// Relay credentials expire in minutes, so renewal uses the foreground
     /// ladder rather than the deliberately slower activation ladder. Keeping
