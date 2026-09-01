@@ -159,20 +159,6 @@ jobs:
           echo "Languages: $SNAPSHOT_LANGUAGES"
           fastlane screenshots
 
-      - name: Debug snapshot capture plumbing
-        if: ${{ always() }}
-        run: |
-          echo "== tools.fastlane cache =="
-          ls -la ~/Library/Caches/tools.fastlane/ 2>/dev/null || echo "no cache dir"
-          find ~/Library/Caches/tools.fastlane -name '*.png' 2>/dev/null | head -20
-          echo "== helper diagnostics from the xcodebuild log =="
-          grep -aiE 'Problem writing|CacheDirectory is not set|snapshot: [0-9]|SIMULATOR_HOST_HOME|Couldn.t detect' \
-            ~/Library/Logs/snapshot/*.log 2>/dev/null | tail -40 || echo "no matches"
-          echo "== last lines of the snapshot xcodebuild log =="
-          tail -60 ~/Library/Logs/snapshot/cmux-cmux-ios.log 2>/dev/null || echo "no log"
-          echo "== screenshots output dir =="
-          find ios/fastlane/screenshots -type f 2>/dev/null | head -20 || true
-
       - name: Stage raw screenshot captures
         if: ${{ always() }}
         run: |
