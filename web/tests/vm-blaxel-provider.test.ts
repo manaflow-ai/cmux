@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   BlaxelProvider,
   DESKTOP_VNC_HEAL_COMMAND,
@@ -479,7 +480,11 @@ describe("cloud work user setup", () => {
     // uid 1001 keeps volume ownership stable across image generations; busybox
     // adduser is the Alpine fallback; reruns are no-ops thanks to the id guard.
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("id -u cmux >/dev/null 2>&1 || useradd -m -u 1001 -s /bin/bash cmux");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("adduser -D -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("|| adduser -D -u 1001 -s /bin/bash cmux");
+    // Every fallback keeps the same uid; an auto-assigned uid would break the
+    // persistent-volume identity contract on older Alpine images.
+    expect((CMUX_CLOUD_USER_SETUP_COMMAND.match(/\b-u 1001\b/g) ?? [])).toHaveLength(4);
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain('[ "$(id -u cmux 2>/dev/null || echo -1)" = "1001" ] || exit 1');
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
     // Alpine has no runuser in busybox; without it the daemon would silently run root.
@@ -506,11 +511,10 @@ describe("cloud work user setup", () => {
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
   });
 
-  test("sudo heal covers stamped images baked before the sudo package, and only those", () => {
-    // Exactly one process owns package installs per machine: unstamped images get
-    // sudo from the provision script's own apt/apk list; a second concurrent apt
-    // here would race it for the dpkg lock and silently lose.
-    expect(CMUX_SUDO_INSTALL_COMMAND.startsWith("[ -f /etc/cmux/image-stamp ] || exit 0; ")).toBe(true);
+  test("sudo heal covers stock and stamped images before the daemon starts", () => {
+    // The bounded heal runs synchronously for every image, including stock images
+    // with no image stamp, so the daemon never starts before sudo is available.
+    expect(CMUX_SUDO_INSTALL_COMMAND).not.toContain("image-stamp");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("command -v sudo >/dev/null 2>&1");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apt-get install -y -qq --no-install-recommends sudo");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apk add --no-cache sudo");
@@ -518,6 +522,16 @@ describe("cloud work user setup", () => {
     // next bootstrap or daemon restart retries automatically.
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("sudo-install-failed");
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("exit 1");
+  });
+
+  test("handles sudo heal failures without hiding the readiness decision", () => {
+    const driver = readFileSync(
+      path.join(import.meta.dirname, "../services/vms/drivers/blaxel.ts"),
+      "utf8",
+    );
+    expect(driver).toContain("private async healSudo");
+    expect(driver).toContain("sudo heal request failed");
+    expect(driver).not.toContain("CMUX_SUDO_INSTALL_COMMAND, CMUX_SUDO_INSTALL_TIMEOUT_MS).catch(() => undefined)");
   });
 
   test("user-facing exec runs as the work user, root only via legacy volume, missing view, or sudo", () => {

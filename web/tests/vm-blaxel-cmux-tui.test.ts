@@ -113,7 +113,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Volume mounted but the identity view missing (bindfs failed): home on the
     // persistent backing path as root, never the writable-but-disposable rootfs dir.
     expect(command).toContain("elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then ");
-    expect(command).toContain("cd /cmux/home && exec env HOME=/cmux/home TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("cd /cmux/home && exec env HOME=/cmux/home TERM=xterm-256color /cmux/home/.cmux/bin/cmux-tui server start");
     // No user, no runuser, or an unusable home (bindfs view missing over the
     // root-squashing volume): fall back to root instead of crash-looping.
     expect(command).toContain(
@@ -122,6 +122,17 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
     // Both root fallbacks leave a breadcrumb so the degraded state is findable.
     expect(command.split("/etc/cmux/root-session-fallback").length - 1).toBe(2);
+  });
+
+  test("selects the persistent binary for layout installs", () => {
+    const command = cmuxTuiInstallCommand(
+      { url: URL, sha256: SHA, commit: COMMIT, builtAt: null },
+      CMUX_CLOUD_LAYOUT,
+    );
+    expect(command).toContain("mountpoint -q '/cmux/home'");
+    expect(command).toContain("CMUX_TUI_HOME='/cmux/home'");
+    expect(command).toContain('CMUX_TUI_BIN=\"$CMUX_TUI_HOME/.cmux/bin/cmux-tui\"');
+    expect(command).toContain('CMUX_TUI_TMP=\"$CMUX_TUI_BIN.tmp\"');
   });
 });
 
