@@ -612,7 +612,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         // may then look unchanged and skip the refresh. Re-read against the
         // newer fingerprint first, preserving the latest on-disk content.
         let postReadFileState = FilePreviewFileState.capture(path: filePath)
-        guard postReadFileState == requestedFileState else {
+        if postReadFileState != requestedFileState {
             if staleReadRetryCount < maximumStaleReadRetries {
                 staleReadRetryCount += 1
                 _ = loadFileContent(
