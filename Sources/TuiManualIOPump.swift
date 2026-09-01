@@ -880,7 +880,8 @@ func splitTuiManualIOStderrLines(_ data: Data) -> (completeLines: [Data], remain
         completeLines.append(Data(data[lineStart..<index]))
         lineStart = data.index(after: index)
     }
-    return (completeLines, Data(data[lineStart...]))
+    let remainder = lineStart == data.startIndex ? data : Data(data[lineStart...])
+    return (completeLines, remainder)
 }
 
 /// Lock-guarded stderr accumulator: the relay prints its machine-readable
