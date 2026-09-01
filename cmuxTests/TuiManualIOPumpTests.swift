@@ -258,6 +258,40 @@ struct TuiManualIOPumpTests {
         #expect(text == "a\nb\n\(claim)c\nd\n")
     }
 
+    @Test
+    func stderrLineSplitterKeepsCompleteLinesAndTrailingPartialData() {
+        let data = Data("first\nsecond\npartial".utf8)
+        let split = TuiManualIOStderrStream.splitLines(data)
+
+        #expect(split.completeLines == [Data("first".utf8), Data("second".utf8)])
+        #expect(split.remainder == Data("partial".utf8))
+    }
+
+    @Test
+    func stderrResizeAckRequiresTheStructuredDiagObject() {
+        #expect(
+            TuiManualIOStderrStream.isResizeDiagLine(
+                Data(#"{"diag":{"resize":{"cols":80,"rows":24,"accepted":true}}}"#.utf8)
+            )
+        )
+        // Human-readable diagnostics can contain both words without being an
+        // acknowledgement. They must not release the resize backpressure.
+        #expect(
+            !TuiManualIOStderrStream.isResizeDiagLine(
+                Data("resize diag failed: retrying".utf8)
+            )
+        )
+    }
+
+    @Test
+    func stderrAccumulatorCanAppendAndReadTheTail() {
+        let box = TuiManualIOStderrBox()
+        box.append(Data("first\n".utf8))
+        box.append(Data("exit\n".utf8))
+
+        #expect(box.text() == "first\nexit\n")
+    }
+
     // MARK: - Registry
 
     @MainActor
