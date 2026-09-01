@@ -22690,6 +22690,12 @@ impl App {
         if !was_select {
             return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
+        if !semantic_select && !selection_dragged {
+            // A click without motion is not a selection. Clear the provisional
+            // cell anchor created on press, including any prior selection.
+            self.replace_selection(None);
+            return Ok(RenderAction::Draw);
+        }
         match self.selection {
             Some(sel) if sel.anchor != sel.head || semantic_select => {
                 self.copy_selection(sel);
