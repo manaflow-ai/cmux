@@ -63,7 +63,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// older response can never publish over a newer one.
     @discardableResult
     func refresh(force: Bool) async -> Bool {
-        if let inFlight = refreshInFlight {
+        // Loop, not `if`: two forced callers woken by the same finishing pass must not
+        // both start a task — the second one sees the first one's task here and waits.
+        while let inFlight = refreshInFlight {
             let listed = await inFlight.value
             if !force { return listed }
         }
@@ -178,7 +180,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             case .badURL(let url):
                 return "The control plane returned an unusable URL: \(url)"
             case .snapshotUnreadable(let id):
-                return "\(id)'s cmux-tui session did not return a readable snapshot; retry in a moment."
+                return String(format: String(localized: "cloud.provider.snapshotUnreadable", defaultValue: "%@'s cmux-tui session did not return a readable snapshot; retry in a moment."), id)
             }
         }
     }
