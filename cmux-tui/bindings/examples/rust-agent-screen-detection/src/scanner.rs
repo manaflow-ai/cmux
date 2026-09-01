@@ -682,7 +682,7 @@ mod tests {
             checked_at,
             stream_revision,
             identified,
-            acquisition_started_at: identified.then_some(checked_at),
+            acquisition_started_at: None,
         }
     }
 
@@ -708,7 +708,7 @@ mod tests {
             job: process_discovery::ForegroundJob { process_group_id: 42, processes: Vec::new() },
             authoritative: true,
             identified,
-            acquisition_started_at: identified.then_some(checked_at),
+            acquisition_started_at: None,
         }
     }
 
