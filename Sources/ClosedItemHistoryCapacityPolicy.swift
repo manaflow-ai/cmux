@@ -5,22 +5,32 @@ struct ClosedItemHistoryCapacityPolicy {
     let totalCapacity: Int?
     let workspaceCapacity: Int?
 
+    private struct RecencyKey {
+        let id: UUID
+        let closedAt: Date
+        let insertionIndex: Int
+    }
+
+    /// Creates independent total-history and workspace-history bounds.
     init(totalCapacity: Int?, workspaceCapacity: Int?) {
         self.totalCapacity = totalCapacity.map { max(1, $0) }
         self.workspaceCapacity = workspaceCapacity.map { max(1, $0) }
     }
 
+    /// Returns records that survive both bounds while preserving recency order.
     func trimming(
         _ records: [ClosedItemHistoryRecord],
         preserving protectedRecordId: UUID? = nil
     ) -> [ClosedItemHistoryRecord] {
         var result = records
+        let previousCount = result.count
         trimTotalCapacity(in: &result, preserving: protectedRecordId)
         trimWorkspaceCapacity(in: &result, preserving: protectedRecordId)
-        if result.count != records.count {
+        if totalCapacity != nil, result.count != previousCount {
             // The eviction rules use closedAt as the recency source of truth.
             // Keep the retained array in that same order because menuSnapshot()
-            // presents it by reversing the stored sequence.
+            // presents it by reversing the stored sequence. A total capacity
+            // bounds this ordering work even when an older file is loaded.
             result = result.enumerated()
                 .sorted { lhs, rhs in
                     if lhs.element.closedAt != rhs.element.closedAt {
@@ -52,18 +62,12 @@ struct ClosedItemHistoryCapacityPolicy {
         preserving protectedRecordId: UUID?
     ) {
         guard let totalCapacity, records.count > totalCapacity else { return }
-        let overflow = records.count - totalCapacity
-        let removalIds = Set(records.enumerated()
-            .filter { $0.element.id != protectedRecordId }
-            .sorted { lhs, rhs in
-                if lhs.element.closedAt != rhs.element.closedAt {
-                    return lhs.element.closedAt < rhs.element.closedAt
-                }
-                return lhs.offset < rhs.offset
-            }
-            .prefix(overflow)
-            .map(\.element.id))
-        records.removeAll { removalIds.contains($0.id) }
+        let retainedIds = retainedNewestRecordIds(
+            in: records,
+            capacity: totalCapacity,
+            preserving: protectedRecordId
+        ) { _ in true }
+        records.removeAll { !retainedIds.contains($0.id) }
     }
 
     private func trimWorkspaceCapacity(
@@ -71,25 +75,116 @@ struct ClosedItemHistoryCapacityPolicy {
         preserving protectedRecordId: UUID?
     ) {
         guard let workspaceCapacity else { return }
-        let workspaceRecords = records.enumerated().filter { _, record in
+        let workspaceCount = records.reduce(into: 0) { count, record in
+            if case .workspace = record.entry {
+                count += 1
+            }
+        }
+        guard workspaceCount > workspaceCapacity else { return }
+
+        let retainedWorkspaceIds = retainedNewestRecordIds(
+            in: records,
+            capacity: workspaceCapacity,
+            preserving: protectedRecordId
+        ) { record in
             if case .workspace = record.entry {
                 return true
             }
             return false
         }
-        let overflow = workspaceRecords.count - workspaceCapacity
-        guard overflow > 0 else { return }
+        records.removeAll { record in
+            guard case .workspace = record.entry else { return false }
+            return !retainedWorkspaceIds.contains(record.id)
+        }
+    }
 
-        let removalIds = Set(workspaceRecords
-            .filter { $0.element.id != protectedRecordId }
-            .sorted { lhs, rhs in
-                if lhs.element.closedAt != rhs.element.closedAt {
-                    return lhs.element.closedAt < rhs.element.closedAt
-                }
-                return lhs.offset < rhs.offset
+    /// Selects the newest matching records with memory bounded by `capacity`.
+    private func retainedNewestRecordIds(
+        in records: [ClosedItemHistoryRecord],
+        capacity: Int,
+        preserving protectedRecordId: UUID?,
+        matching predicate: (ClosedItemHistoryRecord) -> Bool
+    ) -> Set<UUID> {
+        guard capacity > 0 else { return [] }
+
+        let protectedRecord = records.first { record in
+            record.id == protectedRecordId && predicate(record)
+        }
+        let selectionCapacity = capacity - (protectedRecord == nil ? 0 : 1)
+        var heap: [RecencyKey] = []
+        heap.reserveCapacity(selectionCapacity)
+
+        for (insertionIndex, record) in records.enumerated() {
+            guard record.id != protectedRecordId, predicate(record) else { continue }
+            insertIntoOldestFirstHeap(
+                RecencyKey(
+                    id: record.id,
+                    closedAt: record.closedAt,
+                    insertionIndex: insertionIndex
+                ),
+                heap: &heap,
+                capacity: selectionCapacity
+            )
+        }
+
+        var retainedIds = Set<UUID>(minimumCapacity: heap.count + (protectedRecord == nil ? 0 : 1))
+        if let protectedRecord {
+            retainedIds.insert(protectedRecord.id)
+        }
+        retainedIds.formUnion(heap.lazy.map(\.id))
+        return retainedIds
+    }
+
+    /// Keeps a newest-record candidate in a min-heap whose root is oldest.
+    private func insertIntoOldestFirstHeap(
+        _ key: RecencyKey,
+        heap: inout [RecencyKey],
+        capacity: Int
+    ) {
+        guard capacity > 0 else { return }
+        if heap.count < capacity {
+            heap.append(key)
+            siftUpOldestFirstHeap(&heap)
+            return
+        }
+        guard let oldest = heap.first, isOlder(oldest, than: key) else { return }
+        heap[0] = key
+        siftDownOldestFirstHeap(&heap)
+    }
+
+    /// Restores the oldest-first invariant after appending a candidate.
+    private func siftUpOldestFirstHeap(_ heap: inout [RecencyKey]) {
+        var child = heap.count - 1
+        while child > 0 {
+            let parent = (child - 1) / 2
+            guard isOlder(heap[child], than: heap[parent]) else { return }
+            heap.swapAt(child, parent)
+            child = parent
+        }
+    }
+
+    /// Restores the oldest-first invariant after replacing the heap root.
+    private func siftDownOldestFirstHeap(_ heap: inout [RecencyKey]) {
+        var parent = 0
+        while true {
+            let left = parent * 2 + 1
+            guard left < heap.count else { return }
+            var oldestChild = left
+            let right = left + 1
+            if right < heap.count, isOlder(heap[right], than: heap[left]) {
+                oldestChild = right
             }
-            .prefix(overflow)
-            .map(\.element.id))
-        records.removeAll { removalIds.contains($0.id) }
+            guard isOlder(heap[oldestChild], than: heap[parent]) else { return }
+            heap.swapAt(parent, oldestChild)
+            parent = oldestChild
+        }
+    }
+
+    /// Compares recency using close time, then stable insertion order.
+    private func isOlder(_ lhs: RecencyKey, than rhs: RecencyKey) -> Bool {
+        if lhs.closedAt != rhs.closedAt {
+            return lhs.closedAt < rhs.closedAt
+        }
+        return lhs.insertionIndex < rhs.insertionIndex
     }
 }

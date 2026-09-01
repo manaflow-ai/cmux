@@ -409,11 +409,21 @@ final class ClosedItemHistoryStore: ObservableObject {
         semaphore.wait()
     }
 
+    /// Loads and bounds persisted history away from the main actor.
     private func loadPersistedRecordsAsync(from fileURL: URL) {
+        let totalCapacity = capacityPolicy.totalCapacity
+        let workspaceCapacity = capacityPolicy.workspaceCapacity
         Task { @MainActor [weak self] in
-            let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
+            let loaded = await ClosedItemHistoryPersistenceActor.shared.load(
+                fileURL: fileURL,
+                totalCapacity: totalCapacity,
+                workspaceCapacity: workspaceCapacity
+            )
             guard let self, !didFinishPersistedRecordsLoad else { return }
-            finishPersistedRecordsLoad(loadedRecords)
+            finishPersistedRecordsLoad(
+                loaded.records,
+                didTrimPersistedRecords: loaded.didTrim
+            )
             if needsPersistenceAfterPersistedRecordsLoad {
                 needsPersistenceAfterPersistedRecordsLoad = false
                 persistRecords()
@@ -421,13 +431,17 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
     }
 
-    private func finishPersistedRecordsLoad(_ loadedRecords: [ClosedItemHistoryRecord]) {
+    /// Reconciles a completed persisted load with mutations made during loading.
+    private func finishPersistedRecordsLoad(
+        _ loadedRecords: [ClosedItemHistoryRecord],
+        didTrimPersistedRecords: Bool = false
+    ) {
         guard !didFinishPersistedRecordsLoad else { return }
         if !shouldDiscardPersistedRecordsOnLoad {
             var loadedRecords = loadedRecords
             let didMutateLoadedRecords = applyPendingPersistedRecordMutations(to: &loadedRecords)
             mergeLoadedPersistedRecords(loadedRecords)
-            if didMutateLoadedRecords {
+            if didMutateLoadedRecords || didTrimPersistedRecords {
                 needsPersistenceAfterPersistedRecordsLoad = true
             }
         } else {
@@ -753,13 +767,32 @@ private struct ClosedItemHistoryPersistenceSnapshot: Codable {
     var records: [ClosedItemHistoryRecord]
 }
 
+private struct ClosedItemHistoryLoadedRecords {
+    let records: [ClosedItemHistoryRecord]
+    let didTrim: Bool
+}
+
 private actor ClosedItemHistoryPersistenceActor {
     static let shared = ClosedItemHistoryPersistenceActor()
 
     private var latestRevisionByPath: [String: UInt64] = [:]
 
-    func load(fileURL: URL) -> [ClosedItemHistoryRecord] {
-        ClosedItemHistoryStore.loadRecords(fileURL: fileURL)
+    /// Loads history and applies its configured bounds on the persistence actor.
+    func load(
+        fileURL: URL,
+        totalCapacity: Int?,
+        workspaceCapacity: Int?
+    ) -> ClosedItemHistoryLoadedRecords {
+        let loadedRecords = ClosedItemHistoryStore.loadRecords(fileURL: fileURL)
+        let capacityPolicy = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: totalCapacity,
+            workspaceCapacity: workspaceCapacity
+        )
+        let trimmedRecords = capacityPolicy.trimming(loadedRecords)
+        return ClosedItemHistoryLoadedRecords(
+            records: trimmedRecords,
+            didTrim: trimmedRecords.count != loadedRecords.count
+        )
     }
 
     func save(_ records: [ClosedItemHistoryRecord], fileURL: URL, revision: UInt64) {

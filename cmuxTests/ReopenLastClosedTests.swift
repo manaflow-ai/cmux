@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CmuxSettings
 import Foundation
 import Testing
@@ -117,6 +118,71 @@ struct ReopenLastClosedTests {
         #expect(reloadedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
     }
 
+    /// The production async loader must hand only bounded history to the main-actor store.
+    @Test(.timeLimit(.minutes(1)))
+    func asyncLoadTrimsLegacyHistoryBeforeItReachesTheStore() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-panel-async-trim-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let historyURL = temporaryDirectory.appendingPathComponent("history.json")
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let seedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        seedStore.push(panelRecord(
+            title: "Newest",
+            closedAt: 30,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Oldest",
+            closedAt: 10,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Middle",
+            closedAt: 20,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+
+        let boundedStore = ClosedItemHistoryStore(
+            capacity: 2,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: false,
+            persistsRecordsSynchronously: true
+        )
+        for await _ in boundedStore.$revision.values {
+            if boundedStore.menuSnapshot().totalItemCount == 2 {
+                break
+            }
+        }
+        #expect(boundedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+        boundedStore.flushPendingSaves()
+
+        let reloadedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        #expect(reloadedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+    }
+
     @Test
     func workspaceCapacityStillKeepsNewestWorkspaceRecords() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
@@ -142,6 +208,45 @@ struct ReopenLastClosedTests {
         }
 
         #expect(store.menuSnapshot().items.map(\.title) == ["Workspace 2", "Workspace 1"])
+    }
+
+    /// Bounded selection must match the stable full-sort definition across legacy-scale input.
+    @Test
+    func totalCapacityHeapMatchesStableRecencyReference() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let recordCount = 2_048
+        let capacity = 137
+        let records = (0..<recordCount).map { index in
+            ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval((index * 37) % 251)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            )
+        }
+        let expectedIds = records.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.closedAt != rhs.element.closedAt {
+                    return lhs.element.closedAt < rhs.element.closedAt
+                }
+                return lhs.offset < rhs.offset
+            }
+            .suffix(capacity)
+            .map(\.element.id)
+
+        let trimmed = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: capacity,
+            workspaceCapacity: nil
+        ).trimming(records)
+
+        #expect(trimmed.map(\.id) == expectedIds)
     }
 
     private func panelRecord(
