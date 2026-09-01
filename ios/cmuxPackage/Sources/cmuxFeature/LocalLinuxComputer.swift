@@ -98,6 +98,121 @@ public final class LocalLinuxComputerController {
         let rows: Int
     }
 
+    /// A bounded FIFO for bytes waiting on the non-blocking local pty.
+    ///
+    /// Ghostty can deliver one callback per byte, so shifting an array on
+    /// every dequeue makes a long paste quadratic. This ring keeps logical
+    /// head and tail positions separate from the backing storage. Partial
+    /// writes advance `headOffset` instead of rebuilding the remaining
+    /// `Data`, so repeated EAGAIN retries do not copy the same bytes.
+    private struct InputFIFO {
+        private static let initialCapacity = 16
+
+        private var storage: [Data?] = []
+        private var headIndex = 0
+        private var elementCount = 0
+        private var headOffset = 0
+
+        private(set) var byteCount = 0
+
+        var isEmpty: Bool {
+            elementCount == 0
+        }
+
+        /// Number of bytes remaining in the current logical head element.
+        var headByteCount: Int {
+            guard elementCount > 0,
+                  let head = storage[headIndex] else { return 0 }
+            return head.count - headOffset
+        }
+
+        /// A zero-copy `Data` slice for the current head remainder.
+        /// `Data.SubSequence` is `Data`, so this shares the backing bytes until
+        /// either value is mutated.
+        var headRemainder: Data {
+            guard elementCount > 0,
+                  let head = storage[headIndex] else { return Data() }
+            guard headOffset > 0 else { return head }
+            let start = head.index(head.startIndex, offsetBy: headOffset)
+            return head[start..<head.endIndex]
+        }
+
+        mutating func append(_ data: Data) {
+            guard !data.isEmpty else { return }
+            ensureCapacity()
+            let tailIndex = (headIndex + elementCount) % storage.count
+            storage[tailIndex] = data
+            elementCount += 1
+            byteCount += data.count
+        }
+
+        /// Consumes bytes from the current head without moving later entries.
+        /// The worker only consumes from one head element at a time.
+        mutating func consume(_ count: Int) {
+            guard count > 0 else { return }
+            guard elementCount > 0,
+                  let head = storage[headIndex] else {
+                assertionFailure("cannot consume from an empty input FIFO")
+                return
+            }
+            let available = head.count - headOffset
+            guard count <= available else {
+                assertionFailure("input FIFO consume exceeds head remainder")
+                return
+            }
+
+            headOffset += count
+            byteCount -= count
+            guard headOffset == head.count else { return }
+
+            storage[headIndex] = nil
+            elementCount -= 1
+            headOffset = 0
+            if elementCount == 0 {
+                headIndex = 0
+                // A burst of one-byte callbacks can grow the ring to many
+                // slots. Release that capacity after the burst is drained;
+                // retaining a small baseline avoids a reallocation per key.
+                if storage.count > Self.initialCapacity {
+                    storage = Array(repeating: nil, count: Self.initialCapacity)
+                }
+            } else {
+                headIndex = (headIndex + 1) % storage.count
+            }
+        }
+
+        mutating func removeAll(keepingCapacity: Bool = false) {
+            if keepingCapacity {
+                for index in storage.indices {
+                    storage[index] = nil
+                }
+            } else {
+                storage.removeAll(keepingCapacity: false)
+            }
+            headIndex = 0
+            elementCount = 0
+            headOffset = 0
+            byteCount = 0
+        }
+
+        private mutating func ensureCapacity() {
+            if storage.isEmpty {
+                storage = Array(repeating: nil, count: Self.initialCapacity)
+                return
+            }
+            guard elementCount == storage.count else { return }
+
+            let oldStorage = storage
+            let newCapacity = max(Self.initialCapacity, oldStorage.count * 2)
+            var expanded = Array<Data?>(repeating: nil, count: newCapacity)
+            for offset in 0..<elementCount {
+                expanded[offset] = oldStorage[(headIndex + offset) % oldStorage.count]
+            }
+            storage = expanded
+            headIndex = 0
+        }
+    }
+
     /// The injected actor that owns the process-global kernel configuration.
     /// Exposed so DEBUG harnesses can use the same instance as production.
     @ObservationIgnored public let runtime: LocalLinuxRuntime
@@ -124,8 +239,7 @@ public final class LocalLinuxComputerController {
     @ObservationIgnored private var closeBarrierID: UUID?
     @ObservationIgnored private var inputWorker: Task<Void, Never>?
     @ObservationIgnored private var inputWorkerID: UUID?
-    @ObservationIgnored private var inputQueue: [Data] = []
-    @ObservationIgnored private var inputQueueByteCount = 0
+    @ObservationIgnored private var inputQueue = InputFIFO()
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     /// The latest grid reported by Ghostty, including while boot or pty open
     /// is still suspended. UIKit can report the real size before the local
@@ -424,7 +538,7 @@ public final class LocalLinuxComputerController {
             return
         }
         if session != nil {
-            let remaining = Self.pendingInputLimit - inputQueueByteCount
+            let remaining = Self.pendingInputLimit - inputQueue.byteCount
             guard remaining > 0 else {
                 localLinuxProductionLog.error(
                     "local Linux input queue is full; dropping \(data.count, privacy: .public) bytes"
@@ -433,7 +547,6 @@ public final class LocalLinuxComputerController {
             }
             let bytes = Data(data.prefix(remaining))
             inputQueue.append(bytes)
-            inputQueueByteCount += bytes.count
             if bytes.count != data.count {
                 localLinuxProductionLog.error(
                     "local Linux input queue limit dropped \(data.count - bytes.count, privacy: .public) bytes"
@@ -499,7 +612,6 @@ public final class LocalLinuxComputerController {
         inputWorker = nil
         inputWorkerID = nil
         inputQueue.removeAll(keepingCapacity: false)
-        inputQueueByteCount = 0
         resizeTask?.cancel()
         resizeTask = nil
         scheduleSessionClose(pendingSession)
@@ -531,7 +643,6 @@ public final class LocalLinuxComputerController {
         inputWorker = nil
         inputWorkerID = nil
         inputQueue.removeAll(keepingCapacity: false)
-        inputQueueByteCount = 0
         resizeTask?.cancel()
         resizeTask = nil
         self.session = nil
@@ -689,15 +800,17 @@ public final class LocalLinuxComputerController {
                 // Keep the current element in the FIFO while it is being
                 // written. This preserves the exact remainder when the
                 // non-blocking tty reports EAGAIN (zero accepted bytes).
-                let bytes = self.inputQueue[0]
-                var offset = 0
+                let headByteCount = self.inputQueue.headByteCount
+                var consumedByteCount = 0
                 var waitForReadiness = false
 
                 do {
-                    while offset < bytes.count, !Task.isCancelled {
+                    while consumedByteCount < headByteCount, !Task.isCancelled {
                         guard self.inputWorkerID == workerID,
                               self.session === session else { return }
-                        let remainder = Data(bytes.dropFirst(offset))
+                        // The FIFO returns a shared Data slice. Avoid
+                        // rebuilding the remainder on every short write.
+                        let remainder = self.inputQueue.headRemainder
                         let accepted = try await session.send(remainder)
                         guard self.inputWorkerID == workerID,
                               self.session === session else { return }
@@ -725,9 +838,8 @@ public final class LocalLinuxComputerController {
                             break
                         }
 
-                        offset += accepted
-                        self.inputQueueByteCount -= accepted
-                        self.inputQueue[0] = Data(bytes.dropFirst(offset))
+                        consumedByteCount += accepted
+                        self.inputQueue.consume(accepted)
                     }
                 } catch {
                     // `closed` is expected during teardown. Keep the
@@ -756,11 +868,6 @@ public final class LocalLinuxComputerController {
 
                 guard self.inputWorkerID == workerID,
                       self.session === session else { return }
-                if offset == bytes.count {
-                    self.inputQueue.removeFirst()
-                    // `inputQueueByteCount` was decremented per accepted
-                    // chunk, so no additional count adjustment is needed.
-                }
                 if waitForReadiness {
                     guard await readinessIterator.next() != nil else { return }
                     guard !Task.isCancelled,
@@ -802,7 +909,6 @@ public final class LocalLinuxComputerController {
         session = nil
         ring = nil
         inputQueue.removeAll(keepingCapacity: false)
-        inputQueueByteCount = 0
         pendingInput.removeAll(keepingCapacity: false)
         state = .failed
         lastError = .operationFailed("terminal renderer unavailable")
@@ -830,7 +936,6 @@ public final class LocalLinuxComputerController {
         session = nil
         ring = nil
         inputQueue.removeAll(keepingCapacity: false)
-        inputQueueByteCount = 0
         pendingInput.removeAll(keepingCapacity: false)
         state = .failed
         lastError = error
