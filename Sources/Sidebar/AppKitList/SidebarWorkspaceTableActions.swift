@@ -51,5 +51,5 @@ struct SidebarWorkspaceTableActions {
     let setBonsplitDropIndicator: (SidebarDropIndicator?) -> Void
     /// Resolves a retained group-header row to the workspace it represents at
     /// drag start; ordinary workspace rows return their supplied fallback id.
-    let workspaceIdForDrag: (SidebarWorkspaceRenderItemID, UUID) -> UUID = { _, fallback in fallback }
+    var workspaceIdForDrag: (SidebarWorkspaceRenderItemID, UUID) -> UUID = { _, fallback in fallback }
 }
