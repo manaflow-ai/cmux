@@ -310,6 +310,33 @@ struct LocalLinuxTerminalLaneTests {
         await first.terminate()
         await second.terminate()
     }
+
+    @Test("a finished ring keeps its source identity")
+    func ringRejectsSourceReplacementAfterEOF() async throws {
+        let ring = LocalLinuxScrollbackRing()
+        let originalSource = TestLocalLinuxOutputSource()
+        let originalLane = LocalLinuxTerminalLane(
+            source: originalSource,
+            ring: ring,
+            cursor: nil
+        )
+
+        _ = try #require(try await originalLane.receiveOutput())
+        await originalSource.finishOutput()
+        #expect(try await originalLane.receiveOutput() == nil)
+
+        let replacementSource = TestLocalLinuxOutputSource()
+        let replacementLane = LocalLinuxTerminalLane(
+            source: replacementSource,
+            ring: ring,
+            cursor: nil
+        )
+        await #expect(throws: LocalLinuxLaneError.sourceMismatch) {
+            try await replacementLane.receiveOutput()
+        }
+        await originalLane.close()
+        await replacementLane.close()
+    }
 }
 
 private enum LaneReceiveOutcome: Sendable {

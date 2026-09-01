@@ -1,5 +1,5 @@
-import CmuxMobileRPC
-import Foundation
+public import CmuxMobileRPC
+public import Foundation
 
 /// The concurrency-safe surface that a local Linux terminal lane needs from
 /// its pty session.
