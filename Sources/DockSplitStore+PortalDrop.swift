@@ -173,7 +173,7 @@ extension DockSplitStore {
     ) -> [FilePreviewPanel] {
         guard !isRetired, containsPane(paneId.id) else { return [] }
         let previousFocus = focusedDockPaneSelection()
-        let openedPanels = withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) {
+        let openedPanels = withNewTabZoomPolicy(inPane: paneId, applyPolicy: focus) { () -> [FilePreviewPanel]? in
             var nextIndex = targetIndex
             var panels: [FilePreviewPanel] = []
             for filePath in filePaths {
