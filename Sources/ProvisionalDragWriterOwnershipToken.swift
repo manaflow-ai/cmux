@@ -3,12 +3,12 @@ import Foundation
 /// Token that reports deallocation of a pre-session pasteboard writer.
 @MainActor
 final class ProvisionalDragWriterOwnershipToken {
-    let id: UUID
-    // The callback is immutable and only ever invoked from a main-actor Task;
-    // ARC may read this one property from an arbitrary executor during deinit.
-    private let onDeallocated: @MainActor (UUID) -> Void
+    // These immutable values are safe to read from ARC's nonisolated deinit:
+    // UUID is Sendable and the callback is explicitly isolated and Sendable.
+    nonisolated let id: UUID
+    nonisolated private let onDeallocated: @MainActor @Sendable (UUID) -> Void
 
-    init(onDeallocated: @escaping @MainActor (UUID) -> Void) {
+    init(onDeallocated: @escaping @MainActor @Sendable (UUID) -> Void) {
         id = UUID()
         self.onDeallocated = onDeallocated
     }

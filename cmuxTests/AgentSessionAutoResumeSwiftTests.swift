@@ -2336,7 +2336,9 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         var snapshot = source.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
         #expect(snapshot.panels.first?.terminal?.workingDirectory == latestRemoteDirectory)
-        #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == staleAgentDirectory)
+        // The accepted hook binding promotes its captured launch cwd into the
+        // snapshot; the independent agent-only cwd is not retained.
+        #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == staleLaunchDirectory)
         #expect(snapshot.panels.first?.terminal?.agent?.launchCommand?.workingDirectory == staleLaunchDirectory)
 
         let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })

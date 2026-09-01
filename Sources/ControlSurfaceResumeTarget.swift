@@ -63,6 +63,42 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    /// Resolves the built-in cwd-option identity available to a binding-only restore.
+    ///
+    /// Registry-owned spellings such as `kimi` may identify either a native
+    /// agent or a user Vault registration. A matching native snapshot is the
+    /// only safe evidence for enabling its provider-specific short option;
+    /// otherwise only non-overridable built-ins are unambiguous.
+    fileprivate func builtInAgentKindForBindingSanitization(
+        binding: SurfaceResumeBindingSnapshot,
+        normalizedKind: String
+    ) -> String? {
+        let normalized = normalizedKind
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let snapshot = restorableAgent,
+           snapshot.kind.rawValue
+               .trimmingCharacters(in: .whitespacesAndNewlines)
+               .lowercased() == normalized,
+           let checkpointID = binding.checkpointId?
+               .trimmingCharacters(in: .whitespacesAndNewlines),
+           !checkpointID.isEmpty,
+           ManagedAgentSessionIdentity.sessionIDsMatch(
+               kind: normalized,
+               lhs: checkpointID,
+               rhs: snapshot.sessionId
+           ),
+           let snapshotBuiltInKind = snapshot.workingDirectoryOptionPolicyBuiltInKind {
+            return snapshotBuiltInKind
+        }
+        guard RestorableAgentKind.allCases.contains(where: {
+            $0.rawValue.lowercased() == normalized
+        }) else {
+            return nil
+        }
+        return normalized
+    }
+
     @discardableResult
     func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         switch self {
@@ -494,17 +530,13 @@ extension TerminalController {
         if let bindingSelection,
            bindingSelection.discardsRecordedCwdOptions,
            var command = binding.launchCommand {
-            // This binding-only branch has no provenance-matched snapshot.
-            // Only an unambiguous native kind may enable provider-specific
-            // cwd stripping; registry-owned ids (such as `kimi`) can belong
-            // to a custom Vault registration and must retain their options.
-            let builtInAgentKind: String? = if RestorableAgentKind.allCases.contains(where: {
-                $0.rawValue == normalizedKind.lowercased()
-            }) {
-                normalizedKind
-            } else {
-                nil
-            }
+            // A matching native snapshot can disambiguate registry-owned ids;
+            // without one, only non-overridable built-ins may strip their
+            // provider-specific cwd options.
+            let builtInAgentKind = target.builtInAgentKindForBindingSanitization(
+                binding: binding,
+                normalizedKind: normalizedKind
+            )
             command.arguments = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: command.arguments,
                 workingDirectory: nil,
