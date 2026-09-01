@@ -48,6 +48,8 @@ final class MemoryPressureMonitor {
     private var activeSystemSeverityExpiresAt: Date?
     @ObservationIgnored
     private var lastAggregateSample: MemoryPressureAggregateSample?
+    @ObservationIgnored
+    private var lastAppliedSampledAt = Date.distantPast
 
     init(
         registry: MemoryPressureResponderRegistry? = nil,
@@ -74,21 +76,28 @@ final class MemoryPressureMonitor {
     func start() {
         startMemoryPressureSourceIfNeeded()
         startSampleTimerIfNeeded()
-        samplePhysicalFootprint(at: .now)
+        Task { @MainActor [weak self] in
+            await self?.samplePhysicalFootprint(at: .now)
+        }
     }
 
-    func samplePhysicalFootprint(at sampledAt: Date = .now) {
-        let aggregateSample = aggregateSampler.sample(at: sampledAt)
+    func samplePhysicalFootprint(at sampledAt: Date = .now) async {
+        let footprintBytes = footprintSampler.physicalFootprintBytes()
+        let aggregateSample = await Self.captureAggregateSample(
+            using: aggregateSampler,
+            at: sampledAt
+        )
         lastAggregateSample = aggregateSample
         apply(
             systemSeverity: heldSystemSeverity(at: sampledAt),
-            physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
+            physicalFootprintBytes: footprintBytes,
             aggregateSample: aggregateSample,
             sampledAt: sampledAt
         )
     }
 
     func recordSystemPressure(_ severity: MemoryPressureSeverity, at sampledAt: Date = .now) {
+        guard sampledAt >= lastAppliedSampledAt else { return }
         let heldSeverity = heldSystemSeverity(at: sampledAt) ?? .normal
         let effectiveSeverity = max(severity, heldSeverity)
         activeSystemSeverity = effectiveSeverity
@@ -115,6 +124,14 @@ final class MemoryPressureMonitor {
             return .warning
         }
         return nil
+    }
+
+    @concurrent
+    nonisolated private static func captureAggregateSample(
+        using sampler: any MemoryPressureAggregateSampling,
+        at sampledAt: Date
+    ) async -> MemoryPressureAggregateSample {
+        sampler.sample(at: sampledAt)
     }
 
     private func startMemoryPressureSourceIfNeeded() {
@@ -189,6 +206,12 @@ final class MemoryPressureMonitor {
         aggregateSample: MemoryPressureAggregateSample?,
         sampledAt: Date
     ) {
+        guard sampledAt >= lastAppliedSampledAt else {
+            // Initial sampling is asynchronous; discard an older result that
+            // arrived after a newer timer or pressure-event sample.
+            return
+        }
+        lastAppliedSampledAt = sampledAt
         // Keep aggregate severity intrinsic to cmux's coalition/tree. The
         // independent Dispatch/system signal still drives the overall tracker,
         // but must not turn a low aggregate sample into an eviction command.

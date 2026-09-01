@@ -13,30 +13,8 @@ extension AgentHibernationController {
         isPressureStillCritical: @escaping @MainActor () -> Bool,
         onHibernationCompleted: @escaping @MainActor (Int) -> Void
     ) -> Bool {
-        reclaimIdleAgentsForMemoryPressure(
-            now: now,
-            isPressureStillActive: isPressureStillCritical,
-            onHibernationCompleted: onHibernationCompleted
-        )
-    }
-
-    /// Starts one asynchronous aggregate-pressure evaluation.
-    ///
-    /// The existing hibernation lifecycle remains the sole teardown owner:
-    /// pressure only changes which safe idle agents it selects. Transcript
-    /// protection, confirmation, activity revalidation, and scoped process
-    /// termination are unchanged. Aggregate pressure is only a trigger; it is
-    /// never a quota on memory, agents, panes, or child processes. If the
-    /// caller can no longer prove that the same pressure is active, the
-    /// pending evaluation is abandoned.
-    @discardableResult
-    func reclaimIdleAgentsForMemoryPressure(
-        now: Date,
-        isPressureStillActive: @escaping @MainActor () -> Bool,
-        onHibernationCompleted: @escaping @MainActor (Int) -> Void
-    ) -> Bool {
         guard memoryPressureEvaluation == nil,
-              isPressureStillActive() else {
+              isPressureStillCritical() else {
             return false
         }
 
@@ -53,7 +31,7 @@ extension AgentHibernationController {
             let settings = AgentHibernationSettings.values()
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled,
-                  isPressureStillActive() else {
+                  isPressureStillCritical() else {
                 return
             }
             let initialEvaluation = self.evaluate(
@@ -69,11 +47,11 @@ extension AgentHibernationController {
             } catch {
                 return
             }
-            guard isPressureStillActive() else { return }
+            guard isPressureStillCritical() else { return }
             let confirmationIndex = await RestorableAgentSessionIndex
                 .loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled,
-                  isPressureStillActive() else {
+                  isPressureStillCritical() else {
                 return
             }
             let confirmationEvaluation = self.evaluate(
@@ -81,7 +59,7 @@ extension AgentHibernationController {
                 settings: AgentHibernationSettings.values(),
                 now: .now,
                 trigger: .systemMemoryPressure,
-                teardownShouldProceed: isPressureStillActive,
+                teardownShouldProceed: isPressureStillCritical,
                 onHibernationCompleted: { [weak self] hibernatedCount in
                     self?.finishMemoryPressureEvaluation(requestID: requestID)
                     onHibernationCompleted(hibernatedCount)
@@ -93,9 +71,70 @@ extension AgentHibernationController {
         return true
     }
 
-    private func finishMemoryPressureEvaluation(requestID: UUID) {
+    /// Evaluates aggregate pressure through the existing confirmation state.
+    ///
+    /// Aggregate samples arrive periodically, so this method performs one
+    /// fresh evaluation and returns. The next sample advances any pending
+    /// confirmation; no timer or sleep coordinates this path. Aggregate
+    /// pressure is only a trigger and never a quota on memory, agents, panes,
+    /// or child processes.
+    @discardableResult
+    func reclaimIdleAgentsForMemoryPressure(
+        now: Date,
+        isPressureStillActive: @escaping @MainActor () -> Bool,
+        onHibernationCompleted: @escaping @MainActor (Int) -> Void
+    ) -> Bool {
+        guard isPressureStillActive() else {
+            clearMemoryPressureConfirmations()
+            return false
+        }
+        guard memoryPressureEvaluation == nil else {
+            return false
+        }
+
+        let requestID = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var awaitsTeardownCompletion = false
+            defer {
+                if !awaitsTeardownCompletion {
+                    self.finishMemoryPressureEvaluation(
+                        requestID: requestID,
+                        clearConfirmations: false
+                    )
+                }
+            }
+
+            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard !Task.isCancelled,
+                  isPressureStillActive() else {
+                return
+            }
+            let evaluation = self.evaluate(
+                index: index,
+                settings: AgentHibernationSettings.values(),
+                now: now,
+                trigger: .systemMemoryPressure,
+                teardownShouldProceed: isPressureStillActive,
+                onHibernationCompleted: { [weak self] hibernatedCount in
+                    self?.finishMemoryPressureEvaluation(requestID: requestID)
+                    onHibernationCompleted(hibernatedCount)
+                }
+            )
+            awaitsTeardownCompletion = evaluation.beganTeardowns
+        }
+        memoryPressureEvaluation = (requestID, task)
+        return true
+    }
+
+    private func finishMemoryPressureEvaluation(
+        requestID: UUID,
+        clearConfirmations: Bool = true
+    ) {
         guard memoryPressureEvaluation?.id == requestID else { return }
         memoryPressureEvaluation = nil
-        clearMemoryPressureConfirmations()
+        if clearConfirmations {
+            clearMemoryPressureConfirmations()
+        }
     }
 }

@@ -377,7 +377,7 @@ struct MemoryPressureMonitorTests {
         #expect(MemoryPressureMonitor.severity(forDispatchSourceEvent: [.warning, .critical]) == .critical)
     }
 
-    @Test func samplingInjectedFootprintDispatchesThroughRegistry() {
+    @Test func samplingInjectedFootprintDispatchesThroughRegistry() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "renderer",
@@ -393,14 +393,14 @@ struct MemoryPressureMonitorTests {
             sampleInterval: 60
         )
 
-        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 4))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 4))
 
         #expect(monitor.currentSeverity == .warning)
         #expect(monitor.physicalFootprintBytes == 1_500)
         #expect(responder.calls.map(\.severity) == [.warning])
     }
 
-    @Test func aggregateSamplingDrivesSeverityAndIsExposedInSnapshot() {
+    @Test func aggregateSamplingDrivesSeverityAndIsExposedInSnapshot() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "aggregate",
@@ -431,7 +431,7 @@ struct MemoryPressureMonitorTests {
             sampleInterval: 60
         )
 
-        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 12))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 12))
 
         #expect(monitor.currentSeverity == .normal)
         #expect(monitor.aggregateMemoryPressure?.severity == .warning)
@@ -439,7 +439,7 @@ struct MemoryPressureMonitorTests {
         #expect(responder.calls.map(\.severity) == [.warning])
     }
 
-    @Test func systemEventDoesNotReplayStaleAggregateEvidence() {
+    @Test func systemEventDoesNotReplayStaleAggregateEvidence() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "aggregate",
@@ -469,14 +469,14 @@ struct MemoryPressureMonitorTests {
             sampleInterval: 60
         )
 
-        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 30))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 30))
         monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 31))
 
         #expect(responder.calls.count == 1)
         #expect(monitor.aggregateMemoryPressure == nil)
     }
 
-    @Test func unavailableAggregateMetricsNeverCreateActionableAggregatePressure() {
+    @Test func unavailableAggregateMetricsNeverCreateActionableAggregatePressure() async {
         let sample = MemoryPressureAggregateSample.unavailable(
             sampledAt: Date(timeIntervalSince1970: 0)
         )
@@ -487,13 +487,13 @@ struct MemoryPressureMonitorTests {
             sampleInterval: 60
         )
 
-        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 13))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 13))
 
         #expect(monitor.currentSeverity == .normal)
         #expect(monitor.aggregateMemoryPressure?.isActionable == false)
     }
 
-    @Test func systemWarningDoesNotTurnLowAggregateUsageIntoEvictionPressure() {
+    @Test func systemWarningDoesNotTurnLowAggregateUsageIntoEvictionPressure() async {
         let sample = MemoryPressureAggregateSample(
             source: .coalition,
             aggregateBytes: 500,
@@ -514,7 +514,7 @@ struct MemoryPressureMonitorTests {
             sampleInterval: 60
         )
 
-        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 14))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 14))
         monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 15))
 
         #expect(monitor.currentSeverity == .warning)
@@ -522,7 +522,7 @@ struct MemoryPressureMonitorTests {
         #expect(monitor.aggregateMemoryPressure?.isActionable == false)
     }
 
-    @Test func samplingPreservesRecentSystemPressureEvent() {
+    @Test func samplingPreservesRecentSystemPressureEvent() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "renderer",
@@ -541,7 +541,7 @@ struct MemoryPressureMonitorTests {
         let start = Date(timeIntervalSince1970: 5)
 
         monitor.recordSystemPressure(.critical, at: start)
-        monitor.samplePhysicalFootprint(at: start.addingTimeInterval(1))
+        await monitor.samplePhysicalFootprint(at: start.addingTimeInterval(1))
 
         #expect(monitor.currentSeverity == .critical)
         #expect(responder.calls.map(\.severity) == [.critical, .critical])
@@ -572,7 +572,7 @@ struct MemoryPressureMonitorTests {
         #expect(responder.calls.map(\.severity) == [.critical, .critical])
     }
 
-    @Test func heldSystemPressureExpiresWithoutNewEvents() {
+    @Test func heldSystemPressureExpiresWithoutNewEvents() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "renderer",
@@ -591,7 +591,7 @@ struct MemoryPressureMonitorTests {
         let start = Date(timeIntervalSince1970: 7)
 
         monitor.recordSystemPressure(.warning, at: start)
-        monitor.samplePhysicalFootprint(at: start.addingTimeInterval(31))
+        await monitor.samplePhysicalFootprint(at: start.addingTimeInterval(31))
 
         #expect(monitor.currentSeverity == .normal)
         #expect(responder.calls.map(\.severity) == [.warning])

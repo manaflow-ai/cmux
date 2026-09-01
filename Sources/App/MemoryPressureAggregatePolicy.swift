@@ -1,7 +1,7 @@
 import Foundation
 
 /// Identifies the source used for an aggregate process-memory sample.
-enum MemoryPressureAggregateSource: String, Equatable, Sendable {
+nonisolated enum MemoryPressureAggregateSource: String, Equatable, Sendable {
     /// macOS reported the resource coalition's instantaneous physical footprint.
     case coalition
     /// The process tree was enumerated and summed without a coalition API.
@@ -11,31 +11,20 @@ enum MemoryPressureAggregateSource: String, Equatable, Sendable {
 }
 
 /// A single process contribution used by the aggregate accounting reducer.
-struct MemoryPressureAggregateProcessFootprint: Equatable, Sendable {
+nonisolated struct MemoryPressureAggregateProcessFootprint: Equatable, Sendable {
     let pid: Int
     let bytes: UInt64
-
-    init(pid: Int, bytes: UInt64) {
-        self.pid = pid
-        self.bytes = bytes
-    }
 }
 
 /// The deduplicated result of summing process footprints.
-struct MemoryPressureAggregateAccountingResult: Equatable, Sendable {
+nonisolated struct MemoryPressureAggregateAccountingResult: Equatable, Sendable {
     let aggregateBytes: UInt64
     let uniquePIDs: [Int]
     let duplicatePIDs: [Int]
-
-    init(aggregateBytes: UInt64, uniquePIDs: [Int], duplicatePIDs: [Int]) {
-        self.aggregateBytes = aggregateBytes
-        self.uniquePIDs = uniquePIDs
-        self.duplicatePIDs = duplicatePIDs
-    }
 }
 
 /// Sums process footprints once per PID, even when roots overlap.
-struct MemoryPressureAggregateAccounting: Sendable {
+nonisolated struct MemoryPressureAggregateAccounting: Sendable {
     func summarize(
         _ processes: [MemoryPressureAggregateProcessFootprint]
     ) -> MemoryPressureAggregateAccountingResult {
@@ -64,7 +53,7 @@ struct MemoryPressureAggregateAccounting: Sendable {
 }
 
 /// Raw metrics collected before aggregate-pressure policy is applied.
-struct MemoryPressureAggregateSample: Equatable, Sendable {
+nonisolated struct MemoryPressureAggregateSample: Equatable, Sendable {
     let source: MemoryPressureAggregateSource
     let aggregateBytes: UInt64?
     let physicalMemoryBytes: UInt64?
@@ -153,7 +142,7 @@ struct MemoryPressureAggregateSample: Equatable, Sendable {
 }
 
 /// Policy result attached to each central memory-pressure snapshot.
-struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
+nonisolated struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
     let severity: MemoryPressureSeverity
     let source: MemoryPressureAggregateSource
     let aggregateBytes: UInt64?
@@ -189,7 +178,7 @@ struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
 /// value. A coalition/tree sample must cross the warning fraction before the
 /// optional available-memory signal can raise its severity. This prevents an
 /// unrelated low-memory application from causing cmux to terminate agent work.
-struct MemoryPressureAggregatePolicy: Equatable, Sendable {
+nonisolated struct MemoryPressureAggregatePolicy: Equatable, Sendable {
     let warningCoalitionFraction: Double
     let criticalCoalitionFraction: Double
     let warningAvailableFraction: Double
@@ -217,15 +206,12 @@ struct MemoryPressureAggregatePolicy: Equatable, Sendable {
 
     static let `default` = Self()
 
-    func severity(
-        for sample: MemoryPressureAggregateSample,
-        systemSeverity: MemoryPressureSeverity? = nil
-    ) -> MemoryPressureSeverity {
+    func severity(for sample: MemoryPressureAggregateSample) -> MemoryPressureSeverity {
         guard sample.isUsable,
               let aggregateBytes = sample.aggregateBytes,
               let physicalMemoryBytes = sample.physicalMemoryBytes,
               physicalMemoryBytes > 0 else {
-            return systemSeverity ?? .normal
+            return .normal
         }
 
         let warningBytes = thresholdBytes(
@@ -264,16 +250,13 @@ struct MemoryPressureAggregatePolicy: Equatable, Sendable {
                 severity = max(severity, .warning)
             }
         }
-        return max(systemSeverity ?? .normal, severity)
+        return severity
     }
 
-    func evaluate(
-        sample: MemoryPressureAggregateSample,
-        systemSeverity: MemoryPressureSeverity? = nil
-    ) -> MemoryPressureAggregateSnapshot {
+    func evaluate(sample: MemoryPressureAggregateSample) -> MemoryPressureAggregateSnapshot {
         MemoryPressureAggregateSnapshot(
             sample: sample,
-            severity: severity(for: sample, systemSeverity: systemSeverity)
+            severity: severity(for: sample)
         )
     }
 

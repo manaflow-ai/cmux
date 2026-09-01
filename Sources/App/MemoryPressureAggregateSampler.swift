@@ -2,22 +2,22 @@ import Darwin
 import Foundation
 
 /// Supplies a timestamped aggregate process-memory sample.
-protocol MemoryPressureAggregateSampling: Sendable {
+nonisolated protocol MemoryPressureAggregateSampling: Sendable {
     func sample(at sampledAt: Date) -> MemoryPressureAggregateSample
 }
 
 /// Coalition usage returned by the optional macOS coalition ABI.
-struct MemoryPressureCoalitionUsage: Equatable, Sendable {
+nonisolated struct MemoryPressureCoalitionUsage: Equatable, Sendable {
     let physicalFootprintBytes: UInt64
 }
 
 /// Injectable seam for coalition accounting; unavailable platforms return nil.
-protocol MemoryPressureCoalitionSampling: Sendable {
+nonisolated protocol MemoryPressureCoalitionSampling: Sendable {
     func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage?
 }
 
 /// Captures cmux plus all unique descendants, preferring the resource coalition.
-struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
+nonisolated struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
     private let processID: Int
     private let snapshotProvider: @Sendable () -> CmuxTopProcessSnapshot
     private let coalitionSampler: any MemoryPressureCoalitionSampling
@@ -117,8 +117,8 @@ struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
 }
 
 /// Reads the resource-coalition footprint when the running OS exports it.
-struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
-    private static let coalitionInfoFlavor = 20
+nonisolated struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
+    private static let coalitionInfoFlavor: Int32 = 20
 
     func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage? {
         guard processID > 0 else { return nil }
@@ -136,7 +136,7 @@ struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
         let coalitionID = coalitionInfo.resourceCoalitionID
         guard coalitionID > 0,
               let symbol = dlsym(
-                  RTLD_DEFAULT,
+                  UnsafeMutableRawPointer(bitPattern: -2),
                   "coalition_info_resource_usage"
               ) else {
             return nil
@@ -221,7 +221,7 @@ struct DarwinMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
 }
 
 /// Conservative available-memory estimate used only as coalition corroboration.
-private struct DarwinMemoryPressureAvailableMemory: Sendable {
+private nonisolated struct DarwinMemoryPressureAvailableMemory: Sendable {
     static func bytes() -> UInt64? {
         var statistics = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(
@@ -242,8 +242,7 @@ private struct DarwinMemoryPressureAvailableMemory: Sendable {
         let pages = [
             UInt64(statistics.free_count),
             UInt64(statistics.inactive_count),
-            UInt64(statistics.speculative_count),
-            UInt64(statistics.purgeable_count)
+            UInt64(statistics.speculative_count)
         ].reduce(into: UInt64(0)) { total, pageCount in
             let (sum, overflow) = total.addingReportingOverflow(pageCount)
             total = overflow ? UInt64.max : sum
