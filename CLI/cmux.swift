@@ -4151,6 +4151,7 @@ final class SocketClient {
             .joined(separator: "\n")
     }
 
+    /// Streams v2 protocol lines, replacing plain-text authorization failures with a localized CLI error.
     func streamV2(
         method: String,
         params: [String: Any] = [:],
@@ -4178,10 +4179,14 @@ final class SocketClient {
 
         while true {
             let line = try readStreamLine(deadline: deadline)
-            // The server may reject a stream before the JSON protocol starts.
-            // Surface its plain-text error instead of handing it to the frame decoder.
+            // The server may reject a stream before the JSON protocol starts. Do not expose the
+            // raw authorization response: it describes process-ancestry policy and is not a safe
+            // user-facing diagnostic.
             if line.hasPrefix("ERROR:") {
-                throw CLIError(message: line)
+                throw CLIError(message: String(
+                    localized: "cli.events.error.connectionDenied",
+                    defaultValue: "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
+                ))
             }
             try onLine(line)
         }

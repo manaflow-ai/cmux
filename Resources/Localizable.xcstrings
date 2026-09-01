@@ -38647,6 +38647,23 @@
         }
       }
     },
+    "cli.events.error.connectionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection to cmux was denied. Run this command from a cmux terminal or review socket access in Settings > Automation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxへの接続が拒否されました。cmuxのターミナルからこのコマンドを実行するか、「設定」>「自動化」でソケットアクセスを確認してください。"
+          }
+        }
+      }
+    },
     "cli.events.help.snapshot": {
       "extractionState": "manual",
       "localizations": {
