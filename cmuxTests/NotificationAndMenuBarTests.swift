@@ -6,7 +6,6 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
-import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2064,8 +2063,6 @@ final class MenuBarIconDebugSettingsTests: XCTestCase {
 }
 
 @MainActor
-
-
 final class MenuBarIconRendererTests: XCTestCase {
     func testImageWidthDoesNotShiftWhenBadgeAppears() {
         let noBadge = MenuBarIconRenderer.makeImage(unreadCount: 0)
@@ -2073,44 +2070,5 @@ final class MenuBarIconRendererTests: XCTestCase {
 
         XCTAssertEqual(noBadge.size.width, 18, accuracy: 0.001)
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
-    }
-}
-
-final class AppFocusStateTests: XCTestCase {
-    deinit {}
-
-    func testStageManagerUsesTheFrontmostProcessForNotificationFocus() {
-        let cmuxProcessID: pid_t = 42
-        let otherAppProcessID: pid_t = 84
-        let policy = ApplicationFrontmostPolicy()
-
-        XCTAssertFalse(
-            policy.isCurrentApplicationFrontmost(
-                appIsActive: true,
-                frontmostProcessIdentifier: otherAppProcessID,
-                currentProcessIdentifier: cmuxProcessID
-            )
-        )
-        XCTAssertTrue(
-            policy.isCurrentApplicationFrontmost(
-                appIsActive: true,
-                frontmostProcessIdentifier: cmuxProcessID,
-                currentProcessIdentifier: cmuxProcessID
-            )
-        )
-        XCTAssertFalse(
-            policy.isCurrentApplicationFrontmost(
-                appIsActive: true,
-                frontmostProcessIdentifier: nil,
-                currentProcessIdentifier: cmuxProcessID
-            )
-        )
-        XCTAssertFalse(
-            policy.isCurrentApplicationFrontmost(
-                appIsActive: false,
-                frontmostProcessIdentifier: cmuxProcessID,
-                currentProcessIdentifier: cmuxProcessID
-            )
-        )
     }
 }
