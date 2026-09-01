@@ -402,6 +402,8 @@ type BlaxelFetchOptions = {
   timeoutMs?: number;
   /** Maximum time allowed for the complete request and all retries. */
   retryBudgetMs?: number;
+  /** Disable transport/status retries for callers with a narrower retry policy. */
+  retry?: boolean;
   /** Caller-owned cancellation for the complete request and all retries. */
   signal?: AbortSignal;
   /** Test seam; production callers use the cancellation-aware implementation. */
@@ -500,6 +502,7 @@ export async function blaxelFetch<T>(
   const serializedBody = body === undefined ? undefined : JSON.stringify(body);
   const sleep = opts?.sleep ?? defaultRetrySleep;
   const random = opts?.random ?? Math.random;
+  const retryEnabled = opts?.retry !== false;
   const attemptTimeoutMs = Math.max(1, opts?.timeoutMs ?? BLAXEL_DEFAULT_TIMEOUT_MS);
   // The default operation budget must leave room for every configured attempt
   // and the waits between them. Retry-After is capped at 15 seconds, so this
@@ -541,7 +544,7 @@ export async function blaxelFetch<T>(
       if (callerSignal?.aborted) throw abortReason(callerSignal);
       // Network failure or timeout: a non-idempotent request may still have
       // executed on the far side, so only idempotent methods are replayed.
-      if (!idempotent) throw err;
+      if (!idempotent || !retryEnabled) throw err;
       lastFailure = retryFailureMessage(err);
       lastCause = err;
       if (lastAttempt || Date.now() >= deadlineMs) break;
@@ -567,7 +570,7 @@ export async function blaxelFetch<T>(
     }
     attemptSignal.cleanup();
     if (response.ok) return (text ? JSON.parse(text) : undefined) as T;
-    const retriable = idempotent && (response.status === 429 || response.status >= 500);
+    const retriable = retryEnabled && idempotent && (response.status === 429 || response.status >= 500);
     if (!retriable) {
       // Preserve the exact historical message shape: the sandbox-create
       // name-collision loop matches /-> 409/ and not-found checks match /-> 404/.
@@ -1250,7 +1253,15 @@ export class BlaxelProvider implements VMProvider {
         const delays = opts?.retryDelaysMs ?? BlaxelProvider.HOME_VOLUME_DELETE_RETRY_DELAYS_MS;
         for (let attempt = 0; ; attempt += 1) {
           try {
-            await blaxelFetch("DELETE", `${CONTROL_PLANE_BASE}/volumes/${encodeURIComponent(name)}`);
+            // This method owns a narrower policy: only the provider's transient
+            // "still attached" 409 is retried below. Do not add the generic
+            // idempotent 5xx retry on top of that bounded cleanup loop.
+            await blaxelFetch(
+              "DELETE",
+              `${CONTROL_PLANE_BASE}/volumes/${encodeURIComponent(name)}`,
+              undefined,
+              { retry: false },
+            );
             return;
           } catch (err) {
             const gone = err instanceof ProviderError && /-> 404/.test(err.message);
