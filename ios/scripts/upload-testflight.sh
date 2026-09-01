@@ -581,7 +581,7 @@ case "$LANE" in
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-cmux}"
-    CRASH_REPORTING_ENABLED="NO"
+    CRASH_REPORTING_ENABLED="YES"
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
@@ -938,8 +938,8 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   fi
   if [[ "$LANE" == "appstore" ]]; then
     ARCHIVE_CRASH_REPORTING_ENABLED="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
-    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "NO" ]]; then
-      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected 'NO'; refusing to export" >&2
+    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "$CRASH_REPORTING_ENABLED" ]]; then
+      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected '$CRASH_REPORTING_ENABLED'; refusing to export" >&2
       exit 1
     fi
   fi
