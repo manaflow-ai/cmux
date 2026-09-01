@@ -161,11 +161,13 @@ struct MobileHostIdentityTests {
             bundleIdentifier: "dev.cmux.app.demo",
             accountID: "account-a",
             handshakeIdentity: "connection-a",
+            trustedIOSBuildTag: "feature-a",
             pairedAt: Date(timeIntervalSince1970: 200)
         ))
         let data = try #require(defaults.data(forKey: MobilePairedPhoneStore.defaultsKey))
         let persisted = try JSONDecoder().decode([MobilePairedPhoneRecord].self, from: data)
         #expect(persisted.first?.pairedAt == firstDate)
+        #expect(persisted.first?.trustedIOSBuildTag == "feature-a")
     }
 
     @Test func pairedPhoneBundleDrivesPushEnvelopeTarget() throws {

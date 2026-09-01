@@ -57,6 +57,7 @@ final class MobilePairedPhoneStore {
         else {
             return false
         }
+        let normalizedTrustedTag = normalizedTrustedIOSBuildTag(trustedIOSBuildTag)
         guard let normalizedAccountID = Self.normalized(accountID),
               let normalizedHandshakeIdentity = Self.normalized(handshakeIdentity),
               normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength
@@ -67,13 +68,28 @@ final class MobilePairedPhoneStore {
            existing.source == .authenticatedHandshake,
            existing.accountID == normalizedAccountID,
            existing.handshakeIdentity == normalizedHandshakeIdentity,
-           existing.bundleIdentifier == normalizedBundleIdentifier,
-           existing.trustedIOSBuildTag == normalizedTrustedIOSBuildTag(
-               trustedIOSBuildTag
-           ) {
+           existing.bundleIdentifier == normalizedBundleIdentifier {
             // Host-status heartbeats repeat the same authenticated identity.
-            // Treat them as a read so pairedAt, defaults, and downstream
-            // re-key notifications stay stable until a new transport pairs.
+            // Treat them as a read so pairedAt and downstream re-key
+            // notifications stay stable. If a transport supplies newly
+            // normalized provenance, persist only that metadata in place.
+            guard let normalizedTrustedTag,
+                  normalizedTrustedTag != existing.trustedIOSBuildTag else {
+                return false
+            }
+            let previousRecords = recordsByClientID
+            recordsByClientID[normalizedClientID] = MobilePairedPhoneRecord(
+                clientID: existing.clientID,
+                bundleIdentifier: existing.bundleIdentifier,
+                accountID: existing.accountID,
+                pairedAt: existing.pairedAt,
+                source: existing.source,
+                trustedIOSBuildTag: normalizedTrustedTag,
+                handshakeIdentity: existing.handshakeIdentity
+            )
+            guard trimAndPersist() else {
+                recordsByClientID = previousRecords
+            }
             return false
         }
         if let existing = recordsByClientID[normalizedClientID],
@@ -102,7 +118,7 @@ final class MobilePairedPhoneStore {
             accountID: normalizedAccountID,
             pairedAt: pairedAt,
             source: .authenticatedHandshake,
-            trustedIOSBuildTag: normalizedTrustedIOSBuildTag(trustedIOSBuildTag),
+            trustedIOSBuildTag: normalizedTrustedTag,
             handshakeIdentity: normalizedHandshakeIdentity
         )
         guard trimAndPersist() else {
@@ -139,6 +155,7 @@ final class MobilePairedPhoneStore {
               ) else {
             return false
         }
+        let normalizedTrustedTag = normalizedTrustedIOSBuildTag(trustedIOSBuildTag)
         guard !recordsByClientID.values.contains(where: {
             $0.source == .authenticatedHandshake
                 && $0.accountID == normalizedAccountID
@@ -148,6 +165,30 @@ final class MobilePairedPhoneStore {
             return false
         }
         let legacyClientID = Self.legacyCompatibilityClientID(for: clientID)
+        if let existing = recordsByClientID[legacyClientID],
+           existing.source == .legacyCompatibility,
+           existing.accountID == normalizedAccountID,
+           existing.handshakeIdentity == normalizedHandshakeIdentity,
+           existing.bundleIdentifier == bundleIdentifier {
+            guard let normalizedTrustedTag,
+                  normalizedTrustedTag != existing.trustedIOSBuildTag else {
+                return false
+            }
+            let previousRecords = recordsByClientID
+            recordsByClientID[legacyClientID] = MobilePairedPhoneRecord(
+                clientID: existing.clientID,
+                bundleIdentifier: existing.bundleIdentifier,
+                accountID: existing.accountID,
+                pairedAt: existing.pairedAt,
+                source: existing.source,
+                trustedIOSBuildTag: normalizedTrustedTag,
+                handshakeIdentity: existing.handshakeIdentity
+            )
+            guard trimAndPersist() else {
+                recordsByClientID = previousRecords
+            }
+            return false
+        }
         let previousRecords = recordsByClientID
         recordsByClientID = recordsByClientID.filter {
             $0.value.source != .legacyPickerMigration
@@ -158,7 +199,7 @@ final class MobilePairedPhoneStore {
             accountID: normalizedAccountID,
             pairedAt: pairedAt,
             source: .legacyCompatibility,
-            trustedIOSBuildTag: normalizedTrustedIOSBuildTag(trustedIOSBuildTag),
+            trustedIOSBuildTag: normalizedTrustedTag,
             handshakeIdentity: normalizedHandshakeIdentity
         )
         guard trimAndPersist() else {
