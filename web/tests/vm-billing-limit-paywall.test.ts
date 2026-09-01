@@ -50,8 +50,15 @@ describe("resume ceiling for existing machines", () => {
     expect(maxResumeActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "0" })).toBe(1);
   });
 
-  test("a demo allowance above one is preserved", () => {
-    expect(maxResumeActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "3" })).toBe(3);
+  test("a demo allowance above one is preserved when free provisioning is opted in", () => {
+    // Since #11332 the free allowance env vars only apply behind the explicit
+    // free-provisioning escape hatch; without it the ceiling stays 0 and the
+    // resume floor stays 1.
+    expect(maxResumeActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "3" })).toBe(1);
+    expect(maxResumeActiveVmsForPlan("free", {
+      CMUX_VM_ALLOW_FREE_PROVISIONING: "1",
+      CMUX_VM_FREE_MAX_ACTIVE_VMS: "3",
+    })).toBe(3);
   });
 
   test("paid plans keep their create ceiling", () => {
