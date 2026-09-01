@@ -99,24 +99,9 @@ pub(crate) fn scan(
     // an avoidable O(tracked × live) pass on every tick.
     let live_ids: HashSet<&str> = terminals.iter().map(|(id, _)| id.as_str()).collect();
     tracker.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
-    for (terminal_id, surface) in terminals {
+    for (terminal_public_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
-        let terminal_id = terminal_id.as_str();
-        if mux.screen_detect_pending_for_terminal(terminal_id) {
-            // A queued emission must be admitted before newer screen states;
-            // otherwise retry order can invert and regress the roster.
-            continue;
-        }
-        if let Some(pending) = tracker.pending_emission(terminal_id) {
-            if mux.append_screen_detect_event(&pending).is_ok() {
-                tracker.clear_pending_emission(terminal_id);
-            }
-            // Preserve event order. A failed pending emission is retried on
-            // the next scan without evaluating newer screen state.
-            if tracker.pending_emission(terminal_id).is_some() {
-                continue;
-            }
-        }
+        let terminal_id = terminal_public_id.as_str();
         let quiesced = tracker.observe_revision(terminal_id, revision, now);
         let lookup_due = tracker.should_lookup_foreground_agent(terminal_id, now);
         let mut exited = false;
@@ -140,6 +125,24 @@ pub(crate) fn scan(
                     tracker.invalidate_foreground_identity(terminal_id);
                     unknown = true;
                 }
+            }
+        }
+        if identity_edge {
+            // A pending emission belongs to the prior foreground identity.
+            // Remove it before admitting state for the new generation.
+            mux.discard_screen_detect_pending_for_terminal(&terminal_public_id);
+            tracker.clear_pending_emission(terminal_id);
+        } else if mux.screen_detect_pending_for_terminal(terminal_id) {
+            // A queued emission must be admitted before newer screen states;
+            // otherwise retry order can invert and regress the roster.
+            continue;
+        }
+        if let Some(pending) = tracker.pending_emission(terminal_id) {
+            if mux.append_screen_detect_event(&pending).is_ok() {
+                tracker.clear_pending_emission(terminal_id);
+            }
+            if tracker.pending_emission(terminal_id).is_some() {
+                continue;
             }
         }
         if unknown {

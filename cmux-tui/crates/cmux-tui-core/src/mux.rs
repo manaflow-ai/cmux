@@ -1136,6 +1136,10 @@ fn retained_journal_tail_has_gap(cursor: u64, first_sequence: Option<u64>) -> bo
     first_sequence.is_some_and(|sequence| sequence.checked_sub(cursor) != Some(1))
 }
 
+fn retained_tail_anchor(first_sequence: u64) -> Option<u64> {
+    first_sequence.checked_sub(1)
+}
+
 /// Restore the roster from its persisted snapshot and fold the journal tail
 /// committed after the cursor. A reducer-version mismatch discards the
 /// snapshot and re-folds from the journal head. Deltas produced here are
@@ -1234,13 +1238,21 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 "cmux-tui: agent roster cursor {} is not contiguous with retained journal tail {}; resetting",
                 host.cursor, page.records[0].sequence
             );
+            let first_sequence = page.records[0].sequence;
+            let Some(anchor) = retained_tail_anchor(first_sequence) else {
+                return Ok(AgentRosterHost::default());
+            };
             let empty_snapshot = AgentRoster::default().snapshot().to_string();
             let ordering_token = registry.clear_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
                 AGENT_ROSTER_REDUCER_VERSION,
                 &empty_snapshot,
             )?;
-            return Ok(AgentRosterHost { ordering_token, ..AgentRosterHost::default() });
+            host.roster = AgentRoster::default();
+            host.cursor = anchor;
+            host.ordering_token = ordering_token;
+            host.needs_projection_rebuild = true;
+            continue;
         }
         for record in &page.records {
             if !host.roster.apply(&RosterEvent::from_record(record)).is_empty() {
@@ -2807,6 +2819,21 @@ impl Mux {
                 })
             })
             .unwrap_or(false)
+    }
+
+    pub(crate) fn discard_screen_detect_pending_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) {
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Ok(rows) = registry.pending_agent_hook_projections_for_terminal(terminal_id) {
+            for (producer, origin, key, _, _) in rows {
+                if origin == "screen-detect" {
+                    let _ = registry.clear_agent_hook_pending(&producer, &origin, &key);
+                }
+            }
+        }
     }
 
     fn retry_pending_agent_hooks_rows(
@@ -24399,6 +24426,9 @@ mod tests {
         assert!(retained_journal_tail_has_gap(0, Some(2)));
         assert!(retained_journal_tail_has_gap(41, Some(43)));
         assert!(!retained_journal_tail_has_gap(42, None));
+        assert_eq!(retained_tail_anchor(2), Some(1));
+        assert_eq!(retained_tail_anchor(1), Some(0));
+        assert_eq!(retained_tail_anchor(0), None);
     }
 
     #[test]
