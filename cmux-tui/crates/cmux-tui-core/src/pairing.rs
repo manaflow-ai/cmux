@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::IpAddr;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Mutex;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -62,7 +62,7 @@ struct PendingPairing {
     challenge: PairingChallenge,
     peer: IpAddr,
     expires_at: Instant,
-    response: Sender<PairingDecision>,
+    response: SyncSender<PairingDecision>,
 }
 
 struct Credential {
@@ -125,7 +125,10 @@ impl PairingBroker {
             peer: peer.to_string(),
             expires_in: CHALLENGE_TTL.as_secs(),
         };
-        let (tx, rx) = channel();
+        // A pairing request produces exactly one decision, so a one-slot
+        // bounded channel prevents abandoned requests from growing memory
+        // without changing delivery semantics.
+        let (tx, rx) = sync_channel(1);
         state.recent.entry(peer).or_default().push_back(now);
         state.pending.insert(
             id,
