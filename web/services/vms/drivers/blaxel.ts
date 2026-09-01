@@ -1225,10 +1225,18 @@ export class BlaxelProvider implements VMProvider {
     // starts, or its panes would be root shells. The daemon bootstrap also owns the
     // first package-manager operation (curl on a stock image), so it completes before
     // the detached provisioner can start another apt/apk process.
-    const userSetup = await timedStep("user_setup", () =>
-      this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS));
-    if (userSetup.exitCode !== 0) {
-      throw new ProviderError("blaxel", `cmux user setup in ${name} failed: ${userSetup.stderr || userSetup.stdout}`);
+    let userSetup: ExecResult | null = null;
+    try {
+      userSetup = await timedStep("user_setup", () =>
+        this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS));
+    } catch (err) {
+      // User setup is best effort. The daemon's UID and mount predicates select
+      // the persistent root fallback when an old or custom image cannot provide
+      // the work user, so a setup failure must not orphan an otherwise usable VM.
+      console.warn(`[blaxel] user setup in ${name} failed; continuing with root fallback`, err);
+    }
+    if (userSetup && userSetup.exitCode !== 0) {
+      console.warn(`[blaxel] user setup in ${name} exited ${userSetup.exitCode}; continuing with root fallback`);
     }
     // Readiness must imply an attempted escalation setup: the bounded sudo heal
     // completes before the daemon can start, including on unstamped stock images.

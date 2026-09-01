@@ -138,7 +138,7 @@ describe("cmux-tui install and daemon commands", () => {
     // No user, no runuser, or an unusable home (bindfs view missing over the
     // root-squashing volume): fall back to root instead of crash-looping.
     expect(command).toContain(
-      "id -u cmux >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && runuser -u cmux -- test -w /home/cmux 2>/dev/null",
+      "[ \"$(id -u cmux 2>/dev/null || echo -1)\" = \"1001\" ] && command -v runuser >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && runuser -u cmux -- test -w /home/cmux 2>/dev/null",
     );
     expect(command).toContain("(! mountpoint -q /cmux/home 2>/dev/null || mountpoint -q /home/cmux 2>/dev/null)");
     expect(command).toContain("cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
