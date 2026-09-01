@@ -251,6 +251,53 @@ struct ReopenLastClosedTests {
         #expect(trimmed.map(\.id) == expectedIds)
     }
 
+    /// Duplicate persisted IDs must not let either capacity bound retain extra records.
+    @Test
+    func capacityTrimmingUsesPositionsWhenRecordIDsAreDuplicated() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(workspaceSnapshot.panels.first)
+        let duplicateID = UUID()
+        let panelRecords = [1, 2].map { index in
+            ClosedItemHistoryRecord(
+                id: duplicateID,
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            )
+        }
+        let panelTrimmed = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: 1,
+            workspaceCapacity: nil
+        ).trimming(panelRecords)
+        #expect(panelTrimmed.count == 1)
+        #expect(panelTrimmed.first?.closedAt == Date(timeIntervalSince1970: 2))
+
+        let workspaceRecords = [1, 2].map { index in
+            ClosedItemHistoryRecord(
+                id: duplicateID,
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: UUID(),
+                    windowId: nil,
+                    workspaceIndex: index,
+                    snapshot: workspaceSnapshot
+                ))
+            )
+        }
+        let workspaceTrimmed = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: nil,
+            workspaceCapacity: 1
+        ).trimming(workspaceRecords)
+        #expect(workspaceTrimmed.count == 1)
+        #expect(workspaceTrimmed.first?.closedAt == Date(timeIntervalSince1970: 2))
+    }
+
     /// Builds a panel history fixture with a deterministic close timestamp.
     private func panelRecord(
         title: String,

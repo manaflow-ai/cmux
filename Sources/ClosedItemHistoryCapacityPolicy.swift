@@ -6,9 +6,8 @@ struct ClosedItemHistoryCapacityPolicy {
     let workspaceCapacity: Int?
 
     private struct RecencyKey {
-        let id: UUID
+        let recordIndex: Int
         let closedAt: Date
-        let insertionIndex: Int
     }
 
     /// Creates independent total-history and workspace-history bounds.
@@ -65,12 +64,14 @@ struct ClosedItemHistoryCapacityPolicy {
         preserving protectedRecordId: UUID?
     ) {
         guard let totalCapacity, records.count > totalCapacity else { return }
-        let retainedIds = retainedNewestRecordIds(
+        let retainedIndexes = retainedNewestRecordIndexes(
             in: records,
             capacity: totalCapacity,
             preserving: protectedRecordId
         ) { _ in true }
-        records.removeAll { !retainedIds.contains($0.id) }
+        records = records.enumerated()
+            .filter { retainedIndexes.contains($0.offset) }
+            .map(\.element)
     }
 
     /// Removes the oldest workspace records until their sub-bound is satisfied.
@@ -86,7 +87,7 @@ struct ClosedItemHistoryCapacityPolicy {
         }
         guard workspaceCount > workspaceCapacity else { return }
 
-        let retainedWorkspaceIds = retainedNewestRecordIds(
+        let retainedWorkspaceIndexes = retainedNewestRecordIndexes(
             in: records,
             capacity: workspaceCapacity,
             preserving: protectedRecordId
@@ -96,47 +97,48 @@ struct ClosedItemHistoryCapacityPolicy {
             }
             return false
         }
-        records.removeAll { record in
-            guard case .workspace = record.entry else { return false }
-            return !retainedWorkspaceIds.contains(record.id)
-        }
+        records = records.enumerated()
+            .filter { index, record in
+                guard case .workspace = record.entry else { return true }
+                return retainedWorkspaceIndexes.contains(index)
+            }
+            .map(\.element)
     }
 
-    /// Selects the newest matching records with memory bounded by `capacity`.
-    private func retainedNewestRecordIds(
+    /// Selects newest matching insertion positions with memory bounded by `capacity`.
+    private func retainedNewestRecordIndexes(
         in records: [ClosedItemHistoryRecord],
         capacity: Int,
         preserving protectedRecordId: UUID?,
         matching predicate: (ClosedItemHistoryRecord) -> Bool
-    ) -> Set<UUID> {
+    ) -> Set<Int> {
         guard capacity > 0 else { return [] }
 
-        let protectedRecord = records.first { record in
+        let protectedRecordIndex = records.enumerated().first { index, record in
             record.id == protectedRecordId && predicate(record)
-        }
-        let selectionCapacity = capacity - (protectedRecord == nil ? 0 : 1)
+        }?.offset
+        let selectionCapacity = capacity - (protectedRecordIndex == nil ? 0 : 1)
         var heap: [RecencyKey] = []
         heap.reserveCapacity(selectionCapacity)
 
-        for (insertionIndex, record) in records.enumerated() {
-            guard record.id != protectedRecordId, predicate(record) else { continue }
+        for (recordIndex, record) in records.enumerated() {
+            guard recordIndex != protectedRecordIndex, predicate(record) else { continue }
             insertIntoOldestFirstHeap(
                 RecencyKey(
-                    id: record.id,
-                    closedAt: record.closedAt,
-                    insertionIndex: insertionIndex
+                    recordIndex: recordIndex,
+                    closedAt: record.closedAt
                 ),
                 heap: &heap,
                 capacity: selectionCapacity
             )
         }
 
-        var retainedIds = Set<UUID>(minimumCapacity: heap.count + (protectedRecord == nil ? 0 : 1))
-        if let protectedRecord {
-            retainedIds.insert(protectedRecord.id)
+        var retainedIndexes = Set<Int>(minimumCapacity: heap.count + (protectedRecordIndex == nil ? 0 : 1))
+        if let protectedRecordIndex {
+            retainedIndexes.insert(protectedRecordIndex)
         }
-        retainedIds.formUnion(heap.lazy.map(\.id))
-        return retainedIds
+        retainedIndexes.formUnion(heap.lazy.map(\.recordIndex))
+        return retainedIndexes
     }
 
     /// Keeps a newest-record candidate in a min-heap whose root is oldest.
@@ -189,6 +191,6 @@ struct ClosedItemHistoryCapacityPolicy {
         if lhs.closedAt != rhs.closedAt {
             return lhs.closedAt < rhs.closedAt
         }
-        return lhs.insertionIndex < rhs.insertionIndex
+        return lhs.recordIndex < rhs.recordIndex
     }
 }
