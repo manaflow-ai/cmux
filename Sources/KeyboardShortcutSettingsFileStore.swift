@@ -439,6 +439,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
+    /// Parses app settings while allowing one invalid value to leave later fields intact.
     private func parseAppSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -482,11 +483,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
         if let raw = jsonString(section["teamsSpawnPlacement"]) {
-            guard let placement = TeamsSpawnPlacement(rawValue: raw) else {
+            if let placement = TeamsSpawnPlacement(rawValue: raw) {
+                snapshot.managedUserDefaults[SettingCatalog().app.teamsSpawnPlacement.userDefaultsKey] = .string(placement.rawValue)
+            } else {
                 logInvalid("app.teamsSpawnPlacement", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[SettingCatalog().app.teamsSpawnPlacement.userDefaultsKey] = .string(placement.rawValue)
         }
         if let value = jsonInt(section["globalFontMagnification"]) {
             let clamped = GlobalFontMagnification.clamp(value)

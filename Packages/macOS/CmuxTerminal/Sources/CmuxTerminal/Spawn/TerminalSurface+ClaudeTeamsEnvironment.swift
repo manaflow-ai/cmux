@@ -12,7 +12,6 @@ extension TerminalSurface {
     private static let claudeTeamsMarkerKeys = [
         "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
         "CMUX_CLAUDE_TEAMS_CMUX_BIN",
-        "CMUX_CLAUDE_TEAMS_TMUX_SHIM",
     ]
 
     /// Returns the validated tmux shim path supplied to a Claude Teams surface.
@@ -47,6 +46,7 @@ extension TerminalSurface {
     }
 
     /// Whether the startup environment belongs to a Claude Teams launch.
+    /// Checks for an independent Claude Teams launch marker.
     private static func isClaudeTeamsStartupEnvironment(_ environment: [String: String]) -> Bool {
         claudeTeamsMarkerKeys.contains { key in
             guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -57,6 +57,7 @@ extension TerminalSurface {
         }
     }
 
+    /// Confirms that a shim directory is owned by the current user and not group-writable.
     private static func isPrivateDirectory(
         _ url: URL,
         fileManager: FileManager

@@ -1,17 +1,5 @@
 import CMUXAgentLaunch
-import CmuxSettings
 import Foundation
-
-private let claudeTeamsForwardedEnvironmentKeys: [String] = [
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
-    "CLAUDE_CODE_SANDBOXED",
-    "CMUX_CLAUDE_TEAMS_SANDBOXED",
-    "CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT",
-    "CMUX_CLAUDE_TEAMS_CMUX_BIN",
-    "CMUX_CLAUDE_TEAMS_TMUX_SHIM",
-    "CMUX_CLAUDE_TEAMS_RESPAWN_ENV_B64",
-    "TMUX",
-]
 
 /// Claude Teams can ask tmux to create a teammate with `new-window`. In
 /// surface mode, keep that teammate in the caller's workspace and return a
@@ -47,19 +35,14 @@ extension CMUXCLI {
         let executablePath = resolvedExecutableURL()?.path
             ?? processEnvironment["CMUX_BUNDLED_CLI_PATH"]
             ?? "cmux"
-        let routedArguments: [String]?
-        switch AgentResumeArgv().launcherResolution(
+        let resolution = AgentResumeArgv().launcherResolution(
             launcher: "claudeTeams",
             sessionId: checkpointID,
             executablePath: executablePath,
             arguments: sourceArguments
-        ) {
-        case .resolved(let arguments):
-            routedArguments = arguments
-        case .passthrough:
-            routedArguments = nil
-        }
-        guard let routedArguments, !routedArguments.isEmpty else {
+        )
+        guard case .resolved(let routedArguments) = resolution,
+              !routedArguments.isEmpty else {
             return invocation
         }
 
@@ -77,10 +60,11 @@ extension CMUXCLI {
         )
     }
 
+    /// Checks the persisted launch record for the Claude Teams marker.
     private func claudeTeamsRestoreMarkerPresent(record: RestoreRecord) -> Bool {
         var capturedEnvironment = record.launchCommand?.environment ?? [:]
         capturedEnvironment.merge(record.environment) { _, restored in restored }
-        return capturedEnvironment["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "1"
+        return ClaudeTeamsSurfacePlacementPolicy.hasExplicitTeamsMarker(capturedEnvironment)
     }
 
     /// Returns the cmux/Claude variables that are safe and necessary to carry
@@ -91,20 +75,10 @@ extension CMUXCLI {
     func claudeTeamsRespawnControlEnvironment(
         processEnvironment: [String: String]
     ) -> [String: String] {
-        guard isClaudeTeamsEnvironment(processEnvironment) else { return [:] }
-        var forwarded: [String: String] = [:]
-        for key in claudeTeamsForwardedEnvironmentKeys {
-            guard let value = processEnvironment[key], isSafeEnvironmentValue(value) else { continue }
-            forwarded[key] = value
-        }
-
-        // A restored teammate may not have the launcher's explicit snapshot
-        // value. Carry the current setting into its next respawn so the choice
-        // remains stable even when the parent `cmux claude-teams` process is
-        // gone.
-        forwarded["CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT"] =
-            claudeTeamsSpawnPlacement(processEnvironment: processEnvironment).rawValue
-        return forwarded
+        ClaudeTeamsSurfacePlacementPolicy().controlEnvironment(
+            from: processEnvironment,
+            placementRawValue: claudeTeamsSpawnPlacement(processEnvironment: processEnvironment).rawValue
+        )
     }
 
     /// Builds the startup environment for a teammate created by `new-window`.
@@ -114,38 +88,18 @@ extension CMUXCLI {
         aliasToken: String,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
-        var startup = ClaudeTeamsRespawnEnvironmentTransport().decodedEnvironment(
+        let transportEnvironment = ClaudeTeamsRespawnEnvironmentTransport().decodedEnvironment(
             from: processEnvironment[ClaudeTeamsRespawnEnvironmentTransport.environmentKey]
         )
-        startup.merge(
-            claudeTeamsRespawnControlEnvironment(processEnvironment: processEnvironment)
-        ) { _, incoming in incoming }
-        startup["CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT"] = TeamsSpawnPlacement.surface.rawValue
-        startup["TMUX_PANE"] = aliasToken
-
-        // The lead normally supplies this path. The bundled path fallback keeps
-        // a teammate launch functional when a shell stripped the inherited
-        // variable before invoking the compatibility command.
-        if startup["CMUX_CLAUDE_TEAMS_CMUX_BIN"] == nil,
-           let executable = processEnvironment["CMUX_BUNDLED_CLI_PATH"]
-                ?? resolvedExecutableURL()?.path {
-            startup["CMUX_CLAUDE_TEAMS_CMUX_BIN"] = executable
-        }
-        return startup
+        return ClaudeTeamsSurfacePlacementPolicy().startupEnvironment(
+            aliasToken: aliasToken,
+            transportEnvironment: transportEnvironment,
+            processEnvironment: processEnvironment,
+            bundledExecutablePath: resolvedExecutableURL()?.path
+        )
     }
 
-    private func isClaudeTeamsEnvironment(_ environment: [String: String]) -> Bool {
-        environment["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "1"
-            || normalizedTmuxTarget(environment["CMUX_CLAUDE_TEAMS_CMUX_BIN"]) != nil
-            || normalizedTmuxTarget(environment["CMUX_CLAUDE_TEAMS_TMUX_SHIM"]) != nil
-    }
-
-    private func isSafeEnvironmentValue(_ value: String) -> Bool {
-        !value.isEmpty && !value.unicodeScalars.contains {
-            $0.value < 0x20 || $0.value == 0x7F
-        }
-    }
-
+    /// Creates a teammate surface in the caller's pane and records its tmux alias.
     func tmuxCreateClaudeTeamsSurfaceWindow(
         workingDirectory: String?,
         title: String?,
@@ -171,7 +125,7 @@ extension CMUXCLI {
               !surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.tmuxCompat.error.surfaceCreateMissingId",
-                defaultValue: "surface.create did not return surface_id for Claude Teams teammate"
+                defaultValue: "Could not create the teammate surface. Try again."
             ))
         }
 

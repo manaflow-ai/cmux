@@ -32,16 +32,14 @@ extension CMUXCLI {
     func claudeTeamsSpawnPlacement(
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TeamsSpawnPlacement {
-        let isClaudeTeamsContext = processEnvironment["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] == "1"
-            || normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_TEAMS_CMUX_BIN"]) != nil
-            || normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_TEAMS_TMUX_SHIM"]) != nil
-        guard isClaudeTeamsContext else { return .workspace }
-        if let raw = processEnvironment["CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT"] {
-            return TeamsSpawnPlacement(
-                rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            ) ?? .workspace
-        }
-        return configuredClaudeTeamsSpawnPlacement(processEnvironment: processEnvironment)
+        let configured = configuredClaudeTeamsSpawnPlacement(processEnvironment: processEnvironment)
+        let policy = ClaudeTeamsSurfacePlacementPolicy()
+        let placement = policy.placement(
+            rawValue: processEnvironment["CMUX_CLAUDE_TEAMS_SPAWN_PLACEMENT"],
+            fallback: ClaudeTeamsSurfacePlacementPolicy.Placement(rawValue: configured.rawValue) ?? .workspace,
+            environment: processEnvironment
+        )
+        return TeamsSpawnPlacement(rawValue: placement.rawValue) ?? .workspace
     }
 
     /// A tmux-shaped pane token for a surface tab. Claude Code passes the
@@ -49,19 +47,12 @@ extension CMUXCLI {
     /// commands, so the token must be stable across CLI processes without
     /// pretending that tabs are distinct physical cmux panes.
     func tmuxSurfaceAliasToken(surfaceId: String) -> String {
-        "%cmux-surface-\(surfaceId)"
+        ClaudeTeamsSurfacePlacementPolicy.surfaceAliasToken(surfaceID: surfaceId)
     }
 
+    /// Decodes a synthetic surface alias from a tmux target token.
     func tmuxSurfaceAliasSurfaceId(_ raw: String?) -> String? {
-        guard let raw = normalizedTmuxTarget(raw) else { return nil }
-        let token = tmuxTrimIdSigil(raw)
-        let prefix = "cmux-surface-"
-        guard token.lowercased().hasPrefix(prefix),
-              token.count > prefix.count else {
-            return nil
-        }
-        let surfaceId = String(token.dropFirst(prefix.count))
-        return UUID(uuidString: surfaceId) == nil ? nil : surfaceId
+        ClaudeTeamsSurfacePlacementPolicy.surfaceID(fromAlias: raw)
     }
 
     func tmuxEnrichContextWithGeometry(
