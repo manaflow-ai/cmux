@@ -125,8 +125,13 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             sidebar::draw_tabs(app, frame);
         }
     } else {
-        for placement in app.sidebar_layout.ordered.clone() {
-            match placement.kind {
+        // RailPlacement is Copy. Read one kind at a time so the renderer does
+        // not clone the full ordered layout on every frame. The copied value
+        // also ends the immutable borrow before the selected renderer mutates
+        // app state.
+        for index in 0..app.sidebar_layout.ordered.len() {
+            let kind = app.sidebar_layout.ordered[index].kind;
+            match kind {
                 RailKind::Machine => sidebar::draw_machines(app, frame),
                 RailKind::Workspace => sidebar_input_cursor = sidebar::draw(app, frame),
                 RailKind::Tabs => sidebar::draw_tabs(app, frame),
