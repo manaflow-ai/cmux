@@ -284,7 +284,7 @@ install_rootfs() {
         local downloaded
         downloaded="$(mktemp "$ROOTFS_DEST.part.XXXXXX")"
         ROOTFS_PART="$downloaded"
-        if ! curl -fL --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 2 \
+        if ! curl -fL --connect-timeout 20 --max-time 300 --retry 3 \
             -o "$downloaded" "$ROOTFS_URL"; then
             rm -f "$downloaded"
             ROOTFS_PART=""
