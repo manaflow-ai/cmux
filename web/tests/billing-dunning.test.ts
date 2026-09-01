@@ -273,6 +273,12 @@ describe("billing dunning delivery ledger", () => {
       "delivery_abandoned",
     );
 
+    // A later Stripe delivery reaches the same terminal ledger state, but the
+    // one-time report marker must prevent a second operator notification.
+    await expect(sendBillingDunningEmail(input, dependencies)).resolves.toBe(
+      "delivery_abandoned",
+    );
+
     expect(reportAbandoned).toHaveBeenCalledTimes(1);
     expect(reportAbandoned).toHaveBeenCalledWith({
       invoiceId: "in_ambiguous_abandoned",
@@ -280,5 +286,6 @@ describe("billing dunning delivery ledger", () => {
     });
     expect(sendEmail).toHaveBeenCalledTimes(1);
     expect(providerDeliveries.size).toBe(1);
+    expect(ledger.row()?.abandonedReportedAt).toBeInstanceOf(Date);
   });
 });

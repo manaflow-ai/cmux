@@ -717,6 +717,8 @@ describe("Stripe billing webhook route", () => {
   });
 
   test("sends a dunning email with a portal link after payment failure", async () => {
+    const previousAppOrigin = process.env.CMUX_APP_ORIGIN;
+    process.env.CMUX_APP_ORIGIN = "https://billing.cmux.test";
     currentEvent = {
       id: "evt_invoice_dunning",
       type: "invoice.payment_failed",
@@ -742,18 +744,23 @@ describe("Stripe billing webhook route", () => {
       status: "past_due",
     };
 
-    const response = await POST(webhookRequest());
+    try {
+      const response = await POST(webhookRequest("https://attacker.example"));
 
-    expect(response.status).toBe(200);
-    expect(sendDunningEmail).toHaveBeenCalledTimes(1);
-    expect(sendDunningEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        invoiceId: "in_dunning",
-        email: "buyer@example.com",
-        portalUrl: "https://cmux.test/api/billing/portal",
-        scope: { scope: "user", stackUserId: "user_1" },
-      }),
-    );
+      expect(response.status).toBe(200);
+      expect(sendDunningEmail).toHaveBeenCalledTimes(1);
+      expect(sendDunningEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          invoiceId: "in_dunning",
+          email: "buyer@example.com",
+          portalUrl: "https://billing.cmux.test/api/billing/portal",
+          scope: { scope: "user", stackUserId: "user_1" },
+        }),
+      );
+    } finally {
+      if (previousAppOrigin === undefined) delete process.env.CMUX_APP_ORIGIN;
+      else process.env.CMUX_APP_ORIGIN = previousAppOrigin;
+    }
   });
 
   test("returns 500 while an ambiguous dunning delivery is in progress", async () => {
@@ -909,8 +916,8 @@ describe("Stripe billing webhook route", () => {
   });
 });
 
-function webhookRequest(): Request {
-  return new Request("https://cmux.test/api/stripe/webhook", {
+function webhookRequest(origin = "https://cmux.test"): Request {
+  return new Request(`${origin}/api/stripe/webhook`, {
     method: "POST",
     headers: { "stripe-signature": "t=1,v1=test" },
     body: JSON.stringify({ id: "evt_1" }),
