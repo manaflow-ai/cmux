@@ -20,6 +20,12 @@ import cmuxFeature
 @MainActor
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
+#if os(iOS)
+    /// App-owned local Linux provider. Keeping this beside the other
+    /// composition services gives production and DEBUG destinations one
+    /// `LocalLinuxRuntime` actor instead of constructing one per SwiftUI pass.
+    let localLinuxComputerProvider: LocalLinuxComputerProvider
+#endif
     let auth: MobileAuthComposition
     let iroh: MobileIrohRuntimeComposition
     /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
@@ -101,6 +107,13 @@ final class AppCompositionRoot {
         #endif
 
         self.runtime = runtime
+#if os(iOS)
+        // Construct the local computer once with the rest of the app graph.
+        // Keep this local binding so the sign-out fence can synchronously stop
+        // its PTY before auth clears the account's local state.
+        let localLinuxComputerProvider = LocalLinuxComputerProvider()
+        self.localLinuxComputerProvider = localLinuxComputerProvider
+#endif
         self.auth = auth
         self.iroh = iroh
         self.irx = irx
@@ -208,6 +221,9 @@ final class AppCompositionRoot {
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
+#if os(iOS)
+            localLinuxComputerProvider.controller.terminate()
+#endif
             let signingOutAccountID = auth.coordinator.currentUser?.id
             let preparation = iroh.beginSignOutPreparation()
             return { accessToken, refreshToken in
