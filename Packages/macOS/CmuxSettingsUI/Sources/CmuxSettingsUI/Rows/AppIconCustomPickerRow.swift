@@ -56,7 +56,11 @@ struct AppIconCustomPickerRow: View {
     }
 
     private var displayName: String {
-        guard hasSelection else {
+        Self.displayName(for: selectedPath)
+    }
+
+    static func displayName(for selectedPath: String) -> String {
+        guard !selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return String(
                 localized: "settings.app.appIcon.custom.file.none",
                 defaultValue: "No file selected"

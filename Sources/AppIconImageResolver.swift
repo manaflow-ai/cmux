@@ -10,7 +10,8 @@ struct AppIconImageResolver {
 
     static func image(
         for path: String,
-        relativeToConfig configPath: String? = defaultConfigPath
+        relativeToConfig configPath: String? = defaultConfigPath,
+        log: (String) -> Void = { NSLog("%@", $0) }
     ) -> NSImage? {
         let result = CmuxValidatedImageAsset.prepare(
             path,
@@ -19,12 +20,12 @@ struct AppIconImageResolver {
         )
         guard case .success(let prepared) = result else {
             if case .failure(let failure) = result {
-                NSLog("[AppIcon] rejected custom image path (%@): %@", path, failure.description)
+                log("[AppIcon] rejected custom image path (\(path)): \(failure.description)")
             }
             return nil
         }
         guard let image = NSImage(data: prepared.data), image.isValid else {
-            NSLog("[AppIcon] custom image is not a supported image: %@", prepared.resolvedPath)
+            log("[AppIcon] custom image is not a supported image: \(prepared.resolvedPath)")
             return nil
         }
         return image
