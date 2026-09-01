@@ -15,6 +15,11 @@
         "fork": "កុំ​ព្យាយាម​ម្តងទៀត។ បង្កើត VM ថ្មីដោយប្រើ `cmux vm new`។",
         "default": "កុំ​ព្យាយាម​ម្តងទៀត។ ដំណើរការ `cmux vm ls` ឬទាក់ទងជំនួយ ប្រសិនបើអ្នកគិតថានេះជាកំហុស។"
       }
+    },
+    "requiresPro": {
+      "title": "ត្រូវការ cmux Pro",
+      "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
+      "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
     }
   },
   "billingRecovery": {

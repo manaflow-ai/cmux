@@ -18179,10 +18179,26 @@ struct CMUXCLI {
               workspace open <machine> <ws-id>
                                         Open a machine workspace here: a new local
                                         workspace with one pane per terminal.
+              workspace rename <machine> <ws-id> <name>
+                                        Rename a machine workspace.
               workspace close <machine> <ws-id>
-                                        Close a machine workspace and its terminals.
+                                        Close a machine workspace; its terminals keep
+                                        running and detach into the Terminals pool.
+              workspace rm <machine> <ws-id>
+                                        Delete a machine workspace AND kill every
+                                        terminal in it. Permanent.
               terminal close <machine> <term-id>
                                         End a terminal on the machine.
+              terminal send <machine> <term-id> [text] [--keys enter,ctrl+c,…]
+                                        Type into a machine terminal headlessly (no
+                                        pane, no focus); --keys presses named keys after.
+              terminal read <machine> <term-id>
+                                        Print the terminal's visible screen.
+              terminal wait <machine> <term-id> --pattern <regex> [--timeout <s>]
+                                        Block until the screen matches; exit 1 on timeout.
+              prompt [--open <agent>]   Install the cmux-cloud skill file and print the
+                                        kickoff prompt for any agent; --open starts a
+                                        local claude|codex|opencode|pi terminal with it.
               tree [<machine>|local] [--refresh]
                                         Finder-style view of every surface: This Mac
                                         (terminals by workspace, browsers), then each
