@@ -24,7 +24,7 @@ extension AppDelegate {
     func isBrowserPanelWebView(_ webView: CmuxWebView) -> Bool {
         directBrowserPanelOwner(of: webView) != nil
             || BrowserWindowPortalRegistry.paneDropContext(for: webView) != nil
-            || webView.isBrowserPopupWebView
+            || webView.isOwnedByBrowserPopupPanel
     }
 
     /// Resolves a browser panel by its globally unique panel identifier.
