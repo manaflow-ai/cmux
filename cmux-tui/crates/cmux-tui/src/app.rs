@@ -122,7 +122,7 @@ fn read_crossterm_event(
     let poll_timeout =
         timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
     let deadline = Instant::now() + poll_timeout;
-    let mut interrupted = 0;
+    let mut interrupted: u8 = 0;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         match poll(remaining) {
