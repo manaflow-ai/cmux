@@ -48,6 +48,13 @@
     "description": "เทอร์มินัล macOS ดั้งเดิมที่เป็นโอเพนซอร์สและใช้งานได้ฟรี สร้างบน Ghostty รองรับ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider และเครื่องมือ CLI ใดก็ได้ แท็บแนวตั้ง วงแหวนแจ้งเตือน แผงแบ่ง และ socket API",
     "ogDescription": "เทอร์มินัล macOS ที่เป็นโอเพนซอร์สและใช้งานได้ฟรีสำหรับเอเจนต์เขียนโค้ด AI รองรับ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider และเครื่องมือ CLI ใดก็ได้"
   },
+  "authError": {
+    "emailUnverifiedTitle": "ยืนยันอีเมลเพื่อดำเนินการต่อ",
+    "emailUnverifiedBody": "ลงชื่อเข้าใช้ด้วยวิธีที่คุณใช้แต่แรก แล้วยืนยันอีเมลก่อนใช้วิธีลงชื่อเข้านี้",
+    "genericTitle": "ไม่สามารถลงชื่อเข้าใช้ได้",
+    "genericBody": "โปรดลองอีกครั้ง หากยังมีปัญหา โปรดติดต่อฝ่ายสนับสนุน",
+    "backToSignIn": "กลับไปที่การลงชื่อเข้าใช้"
+  },
   "common": {
     "downloadForMac": "ดาวน์โหลดสำหรับ Mac",
     "viewOnGitHub": "ดูบน GitHub",
