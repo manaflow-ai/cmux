@@ -4365,6 +4365,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         if let existingLaunchArguments = scenario.existingLaunchArguments {
+            let now = Date().timeIntervalSince1970
             let existingLaunchCommand: [String: Any] = [
                 "launcher": scenario.agent,
                 "executablePath": scenario.executable,
@@ -4380,8 +4381,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "workspaceId": workspaceId,
                         "surfaceId": surfaceId,
                         "cwd": workspace.path,
-                        "startedAt": 1.0,
-                        "updatedAt": 1.0,
+                        "startedAt": now,
+                        "updatedAt": now,
                         "launchCommand": existingLaunchCommand,
                     ],
                 ],
