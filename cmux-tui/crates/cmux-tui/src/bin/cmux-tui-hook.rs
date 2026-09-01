@@ -114,8 +114,12 @@ enum Handoff {
     TimedOut,
 }
 
-/// Own a spawned helper until its lifecycle has been handed to the reaper.
-/// `std::process::Child` does not terminate or reap itself when dropped.
+/// Own a spawned helper while setup can still fail.
+/// `std::process::Child` does not terminate or reap itself when dropped, so
+/// this guard synchronously terminates and waits for a child on those error
+/// paths. After a successful handoff, `settle_detached_child` explicitly
+/// releases a still-running child because this one-shot process is about to
+/// return and cannot host a reaper thread.
 struct DetachedChildGuard(Option<std::process::Child>);
 
 impl DetachedChildGuard {
@@ -127,8 +131,12 @@ impl DetachedChildGuard {
         self.0.as_mut().expect("detached child guard is occupied")
     }
 
-    fn take(&mut self) -> std::process::Child {
-        self.0.take().expect("detached child guard is occupied")
+    /// Release the process handle without waiting. The detached child owns
+    /// its remaining bounded receipt attempt; on Unix a parent that exits
+    /// reparents it for eventual collection, and on Windows closing this
+    /// handle releases the parent's ownership of the process object.
+    fn release(mut self) {
+        drop(self.0.take());
     }
 }
 
@@ -142,35 +150,38 @@ impl Drop for DetachedChildGuard {
     }
 }
 
-/// Reap the helper after the provider-facing handoff. The helper normally
-/// exits after its four-second socket deadline. If it does not, terminate it
-/// after that same bounded grace period so repeated hooks cannot accumulate
-/// children or blocked stdout reader threads.
-fn reap_detached_child(mut child: std::process::Child, reader: std::thread::JoinHandle<()>) {
-    let deadline = Instant::now() + SOCKET_TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Ok(None) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break;
+/// Settle the parent-side ownership before the provider-facing process
+/// returns. A child that already exited is reaped and its stdout reader is
+/// joined. A child that is still running must continue waiting for its receipt,
+/// so its process handle and reader are explicitly released instead of being
+/// handed to a thread that would die with this one-shot process. The child has
+/// its own `SOCKET_TIMEOUT` deadline; the OS owns its eventual orphaned
+/// lifetime after this process exits.
+fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::JoinHandle<()>) {
+    let status = child.child_mut().try_wait();
+    match status {
+        Ok(Some(_)) => {
+            child.release();
+            // `is_finished` keeps the provider-facing path non-blocking even
+            // if a platform leaves the pipe reader briefly behind the child.
+            if reader.is_finished() {
+                let _ = reader.join();
+            } else {
+                drop(reader);
             }
         }
+        Ok(None) => {
+            drop(reader);
+            child.release();
+        }
+        Err(_) => {
+            // A status-query error cannot justify an unbounded wait on the
+            // provider path. Release both handles; this one-shot parent exits
+            // immediately, while the child keeps its own bounded attempt.
+            drop(reader);
+            child.release();
+        }
     }
-    let _ = reader.join();
-}
-
-fn handoff_child_to_reaper(child: std::process::Child, reader: std::thread::JoinHandle<()>) {
-    let guard = DetachedChildGuard::new(child);
-    let _ = std::thread::Builder::new().name("cmux-tui-hook-reaper".to_owned()).spawn(move || {
-        let mut guard = guard;
-        let child = guard.take();
-        reap_detached_child(child, reader);
-    });
 }
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
@@ -665,7 +676,7 @@ mod detach {
             let _ = sender.send(outcome);
         });
         let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
-        super::handoff_child_to_reaper(child.take(), reader);
+        super::settle_detached_child(child, reader);
         Ok(outcome)
     }
 }
@@ -728,7 +739,7 @@ mod detach {
             let _ = sender.send(outcome);
         });
         let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
-        super::handoff_child_to_reaper(child.take(), reader);
+        super::settle_detached_child(child, reader);
         Ok(outcome)
     }
 }
