@@ -222,6 +222,12 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: z.string().min(1).optional(),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
+    // Cloud VM provisioning is paid-plan-only by default. The allow switch is
+    // intentionally opt-in for controlled demos/rollbacks; the legacy require
+    // flag remains accepted by the entitlement layer for migration parity.
+    CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
+    CMUX_VM_REQUIRE_PRO: z.string().optional(),
+    CMUX_VM_DEFAULT_PLAN: z.string().optional(),
     // Hosted coderouter requires an active personal cmux Pro subscription.
     // Self-hosted deployments leave this unset (or set it to "0").
     CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
@@ -391,6 +397,9 @@ export const env = createEnv({
     CMUX_TESTFLIGHT_APP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_APP_ID),
     CMUX_PRO_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_PRO_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
+    CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
+    CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
+    CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
     CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
       process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
     ),
