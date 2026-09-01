@@ -1,0 +1,212 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
+public import CmuxMobileShellModel
+import Foundation
+
+/// Demonstration content: a local demo computer with sample workspaces,
+/// notifications, and interactive canned terminals, activated only while the
+/// signed-in account carries the server-written demonstration flag
+/// (`CMUXAuthUser.demonstrationContentEnabled`).
+///
+/// Everything renders through the production data paths: the demo computer is
+/// one more `MobilePairedMac` row (via ``DemoContentPairedMacStore``), its
+/// workspaces are one more ``MacWorkspaceState`` entry feeding the ordinary
+/// multi-Mac aggregation, its notifications are one more per-Mac feed
+/// snapshot, and its terminals are served by ``MobileDemoTerminalEngine``
+/// through the same output stream and input funnels a live Mac uses. Real
+/// Macs connect, list, and stream exactly as before — demonstration content
+/// augments the account's data, it never replaces or intercepts a real Mac's.
+@MainActor
+extension MobileShellComposite {
+    // MARK: Activation
+
+    /// Re-evaluates demonstration-content activation against the signed-in
+    /// account's server flag. Called on every shell auth sync, so the mode
+    /// follows sign-in, session restore, and account switches.
+    func refreshDemonstrationContentActivation() {
+        let enabled = isSignedIn
+            && identityProvider?.demonstrationContentEnabled == true
+        if enabled {
+            activateDemonstrationContent()
+        } else {
+            deactivateDemonstrationContent(reloadPairedMacs: isSignedIn)
+        }
+    }
+
+    private func activateDemonstrationContent() {
+        if demoContentSession == nil {
+            let session = MobileDemoContentSession(now: runtime?.now() ?? Date())
+            demoContentSession = session
+            // The demo computer is a known paired Mac while the session
+            // lives; without the hint a reviewer with zero real Macs would
+            // land on the add-device flow instead of the workspace shell.
+            if !hasKnownPairedMac {
+                session.forcedKnownPairedMacHint = true
+                hasKnownPairedMac = true
+            }
+            // Reveal the demo row through the ordinary store load path.
+            Task { await self.loadPairedMacs() }
+        }
+        seedDemonstrationState()
+    }
+
+    /// Removes every demonstration seed. Safe to call repeatedly.
+    /// - Parameter reloadPairedMacs: Whether to re-run the store load so the
+    ///   Computers list drops the demo row (skipped during sign-out, whose
+    ///   own teardown clears the list).
+    func deactivateDemonstrationContent(reloadPairedMacs: Bool = false) {
+        guard let session = demoContentSession else { return }
+        demoContentSession = nil
+        workspacesByMac.removeValue(forKey: session.pairingKey)
+        notificationFeedSnapshotsByMac.removeValue(forKey: session.feedOwnerKey)
+        notificationFeedKnownRevisionsByMac.removeValue(forKey: session.feedOwnerKey)
+        notificationFeedSuccessfulMacIDs.remove(session.feedOwnerKey)
+        recomputeNotificationFeedItems()
+        // `demoContentSession` is already nil here, so ownership checks must
+        // go through the captured session: with no real (non-demo) rows left,
+        // the forced known-Mac hint is restored so the add-device flow returns.
+        if session.forcedKnownPairedMacHint,
+           !pairedMacs.contains(where: {
+               !session.ownsMac(deviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+           }) {
+            hasKnownPairedMac = false
+        }
+        if reloadPairedMacs {
+            Task { await self.loadPairedMacs() }
+        }
+    }
+
+    /// Seeds (or re-seeds) the demo Mac's workspace state and notification
+    /// snapshot through the same internal stores a live Mac's data lands in.
+    private func seedDemonstrationState() {
+        guard let session = demoContentSession else { return }
+        let state = session.workspaceState
+        if workspacesByMac[session.pairingKey] != state {
+            workspacesByMac[session.pairingKey] = state
+        }
+        if notificationFeedSnapshotsByMac[session.feedOwnerKey] == nil {
+            notificationFeedSnapshotsByMac[session.feedOwnerKey] = NotificationFeedMacSnapshot(
+                revision: session.notificationFeedRevision,
+                items: session.catalog.notifications
+            )
+            notificationFeedKnownRevisionsByMac[session.feedOwnerKey] =
+                session.notificationFeedRevision
+            notificationFeedSuccessfulMacIDs.insert(session.feedOwnerKey)
+            recomputeNotificationFeedItems()
+        }
+        if notificationFeedStatus == .idle || notificationFeedStatus == .unavailable {
+            notificationFeedStatus = .ready
+        }
+    }
+
+    // MARK: Ownership
+
+    /// Whether the given Mac identity is the demonstration computer.
+    func demonstrationOwnsMac(deviceID: String?, instanceTag: String?) -> Bool {
+        demoContentSession?.ownsMac(deviceID: deviceID, instanceTag: instanceTag) == true
+    }
+
+    /// Whether a stored paired-Mac row is the demonstration computer's.
+    func isDemonstrationPairedMac(_ mac: MobilePairedMac) -> Bool {
+        demonstrationOwnsMac(deviceID: mac.macDeviceID, instanceTag: mac.instanceTag)
+    }
+
+    /// Whether a terminal surface belongs to a demonstration workspace.
+    func demonstrationOwnsSurface(_ surfaceID: String) -> Bool {
+        demoContentSession?.ownsSurface(surfaceID) == true
+    }
+
+    /// Whether an aggregated workspace row belongs to the demonstration Mac.
+    func demonstrationOwnsWorkspaceRow(_ id: MobileWorkspacePreview.ID) -> Bool {
+        guard let session = demoContentSession,
+              let row = workspaces.first(where: { $0.id == id }) else { return false }
+        return session.ownsMac(deviceID: row.macDeviceID, instanceTag: row.macInstanceTag)
+    }
+
+    // MARK: Terminal output and input
+
+    /// Delivers the demo terminal's authoritative full-screen replay through
+    /// the same per-surface output stream a live Mac's replay rides.
+    func deliverDemonstrationTerminalReplay(surfaceID: String) {
+        guard let session = demoContentSession,
+              let bytes = session.engine.replayBytes(surfaceID: surfaceID) else { return }
+        _ = deliverTerminalBytes(bytes, surfaceID: surfaceID)
+    }
+
+    /// Feeds typed input into the demo terminal engine and echoes its output.
+    /// Returns `false` for surfaces the demo session does not own, so callers
+    /// fall through to the real RPC input pipeline.
+    @discardableResult
+    func handleDemonstrationTerminalInput(_ text: String, surfaceID: String) -> Bool {
+        guard let session = demoContentSession,
+              session.ownsSurface(surfaceID) else { return false }
+        if let bytes = session.engine.inputBytes(text, surfaceID: surfaceID),
+           !bytes.isEmpty {
+            _ = deliverTerminalBytes(bytes, surfaceID: surfaceID)
+        }
+        return true
+    }
+
+    // MARK: Read receipts
+
+    /// Applies the open-a-workspace read receipt to a demo row, mirroring the
+    /// unread clearing a live Mac performs on `workspace.read_state`.
+    func clearDemonstrationWorkspaceUnread(_ id: MobileWorkspacePreview.ID) {
+        guard let session = demoContentSession else { return }
+        let remoteID = remoteWorkspaceID(for: id)
+        guard session.clearWorkspaceUnread(remoteWorkspaceID: remoteID) else { return }
+        workspacesByMac[session.pairingKey] = session.workspaceState
+    }
+
+    /// Applies a feed read-state mutation to a demo notification in memory.
+    /// Returns `false` when the item is not demonstration-owned.
+    func applyDemonstrationNotificationReadState(
+        _ item: MobileNotificationFeedItem,
+        isRead: Bool
+    ) -> Bool {
+        guard let session = demoContentSession,
+              session.ownsMac(deviceID: item.macDeviceID, instanceTag: item.macInstanceTag) else {
+            return false
+        }
+        guard item.isRead != isRead else { return true }
+        applyNotificationFeedReadStateMutation(
+            macDeviceID: session.feedOwnerKey,
+            notificationIDs: [item.notificationID],
+            isRead: isRead,
+            revision: session.nextNotificationFeedRevision()
+        )
+        return true
+    }
+
+    /// Marks the demo Mac's retained notifications read for a bulk mark-read,
+    /// honoring the caller's computer scope like the real per-Mac targets.
+    func markDemonstrationNotificationFeedItemsRead(scopedTo macDeviceIDs: Set<String>?) {
+        guard let session = demoContentSession,
+              let snapshot = notificationFeedSnapshotsByMac[session.feedOwnerKey] else { return }
+        if let macDeviceIDs {
+            let parsedScopeEntries = MobileWorkspaceListFilter.parsedMachineEntries(macDeviceIDs)
+            guard parsedScopeEntries.contains(where: {
+                $0.matches(
+                    deviceID: session.pairingKey.canonicalMacDeviceID,
+                    rowTag: nil
+                )
+            }) else { return }
+        }
+        let unreadIDs = snapshot.items.filter { !$0.isRead }.map(\.notificationID)
+        guard !unreadIDs.isEmpty else { return }
+        applyNotificationFeedReadStateMutation(
+            macDeviceID: session.feedOwnerKey,
+            notificationIDs: unreadIDs,
+            isRead: true,
+            revision: session.nextNotificationFeedRevision()
+        )
+    }
+
+    /// Whether the demo notification snapshot is currently seeded, so the
+    /// feed's availability resolution can report `.ready` when demonstration
+    /// content is the only source.
+    var demonstrationNotificationFeedSeeded: Bool {
+        guard let session = demoContentSession else { return false }
+        return notificationFeedSnapshotsByMac[session.feedOwnerKey] != nil
+    }
+}
