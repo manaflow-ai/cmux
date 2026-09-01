@@ -37,7 +37,7 @@ use cmux_remote::provider::{
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+    sanitized_route, sanitized_route_text, spawn_relay_daemon_with_credentials,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
@@ -67,6 +67,7 @@ const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
 const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
+const RELAY_REGISTRATION_STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1904,35 +1905,112 @@ async fn run_daemon(
                 None => None,
             };
 
-            let mut relay_tasks = tokio::task::JoinSet::new();
+            // Relay registration is independently retryable. Keep each
+            // registration task alive when its first carrier is unavailable,
+            // and only wait long enough to discover whether at least one
+            // route is immediately usable. This lets a healthy shard serve
+            // while an unhealthy shard resumes in the background.
+            let mut relay_registrations = Vec::with_capacity(options.relays.len());
+            let mut relay_waiters = tokio::task::JoinSet::new();
+            let mut relay_startup_errors = Vec::new();
             for relay in options.relays.iter().cloned() {
-                let daemon = daemon.clone();
-                relay_tasks.spawn(async move {
-                    register_relay_daemon_with_credentials(
-                        daemon,
-                        RelayDaemonConfig {
-                            endpoint: relay.endpoint,
-                            slot: relay.slot,
-                            ticket: String::new(),
-                            maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
-                            control_timeout: Duration::from_secs(15),
-                        },
-                        relay.credentials,
-                    )
-                    .await
-                });
+                let route = sanitized_route(&relay.endpoint);
+                match spawn_relay_daemon_with_credentials(
+                    daemon.clone(),
+                    RelayDaemonConfig {
+                        endpoint: relay.endpoint,
+                        slot: relay.slot,
+                        ticket: String::new(),
+                        maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
+                        control_timeout: Duration::from_secs(15),
+                    },
+                    relay.credentials,
+                ) {
+                    Ok(startup) => {
+                        let (registration, ready) = startup.into_parts();
+                        let index = relay_registrations.len();
+                        relay_registrations.push(Some(registration));
+                        relay_waiters.spawn(async move {
+                            let result = tokio::time::timeout(
+                                RELAY_REGISTRATION_STARTUP_TIMEOUT,
+                                ready,
+                            )
+                            .await;
+                            (index, route, result)
+                        });
+                    }
+                    Err(error) => {
+                        relay_startup_errors.push(format!("{route}: {error}"));
+                    }
+                }
             }
-            let mut relays = Vec::with_capacity(options.relays.len());
-            while !relay_tasks.is_empty() {
+
+            let mut ready_count = 0;
+            while !relay_waiters.is_empty() {
                 let result = tokio::select! {
-                    result = relay_tasks.join_next() => result,
+                    result = relay_waiters.join_next() => result,
                     _ = wait_for_shutdown(&mut startup_shutdown) => {
                         return Err(anyhow!("remote daemon startup was cancelled"));
                     }
                 };
-                let result = result.expect("a non-empty relay task set has a result");
-                relays.push(result.context("relay registration task failed")??);
+                let Some(result) = result else { break };
+                let (index, route, result) = result.context("relay readiness task failed")?;
+                match result {
+                    Ok(Ok(Ok(()))) => {
+                        ready_count += 1;
+                    }
+                    Ok(Ok(Err(error))) => {
+                        relay_registrations[index] = None;
+                        relay_startup_errors.push(format!("{route}: {error}"));
+                    }
+                    Ok(Err(_)) => {
+                        relay_registrations[index] = None;
+                        relay_startup_errors.push(format!(
+                            "{route}: registration stopped before ready"
+                        ));
+                    }
+                    Err(_) => {
+                        crate::client_log::stderr_log!(
+                            "remote",
+                            "cmux-tui: relay route {route} is still connecting; keeping its retry loop active"
+                        );
+                    }
+                }
+
+                // One usable route is enough to bring the daemon online. The
+                // remaining waiters are only readiness observers; dropping
+                // them leaves their registration loops running.
+                if ready_count > 0 {
+                    break;
+                }
             }
+            relay_waiters.abort_all();
+            while relay_waiters.join_next().await.is_some() {}
+
+            let active_relay_count =
+                relay_registrations.iter().filter(|registration| registration.is_some()).count();
+            if !options.relays.is_empty() && active_relay_count == 0 {
+                let details = if relay_startup_errors.is_empty() {
+                    "unknown relay startup failure".to_owned()
+                } else {
+                    relay_startup_errors.join("; ")
+                };
+                return Err(anyhow!("all relay registrations failed: {details}"));
+            }
+            if ready_count == 0 && active_relay_count > 0 {
+                crate::client_log::stderr_log!(
+                    "remote",
+                    "cmux-tui: no relay route became ready within {:?}; continuing with background retries",
+                    RELAY_REGISTRATION_STARTUP_TIMEOUT
+                );
+            } else if active_relay_count < options.relays.len() {
+                crate::client_log::stderr_log!(
+                    "remote",
+                    "cmux-tui: relay startup is degraded, {active_relay_count}/{} routes active",
+                    options.relays.len()
+                );
+            }
+            let relays = relay_registrations.into_iter().flatten().collect::<Vec<_>>();
 
             let iroh = match options.iroh {
                 true => {
