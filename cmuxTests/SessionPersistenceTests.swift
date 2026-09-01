@@ -4572,6 +4572,30 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testRetargetingGeneratedWorkingDirectoryPrefixRemovesDeletedSavedDirectory() {
+        let savedDirectory = "/tmp/deleted repo"
+        let recoveryDirectory = "/tmp/chosen successor"
+        let generatedCommand = TerminalStartupWorkingDirectoryPrefix.prefix(
+            "codex resume session",
+            workingDirectory: savedDirectory
+        )
+
+        let retargeted = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: generatedCommand,
+            previousWorkingDirectory: savedDirectory,
+            workingDirectory: recoveryDirectory
+        )
+
+        XCTAssertEqual(
+            retargeted,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session",
+                workingDirectory: recoveryDirectory
+            )
+        )
+        XCTAssertFalse(retargeted.contains(savedDirectory), retargeted)
+    }
+
     // A binding persisted by an older cmux with the legacy braced guard must be
     // canonicalized to the fish-safe unbraced form on the next agent-hook write so the
     // upgrade self-heals existing fish users.
