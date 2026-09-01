@@ -373,13 +373,7 @@ impl ScreenDetectTracker {
         process_group_id: Option<u32>,
         now: Instant,
     ) -> bool {
-        self.note_foreground_job_at_with_revision(
-            terminal_id,
-            agent,
-            process_group_id,
-            None,
-            now,
-        )
+        self.note_foreground_job_at_with_revision(terminal_id, agent, process_group_id, None, now)
     }
 
     /// Record a foreground identity edge and the host stream revision seen at

@@ -621,16 +621,10 @@ fn scan_terminal(
     let metadata_revision = screen.revision.or(snapshot.stream_revision);
     let metadata_fresh = state.tracker.metadata_is_fresh(&terminal_id, metadata_revision);
     let osc_title = if metadata_fresh { snapshot.title.as_str() } else { "" };
-    let osc_progress = if metadata_fresh {
-        screen.osc_progress.as_deref().unwrap_or_default()
-    } else {
-        ""
-    };
-    let mut detection = manifest.detect(DetectionInput {
-        screen: &screen.text,
-        osc_title,
-        osc_progress,
-    });
+    let osc_progress =
+        if metadata_fresh { screen.osc_progress.as_deref().unwrap_or_default() } else { "" };
+    let mut detection =
+        manifest.detect(DetectionInput { screen: &screen.text, osc_title, osc_progress });
     // Flowing PTY output is a working signal for the screen source. It only
     // upgrades an idle read and owes one expiry re-evaluation; hooks still
     // win in the core roster reducer.
