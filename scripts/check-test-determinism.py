@@ -5507,6 +5507,28 @@ def _self_test() -> int:
                 "        _must('ok' in body, body)\n"
             ),
         ),
+        # Literal bodies preserve their source text for URL matching, but must
+        # not be treated as executable by the other detectors.
+        (
+            "tests/n28.py",
+            'script = """\n'
+            "time.sleep(0.1)\n"
+            "# assert ready\n"
+            '"""\n',
+        ),
+        (
+            "tests/n29.py",
+            'script = """\n'
+            "elapsed_ms < 5\n"
+            "assert elapsed_ms < 5\n"
+            '"""\n',
+        ),
+        (
+            "tests/n30.py",
+            'script = """\n'
+            "sock.bind(('127.0.0.1', 8080))\n"
+            '"""\n',
+        ),
     ]
 
     failures: list[str] = []
