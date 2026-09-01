@@ -20,16 +20,11 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956"
 # The privileged workflow is an explicit reviewed policy, not an extensible
-# script. A digest of its parsed document prevents a PR from adding a command,
-# secret reference, action input, or permission while retaining the fragments
-# checked below. Policy changes require a separate, reviewed update to this
-# base-controlled guard, followed by the workflow change.
-# This matches the parsed workflow already merged on main. It differs from the
-# previous base value because this control-plane update follows that merge.
-EXPECTED_WORKFLOW_DIGEST = "f458101f6f17bc28381f2ee4f063d9b4333fa2cf7c7bec18b0a656a3311d9033"
+# script. Its parsed document is compared with the trusted base revision, so a
+# policy change requires trusted review without a fragile follow-up hash bump.
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "cb08e6837d8065897016f12cf30c85e0153fc5c3c2d9ca1e6b409f4237541bc4"
-EXPECTED_GUARD_SCRIPT_DIGEST = "a4eafdb5a9486eb96c76bd95b3c8e3f04b71783599f511d8466b69f124e92279"
+EXPECTED_GUARD_SCRIPT_DIGEST = "a3179aa69e409d0939ed86fe118efea21b5b17a262b71b8a9dc960cde22ad3d0"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -126,6 +121,18 @@ def canonical(value)
   else
     value
   end
+end
+
+def parse_workflow(raw)
+  document = YAML.safe_load(raw, aliases: false)
+  fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
+  document
+rescue Psych::Exception => error
+  fail!("CLA workflow YAML is invalid: #{error.message.lines.first.to_s.strip}")
+end
+
+def workflow_digest(raw)
+  Digest::SHA256.hexdigest(JSON.generate(canonical(parse_workflow(raw))))
 end
 
 def guard_script_digest(raw)
@@ -288,11 +295,10 @@ def run_trusted_cla_regression_matrix!
   puts "PASS: trusted CLA regression matrix (#{cases.length} cases)"
 end
 
-def validate_workflow(raw)
-  document = YAML.safe_load(raw, aliases: false)
-  fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
-  digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
-  require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA")) unless digest == EXPECTED_WORKFLOW_DIGEST
+def validate_workflow(raw, trusted_base_digest)
+  document = parse_workflow(raw)
+  candidate_digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
+  require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA")) unless candidate_digest == trusted_base_digest
 
   triggers = document["on"] || document[true]
   fail!("CLA workflow has no mapping of triggers") unless triggers.is_a?(Hash)
@@ -454,7 +460,10 @@ def validate_guard_script(raw)
     require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
   end
   [
-    "EXPECTED_WORKFLOW_DIGEST",
+    "def parse_workflow",
+    "def workflow_digest",
+    "base_workflow_digest",
+    "validate_workflow(head_workflow, base_workflow_digest)",
     "def validate_workflow",
     "base_workflow != head_workflow",
     "guard_changed && policy_changed",
@@ -522,7 +531,8 @@ begin
   end
   if base_workflow != head_workflow
     fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
-    validate_workflow(head_workflow)
+    base_workflow_digest = workflow_digest(base_workflow)
+    validate_workflow(head_workflow, base_workflow_digest)
   end
   validate_script(head_script) unless head_script.nil?
 
