@@ -42,7 +42,40 @@ CASES: list[tuple[list[str], str]] = [
     (["browser", "download", "wait", "--timeout", "abc"], "browser download --timeout must stay legacy-validated"),
     (["browser", "download", "wait", "--timeout-ms", "abc"], "browser download --timeout-ms must stay legacy-validated"),
     (["browser", "cookies", "set", "--expires", "abc"], "browser cookies --expires must stay legacy-validated"),
+    # Every facade option the legacy parser reads as a number must be declared
+    # `String?`. A numeric declaration makes ArgumentParser reject the value
+    # before `run()` delegates, so the legacy parser never sees it and never
+    # applies its own validation or its fallback default.
+    (["events", "--after", "abc"], "events --after must stay legacy-validated"),
+    (["events", "--timeout", "abc"], "events --timeout must stay legacy-validated"),
+    (["list-log", "--limit", "abc"], "list-log --limit must stay legacy-validated"),
+    (["memory", "--groups", "abc"], "memory --groups must stay legacy-validated"),
+    (["ssh", "--port", "abc"], "ssh --port must stay legacy-validated"),
+    (["mosh", "--port", "abc"], "mosh --port must stay legacy-validated"),
+    (["ssh-tmux", "--port", "abc"], "ssh-tmux --port must stay legacy-validated"),
+    (["mosh-tmux", "--port", "abc"], "mosh-tmux --port must stay legacy-validated"),
+    (["simulate-sidebar-drag", "--duration-ms", "abc"], "simulate-sidebar-drag --duration-ms must stay legacy-validated"),
+    (["simulate-sidebar-drag", "--steps", "abc"], "simulate-sidebar-drag --steps must stay legacy-validated"),
+    (["reorder-workspace", "--index", "abc"], "reorder-workspace --index must stay legacy-validated"),
+    (["capture-pane", "--lines", "abc"], "capture-pane --lines must stay legacy-validated"),
+    (["read-screen", "--lines", "abc"], "read-screen --lines must stay legacy-validated"),
+    # The legacy parser falls back to a default instead of failing on these
+    # two, so a numeric declaration would turn a working command into an error.
+    (["resize-pane", "--amount", "abc"], "resize-pane --amount must reach the legacy fallback of 1"),
+    (["wait-for", "--timeout", "abc"], "wait-for --timeout must reach the legacy fallback of 30"),
 ]
+
+# Value-taking global options accept both `--name value` and `--name=value`.
+# The two spellings must resolve the same command with the same result: the
+# legacy parser once recognized only the space form and mistook `--window=w:1`
+# for the command name, while facade routing already skipped it as an option.
+GLOBAL_OPTION_EQUALS_OPTIONS: list[tuple[str, str]] = [
+    ("--socket", "{socket_path}"),
+    ("--password", "hunter2"),
+    ("--window", "w:1"),
+    ("--id-format", "uuids"),
+]
+GLOBAL_OPTION_EQUALS_COMMAND = ["list-workspaces"]
 
 # `completion` is facade-native; the legacy parser has no equivalent command
 # to compare against, so its exit code is pinned directly instead.
@@ -98,6 +131,23 @@ def main() -> int:
                     f"  legacy stderr: {legacy.stderr.strip()!r}"
                 )
 
+        for option, raw_value in GLOBAL_OPTION_EQUALS_OPTIONS:
+            value = raw_value.format(socket_path=socket_path)
+            spaced_args = [option, value, *GLOBAL_OPTION_EQUALS_COMMAND]
+            equals_args = [f"{option}={value}", *GLOBAL_OPTION_EQUALS_COMMAND]
+            for legacy in (False, True):
+                spaced = run(cli, spaced_args, legacy=legacy, socket_path=socket_path)
+                equals = run(cli, equals_args, legacy=legacy, socket_path=socket_path)
+                if spaced.returncode == equals.returncode and spaced.stderr == equals.stderr:
+                    continue
+                parser = "legacy" if legacy else "facade"
+                failures.append(
+                    f"cmux {option}={value} {' '.join(GLOBAL_OPTION_EQUALS_COMMAND)} ({parser} parser): "
+                    f"exit {equals.returncode} != exit {spaced.returncode} for the spaced spelling\n"
+                    f"  equals stderr: {equals.stderr.strip()!r}\n"
+                    f"  spaced stderr: {spaced.stderr.strip()!r}"
+                )
+
         for args, expected_exit_code, description in FACADE_ONLY_CASES:
             facade = run(cli, args, legacy=False, socket_path=socket_path)
             if facade.returncode != expected_exit_code:
@@ -113,7 +163,7 @@ def main() -> int:
             print(f"  {failure}")
         return 1
 
-    total = len(CASES) + len(FACADE_ONLY_CASES)
+    total = len(CASES) + len(FACADE_ONLY_CASES) + len(GLOBAL_OPTION_EQUALS_OPTIONS) * 2
     print(f"PASS: {total} facade/legacy behavior parity cases match")
     return 0
 

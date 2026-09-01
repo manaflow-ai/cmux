@@ -1080,6 +1080,14 @@ command  vm-pty-connect  aliases=-
 command  vm-ssh-attach  aliases=-
   arg  --id  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  vm-tui-approve  aliases=-
+  arg  --id  kind=option  completion=custom-deprecated
+  arg  --invitation-id  kind=option  completion=-
+  arg  --invite-file  kind=option  completion=file()
+  arg  arguments  kind=argument  completion=-
+command  vm-tui-connect  aliases=-
+  arg  --config  kind=option  completion=file()
+  arg  arguments  kind=argument  completion=-
 command  wait-for  aliases=-
   arg  --signal  kind=flag  completion=-
   arg  --timeout  kind=option  completion=-
