@@ -415,6 +415,7 @@ extension CmuxSettingsFileStore {
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
+        "app.artifactPaneOrientation",
         "app.iMessageMode",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",

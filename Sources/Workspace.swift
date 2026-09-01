@@ -9795,9 +9795,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult
     func openOrFocusMarkdownSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        defaults: UserDefaults = .standard
     ) -> MarkdownPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
+        let orientation = AppCatalogSection().artifactPaneOrientation.value(in: defaults)
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
@@ -9807,13 +9809,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
 
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+        if orientation == .horizontal,
+           let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
             return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
         }
 
         return newMarkdownSplit(
             from: panelId,
-            orientation: .horizontal,
+            orientation: orientation == .vertical ? .vertical : .horizontal,
             insertFirst: false,
             filePath: filePath,
             focus: true

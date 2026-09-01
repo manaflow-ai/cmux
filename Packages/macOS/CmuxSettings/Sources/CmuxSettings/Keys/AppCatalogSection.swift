@@ -100,6 +100,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 
+    /// Default split axis for newly opened artifact/Markdown viewer panes.
+    /// Horizontal preserves the historical right-side placement.
+    public let artifactPaneOrientation = DefaultsKey<ArtifactPaneOrientation>(
+        id: "app.artifactPaneOrientation",
+        defaultValue: .horizontal,
+        userDefaultsKey: "artifactPaneOrientation"
+    )
+
     /// App-wide magnification percent for cmux-owned fonts and chrome.
     public let globalFontMagnification = DefaultsKey<Int>(
         id: "app.globalFontMagnification",

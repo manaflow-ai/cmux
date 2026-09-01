@@ -21,7 +21,11 @@ enum CommandClickFileOpenRouter {
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: defaults)
         if store.shouldRouteMarkdown(path: filePath),
-           workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
+           workspace.openOrFocusMarkdownSplit(
+               from: sourcePanelId,
+               filePath: filePath,
+               defaults: defaults
+           ) != nil {
             return true
         }
 

@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
+import struct CmuxSettings.AppCatalogSection
 import Foundation
 
 /// The project-domain witnesses: the byte-faithful bodies of the former
@@ -185,7 +187,7 @@ extension TerminalController: ControlProjectContext {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         filePath: String,
-        directionRaw: String,
+        directionRaw: String?,
         fontSize: Double?,
         fontSizeInvalid: Bool,
         requestedFocus: Bool
@@ -209,7 +211,9 @@ extension TerminalController: ControlProjectContext {
 
         let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
 
-        guard let direction = parseSplitDirection(directionRaw) else {
+        let orientationSetting = AppCatalogSection().artifactPaneOrientation.value(in: .standard)
+        let effectiveDirectionRaw = directionRaw ?? orientationSetting.defaultDirectionRawValue
+        guard let direction = parseSplitDirection(effectiveDirectionRaw) else {
             return .invalidDirection
         }
         let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical

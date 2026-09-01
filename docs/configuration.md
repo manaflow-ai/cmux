@@ -78,6 +78,14 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `app.artifactPaneOrientation`
+
+Controls the default split orientation for newly opened artifact and Markdown viewer panes. Explicit directions supplied by a command or opener still take precedence.
+
+Values: `horizontal` (open to the right) or `vertical` (open down).
+
+Default: `horizontal`.
+
 ## `ui.newWorkspace.menuSectionOrder`
 
 Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
