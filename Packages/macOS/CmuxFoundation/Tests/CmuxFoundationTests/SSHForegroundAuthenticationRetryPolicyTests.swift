@@ -450,6 +450,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-replacement-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
         let replacementScript = root.appendingPathComponent("replacement.sh")
+        let setIDLauncher = root.appendingPathComponent("setid-launcher.pl")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -461,6 +462,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         while :; do /bin/sleep 30; done
         """.write(to: replacementScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: replacementScript.path)
+        try """
+        #!/usr/bin/perl
+        use POSIX qw(setsid);
+        setsid() or exit 125;
+        exec @ARGV or exit 126;
+        """.write(to: setIDLauncher, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: setIDLauncher.path)
 
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
@@ -468,10 +476,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             # Exit immediately after publishing the replacement PID. The
             # cleanup handshake must discover it before this handler's parent
             # can disappear and reparent the replacement.
-            trap 'trap "" TERM; /usr/bin/perl -MPOSIX -e '\''POSIX::setsid() or exit 125; exec "/bin/sh", $ENV{CMUX_TEST_REPLACEMENT_SCRIPT} or exit 126'\'' </dev/null >/dev/null 2>&1 & printf "%s\\n" "$!" > "$CMUX_TEST_REPLACEMENT_PID"; exit 143' TERM
+            trap 'trap "" TERM; /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & printf "%s\\n" "$!" > "$CMUX_TEST_REPLACEMENT_PID"; exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
-            """
+            """ 
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
@@ -498,6 +506,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_SETID_LAUNCHER": setIDLauncher.path,
             "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
             "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
         ]) { _, override in override }
