@@ -20,7 +20,7 @@ extension CMUXCLI {
                 errorCode: changeDirectoryError,
                 message: String(
                     localized: "cli.restore.error.workingDirectoryMissing",
-                    defaultValue: "restore: the saved working directory is missing. Choose a recovery directory explicitly before retrying."
+                    defaultValue: "restore: the saved working directory is missing. Choose a recovery directory explicitly before retrying. Pass --cwd <path> to use that directory."
                 )
             )
         }
@@ -89,11 +89,12 @@ extension CMUXCLI {
     func execLegacyRestoreRecord(
         _ command: String,
         record: RestoreRecord,
+        workingDirectoryOverride: String?,
         environment: [String: String],
         client: SocketClient
     ) throws {
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
-            requestedRestoreWorkingDirectory(for: record)
+            workingDirectoryOverride ?? requestedRestoreWorkingDirectory(for: record)
         )
         var legacyEnvironment = environment
         if let appliedWorkingDirectory {

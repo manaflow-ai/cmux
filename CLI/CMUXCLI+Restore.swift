@@ -6,7 +6,7 @@ extension CMUXCLI {
     var restoreCommandUsageLine: String {
         String(
             localized: "cli.help.restore",
-            defaultValue: "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+            defaultValue: "restore [--surface <id|ref>] [--cwd <path>] <kind> <checkpoint-id> | restore --surface [id|ref] [--cwd <path>]"
         )
     }
 
@@ -179,6 +179,7 @@ extension CMUXCLI {
             try execLegacyRestoreRecord(
                 legacyCommand,
                 record: record,
+                workingDirectoryOverride: selector.workingDirectoryOverride,
                 environment: environment,
                 client: client
             )
@@ -194,7 +195,8 @@ extension CMUXCLI {
                 )
             )
         }
-        let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
+        let requestedWorkingDirectory = selector.workingDirectoryOverride
+            ?? requestedRestoreWorkingDirectory(for: record)
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
         )
@@ -247,6 +249,7 @@ extension CMUXCLI {
                 try execLegacyRestoreRecord(
                     legacyCommand,
                     record: record,
+                    workingDirectoryOverride: selector.workingDirectoryOverride,
                     environment: environment,
                     client: client
                 )
@@ -487,11 +490,36 @@ extension CMUXCLI {
                 surface: nil,
                 usesCurrentSurface: true,
                 kind: nil,
-                checkpointID: nil
+                checkpointID: nil,
+                workingDirectoryOverride: nil
             )
         }
 
-        let surfaceOptionCount = arguments.filter { argument in
+        let cwdOptionCount = arguments.filter { argument in
+            argument == "--cwd" || argument.hasPrefix("--cwd=")
+        }.count
+        guard cwdOptionCount <= 1 else {
+            throw restoreUsageError()
+        }
+        let (workingDirectoryOverride, argumentsWithoutCwd) = parseOption(
+            arguments,
+            name: "--cwd"
+        )
+        if cwdOptionCount == 1,
+           workingDirectoryOverride?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            throw restoreUsageError()
+        }
+        if argumentsWithoutCwd == ["--surface"] {
+            return RestoreSelector(
+                surface: nil,
+                usesCurrentSurface: true,
+                kind: nil,
+                checkpointID: nil,
+                workingDirectoryOverride: workingDirectoryOverride
+            )
+        }
+
+        let surfaceOptionCount = argumentsWithoutCwd.filter { argument in
             argument == "--surface" || argument.hasPrefix("--surface=")
         }.count
         guard surfaceOptionCount <= 1 else {
@@ -500,7 +528,7 @@ extension CMUXCLI {
                 defaultValue: "Usage: cmux restore --surface [id|ref]"
             ))
         }
-        let (surface, positionalArguments) = parseOption(arguments, name: "--surface")
+        let (surface, positionalArguments) = parseOption(argumentsWithoutCwd, name: "--surface")
         if surfaceOptionCount == 1 {
             guard let surface,
                   !surface.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -514,7 +542,8 @@ extension CMUXCLI {
                     surface: surface,
                     usesCurrentSurface: false,
                     kind: nil,
-                    checkpointID: nil
+                    checkpointID: nil,
+                    workingDirectoryOverride: workingDirectoryOverride
                 )
             }
         }
@@ -522,21 +551,25 @@ extension CMUXCLI {
         guard positionalArguments.count == 2,
               !positionalArguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !positionalArguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw CLIError(message: String(
-                localized: "cli.restore.usage.positional",
-                defaultValue: """
-                Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
-                       cmux restore <kind> <checkpoint-id> --surface <id|ref>
-                       cmux restore --surface=<id|ref> <kind> <checkpoint-id>
-                """
-            ))
+            throw restoreUsageError()
         }
         return RestoreSelector(
             surface: surface,
             usesCurrentSurface: surface == nil,
             kind: positionalArguments[0],
-            checkpointID: positionalArguments[1]
+            checkpointID: positionalArguments[1],
+            workingDirectoryOverride: workingDirectoryOverride
         )
+    }
+
+    private func restoreUsageError() -> CLIError {
+        CLIError(message: String(
+            localized: "cli.restore.usage.positional",
+            defaultValue: """
+            Usage: cmux restore [--surface <id|ref>] [--cwd <path>] <kind> <checkpoint-id>
+                   cmux restore --surface [id|ref] [--cwd <path>]
+            """
+        ))
     }
 
     private func restoreRecord(from object: [String: Any]) throws -> RestoreRecord {

@@ -18395,15 +18395,14 @@ struct CMUXCLI {
             """
         case "restore":
             return String(localized: "cli.restore.help", defaultValue: """
-            Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
-                   cmux restore <kind> <checkpoint-id> --surface <id|ref>
-                   cmux restore --surface=<id|ref> <kind> <checkpoint-id>
-                   cmux restore --surface [id|ref]
+            Usage: cmux restore [--surface <id|ref>] [--cwd <path>] <kind> <checkpoint-id>
+                   cmux restore --surface [id|ref] [--cwd <path>]
 
             Replace this CLI process with the persisted surface process. New
             records preserve launch arguments and cwd as structured values;
             command-only records from older builds use a compatibility shell.
-            With no id or ref, --surface uses the calling cmux surface.
+            With no id or ref, --surface uses the calling cmux surface. Pass
+            --cwd to explicitly recover in a directory other than the saved cwd.
             """)
         case "sessions", "session-debug": return sessionsUsage()
         case "feedback":

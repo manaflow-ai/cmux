@@ -5,5 +5,6 @@ extension CMUXCLI {
         let usesCurrentSurface: Bool
         let kind: String?
         let checkpointID: String?
+        let workingDirectoryOverride: String?
     }
 }
