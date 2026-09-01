@@ -4,6 +4,10 @@ import Foundation
 
 extension MobileShellComposite {
     func ensureTerminalLane(surfaceID: String) {
+        // Demo surfaces have no Mac-side lane; without this guard a mounted
+        // demo terminal would open a lane at whatever REAL Mac holds the
+        // foreground ticket, for a surface that Mac has never heard of.
+        guard !demonstrationOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
               terminalOutputTransport != .renderGrid,
