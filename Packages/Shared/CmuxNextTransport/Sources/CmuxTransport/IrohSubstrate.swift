@@ -610,12 +610,10 @@ public actor IrohPeerConnection: PeerConnection {
                     rendered=\(rendered, privacy: .public)
                     """)
             }
-            let value = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
-            let authority: ConnectionTermination.Authority =
-                value == code || value.hasSuffix("reason=\(code)")
-                    ? .authoritative
-                    : .renderedHint
-            return ConnectionTermination(code: code, authority: authority)
+            // The matcher above accepts only reason-shaped boundaries, so the
+            // recovered code is the structured lifecycle value exposed to the
+            // reconnect owner; unrelated diagnostic substrings are ignored.
+            return ConnectionTermination(code: code)
         }
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(

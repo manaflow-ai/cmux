@@ -1171,11 +1171,11 @@ final class MobileHostService {
     }
 
     func stop() {
-        let managedRemoteControlDisabled = !MobileRemoteControlPolicy.isEnabled
 #if DEBUG
-        if managedRemoteControlDisabled {
-            nextTransportRuntime.stopForManagedPolicy()
-        }
+        // The service owns both listener families. Stop the independent DEBUG
+        // host too, so an explicit mobile-host shutdown cannot leave a live
+        // QUIC endpoint/advertisement behind.
+        nextTransportRuntime.stopForService()
 #endif
         MobileHostIrohRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
@@ -1183,14 +1183,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         MobileHostEventSubscriptionTracker.reset()
-        // The DEBUG next-transport runtime owns its endpoint and presence
-        // slot independently during an ordinary listener stop. A managed
-        // policy teardown stops that runtime above and must clear every route.
-        if managedRemoteControlDisabled {
-            MobileHostPublicStatusCache.removeAll()
-        } else {
-            MobileHostPublicStatusCache.removeLegacyAndIroh()
-        }
+        MobileHostPublicStatusCache.removeAll()
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
     }

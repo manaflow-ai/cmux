@@ -322,18 +322,6 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    /// Clears routes owned by the legacy mobile-host service while preserving
-    /// the independently-owned DEBUG next-transport advertisement. The
-    /// parallel runtime has its own endpoint lifecycle and will clear its slot
-    /// when it actually stops.
-    static func removeLegacyAndIroh() {
-        lock.lock()
-        legacyRoutes = []
-        irohRoute = nil
-        lock.unlock()
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-    }
-
     static func snapshot() -> [CmxAttachRoute] {
         lock.lock()
         defer { lock.unlock() }

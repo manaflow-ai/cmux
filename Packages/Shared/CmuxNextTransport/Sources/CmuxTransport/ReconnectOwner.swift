@@ -469,13 +469,12 @@ public actor ReconnectOwner {
         connection = nil
         let termination = await conn.termination()
         let code = termination?.code ?? "connection-lost"
-        // The substrate's structured termination is the sole authority for
-        // automatic recovery. An unparsed/render-only close is deliberately
-        // fail-closed: treating it as a transport failure could redial after a
-        // deliberate supersession/user close (or misclassify an unrelated
-        // reason that merely contains a denial word).
-        let willAutoRedial = termination?.authority == .authoritative
-            && !Self.terminalCloseCodes.contains(code)
+        // Local deliberate closes are preserved as exact codes by the
+        // connection owner. A remote close that cannot be parsed is therefore
+        // treated as an ordinary transport loss and redialed through the
+        // capped backoff; refusing to recover would strand a phone after a
+        // network/path drop whose FFI diagnostic has no stable reason text.
+        let willAutoRedial = !Self.terminalCloseCodes.contains(code)
             && DenialCode(rawValue: code) == nil
         if TransportDebugLog.enabled {
             TransportDebugLog.core.notice(

@@ -354,11 +354,11 @@ final class MobileHostNextTransportRuntime {
         }
     }
 
-    /// Stops the DEBUG host for an MDM remote-control disable without changing
-    /// the user's opt-in toggle. ``MobileHostService`` can restart it when the
-    /// managed policy is lifted.
-    func stopForManagedPolicy() {
-        beginStop(reason: "managed remote-control disable")
+    /// Stops the independent host when the owning mobile-host service itself
+    /// is stopped (app termination or an explicit host shutdown), while
+    /// preserving the DEBUG opt-in for the next service start.
+    func stopForService() {
+        beginStop(reason: "mobile host service stopped")
     }
 
     /// Tear down synchronously on the main actor (so a re-enable can start
