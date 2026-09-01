@@ -58,7 +58,7 @@ final class MobilePairedPhoneStore {
         else {
             return false
         }
-        let normalizedTrustedTag = normalizedTrustedIOSBuildTag(trustedIOSBuildTag)
+        let normalizedTrustedTag = Self.normalizedTrustedIOSBuildTag(trustedIOSBuildTag)
         guard let normalizedAccountID = Self.normalized(accountID),
               let normalizedHandshakeIdentity = Self.normalized(handshakeIdentity),
               normalizedHandshakeIdentity.utf8.count <= Self.maximumHandshakeIdentityLength
@@ -145,7 +145,7 @@ final class MobilePairedPhoneStore {
         // being loaded; retry the one-time import at the authenticated
         // compatibility boundary, never from target lookup itself.
         migrateLegacyPickerSelection()
-        let trustedCrossTagBundle = trustedCrossTagBundleIdentifier(
+        let trustedCrossTagBundle = Self.trustedCrossTagBundleIdentifier(
             trustedIOSBuildTag
         )
         guard let normalizedAccountID = Self.normalized(accountID),
@@ -160,7 +160,7 @@ final class MobilePairedPhoneStore {
               ) else {
             return false
         }
-        let normalizedTrustedTag = normalizedTrustedIOSBuildTag(trustedIOSBuildTag)
+        let normalizedTrustedTag = Self.normalizedTrustedIOSBuildTag(trustedIOSBuildTag)
         guard !recordsByClientID.values.contains(where: {
             $0.source == .authenticatedHandshake
                 && $0.accountID == normalizedAccountID
@@ -251,12 +251,14 @@ final class MobilePairedPhoneStore {
 
     /// Returns the push target for an authenticated account. A migrated picker
     /// value is a temporary compatibility target until the first modern
-    /// handshake replaces it; a fresh install remains held until that
-    /// handshake so it cannot invent a namespace.
+    /// handshake replaces it. If no migration marker exists, use the current
+    /// Mac-lane fallback for legacy/debug clients; a modern handshake always
+    /// supersedes it before the next push.
     func pushBundleIdentifier(accountID: String?) -> String? {
         guard Self.normalized(accountID) != nil else { return nil }
         return targetBundleIdentifier(accountID: accountID)
             ?? legacyPickerBundleIdentifier
+            ?? fallbackBundleIdentifier
     }
 
     private var fallbackBundleIdentifier: String? {
@@ -314,7 +316,7 @@ final class MobilePairedPhoneStore {
                 || bundleIdentifier == fallbackBundleIdentifier
         }
         return bundleIdentifier == fallbackBundleIdentifier
-            || bundleIdentifier == trustedCrossTagBundleIdentifier(
+            || bundleIdentifier == Self.trustedCrossTagBundleIdentifier(
                 trustedIOSBuildTag
             )
     }
@@ -322,7 +324,7 @@ final class MobilePairedPhoneStore {
     /// An Iroh grant from a tagged phone carries that phone's exact build tag.
     /// Accepting only the corresponding namespace preserves exact-tag pairing
     /// by default while allowing the explicit cross-tag grant flow.
-    private func trustedCrossTagBundleIdentifier(_ tag: String?) -> String? {
+    private static func trustedCrossTagBundleIdentifier(_ tag: String?) -> String? {
         let normalizedTag = Self.normalized(tag)?.lowercased()
         guard let normalizedTag,
               !Self.nonDevelopmentTags.contains(normalizedTag),
@@ -335,9 +337,9 @@ final class MobilePairedPhoneStore {
         return namespace.bundleIdentifier
     }
 
-    private func normalizedTrustedIOSBuildTag(_ tag: String?) -> String? {
+    private static func normalizedTrustedIOSBuildTag(_ tag: String?) -> String? {
         guard let normalizedTag = Self.normalized(tag)?.lowercased(),
-              trustedCrossTagBundleIdentifier(normalizedTag) != nil else {
+              Self.trustedCrossTagBundleIdentifier(normalizedTag) != nil else {
             return nil
         }
         return normalizedTag
@@ -393,7 +395,7 @@ private extension MobilePairedPhoneStore {
                 accountID: normalized(record.accountID),
                 pairedAt: record.pairedAt,
                 source: record.source,
-                trustedIOSBuildTag: normalizedTrustedIOSBuildTag(
+                trustedIOSBuildTag: Self.normalizedTrustedIOSBuildTag(
                     record.trustedIOSBuildTag
                 ),
                 handshakeIdentity: normalized(record.handshakeIdentity)

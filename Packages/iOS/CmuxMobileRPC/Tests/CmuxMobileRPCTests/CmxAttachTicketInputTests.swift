@@ -39,12 +39,15 @@ import Testing
         return "cmux-ios://attach?v=\(version)&payload=\(encoded)"
     }
 
-    private func versionlessAttachURL(payload: Data) -> String {
+    private func versionlessAttachURL(
+        payload: Data,
+        scheme: String = "cmux-ios"
+    ) -> String {
         let encoded = payload.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-        return "cmux-ios://attach?payload=" + encoded
+        return scheme + "://attach?payload=" + encoded
     }
 
     @Test func decodesCompactPayloadAttachURL() throws {
@@ -106,6 +109,20 @@ import Testing
         )
         #expect(decoded.macDeviceID == "mac-1")
         #expect(decoded.authToken == "legacy-token")
+    }
+
+    @Test func versionlessNamespacedPayloadRemainsRejected() throws {
+        let ticket = try makeTicket(authToken: "legacy-token")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                versionlessAttachURL(
+                    payload: try encoder.encode(ticket),
+                    scheme: "cmux-ios-com.cmux.app"
+                )
+            )
+        }
     }
 
     @Test func missingLegacyCompatibilityDecodesAsUnknown() throws {

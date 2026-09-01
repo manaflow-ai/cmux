@@ -21,7 +21,9 @@ public struct CmxPairingURLSchemeResolver: Sendable {
         targetIOSBundleIdentifier =
             environment["CMUX_IOS_PAIRING_BUNDLE_IDENTIFIER"]
         macInstanceTag = environment["CMUX_TAG"]
-            ?? Self.macInstanceTag(bundleIdentifier: bundle.bundleIdentifier)
+            ?? Self.bundleDerivedMacInstanceTag(
+                bundleIdentifier: bundle.bundleIdentifier
+            )
         #if DEBUG
         isDevelopmentBuild = true
         #else
@@ -39,7 +41,9 @@ public struct CmxPairingURLSchemeResolver: Sendable {
         self.currentIOSBundleIdentifier = currentIOSBundleIdentifier
         self.targetIOSBundleIdentifier = targetIOSBundleIdentifier
         self.macInstanceTag = macInstanceTag
-            ?? Self.macInstanceTag(bundleIdentifier: macBundleIdentifier)
+            ?? Self.bundleDerivedMacInstanceTag(
+                bundleIdentifier: macBundleIdentifier
+            )
         self.isDevelopmentBuild = isDevelopmentBuild
     }
 
@@ -85,7 +89,12 @@ public struct CmxPairingURLSchemeResolver: Sendable {
     /// Mirrors the app's bundle-derived lane when a launcher did not export
     /// `CMUX_TAG`. This keeps a Finder/Dock launch of a tagged DEV bundle on
     /// the same exact iOS namespace as a tagged-script launch.
-    private static func macInstanceTag(bundleIdentifier: String?) -> String? {
+    /// - Parameter bundleIdentifier: The macOS application bundle identifier.
+    /// - Returns: The normalized launch tag, an empty string for the untagged
+    ///   base DEBUG bundle, or `nil` for an unrecognized bundle.
+    public static func bundleDerivedMacInstanceTag(
+        bundleIdentifier: String?
+    ) -> String? {
         let bundleID = bundleIdentifier?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
@@ -95,7 +104,10 @@ public struct CmxPairingURLSchemeResolver: Sendable {
             (stable + ".nightly", "nightly"),
             (stable + ".staging", "staging"),
             (stable + ".rc", "rc"),
-            (stable + ".debug", "dev"),
+            // An unsuffixed base debug bundle is the historical untagged
+            // development lane; an empty tag lets `resolved` keep emitting
+            // `cmux-ios-dev.cmux.ios`. Only suffixed bundles derive a tag.
+            (stable + ".debug", ""),
         ]
         if bundleID == stable { return "default" }
         for channel in channels {

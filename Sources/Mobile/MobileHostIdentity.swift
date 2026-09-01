@@ -206,32 +206,12 @@ enum MobileHostIdentity {
         if let launchTag = SocketControlSettings.launchTag(environment: environment) {
             return launchTag
         }
-
-        let normalizedBundleID = bundleIdentifier?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? ""
-        let releaseCandidateBundleID = stableBundleIdentifier + ".rc"
-        if normalizedBundleID == releaseCandidateBundleID {
-            return "rc"
-        }
-        if normalizedBundleID.hasPrefix(releaseCandidateBundleID + ".") {
-            let suffix = String(normalizedBundleID.dropFirst(releaseCandidateBundleID.count + 1))
-            return SocketPathMarkerFiles.sanitizeSocketSlug(suffix) ?? "rc"
-        }
-
-        switch SocketPathMarkerFiles.variant(
-            bundleIdentifier: normalizedBundleID,
-            environment: environment
+        if let derived = CmxPairingURLSchemeResolver.bundleDerivedMacInstanceTag(
+            bundleIdentifier: bundleIdentifier
         ) {
-        case .stable:
-            return "default"
-        case .nightly(let slug):
-            return slug ?? "nightly"
-        case .staging(let slug):
-            return slug ?? "staging"
-        case .dev(let slug):
-            return slug ?? "dev"
+            return derived.isEmpty ? "dev" : derived
         }
+        return "default"
     }
 
     /// Returns the longest whole-character prefix that fits a UTF-16 wire limit.

@@ -131,6 +131,7 @@ final class PhonePushSerialDeliveryQueue {
         }
         drainGeneration = UUID()
         drainTask?.cancel()
+        finishIfIdle()
     }
 
     func cancelAll() {
@@ -159,7 +160,9 @@ final class PhonePushSerialDeliveryQueue {
     }
 
     func waitUntilIdle() async {
-        guard drainTask != nil || !pending.isEmpty else { return }
+        // A stopped queue with parked envelopes is intentionally quiescent;
+        // callers should not wait forever for a target that may never arrive.
+        guard drainTask != nil || (isStarted && !pending.isEmpty) else { return }
         await withCheckedContinuation { continuation in
             idleWaiters.append(continuation)
         }
@@ -228,7 +231,7 @@ final class PhonePushSerialDeliveryQueue {
     }
 
     private func finishIfIdle() {
-        guard drainTask == nil, pending.isEmpty else { return }
+        guard drainTask == nil, (!isStarted || pending.isEmpty) else { return }
         let waiters = idleWaiters
         idleWaiters.removeAll()
         for waiter in waiters { waiter.resume() }

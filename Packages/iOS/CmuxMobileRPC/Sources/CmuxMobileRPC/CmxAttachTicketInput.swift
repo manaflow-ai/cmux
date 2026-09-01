@@ -70,6 +70,13 @@ public struct CmxAttachTicketInput {
         guard knownScheme != nil else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
+        if version == nil,
+           let scheme,
+           !CmxPairingURLScheme.all.contains(scheme) {
+            // Versionless payloads belong to the two historical shared
+            // schemes only; namespaced schemes were introduced with v=2+.
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
         // A QR minted by a newer cmux whose grammar version this build does not
         // understand. Distinguished from a malformed code so the user is told
         // to update the app instead of seeing the generic "not valid" copy (the
