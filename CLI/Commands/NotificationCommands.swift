@@ -97,13 +97,13 @@ struct FeedCommand: SharedLegacyFacadeCommand {
 }
 
 struct EventsCommand: SharedLegacyFacadeCommand {
-    @Option(name: .customLong("after")) var after: Int?
+    @Option(name: .customLong("after")) var after: String?
     @Option(name: .customLong("cursor-file"), completion: .file()) var cursorFile: String?
     @Option(name: .customLong("name")) var names: [String] = []
     @Option(name: .customLong("category")) var categories: [String] = []
     @Flag(name: .customLong("reconnect")) var reconnect = false
     @Option(name: .customLong("limit")) var limit: String?
-    @Option(name: .customLong("timeout")) var timeout: Double?
+    @Option(name: .customLong("timeout")) var timeout: String?
     @Flag(name: .customLong("snapshot")) var snapshot = false
     @Flag(name: .customLong("no-ack")) var noAck = false
     @Flag(name: .customLong("no-heartbeat")) var noHeartbeat = false
@@ -123,7 +123,7 @@ struct LogCommand: SharedLegacyFacadeCommand {
 struct ListLogCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
-    @Option(name: .customLong("limit")) var limit: Int?
+    @Option(name: .customLong("limit")) var limit: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "list-log", helpNames: [])
 }

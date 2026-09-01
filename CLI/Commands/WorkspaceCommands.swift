@@ -53,7 +53,7 @@ struct RenameWorkspaceCommand: SharedLegacyFacadeCommand {
 
 struct ReorderWorkspaceCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
-    @Option(name: .customLong("index")) var index: Int?
+    @Option(name: .customLong("index")) var index: String?
     @Option(name: [.customLong("before"), .customLong("before-workspace")], completion: .custom(CompletionCandidates.workspaces)) var before: String?
     @Option(name: [.customLong("after"), .customLong("after-workspace")], completion: .custom(CompletionCandidates.workspaces)) var after: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?

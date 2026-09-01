@@ -4302,6 +4302,16 @@ struct CMUXCLI {
     /// with `CMUXTermMain.firstNonGlobalArgument` so the two option lists cannot drift.
     static let valueTakingGlobalOptionNames: Set<String> = ["--socket", "--password", "--window", "--id-format"]
 
+    /// Splits `--name=value` into its parts for the value-taking global options.
+    /// Anything else, including the `--name value` form, comes back unchanged with
+    /// a nil inline value, meaning the value is the argument that follows.
+    static func splitGlobalOption(_ argument: String) -> (name: String, inlineValue: String?) {
+        guard let equalsIndex = argument.firstIndex(of: "=") else { return (argument, nil) }
+        let name = String(argument[argument.startIndex..<equalsIndex])
+        guard valueTakingGlobalOptionNames.contains(name) else { return (argument, nil) }
+        return (name, String(argument[argument.index(after: equalsIndex)...]))
+    }
+
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     // Internal (not private): `vm run` in CMUXCLI+VMTransfer.swift provisions
     // pool machines with the same create timeout.
@@ -4960,20 +4970,28 @@ struct CMUXCLI {
         var index = 1
         while index < args.count {
             let arg = args[index]
-            if Self.valueTakingGlobalOptionNames.contains(arg) {
-                guard index + 1 < args.count else {
-                    let requirement = arg == "--id-format" ? "a value (refs|uuids|both)" : arg == "--window" ? "a window id" : arg == "--socket" ? "a path" : "a value"
-                    throw CLIError(message: "\(arg) requires \(requirement)")
+            // `--name=value` is accepted alongside `--name value`, matching
+            // `CMUXTermMain.firstNonGlobalArgument`. Without this, routing would
+            // skip `--window=w:1` while this loop treated it as the command name.
+            let (optionName, inlineValue) = Self.splitGlobalOption(arg)
+            if Self.valueTakingGlobalOptionNames.contains(optionName) {
+                let value: String
+                if let inlineValue, !inlineValue.isEmpty {
+                    value = inlineValue
+                } else if inlineValue == nil, index + 1 < args.count {
+                    value = args[index + 1]
+                } else {
+                    let requirement = optionName == "--id-format" ? "a value (refs|uuids|both)" : optionName == "--window" ? "a window id" : optionName == "--socket" ? "a path" : "a value"
+                    throw CLIError(message: "\(optionName) requires \(requirement)")
                 }
-                let value = args[index + 1]
-                switch arg {
+                switch optionName {
                 case "--socket": explicitSocketPath = value
                 case "--id-format": idFormatArg = value
                 case "--window": windowId = value
                 case "--password": socketPasswordArg = value
                 default: break
                 }
-                index += 2
+                index += inlineValue == nil ? 2 : 1
                 continue
             }
             if arg == "--json" {
@@ -40809,7 +40827,7 @@ struct CMUXTermMain {
             if argument == "--json" {
                 continue
             }
-            if let equalsIndex = argument.firstIndex(of: "="), optionsWithValues.contains(String(argument[argument.startIndex..<equalsIndex])) {
+            if CMUXCLI.splitGlobalOption(argument).inlineValue != nil {
                 continue
             }
             if optionsWithValues.contains(argument) {
