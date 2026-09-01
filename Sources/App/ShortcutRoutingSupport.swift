@@ -182,11 +182,12 @@ nonisolated func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     terminalDeleteEquivalentShouldDispatch(
         keyCode: keyCode,
         firstResponderIsTerminal: firstResponderIsTerminal,
         firstResponderHasMarkedText: firstResponderHasMarkedText,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: flags)
+        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: normalizedFlags)
     )
 }
 
