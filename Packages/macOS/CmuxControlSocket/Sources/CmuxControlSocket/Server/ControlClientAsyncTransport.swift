@@ -36,6 +36,10 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     private var deadlineTask: Task<Void, Never>? = nil
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
     private let maximumBufferedBytes: Int
+    /// Bytes yielded into the chunk stream but not yet consumed by the
+    /// reader. Written by the drain callback (utility queue) and the reader
+    /// task, so it needs its own gate.
+    private let queuedUnconsumedBytes: OSAllocatedUnfairLock<Int>
     // The deadline task and the single reader task may finish/cancel on
     // different executors. This tiny gate protects only the active-limit bit;
     // command buffering remains owned by the reader task.
@@ -59,28 +63,23 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     ) {
         self.socket = socket
         self.maximumBufferedBytes = max(1, maximumBufferedBytes)
+        let queuedUnconsumedBytes = OSAllocatedUnfairLock(initialState: 0)
+        self.queuedUnconsumedBytes = queuedUnconsumedBytes
         self.limitsActive = OSAllocatedUnfairLock(initialState: initialLimits != nil)
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
         }
         _ = Self.makeNonBlocking(socket)
 
-        // A command connection is FIFO and bounded. Size the chunk buffer to
-        // the same byte cap as `maximumBufferedBytes` so one large request (a
-        // `cmux ssh` workspace create carries several hundred KB of inline
-        // startup script) is never truncated by a fixed chunk count, while a
-        // client that pipelines past the byte cap still fails closed instead
-        // of growing an unbounded AsyncStream buffer.
-        // Ceiling division without adding to the input first: the byte cap is
-        // caller-provided and may be `Int.max`, which would overflow (and
-        // trap) in a `+ chunk - 1` ceiling idiom.
-        let fullChunks = self.maximumBufferedBytes / Self.readChunkSize
-        let ceilingChunks = fullChunks +
-            (self.maximumBufferedBytes % Self.readChunkSize == 0 ? 0 : 1)
-        let bufferedChunkCapacity = max(128, ceilingChunks + 2)
-        let stream = AsyncStream<Data>.makeStream(
-            bufferingPolicy: .bufferingOldest(bufferedChunkCapacity)
-        )
+        // A command connection is FIFO and bounded by BYTES, not by a chunk
+        // count: `read(2)` may return arbitrarily short chunks (one per
+        // readable event), so an element-count policy would close a valid
+        // request long before the byte cap (128 one-byte chunks vs 16 MiB).
+        // The drain callback accounts every yielded byte against
+        // `maximumBufferedBytes` and fails the connection closed when a
+        // client pipelines past the cap; the stream itself is unbounded
+        // because the byte gate is what bounds it.
+        let stream = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         let streamContinuation = stream.continuation
         continuation = streamContinuation
         iterator = stream.stream.makeAsyncIterator()
@@ -90,11 +89,14 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             fileDescriptor: socket,
             queue: DispatchQueue.global(qos: .utility)
         )
-        readSource.setEventHandler { [streamContinuation, sourceBox] in
+        let byteCapForDrain = self.maximumBufferedBytes
+        readSource.setEventHandler { [streamContinuation, sourceBox, queuedUnconsumedBytes] in
             Self.drain(
                 socket: socket,
                 continuation: streamContinuation,
-                sourceBox: sourceBox
+                sourceBox: sourceBox,
+                queuedBytes: queuedUnconsumedBytes,
+                maximumBufferedBytes: byteCapForDrain
             )
         }
         readSource.setCancelHandler { [streamContinuation, sourceBox] in
@@ -218,6 +220,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             )
             guard let chunk = nextChunk else { return nil }
             guard !chunk.isEmpty else { continue }
+            queuedUnconsumedBytes.withLock { $0 -= chunk.count }
             if limitsActive.withLock({ $0 }), let limits {
                 let (total, overflowed) = limitedBytesRead.addingReportingOverflow(chunk.count)
                 guard !overflowed, total <= limits.maximumBytes else { return nil }
@@ -327,12 +330,24 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     private static func drain(
         socket: Int32,
         continuation: AsyncStream<Data>.Continuation,
-        sourceBox: SourceBox
+        sourceBox: SourceBox,
+        queuedBytes: OSAllocatedUnfairLock<Int>,
+        maximumBufferedBytes: Int
     ) {
         var buffer = [UInt8](repeating: 0, count: readChunkSize)
         while true {
             let count = read(socket, &buffer, buffer.count)
             if count > 0 {
+                let (total, overflowed) = queuedBytes.withLock { state -> (Int, Bool) in
+                    let (sum, didOverflow) = state.addingReportingOverflow(count)
+                    if !didOverflow { state = sum }
+                    return (sum, didOverflow)
+                }
+                if overflowed || total > maximumBufferedBytes {
+                    continuation.finish()
+                    sourceBox.source?.cancel()
+                    return
+                }
                 if case .dropped = continuation.yield(Data(buffer[0..<count])) {
                     continuation.finish()
                     sourceBox.source?.cancel()

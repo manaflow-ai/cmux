@@ -65,6 +65,37 @@ struct ControlClientAsyncTransportTests {
         #expect(await reader.nextLine(shouldContinueReading: { true }) == nil)
     }
 
+    /// Buffering is bounded by bytes, not by a fixed chunk count: many tiny
+    /// writes queued ahead of a slow consumer must not kill the connection.
+    /// (Each write lands as its own short `read(2)` chunk while nothing is
+    /// consuming; a 128-element policy previously overflowed and dropped.)
+    @Test func asyncReaderSurvivesManyShortChunksAheadOfTheConsumer() async throws {
+        let pair = try UnixSocketFixture.makeSocketPair()
+        defer {
+            close(pair.reader)
+            close(pair.writer)
+        }
+
+        let reader = ControlClientAsyncLineReader(
+            socket: pair.reader,
+            maximumBufferedBytes: 64 * 1024
+        )
+        var expected = ""
+        for index in 0..<200 {
+            let byte: [UInt8] = [UInt8(65 + (index % 26))]
+            expected.append(Character(UnicodeScalar(byte[0])))
+            byte.withUnsafeBufferPointer { buffer in
+                _ = Darwin.write(pair.writer, buffer.baseAddress, 1)
+            }
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        let newline: [UInt8] = [0x0A]
+        newline.withUnsafeBufferPointer { buffer in
+            _ = Darwin.write(pair.writer, buffer.baseAddress, 1)
+        }
+        #expect(await reader.nextLine(shouldContinueReading: { true }) == expected)
+    }
+
     /// `maximumBufferedBytes` is caller-provided; an `Int.max` cap must not
     /// overflow the stream-capacity ceiling math during reader creation.
     @Test func asyncReaderAcceptsAMaximalBufferedByteCap() async throws {
