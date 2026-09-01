@@ -8,7 +8,7 @@ import SwiftUI
 /// workspaces → terminals; Browsers) then every machine (Workspaces → cmux-tui
 /// workspace → terminals; Desktop; Ports), as an `NSOutlineView`. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
-/// expansion, double-click, context menus, keyboard navigation, and the native
+/// expansion, clicks, context menus, keyboard navigation, and the native
 /// drag whose drop projects the row as a pane in the main view.
 struct CloudTreeOutlineView: NSViewRepresentable {
     let machines: [MachineSnapshot]
@@ -361,11 +361,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Opening
 
         /// One click means open (D9): a click on any row carries the intent to
-        /// open it. The second click of a double-click is ignored so machine and
-        /// group rows don't toggle twice. Workspace rows are the exception
-        /// (lawrence, 2026-08-27): one click only toggles the container;
-        /// double-click opens the remote workspace as its own local workspace,
-        /// or focuses it when a pane already shows one of its terminals.
+        /// open it — workspace rows included (austin, 2026-08-31: they used to
+        /// toggle on the first click and open only on double-click, which made a
+        /// double-click flip the container's expansion while opening). Extra
+        /// clicks of a double- or triple-click are ignored, so a habitual
+        /// double-click acts exactly once and never spawns twice. Expansion is
+        /// the chevron's job (and h/l on the keyboard), never a click side effect
+        /// on workspace rows; machine and group rows still toggle because toggle
+        /// IS their open verb.
         @objc func handleSingleClick(_ sender: Any?) {
             guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
@@ -373,20 +376,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #if DEBUG
             cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
 #endif
-            if case .workspace = node.kind {
-                toggle(node)
-                return
-            }
-            open(node)
-        }
-
-        /// Double-click matters only on workspace rows; every other row already
-        /// acted on the first click.
-        @objc func handleDoubleClick(_ sender: Any?) {
-            guard let outlineView else { return }
-            let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
-            guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode,
-                  case .workspace = node.kind else { return }
             open(node)
         }
 
@@ -569,7 +558,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _, let openIn):
-                // One open verb, THE SAME PATH as double-click and Return (`open`):
+                // One open verb, THE SAME PATH as a click and Return (`open`):
                 // jump to the local workspace already showing it (the verb says so),
                 // focus a stray pane showing one of its terminals, refuse an empty
                 // group, else open as an own local workspace (remote and local never
@@ -918,11 +907,11 @@ final class CloudTreeContainerView: NSView {
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
-        // D9: one click opens; the single-click handler ignores the second click
-        // of a double-click, so a habitual double-click acts once. The double
-        // action exists solely for workspace rows (open-or-focus, D13).
+        // D9: one click opens, on every row. The single-click handler ignores
+        // the extra clicks of a double-click, so a habitual double-click acts
+        // once and never opens twice. No doubleAction: nothing is double-click
+        // only anymore.
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
-        outlineView.doubleAction = #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
