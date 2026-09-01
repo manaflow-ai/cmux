@@ -27504,6 +27504,36 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_double_click_drag_preserves_whitespace_anchor() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("double-click-whitespace-drag-selection-test", b"alpha   beta");
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 6,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 9,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((5, 0), (11, 0))),
+            "dragging from whitespace must retain its initial whitespace range"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn double_click_drag_extends_selection_by_complete_words() {
         let (mut app, mux, surface, content) =
             selection_fixture("double-click-word-drag-selection-test", b"alpha beta gamma");
