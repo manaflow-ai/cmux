@@ -844,7 +844,7 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
     private func scanLines(_ data: Data, onResizeDiag: @Sendable () -> Void) {
         lock.lock()
         pendingLine.append(data)
-        let split = splitTuiManualIOStderrLines(pendingLine)
+        let split = Self.splitLines(pendingLine)
         let lines = split.completeLines
         pendingLine = split.remainder
         // Bound the buffer against a relay that misbehaves and never prints
@@ -854,7 +854,7 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
         }
         lock.unlock()
         for line in lines {
-            if isTuiManualIOResizeDiagLine(line) {
+            if Self.isResizeDiagLine(line) {
                 onResizeDiag()
             }
         }
@@ -867,29 +867,30 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
         lock.unlock()
         target?.readabilityHandler = nil
     }
-}
 
-/// Returns true only for the relay's structured resize diagnostic. Matching
-/// JSON fields avoids treating human-readable stderr text as an ack.
-func isTuiManualIOResizeDiagLine(_ line: Data) -> Bool {
-    guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-          let diag = object["diag"] as? [String: Any]
-    else { return false }
-    return diag["resize"] != nil
-}
-
-/// Splits one accumulated stderr buffer in a single pass. Repeatedly
-/// searching and replacing a `Data` prefix copies the remaining suffix for
-/// every line, which makes a burst of short diagnostics quadratic.
-func splitTuiManualIOStderrLines(_ data: Data) -> (completeLines: [Data], remainder: Data) {
-    var completeLines: [Data] = []
-    var lineStart = data.startIndex
-    for index in data.indices where data[index] == 0x0A {
-        completeLines.append(Data(data[lineStart..<index]))
-        lineStart = data.index(after: index)
+    /// Splits one accumulated stderr buffer in a single pass. Repeatedly
+    /// searching and replacing a `Data` prefix copies the remaining suffix for
+    /// every line, which makes a burst of short diagnostics quadratic.
+    static func splitLines(_ data: Data) -> (completeLines: [Data], remainder: Data) {
+        var completeLines: [Data] = []
+        var lineStart = data.startIndex
+        for index in data.indices where data[index] == 0x0A {
+            completeLines.append(Data(data[lineStart..<index]))
+            lineStart = data.index(after: index)
+        }
+        let remainder = lineStart == data.startIndex ? data : Data(data[lineStart...])
+        return (completeLines, remainder)
     }
-    let remainder = lineStart == data.startIndex ? data : Data(data[lineStart...])
-    return (completeLines, remainder)
+
+    /// Returns true only for the relay's structured resize diagnostic.
+    /// Matching JSON fields avoids treating human-readable stderr text as an
+    /// acknowledgement.
+    static func isResizeDiagLine(_ line: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let diag = object["diag"] as? [String: Any]
+        else { return false }
+        return diag["resize"] != nil
+    }
 }
 
 /// Lock-guarded stderr accumulator: the relay prints its machine-readable

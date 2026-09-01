@@ -261,7 +261,7 @@ struct TuiManualIOPumpTests {
     @Test
     func stderrLineSplitterKeepsCompleteLinesAndTrailingPartialData() {
         let data = Data("first\nsecond\npartial".utf8)
-        let split = splitTuiManualIOStderrLines(data)
+        let split = TuiManualIOStderrStream.splitLines(data)
 
         #expect(split.completeLines == [Data("first".utf8), Data("second".utf8)])
         #expect(split.remainder == Data("partial".utf8))
@@ -270,14 +270,14 @@ struct TuiManualIOPumpTests {
     @Test
     func stderrResizeAckRequiresTheStructuredDiagObject() {
         #expect(
-            isTuiManualIOResizeDiagLine(
+            TuiManualIOStderrStream.isResizeDiagLine(
                 Data(#"{"diag":{"resize":{"cols":80,"rows":24,"accepted":true}}}"#.utf8)
             )
         )
         // Human-readable diagnostics can contain both words without being an
         // acknowledgement. They must not release the resize backpressure.
         #expect(
-            !isTuiManualIOResizeDiagLine(
+            !TuiManualIOStderrStream.isResizeDiagLine(
                 Data("resize diag failed: retrying".utf8)
             )
         )
