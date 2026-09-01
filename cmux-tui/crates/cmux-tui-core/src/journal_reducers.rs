@@ -508,7 +508,13 @@ impl AgentRoster {
             AgentSource::Detected => {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
-                    if source_rank(existing_source) > source_rank(source) {
+                    // A stale hook may be reclaimed by screen evidence. Keep
+                    // the generic precedence fence for plugin observations,
+                    // which are stronger than this legacy detected source,
+                    // while preserving the documented hook staleness rule.
+                    if existing_source != AgentSource::Hook
+                        && source_rank(existing_source) > source_rank(source)
+                    {
                         return Vec::new();
                     }
                     if existing_source == AgentSource::Hook
