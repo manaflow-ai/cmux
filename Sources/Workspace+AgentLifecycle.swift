@@ -970,15 +970,6 @@ extension Workspace {
 }
 
 extension Workspace {
-    /// Identifies the agent session that opened one logical turn on a panel.
-    ///
-    /// The session token is kept with the timestamp so a delayed stop hook from
-    /// an older process cannot clear a replacement turn on the same panel.
-    struct AgentTurnStartRecord: Equatable {
-        let sessionID: String
-        let startedAt: Date
-    }
-
     /// Bounds a hook-observed turn so one missed stop hook cannot block
     /// addressed prompt delivery indefinitely.
     static let activeAgentTurnMaximumAge: TimeInterval = 2 * 60 * 60
