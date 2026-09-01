@@ -307,6 +307,18 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     private var scrollbackRing: LocalLinuxScrollbackRing?
     private var lane: LocalLinuxTerminalLane?
     private var bootTask: Task<Void, Never>?
+    /// Generation associated with `bootTask`. A task from an invalidated
+    /// generation stays retained until its cancellation has settled, so a
+    /// retry cannot open a second pty while the old open is still suspended.
+    private var bootTaskGeneration: UInt?
+    /// Waits for a cancelled boot to finish. This is separate from
+    /// `bootTask`, which remains the owner of the old operation until the
+    /// barrier releases it.
+    private var bootDrainTask: Task<Void, Never>?
+    private var bootDrainGeneration: UInt?
+    /// A retry or foreground attachment asks for a boot. The drain callback
+    /// consumes this intent only after the previous operation is quiescent.
+    private var bootStartRequested = false
     private var outputTask: Task<Void, Never>?
     private var inputTask: Task<Void, Never>?
     private var inputWorkerID: UUID?
@@ -408,18 +420,37 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         guard !isStopped,
               sceneIsActive,
               isWindowAttached || surfaceView?.window != nil else { return }
-        guard session == nil, bootTask == nil else { return }
+        guard session == nil else { return }
+
+        bootStartRequested = true
+        if let bootTask {
+            // A live task for this generation already owns startup. If stop
+            // invalidated it, wait for the cancellation fence before trying
+            // again. Dropping the handle here would permit two ptys to open
+            // concurrently when `openSession` is suspended in the bridge.
+            if bootTaskGeneration != lifecycleGeneration {
+                scheduleBootDrainIfNeeded(task: bootTask)
+            }
+            return
+        }
+        guard bootDrainTask == nil else { return }
 
         report(.starting)
         let runtime = self.runtime
         let generation = lifecycleGeneration
-        let bootTask = Task { @MainActor [weak self, runtime, generation] in
+        let task = Task { @MainActor [weak self, runtime, generation] in
             let result = await Self.bootSession(runtime: runtime)
             guard let self else {
                 if case .success(let session) = result {
                     session.closeSynchronously()
                 }
                 return
+            }
+            // Keep ownership of the startup task through every return path.
+            // Teardown may race any await below, and the drain barrier must
+            // not start a replacement until this continuation has settled.
+            defer {
+                self.finishBootTask(generation: generation)
             }
             guard self.isCurrentBoot(generation) else {
                 if case .success(let session) = result {
@@ -428,7 +459,6 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                 return
             }
 
-            self.bootTask = nil
             switch result {
             case .success(let session):
                 guard self.isCurrentBoot(generation) else {
@@ -522,11 +552,62 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                 self.report(.failed(.linux))
                 self.acceptsInput = false
                 self.pendingInput.removeAll(keepingCapacity: false)
+                self.bootStartRequested = false
             case .cancelled:
+                self.bootStartRequested = false
                 return
             }
         }
-        self.bootTask = bootTask
+        self.bootTask = task
+        self.bootTaskGeneration = generation
+    }
+
+    /// Retains a cancelled startup operation until all of its asynchronous
+    /// cleanup has completed, then retries only when a caller still requests
+    /// a live foreground shell. This is the DEBUG counterpart of the
+    /// production startup fence.
+    private func scheduleBootDrainIfNeeded(task: Task<Void, Never>) {
+        guard bootDrainTask == nil,
+              let generation = bootTaskGeneration,
+              generation != lifecycleGeneration else { return }
+
+        bootDrainGeneration = generation
+        bootDrainTask = Task { @MainActor [weak self, task, generation] in
+            await task.value
+            guard let self else { return }
+            guard self.bootTaskGeneration == generation else {
+                // The startup continuation may have completed its defer just
+                // before this waiter resumed. Only clear this barrier's own
+                // metadata; never touch a replacement generation.
+                if self.bootDrainGeneration == generation {
+                    self.bootDrainTask = nil
+                    self.bootDrainGeneration = nil
+                }
+                return
+            }
+
+            self.bootTask = nil
+            self.bootTaskGeneration = nil
+            if self.bootDrainGeneration == generation {
+                self.bootDrainTask = nil
+                self.bootDrainGeneration = nil
+            }
+
+            guard self.bootStartRequested else { return }
+            self.startIfNeeded()
+        }
+    }
+
+    private func finishBootTask(generation: UInt) {
+        // An invalidated task is still owned by `bootDrainTask`. Its own
+        // defer must not clear the metadata before that barrier observes the
+        // task's settled value, or a retry could remain stuck behind an
+        // orphaned drain. A task may clear itself only while its generation
+        // is still current; stale metadata is released by the drain callback.
+        guard bootTaskGeneration == generation else { return }
+        guard lifecycleGeneration == generation else { return }
+        bootTask = nil
+        bootTaskGeneration = nil
     }
 
     private func isCurrentBoot(_ generation: UInt) -> Bool {
@@ -548,8 +629,14 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     private func stopSession(publish: Bool) {
         lifecycleGeneration &+= 1
         acceptsInput = false
-        bootTask?.cancel()
-        bootTask = nil
+        bootStartRequested = false
+        if let bootTask {
+            bootTask.cancel()
+            // Keep the handle until the cancellation continuation has fully
+            // settled. A retry calls `startIfNeeded` immediately, which then
+            // waits on this barrier instead of opening a competing pty.
+            scheduleBootDrainIfNeeded(task: bootTask)
+        }
         stopLane()
         inputTask?.cancel()
         inputTask = nil
