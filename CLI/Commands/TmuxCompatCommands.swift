@@ -6,7 +6,7 @@ struct CapturePaneCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
     @Flag(name: .customLong("scrollback")) var scrollback = false
-    @Option(name: .customLong("lines")) var lines: Int?
+    @Option(name: .customLong("lines")) var lines: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "capture-pane", helpNames: [])
 }
@@ -19,7 +19,7 @@ struct ResizePaneCommand: SharedLegacyFacadeCommand {
     @Flag(name: .customShort("R")) var right = false
     @Flag(name: .customShort("U")) var up = false
     @Flag(name: .customShort("D")) var down = false
-    @Option(name: .customLong("amount")) var amount: Int?
+    @Option(name: .customLong("amount")) var amount: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "resize-pane", helpNames: [])
 }
@@ -36,7 +36,7 @@ struct PipePaneCommand: SharedLegacyFacadeCommand {
 struct WaitForCommand: SharedLegacyFacadeCommand {
     @Flag(name: [.customShort("S"), .customLong("signal")]) var signal = false
     @Argument var name: String?
-    @Option(name: .customLong("timeout")) var timeout: Double?
+    @Option(name: .customLong("timeout")) var timeout: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "wait-for", helpNames: [])
 }
@@ -157,7 +157,7 @@ struct ReadScreenCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
     @Flag(name: .customLong("scrollback")) var scrollback = false
-    @Option(name: .customLong("lines")) var lines: Int?
+    @Option(name: .customLong("lines")) var lines: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "read-screen", helpNames: [])
 }

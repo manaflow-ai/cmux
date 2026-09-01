@@ -177,6 +177,8 @@ struct CmuxCommand: ParsableCommand {
             SSHPTYAttachCommand.self,
             VMPtyAttachCommand.self,
             VMPtyConnectCommand.self,
+            VMTuiConnectCommand.self,
+            VMTuiApproveCommand.self,
             VMSSHAttachTopLevelCommand.self,
             TodoCommand.self,
             CommentsCommand.self,
