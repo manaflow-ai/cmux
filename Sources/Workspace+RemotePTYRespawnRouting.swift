@@ -103,8 +103,9 @@ extension Workspace {
         trackRemoteTerminalSurface(panelId)
 
         if let previousSessionID = plan.previousSessionID,
-           previousSessionID != plan.sessionID {
-            pendingRemotePTYSessionCleanupIDs.insert(previousSessionID)
+           previousSessionID != plan.sessionID,
+           let owningConfiguration = remoteConfiguration {
+            pendingRemotePTYSessionCleanups[previousSessionID] = owningConfiguration
         }
         drainPendingRemotePTYSessionCleanups()
         return replacement
@@ -114,48 +115,69 @@ extension Workspace {
     ///
     /// Cleanup is lifecycle-owned rather than fire-and-forget: a respawn
     /// issued while the workspace is disconnected parks the replaced session
-    /// in ``Workspace/pendingRemotePTYSessionCleanupIDs`` and the queue is
-    /// re-drained when a controller is available again (respawn, controller
-    /// start, explicit reconnect). A close that fails while the workspace has
-    /// no connected controller is re-queued for the next drain; a failure
-    /// with a live controller is terminal — the daemon no longer knows the
-    /// session, so retrying would spin forever.
+    /// in ``Workspace/pendingRemotePTYSessionCleanups`` together with the
+    /// persistent-PTY identity that owns it, and the queue is re-drained when
+    /// a controller is available again (respawn, controller start, explicit
+    /// reconnect). Each request only ever drains through a controller whose
+    /// configuration matches the owning identity, so a workspace that has
+    /// since moved to a different host keeps the request parked instead of
+    /// closing (and discarding) the ID against the wrong daemon. In-flight
+    /// closes are retained in
+    /// ``Workspace/remotePTYSessionCleanupTasksBySessionID``, which also
+    /// serializes per-session drains. A close that fails while the owning
+    /// identity's controller is live is terminal — the daemon no longer knows
+    /// the session, so retrying would spin forever; any other failure
+    /// re-parks the request for the next drain.
     func drainPendingRemotePTYSessionCleanups() {
-        guard !pendingRemotePTYSessionCleanupIDs.isEmpty else { return }
+        guard !pendingRemotePTYSessionCleanups.isEmpty else { return }
         #if DEBUG
         if let closeForTesting = remotePTYSessionCloseForTesting {
-            let sessionIDs = pendingRemotePTYSessionCleanupIDs
-            pendingRemotePTYSessionCleanupIDs.removeAll()
-            for sessionID in sessionIDs.sorted() {
+            let entries = pendingRemotePTYSessionCleanups
+            pendingRemotePTYSessionCleanups.removeAll()
+            for sessionID in entries.keys.sorted() {
                 do {
                     try closeForTesting(sessionID)
                 } catch {
-                    pendingRemotePTYSessionCleanupIDs.insert(sessionID)
+                    pendingRemotePTYSessionCleanups[sessionID] = entries[sessionID]
                 }
             }
             return
         }
         #endif
-        guard let controller = remotePTYSessionCleanupController() else { return }
-        let sessionIDs = pendingRemotePTYSessionCleanupIDs
-        pendingRemotePTYSessionCleanupIDs.removeAll()
-        for sessionID in sessionIDs {
+        for (sessionID, owningConfiguration) in pendingRemotePTYSessionCleanups {
+            guard remotePTYSessionCleanupTasksBySessionID[sessionID] == nil else { continue }
+            guard let controller = remotePTYSessionCleanupController(
+                matching: owningConfiguration
+            ) else {
+                continue
+            }
+            pendingRemotePTYSessionCleanups.removeValue(forKey: sessionID)
             // RemoteSessionCoordinator is queue-confined and explicitly
-            // `@unchecked Sendable`; this detached task performs only its
-            // synchronous, queue-bridged close operation.
-            _ = Task.detached(priority: .utility) { [weak self] in
+            // `@unchecked Sendable`; this task performs only its synchronous,
+            // queue-bridged close operation and then reports back to the
+            // main actor.
+            let task = Task.detached(priority: .utility) { [weak self] in
+                let closeError: (any Error)?
                 do {
                     try controller.closePTYSession(sessionID: sessionID)
+                    closeError = nil
                 } catch {
-                    await MainActor.run { [weak self] in
-                        guard let self,
-                              self.remoteControllerConnectionState != .connected else {
-                            return
-                        }
-                        self.pendingRemotePTYSessionCleanupIDs.insert(sessionID)
-                    }
+                    closeError = error
+                }
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.remotePTYSessionCleanupTasksBySessionID.removeValue(forKey: sessionID)
+                    guard closeError != nil else { return }
+                    let owningControllerIsLive =
+                        self.remoteControllerConnectionState == .connected &&
+                        self.remoteConfiguration?.hasSamePersistentPTYIdentity(
+                            as: owningConfiguration
+                        ) == true
+                    guard !owningControllerIsLive else { return }
+                    self.pendingRemotePTYSessionCleanups[sessionID] = owningConfiguration
                 }
             }
+            remotePTYSessionCleanupTasksBySessionID[sessionID] = task
         }
     }
 
@@ -178,13 +200,15 @@ extension Workspace {
         return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
     }
 
-    private func remotePTYSessionCleanupController() -> RemoteSessionCoordinator? {
-        if let remoteSessionController {
+    private func remotePTYSessionCleanupController(
+        matching owningConfiguration: WorkspaceRemoteConfiguration
+    ) -> RemoteSessionCoordinator? {
+        if let remoteSessionController,
+           remoteConfiguration?.hasSamePersistentPTYIdentity(as: owningConfiguration) == true {
             return remoteSessionController
         }
-        guard let remoteConfiguration else { return nil }
         return remoteSessionCleanupControllers.values.first {
-            $0.configuration.hasSamePersistentPTYIdentity(as: remoteConfiguration)
+            $0.configuration.hasSamePersistentPTYIdentity(as: owningConfiguration)
         }?.controller
     }
 

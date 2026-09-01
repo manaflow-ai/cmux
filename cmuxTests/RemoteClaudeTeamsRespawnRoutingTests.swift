@@ -229,8 +229,14 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
         }
 
         // No controller: the replaced daemon session must be parked, not
-        // dropped.
-        #expect(fixture.workspace.pendingRemotePTYSessionCleanupIDs == [oldSessionID])
+        // dropped, and it must stay bound to the persistent-PTY identity
+        // that owned it so a later host change cannot drain it elsewhere.
+        #expect(Array(fixture.workspace.pendingRemotePTYSessionCleanups.keys) == [oldSessionID])
+        let parkedIdentity = try #require(
+            fixture.workspace.pendingRemotePTYSessionCleanups[oldSessionID]
+        )
+        let currentConfiguration = try #require(fixture.workspace.remoteConfiguration)
+        #expect(parkedIdentity.hasSamePersistentPTYIdentity(as: currentConfiguration))
 
         // First drain failure re-queues; the next drain closes exactly once
         // and a further drain has nothing left to do.
@@ -245,10 +251,10 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
         }
         fixture.workspace.drainPendingRemotePTYSessionCleanups()
         #expect(closed.isEmpty)
-        #expect(fixture.workspace.pendingRemotePTYSessionCleanupIDs == [oldSessionID])
+        #expect(Array(fixture.workspace.pendingRemotePTYSessionCleanups.keys) == [oldSessionID])
         fixture.workspace.drainPendingRemotePTYSessionCleanups()
         #expect(closed == [oldSessionID])
-        #expect(fixture.workspace.pendingRemotePTYSessionCleanupIDs.isEmpty)
+        #expect(fixture.workspace.pendingRemotePTYSessionCleanups.isEmpty)
         fixture.workspace.drainPendingRemotePTYSessionCleanups()
         #expect(closed == [oldSessionID])
     }

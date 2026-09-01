@@ -3014,10 +3014,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     /// Daemon-side PTY sessions replaced by a respawn whose close is still
-    /// owed. A respawn issued while the workspace is disconnected parks the
-    /// replaced session ID here instead of dropping it; the queue is drained
-    /// idempotently whenever a session controller is available again.
-    var pendingRemotePTYSessionCleanupIDs: Set<String> = []
+    /// owed, keyed by session ID and bound to the persistent-PTY identity
+    /// that owned the session when it was replaced. A respawn issued while
+    /// the workspace is disconnected parks the replaced session here instead
+    /// of dropping it; the queue drains idempotently whenever a controller
+    /// matching the owning identity is available again, so a workspace that
+    /// has since been reconfigured onto a different host can neither close
+    /// nor discard another host's session.
+    var pendingRemotePTYSessionCleanups: [String: WorkspaceRemoteConfiguration] = [:]
+    /// In-flight daemon-side close operations from
+    /// ``drainPendingRemotePTYSessionCleanups()``, owned by the workspace so
+    /// deferred cleanup is observable rather than fire-and-forget. Entries
+    /// double as a per-session reentrancy guard; each task removes itself on
+    /// completion.
+    var remotePTYSessionCleanupTasksBySessionID: [String: Task<Void, Never>] = [:]
     #if DEBUG
     /// Test seam for ``drainPendingRemotePTYSessionCleanups()``: intercepts
     /// the daemon-side close so tests can observe exactly-once semantics.
