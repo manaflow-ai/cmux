@@ -73,6 +73,19 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
         let tabId: UUID
         let surfaceId: UUID?
         let notificationId: UUID?
+        let preferredWindowId: UUID?
+
+        init(
+            tabId: UUID,
+            surfaceId: UUID?,
+            notificationId: UUID?,
+            preferredWindowId: UUID? = nil
+        ) {
+            self.tabId = tabId
+            self.surfaceId = surfaceId
+            self.notificationId = notificationId
+            self.preferredWindowId = preferredWindowId
+        }
     }
 
     var openSucceeds = true
@@ -89,7 +102,26 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
     private(set) var markedReadIds: [UUID] = []
 
     func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        opens.append(OpenCall(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId))
+        open(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            preferredWindowId: nil
+        )
+    }
+
+    func open(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        preferredWindowId: UUID?
+    ) -> Bool {
+        opens.append(OpenCall(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            preferredWindowId: preferredWindowId
+        ))
         return openSucceeds
     }
 
@@ -595,6 +627,7 @@ struct NotificationDeliveryCoordinatorTests {
         let terminal = FakeTerminalNavigation()
         let tabId = UUID()
         let surfaceId = UUID()
+        let windowId = UUID()
         let coordinator = makeCoordinator(terminalNavigation: terminal)
 
         coordinator.handle(NotificationDeliveryResponse(
@@ -604,10 +637,18 @@ struct NotificationDeliveryCoordinatorTests {
             userInfo: [
                 "tabId": tabId.uuidString,
                 "surfaceId": surfaceId.uuidString,
+                "CMUX_NOTIFICATION_WINDOW_ID": windowId.uuidString,
             ]
         ))
 
-        #expect(terminal.opens == [.init(tabId: tabId, surfaceId: surfaceId, notificationId: nil)])
+        #expect(terminal.opens == [
+            .init(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: nil,
+                preferredWindowId: windowId
+            )
+        ])
         #expect(terminal.storedOpens.isEmpty)
         #expect(terminal.markedReadIds.isEmpty)
     }

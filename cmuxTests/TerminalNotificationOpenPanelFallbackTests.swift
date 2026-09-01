@@ -44,6 +44,7 @@ struct TerminalNotificationOpenPanelFallbackTests {
         AppDelegate.shared = appDelegate
         appDelegate.notificationStore = store
         let originWorkspace = managerA.addWorkspace(title: "Origin", select: true)
+        let otherOriginWorkspace = managerA.addWorkspace(title: "Other Origin", select: false)
         let destinationWorkspace = managerB.addWorkspace(title: "Destination", select: true)
         let originPanelId = try #require(originWorkspace.focusedPanelId)
         appDelegate.registerMainWindow(
@@ -79,7 +80,7 @@ struct TerminalNotificationOpenPanelFallbackTests {
         let transfer = try #require(originWorkspace.detachSurface(panelId: originPanelId))
         let destinationPaneId = try #require(destinationWorkspace.bonsplitController.allPaneIds.first)
         _ = try #require(destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false))
-        managerA.selectTab(originWorkspace)
+        managerA.selectTab(otherOriginWorkspace)
         managerB.selectTab(destinationWorkspace)
         destinationWindow.makeKeyAndOrderFront(nil)
 
