@@ -2135,6 +2135,14 @@ mod tests {
                 sink(Bytes::copy_from_slice(text.as_bytes()));
             }
         }
+
+        fn emit_while_paused(&self, text: &str) {
+            let sink = self.state.lock().unwrap().on_data.clone();
+            if let Some(sink) = sink {
+                sink(Bytes::copy_from_slice(text.as_bytes()));
+            }
+        }
+
         fn exit(&self, code: i64) {
             let sink = self.state.lock().unwrap().on_exit.clone();
             if let Some(sink) = sink {
@@ -2748,6 +2756,29 @@ mod tests {
             two.iter().any(|frame| frame["type"] == "pty_output" && frame["ptyId"] == "viewer-two")
         );
         assert!(!two.iter().any(|frame| frame["ptyId"] == "viewer-one"));
+    }
+
+    #[tokio::test]
+    async fn paused_shell_viewer_does_not_receive_continued_output() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
+        h.open("p2", "main", Value::Null, "supervised", h.owner.clone()).await;
+        let pty = h.spawned()[0].clone();
+
+        h.frame(serde_json::json!({ "type": "pty_flow", "ptyId": "p1", "pause": true })).await;
+        let before = h.sent().len();
+        pty.emit_while_paused("continued output");
+        let outputs: Vec<(String, String)> = h.sent()[before..]
+            .iter()
+            .filter(|frame| ty(frame) == "pty_output")
+            .map(|frame| {
+                (
+                    frame["ptyId"].as_str().unwrap().to_owned(),
+                    from_b64(frame["dataB64"].as_str().unwrap()),
+                )
+            })
+            .collect();
+        assert_eq!(outputs, vec![("p2".to_owned(), "continued output".to_owned())]);
     }
 
     #[tokio::test]
