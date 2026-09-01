@@ -1012,6 +1012,14 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    use std::ffi::OsString;
+    #[cfg(windows)]
+    use std::sync::Mutex;
+
+    #[cfg(windows)]
+    static RUNTIME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
     #[cfg(target_os = "macos")]
     #[test]
     fn explicit_xdg_ghostty_config_does_not_add_application_support_candidates() {
@@ -1199,6 +1207,36 @@ mod tests {
         ] {
             assert!(!windows_path_is_rooted_local_drive(path), "{path}");
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn invalid_runtime_dir_uses_the_runtime_temp_precedence() {
+        let _lock = RUNTIME_ENV_LOCK.lock().unwrap();
+        let old_temp = std::env::var_os("TEMP");
+        let old_tmp = std::env::var_os("TMP");
+        let temp = OsString::from(r"C:\cmux-preferred-temp");
+        let tmp = OsString::from(r"D:\cmux-secondary-temp");
+
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            std::env::set_var("TEMP", &temp);
+            std::env::set_var("TMP", &tmp);
+        }
+        let path = invalid_runtime_dir();
+        // SAFETY: this test serializes its process-global environment changes.
+        unsafe {
+            match old_temp {
+                Some(value) => std::env::set_var("TEMP", value),
+                None => std::env::remove_var("TEMP"),
+            }
+            match old_tmp {
+                Some(value) => std::env::set_var("TMP", value),
+                None => std::env::remove_var("TMP"),
+            }
+        }
+
+        assert_eq!(path.parent(), Some(Path::new(r"C:\cmux-preferred-temp")));
     }
 
     #[test]
