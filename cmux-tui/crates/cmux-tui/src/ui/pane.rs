@@ -451,8 +451,9 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         draw_browser_content(app, frame, area, &surface);
         return DrawCursors { input: cursor.filter(|_| focused), terminal: None };
     }
+    let selection_visible = app.selection_is_visible(area.surface);
     let selection: Option<Selection> =
-        app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
+        app.selection.filter(|s| s.surface == area.surface && selection_visible);
     let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
     let theme = app.config.theme;
 
