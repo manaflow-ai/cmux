@@ -165,6 +165,8 @@ def _bash_candidates() -> list[tuple[str, Path, tuple[int, int, int]]]:
 
 
 def _run_driver(bash_bin: Path) -> subprocess.CompletedProcess[str]:
+    """Run the bootstrap and nested-shell scenario with an isolated home."""
+
     env = {
         key: value
         for key, value in os.environ.items()
@@ -218,6 +220,8 @@ def _run_driver(bash_bin: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _between(text: str, start: str, end: str) -> str:
+    """Extract the text between two deterministic output markers."""
+
     try:
         return text.split(start, 1)[1].split(end, 1)[0]
     except IndexError as exc:
@@ -227,6 +231,8 @@ def _between(text: str, start: str, end: str) -> str:
 
 
 def test_prompt_command_is_not_exported_to_nested_bash() -> None:
+    """Verify the bootstrap stays functional without exporting prompt hooks."""
+
     assert BOOTSTRAP.exists(), f"missing bootstrap file: {BOOTSTRAP}"
     assert (INTEGRATION_DIR / "cmux-bash-integration.bash").exists()
     assert (GHOSTTY_RESOURCES_DIR / "shell-integration" / "bash" / "ghostty.bash").exists()
