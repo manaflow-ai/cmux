@@ -225,6 +225,72 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(params["text"] as? String == "review the current diff")
     }
 
+    @Test func sendAtomicExplicitUUIDSurfaceUsesCallerWorkspaceContext() throws {
+        let socketPath = Self.makeSocketPath("send-atomic-surface")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = Self.requestID(from: payload),
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.agent_submit" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "submitted": true,
+                    "queued": false,
+                    "message_id": "11111111-2222-3333-4444-555555555555",
+                    "delivery_state": "accepted",
+                    "workspace_id": Self.targetWorkspaceId,
+                    "surface_id": Self.targetSurfaceId,
+                ]
+            )
+        }
+
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment["CMUX_WORKSPACE_ID"] = Self.targetWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: [
+                "send",
+                "--surface", Self.targetSurfaceId,
+                "--atomic",
+                "deliver", "to", "the", "selected", "agent",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty)
+        #expect(!result.timedOut)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.count == 1)
+        let request = try #require(requests.first)
+        #expect(request["method"] as? String == "workspace.agent_submit")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.targetSurfaceId)
+        #expect(params["text"] as? String == "deliver to the selected agent")
+    }
+
     @Test func agentSubmitWindowDoesNotInheritCallerWorkspace() throws {
         let socketPath = Self.makeSocketPath("agent-window")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)

@@ -959,6 +959,57 @@ struct AgentPromptSubmissionTests {
         #expect(materializedFiles.isEmpty)
     }
 
+    @Test func mobileAttachmentBatchRejectsTooManyItemsBeforeWriting() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pasteboard = TerminalPasteboardService(
+            temporaryDirectory: directory
+        )
+        let attachments = (0..<11).map { index in
+            MobileChatAttachmentPayload(
+                encodedData: Data([UInt8(index)]).base64EncodedString(),
+                fileExtension: "png"
+            )
+        }
+
+        let result = await TerminalController.prepareMobileChatAttachments(
+            attachments,
+            pasteboard: pasteboard
+        )
+
+        #expect(result == nil)
+        let materializedFiles = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )
+        #expect(materializedFiles.isEmpty)
+    }
+
+    @MainActor
+    @Test func mobileChatRejectsMalformedAttachmentsBeforeBindingLookup() async {
+        let controller = TerminalController.shared
+        let previousService = controller.agentChatTranscriptService
+        controller.agentChatTranscriptService = nil
+        defer { controller.agentChatTranscriptService = previousService }
+
+        let result = await controller.v2MobileChatSend(params: [
+            "session_id": "missing-session",
+            "text": "keep this prompt",
+            "attachments": "not-an-array",
+        ])
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected malformed attachments to be rejected")
+            return
+        }
+        #expect(code == "invalid_params")
+    }
+
     @Test func composerBusyMapsToDistinctRetryableSocketError() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -1009,6 +1060,27 @@ struct AgentPromptSubmissionTests {
             data["retry_after"] as? String
                 == "agent_terminal_ready"
         )
+    }
+
+    @Test func acceptedSocketResultUsesAcceptedDeliveryState() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let result = TerminalController.agentPromptSocketResult(
+            .submitted(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                queued: false
+            ),
+            messageID: UUID()
+        )
+
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any] else {
+            Issue.record("Expected an accepted submission payload")
+            return
+        }
+        #expect(payload["queued"] as? Bool == false)
+        #expect(payload["delivery_state"] as? String == "accepted")
     }
 
     @MainActor
