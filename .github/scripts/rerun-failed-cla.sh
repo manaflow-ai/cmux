@@ -34,6 +34,11 @@ if [[ "${COMMENT_BODY}" == "I have read the CLA Document v2.2 and I hereby sign 
   fail "The signing comment did not result in a persisted signature"
 fi
 [[ "${CLA_GENERATION}" =~ ^v[0-9]+\.[0-9]+-action-[0-9a-f]{7,40}$ ]] || fail "Invalid CLA generation marker"
+[[ "${WORKFLOW_SHA}" =~ ^[0-9a-f]{40}$ ]] || fail "Invalid trusted workflow revision"
+checked_out_sha="$(git rev-parse HEAD 2>/dev/null)" || fail "Could not verify the trusted workflow checkout"
+[[ "${checked_out_sha}" == "${WORKFLOW_SHA}" ]] || fail "The checkout is not the immutable workflow revision"
+[[ "${WORKFLOW_PATH}" == ".github/workflows/cla.yml" ]] || fail "Unexpected CLA workflow path"
+[[ -f .github/scripts/rerun-failed-cla.sh ]] || fail "The trusted CLA rerun helper is missing"
 
 # These values are part of the trusted workflow contract. They are deliberately
 # constants, not event or comment input, so a contributor cannot redirect this
@@ -109,6 +114,27 @@ issue_state="$(jq -r '.state // empty' <<<"${issue_json}")"
 issue_pr_url="$(jq -r '.pull_request.url // empty' <<<"${issue_json}")"
 [[ "${issue_state}" == "open" ]] || fail "The issue is not an open pull request"
 [[ "${issue_pr_url}" == "https://api.github.com/repos/${GH_REPO}/pulls/${PR_NUMBER}" ]] || fail "The issue is not the exact repository pull request"
+
+# Re-fetch the triggering comment immediately before using its ledger entry.
+# A comment can be edited or deleted after the writer records a signature; a
+# stale event payload must never authorize a rerun of the failed check.
+comment_json="$(gh api "repos/${GH_REPO}/issues/comments/${COMMENT_ID}" 2>/dev/null)" || fail "Could not query the triggering comment"
+jq -e \
+  --arg issue_url "https://api.github.com/repos/${GH_REPO}/issues/${PR_NUMBER}" \
+  --arg body "${COMMENT_BODY}" \
+  --arg author_id "${COMMENT_AUTHOR_ID}" \
+  --arg author_login "${COMMENT_AUTHOR_LOGIN}" \
+  --arg author_type "${COMMENT_AUTHOR_TYPE}" \
+  --arg created_at "${COMMENT_CREATED_AT}" \
+  '.issue_url == $issue_url and
+   .body == $body and
+   (.user | type == "object") and
+   (.user.id | type == "number") and
+   (.user.id | tostring) == $author_id and
+   .user.login == $author_login and
+   .user.type == $author_type and
+   .created_at == $created_at and
+   .updated_at == $created_at' <<<"${comment_json}" >/dev/null || fail "The triggering CLA comment was edited, deleted, or moved"
 
 pr_json="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" 2>/dev/null)" || fail "Could not query the pull request"
 jq -e --arg repo "${GH_REPO}" --argjson number "${PR_NUMBER}" --arg base "${TARGET_BASE_REF}" '
