@@ -169,6 +169,7 @@ enum TerminalStartupWorkingDirectoryPrefix {
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
             let prefixes = [
+                "cd -- \(quoted) 2>/dev/null && ",
                 "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && ",
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
