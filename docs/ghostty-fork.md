@@ -957,11 +957,12 @@ declared architecture, and `_ghostty_surface_rebuild_renderer` plus
   - Keeps conservative boundaries for explicit schemes and roots, semantic
     prompt transitions, unrelated indentation, and trailing sentence
     punctuation.
-- Conflict note: link-grid expansion and newline normalization must continue
-  to share the classifier; duplicating the continuation decision can make
-  hover and activation disagree.
+  - Conflict note: link-grid expansion and newline normalization must continue
+    to share the classifier; duplicating the continuation decision can make
+    hover and activation disagree.
+
 - Follow-up regression coverage:
-  - Pull request: https://github.com/ghostty-org/ghostty/pull/183
+  - Pull request: https://github.com/manaflow-ai/ghostty/pull/183
   - Test commit: `28baa8649` rejects a short `https://google.com/` row from
     joining the unrelated `foobar` row.
   - Fix commit: `589856524` requires the upper physical row to be width-filled
@@ -1220,9 +1221,13 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   `ssh`.
 - `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
   shell-integration feature; it is no longer used to reconstruct a CLI filename.
+- The Fish integration uses a nested feature check so Fish's `and`/`or`
+  command-list precedence cannot suppress the wrapper when only one SSH feature
+  is enabled.
 - Conflict note: future upstream merges must preserve the distinction between
   the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
-  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration,
+  including the nested Fish SSH feature check.
 
 The earlier fork history below includes terminal-owned scrollbar snapshots,
 absolute row-space identity, OSC-boundary geometry, and compare-and-set
