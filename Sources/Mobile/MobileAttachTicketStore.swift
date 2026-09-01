@@ -397,6 +397,14 @@ final class MobileAttachTicketStore {
     private func ticketOnlyCompatibilityTicket(
         _ ticket: CmxAttachTicket
     ) throws -> CmxAttachTicket {
+        let compatibleRoutes = ticket.routes.filter { $0.kind != .lan }
+        guard !compatibleRoutes.isEmpty else {
+            // Released ticket-only decoders cannot represent `.lan`. A LAN-only
+            // selection therefore has no compatible bootstrap route; surface a
+            // typed route-unavailable error instead of constructing an invalid
+            // empty ticket and leaking a generic internal failure.
+            throw MobileAttachTicketStoreError.routeUnavailable
+        }
         try CmxAttachTicket(
             version: ticket.version,
             workspaceID: ticket.workspaceID,
@@ -408,7 +416,7 @@ final class MobileAttachTicketStore {
             macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
             macAppVersion: ticket.macAppVersion,
             macAppBuild: ticket.macAppBuild,
-            routes: ticket.routes.filter { $0.kind != .lan },
+            routes: compatibleRoutes,
             expiresAt: ticket.expiresAt,
             authToken: ticket.authToken
         )

@@ -237,6 +237,13 @@ actor CmxConnectivityPeerSession {
                     throw CmxConnectivityEngineError.superseded
                 }
                 if pendingConnection != nil {
+                    // A control owner already owns this physical dial. A
+                    // policy-different feature lane must wait for that owner
+                    // to release it instead of canceling the foreground dial
+                    // and installing its own policy under the owner's lease.
+                    guard controlOwner == nil else {
+                        throw CmxConnectivityEngineError.superseded
+                    }
                     // A different transport policy supersedes the pending
                     // dial. Advance the generation before cancellation so a
                     // non-cooperative FFI dial that completes later cannot
