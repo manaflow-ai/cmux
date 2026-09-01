@@ -83,6 +83,17 @@ struct MobileHostIdentityTests {
         #expect(pairedRecords.allSatisfy { $0.source == .authenticatedHandshake })
     }
 
+    @Test func pushTargetStaysUnsetBeforePairingOrLegacyMigration() {
+        let suiteName = "mobile-ios-target-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = MobilePairedPhoneStore(defaults: defaults, macInstanceTag: "default")
+
+        #expect(store.targetBundleIdentifier(accountID: "account-a") == nil)
+        #expect(store.pushBundleIdentifier(accountID: "account-a") == nil)
+    }
+
     @Test func unknownPersistedRecordSourceDoesNotHideKnownPairings() throws {
         let suiteName = "mobile-ios-target-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suiteName))

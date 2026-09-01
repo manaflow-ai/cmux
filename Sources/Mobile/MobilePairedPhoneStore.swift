@@ -7,7 +7,7 @@ import Foundation
 /// exact bundle after the authenticated host handshake, and this store keeps
 /// that fact for push and paired-Mac backup routing. The old picker preference
 /// is imported once as a migration marker. Strict routing selects only an
-/// authenticated record; push has a temporary migration fallback for upgraded
+/// authenticated record; push has a temporary migration target for upgraded
 /// Macs until the first modern handshake arrives.
 @MainActor
 final class MobilePairedPhoneStore {
@@ -251,14 +251,13 @@ final class MobilePairedPhoneStore {
 
     /// Returns the push target for an authenticated account. A migrated picker
     /// value is a temporary compatibility target until the first modern
-    /// handshake replaces it. If no migration marker exists, use the current
-    /// Mac-lane fallback for legacy/debug clients; a modern handshake always
-    /// supersedes it before the next push.
+    /// handshake replaces it. Without either a migration marker or an
+    /// authenticated handshake, routing remains nil until the phone reports
+    /// its actual bundle.
     func pushBundleIdentifier(accountID: String?) -> String? {
         guard Self.normalized(accountID) != nil else { return nil }
         return targetBundleIdentifier(accountID: accountID)
             ?? legacyPickerBundleIdentifier
-            ?? fallbackBundleIdentifier
     }
 
     private var fallbackBundleIdentifier: String? {

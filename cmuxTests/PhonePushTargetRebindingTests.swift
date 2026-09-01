@@ -111,7 +111,6 @@ import Testing
         )
         #expect(queue.enqueue(unresolved))
         #expect(delivered.isEmpty)
-        await queue.waitUntilIdle()
 
         queue.rebindPending { envelope in
             PhonePushRequestEnvelope(
