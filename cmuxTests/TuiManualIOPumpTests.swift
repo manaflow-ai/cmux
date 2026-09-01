@@ -258,6 +258,15 @@ struct TuiManualIOPumpTests {
         #expect(text == "a\nb\n\(claim)c\nd\n")
     }
 
+    @Test
+    func stderrLineSplitterKeepsCompleteLinesAndTrailingPartialData() {
+        let data = Data("first\nsecond\npartial".utf8)
+        let split = splitTuiManualIOStderrLines(data)
+
+        #expect(split.completeLines == [Data("first".utf8), Data("second".utf8)])
+        #expect(split.remainder == Data("partial".utf8))
+    }
+
     // MARK: - Registry
 
     @MainActor
