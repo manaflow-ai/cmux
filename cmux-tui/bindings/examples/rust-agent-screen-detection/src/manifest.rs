@@ -1811,6 +1811,54 @@ line_regex = ["^working$", "^missing line$"]
     }
 
     #[test]
+    fn screen_detect_imported_claude_mcp_elicitation_is_blocked() {
+        let claude = ManifestSet::bundled().identify("claude").unwrap();
+        assert_eq!(claude.version().map(ToString::to_string).as_deref(), Some("2026.08.29.1"));
+
+        let blocked = claude.detect(input(
+            "MCP server \u{201C}calendar\u{201D} requests your input\n\
+             \u{276F} Accept\n\
+               Decline\n\
+             Esc to cancel\n",
+        ));
+        assert_eq!(blocked.state, ScreenState::Blocked);
+        assert_eq!(blocked.matched_rule.as_deref(), Some("mcp_elicitation_prompt"));
+        assert!(blocked.visible_blocker);
+
+        let incomplete = claude.detect(input(
+            "MCP server \u{201C}calendar\u{201D} requests your input\n\
+             Esc to cancel\n",
+        ));
+        assert_ne!(incomplete.matched_rule.as_deref(), Some("mcp_elicitation_prompt"));
+    }
+
+    #[test]
+    fn screen_detect_imported_codex_weak_blocker_ignores_previous_prompt() {
+        let codex = ManifestSet::bundled().identify("codex").unwrap();
+        assert_eq!(codex.version().map(ToString::to_string).as_deref(), Some("2026.08.28.1"));
+
+        let screen = "previous question [y/n]\n\
+                      \u{203A} ";
+        let result = codex.detect(input(screen));
+        assert_eq!(result.state, ScreenState::Idle);
+        assert_ne!(result.matched_rule.as_deref(), Some("weak_blocker"));
+    }
+
+    #[test]
+    fn screen_detect_imported_copilot_background_agents_are_working() {
+        let copilot = ManifestSet::bundled().identify("copilot").unwrap();
+        assert_eq!(copilot.version().map(ToString::to_string).as_deref(), Some("2026.08.29.1"));
+
+        let working = copilot.detect(input("task output\n◎ Waiting for background agents · 2 running\n"));
+        assert_eq!(working.state, ScreenState::Working);
+        assert_eq!(working.matched_rule.as_deref(), Some("background_agents_working"));
+        assert!(working.visible_working);
+
+        let no_icon = copilot.detect(input("Waiting for background agents · 2 running\n"));
+        assert_ne!(no_icon.matched_rule.as_deref(), Some("background_agents_working"));
+    }
+
+    #[test]
     fn screen_detect_bundled_osc_rules_remain_active() {
         let set = ManifestSet::bundled();
 

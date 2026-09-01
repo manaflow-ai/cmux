@@ -6,15 +6,18 @@
 - License: Apache-2.0 (upstream ships a LICENSE file and no NOTICE file; a
   copy is included at
   `bindings/examples/rust-agent-screen-detection/manifests/LICENSE`)
-- Pinned commit: `7b675f42af35508eab66ac42fe1598628597a893`
+- Detector source reference commit: `7b675f42af35508eab66ac42fe1598628597a893`
+- Manifest snapshot commit: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 
 Derived material and vendored material:
 
-- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 20
-  agent-detection manifests vendored unchanged from `src/detect/manifests/`,
-  plus `grok.toml`, which carries a documented cmux precedence correction.
-  Never refresh them from herdr's update endpoint. Re-vendor the unchanged
-  files and reapply the documented Grok patch when bumping the pin.
+- `bindings/examples/rust-agent-screen-detection/manifests/*.toml`: 17
+  manifests are unchanged from the manifest snapshot's
+  `src/detect/manifests/`; Claude, Codex, and GitHub Copilot include the
+  upstream fixes present in that snapshot. `grok.toml` carries a documented
+  cmux precedence correction. Never refresh them from herdr's update endpoint.
+  Re-vendor the files from the exact snapshot commit and reapply the Grok patch
+  when changing the pin.
 - `bindings/examples/rust-agent-screen-detection/src/manifest.rs`: the
   manifest engine (rule grammar, region extraction, gate evaluation,
   validation limits), ported from `src/detect/manifest.rs`.

@@ -3,10 +3,12 @@
 The files under `manifests/` are derived from the herdr project:
 
 * Project: https://github.com/herdrdev/herdr
-* Source revision: `7b675f42af35508eab66ac42fe1598628597a893`
+* Detector source reference revision: `7b675f42af35508eab66ac42fe1598628597a893`
+* Manifest snapshot revision: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 * License: Apache-2.0, reproduced in `manifests/LICENSE`
-* Unchanged vendored material: 20 of the 21 `manifests/*.toml` files, copied
-  from `src/detect/manifests/`
+* Unchanged vendored material: 17 of the 21 `manifests/*.toml` files, copied
+  from `src/detect/manifests/` at the manifest snapshot revision. The Claude,
+  Codex, and GitHub Copilot files include the upstream fixes in that snapshot.
 * Local correction: `manifests/grok.toml` keeps a static custom title from
   masking Grok's idle OSC progress and adds an explicit spinner rule. Its
   numeric patch version is `2026.07.16.2.1`; the upstream file is

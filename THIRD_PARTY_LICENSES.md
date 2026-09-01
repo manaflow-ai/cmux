@@ -90,13 +90,16 @@ manifests and adapted detector sources live under
 
 - **License:** Apache License 2.0
 - **Source:** https://github.com/herdrdev/herdr
-- **Pinned source:** commit `7b675f42af35508eab66ac42fe1598628597a893`
+- **Detector source reference:** commit `7b675f42af35508eab66ac42fe1598628597a893`
+- **Manifest snapshot:** commit `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
 - **License text:** `cmux-tui/bindings/examples/rust-agent-screen-detection/manifests/LICENSE`
 
-Twenty manifests are vendored unchanged. `grok.toml` is based on the pinned
-file and contains one documented cmux precedence correction. The manifest
-engine, process discovery, state detector, and update logic are adapted for the
-cmux userland plugin contract. The source paths, pinned commit, license, and adaptations are recorded in
+Seventeen manifests are unchanged from the manifest snapshot. Claude, Codex,
+and GitHub Copilot include the upstream fixes in that snapshot. `grok.toml` is
+based on the snapshot file and contains one documented cmux precedence
+correction. The manifest engine, process discovery, state detector, and update
+logic are adapted for the cmux userland plugin contract. The source paths,
+commits, license, and adaptations are recorded in
 `cmux-tui/bindings/examples/rust-agent-screen-detection/ATTRIBUTIONS.md`.
 
 ---

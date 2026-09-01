@@ -265,11 +265,12 @@ The reference loader also caps an active set at 256 manifests, a source
 directory at 512 entries, and each manifest at 256 KiB before parsing.
 
 The herdr source and Apache-2.0 license attribution are listed in
-`cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. Twenty
-manifests are unchanged at the pinned commit. `grok.toml` carries one local
-precedence correction, documented in both attribution files and its manifest
-README. Files adapted from herdr carry the upstream path and pinned commit in
-their header.
+`cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. Seventeen
+manifest files are unchanged at the manifest snapshot commit; Claude, Codex,
+and GitHub Copilot include upstream fixes from that snapshot. `grok.toml`
+carries one local precedence correction, documented in both attribution files
+and its manifest README. Files adapted from herdr carry the upstream path and
+their source-reference commit in their header.
 
 The reference package builds with Cargo `--locked`, so installation uses the
 checked-in dependency graph. Other plugins may choose another build tool, but
@@ -283,7 +284,7 @@ shared without importing herdr's application into cmux:
 
 | Herdr capability | Userland package behavior |
 | --- | --- |
-| Screen manifests | 21 manifests are bundled and replaceable. Herdr lists 23 agent kinds, but OMP and Mastracode have no screen manifest at the pinned revision. |
+| Screen manifests | 21 manifests are bundled and replaceable. Herdr lists 23 agent kinds, but OMP and Mastracode have no screen manifest at the manifest snapshot revision. |
 | Identity aliases and wrappers | Manifest aliases, shell/runtime arguments, package launchers, process groups, and a public-process fallback are supported. Visible executable and wrapper evidence is checked before the optional `CMUX_AGENT` or `HERDR_AGENT` process hint, so ordinary scans do not read process environments. Linux can opt into bounded child-group inference with `CMUX_AGENT_PROCESS_DETECTION=child-groups` when a controlling-terminal group is unavailable. |
 | Regions and gates | Recent-screen regions, prompt and viewer slices, OSC title/progress regions, `all`, `any`, `not`, literal, regex, and line-regex gates are supported with bounded complexity. |
 | Rule priority and visibility | Numeric priority, idle fallback, blocker/working/idle visibility hints, and `skip_state_update` are preserved. |
@@ -304,7 +305,7 @@ application policy into cmux core.
 | Remote persistence and session restore | cmux journal and session persistence | The plugin has no private durable state to merge with host snapshots. |
 | Plugin panes, actions, and link handlers | Sidebar and resource plugin contracts | These are separate plugin kinds. Do not couple them to agent detection. |
 | Windows foreground process-group inspection | Not supported by this reference package | The Rust SDK transport and native process backend are Unix-only. A Windows package must add both before publication. |
-| OMP and Mastracode screen manifests | Not present at the pinned herdr revision | Herdr lists these process kinds but ships no screen manifests. Hooks can still cover them. We do not invent state rules. |
+| OMP and Mastracode screen manifests | Not present at the manifest snapshot revision | Herdr lists these process kinds but ships no screen manifests. Hooks can still cover them. We do not invent state rules. |
 
 Linux child-group inference remains an explicit fallback because it cannot
 distinguish foreground from background children without a controlling
