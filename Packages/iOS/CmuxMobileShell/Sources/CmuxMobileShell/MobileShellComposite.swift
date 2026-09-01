@@ -8143,6 +8143,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         createdTerminalSelection = CreatedTerminalSelection(
             workspace: workspace,
+            fallbackMacDeviceID: foregroundMacDeviceID,
+            fallbackInstanceTag: activeMacInstanceTag,
             terminalID: terminal.id
         )
         selectedTerminalID = terminal.id

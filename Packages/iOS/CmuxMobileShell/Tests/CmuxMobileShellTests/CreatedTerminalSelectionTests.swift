@@ -4,6 +4,29 @@ import Testing
 
 @MainActor
 @Suite struct CreatedTerminalSelectionTests {
+    @Test func localCreatedTerminalMatchesAfterAnonymousRowAdoptsMacIdentity() {
+        let anonymousWorkspace = MobileWorkspacePreview(
+            id: "workspace-main",
+            name: "cmux",
+            terminals: [MobileTerminalPreview(id: "terminal-new", name: "Terminal 2", isReady: false)]
+        )
+        let selection = CreatedTerminalSelection(
+            workspace: anonymousWorkspace,
+            fallbackMacDeviceID: "mac-main",
+            fallbackInstanceTag: "ntab",
+            terminalID: "terminal-new"
+        )
+        var stampedWorkspace = MobileWorkspacePreview(
+            id: "workspace-main",
+            macDeviceID: "mac-main",
+            name: "cmux",
+            terminals: [MobileTerminalPreview(id: "terminal-new", name: "Terminal 2", isReady: false)]
+        )
+        stampedWorkspace.macInstanceTag = "ntab"
+
+        #expect(selection.matches(workspace: stampedWorkspace))
+    }
+
     @Test func remoteCreatedTerminalRemainsSelectedAfterRefresh() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
