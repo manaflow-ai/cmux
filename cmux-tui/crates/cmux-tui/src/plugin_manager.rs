@@ -1476,6 +1476,24 @@ mod tests {
     }
 
     #[test]
+    fn plugin_registry_rejects_an_unbounded_entry_count() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-registry-entry-limit-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        for index in 0..=256 {
+            fs::create_dir(root.join(format!("plugin-{index}"))).unwrap();
+        }
+
+        let error = bounded_plugin_registry_entries(&root).unwrap_err().to_string();
+        assert!(error.contains("plugin registry") && error.contains("entry limit"), "{error}");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn artifact_digest_handles_multiple_read_chunks() {
         let root = std::env::temp_dir().join(format!(
             "cmux-plugin-artifact-digest-{}-{}",
