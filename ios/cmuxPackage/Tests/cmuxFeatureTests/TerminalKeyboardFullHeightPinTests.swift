@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import CoreGraphics
 import Foundation
@@ -88,7 +89,10 @@ struct TerminalKeyboardFullHeightPinTests {
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         view.autoFocusOnWindowAttach = false
         view.isRenderDispatchSuppressed = true
-        let host = GhosttySurfaceHostView(surfaceView: view)
+        let host = GhosttySurfaceHostView(
+            surfaceView: view,
+            keyboardFrameTracker: MobileKeyboardFrameTracker()
+        )
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         host.frame = window.bounds
         window.addSubview(host)

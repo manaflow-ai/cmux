@@ -1,11 +1,12 @@
 import {
   jsonResponse,
   notFoundVm,
+  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
+import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
 import {
   listVmSessions,
   openVmSession,
@@ -32,11 +33,15 @@ export async function GET(
         const sessions = await runVmWorkflow(listVmSessions({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
         }));
         return jsonResponse({ sessions: sessions.map(sessionPayload) });
       } catch (err) {
+        if (isVmFreeAccessExpiredError(err)) {
+          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+        }
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
       }
@@ -76,6 +81,7 @@ export async function POST(
         const result = await runVmWorkflow(openVmSession({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
           sessionId,
@@ -87,6 +93,9 @@ export async function POST(
           session: result.session ? sessionPayload(result.session) : null,
         });
       } catch (err) {
+        if (isVmFreeAccessExpiredError(err)) {
+          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
+        }
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
       }

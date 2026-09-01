@@ -17,7 +17,7 @@ final class CloudVMActionLauncher {
     }
 
     private var processes: [Int32: Process] = [:]
-    private var progressControllers: [Int32: CloudVMActionProgressController] = [:]
+    private var authTransitionSuppressedProcessIDs: Set<Int32> = []
     private var isShuttingDown = false
 
     private init() {}
@@ -28,10 +28,18 @@ final class CloudVMActionLauncher {
             process.terminate()
         }
         processes.removeAll()
-        for controller in progressControllers.values {
-            controller.close()
+    }
+
+    /// Cancel Cloud VM CLI children when the account is signing out without
+    /// putting the launcher into the permanent application-termination state.
+    /// Their late termination callbacks are suppressed so a failed CLI cannot
+    /// present an alert over the signed-out account screen.
+    func cancelAllForAuthTransition() {
+        for (processID, process) in processes where process.isRunning {
+            authTransitionSuppressedProcessIDs.insert(processID)
+            process.terminate()
         }
-        progressControllers.removeAll()
+        processes.removeAll()
     }
 
     @discardableResult
@@ -41,11 +49,25 @@ final class CloudVMActionLauncher {
         arguments: [String] = ["vm", "base", "open"],
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
-        showsProgress: Bool = true,
         presentsFailureAlert: Bool = true,
         environmentOverrides: [String: String] = [:],
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
+        let accountFlow = AppDelegate.shared?.auth?.accountFlow
+        let authState = CloudVMPanelAuthState.resolve(
+            isAuthenticated: accountFlow?.isAuthenticated == true,
+            isWorkingOnAuth: accountFlow?.isWorkingOnAuth == true
+        )
+        if !authState.allowsAuthenticatedOperation {
+            // Keep every native launcher entrypoint aligned with the Machines
+            // panel: a signed-out action opens the shared sign-in screen and
+            // never starts a child CLI that could create or attach a VM.
+            _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
+                preferredWindow: preferredWindow,
+                debugSource: "cloudVM.auth"
+            )
+            return false
+        }
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
@@ -85,21 +107,13 @@ final class CloudVMActionLauncher {
         let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe)
         outputCollector.start()
         let launchWindow = preferredWindow
-        let presentation = Self.progressPresentation(arguments: arguments)
-        let progressController = showsProgress
-            ? CloudVMActionProgressController(
-                title: presentation.title,
-                message: presentation.message,
-                preferredWindow: preferredWindow
-            )
-            : nil
         process.terminationHandler = { terminatedProcess in
             let output = outputCollector.finish()
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
                 Self.shared.processes.removeValue(forKey: processIdentifier)
-                Self.shared.progressControllers.removeValue(forKey: processIdentifier)?.close()
+                let suppressPresentation = Self.shared.authTransitionSuppressedProcessIDs.remove(processIdentifier) != nil
                 onCompletion?(
                     Completion(
                         terminationStatus: terminationStatus,
@@ -107,14 +121,17 @@ final class CloudVMActionLauncher {
                         workspaceId: Self.createdWorkspaceId(from: output)
                     )
                 )
-                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown {
+                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation {
                     Self.shared.presentCommandResult(
                         title: successTitle ?? String(localized: "command.cloudVM.result.title", defaultValue: "Cloud VM"),
                         output: output,
                         preferredWindow: launchWindow
                     )
                 }
-                guard terminationStatus != 0, !Self.shared.isShuttingDown, presentsFailureAlert else { return }
+                guard terminationStatus != 0,
+                      !Self.shared.isShuttingDown,
+                      !suppressPresentation,
+                      presentsFailureAlert else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
                     defaultValue: "Cloud VM command exited with status %d."
@@ -132,19 +149,14 @@ final class CloudVMActionLauncher {
         }
 
         do {
-            progressController?.show()
             try process.run()
             processes[process.processIdentifier] = process
-            if let progressController {
-                progressControllers[process.processIdentifier] = progressController
-            }
 #if DEBUG
             cmuxDebugLog("cloudVM.launch pid=\(process.processIdentifier) socket=\(socketPath)")
 #endif
             return true
         } catch {
             outputCollector.cancel()
-            progressController?.close()
             if presentsFailureAlert {
                 presentStartFailure(
                     summary: String(
@@ -164,16 +176,17 @@ final class CloudVMActionLauncher {
     }
 
     private func presentCommandResult(title: String, output: String, preferredWindow: NSWindow?) {
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOutput = String(output.trimmingCharacters(in: .whitespacesAndNewlines).prefix(4000))
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = title
-        alert.informativeText = String(trimmedOutput.prefix(4000))
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-
-        if let preferredWindow {
-            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
-        } else if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        // House alert style: command output lives in the scrollable details
+        // region so long results never balloon the sheet.
+        let content = CmuxAlertContent.scrollingAll(trimmedOutput)
+        let window = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        content.apply(to: alert, presentingWindow: window)
+        if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {
             _ = alert.runModal()
@@ -192,50 +205,18 @@ final class CloudVMActionLauncher {
         return nil
     }
 
-    private struct ProgressPresentation {
-        let title: String
-        let message: String
-    }
-
-    private static func progressPresentation(arguments: [String]) -> ProgressPresentation {
-        if arguments.starts(with: ["vm", "base"]) || arguments.starts(with: ["vm", "new"]) {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.open.title", defaultValue: "Opening Base"),
-                message: String(localized: "command.cloudVM.loading.open.message", defaultValue: "Creating or reattaching to your persistent cloud workspace.")
-            )
-        }
-        if arguments.contains("fork") {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.fork.title", defaultValue: "Forking Cloud VM"),
-                message: String(localized: "command.cloudVM.loading.fork.message", defaultValue: "Creating a copy of the selected Cloud VM.")
-            )
-        }
-        if arguments.contains("snapshot") {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.snapshot.title", defaultValue: "Checkpointing Cloud VM"),
-                message: String(localized: "command.cloudVM.loading.snapshot.message", defaultValue: "Saving a checkpoint for the selected Cloud VM.")
-            )
-        }
-        if arguments.contains("restore") {
-            return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.restore.title", defaultValue: "Restoring Cloud VM"),
-                message: String(localized: "command.cloudVM.loading.restore.message", defaultValue: "Starting a Cloud VM from the selected checkpoint.")
-            )
-        }
-        return ProgressPresentation(
-            title: String(localized: "command.cloudVM.loading.command.title", defaultValue: "Cloud VM"),
-            message: String(localized: "command.cloudVM.loading.command.message", defaultValue: "Running Cloud VM command.")
-        )
-    }
-
     private func presentStartFailure(summary: String, output: String, action: String, preferredWindow: NSWindow?) {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let limitedOutput = String(trimmedOutput.prefix(2000))
         let safeOutput = sanitizedCloudVMStartOutput(limitedOutput)
+        // When the whole transcript is held back (it mentions backend internals),
+        // still tell the person *why* it failed: the CLI's first line is the
+        // human-readable reason ("Cloud VM state is unavailable (HTTP 503 …)").
+        let reason = safeOutput.isEmpty ? firstSafeLine(of: limitedOutput) : nil
         let whatToTry = String(localized: "command.cloudVM.failed.whatToTry", defaultValue: "What to try:")
         let details = String(localized: "command.cloudVM.failed.details", defaultValue: "Details:")
         var sections = [
-            summary,
+            reason.map { "\(summary)\n\($0)" } ?? summary,
             "\(whatToTry)\n\(action)",
         ]
         if !safeOutput.isEmpty {
@@ -246,16 +227,34 @@ final class CloudVMActionLauncher {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "command.cloudVM.failed.title", defaultValue: "Couldn't Start Cloud VM")
-        alert.informativeText = informativeText
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-
-        if let preferredWindow {
-            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
-        } else if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        // House alert style: summary and next steps stay fixed, raw output
+        // scrolls, and the sheet is attached to the window so it moves with it.
+        let content = safeOutput.isEmpty
+            ? CmuxAlertContent(informativeText: informativeText)
+            : CmuxAlertContent(flattenedText: informativeText, separatingScrollableDetails: safeOutput)
+        let window = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        content.apply(to: alert, presentingWindow: window)
+        if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {
             _ = alert.runModal()
         }
+    }
+
+    /// The first line of CLI output that passes the same redaction as the full
+    /// transcript, with an "Error:" prefix dropped. Nil when no line is safe.
+    private func firstSafeLine(of output: String) -> String? {
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.lowercased().hasPrefix("error:") {
+                line = String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
+            }
+            guard !line.isEmpty else { continue }
+            let safe = sanitizedCloudVMStartOutput(line)
+            if !safe.isEmpty { return String(safe.prefix(240)) }
+        }
+        return nil
     }
 
     private func sanitizedCloudVMStartOutput(_ output: String) -> String {
@@ -346,89 +345,6 @@ final class CloudVMActionLauncher {
             )
         }
         return trimmed
-    }
-}
-
-@MainActor
-private final class CloudVMActionProgressController {
-    private let panel: NSPanel
-    private weak var preferredWindow: NSWindow?
-
-    init(title: String, message: String, preferredWindow: NSWindow?) {
-        self.preferredWindow = preferredWindow
-        panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 96),
-            styleMask: [.hudWindow, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isReleasedWhenClosed = false
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = false
-        panel.contentView = Self.makeContentView(title: title, message: message)
-    }
-
-    func show() {
-        if let window = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow {
-            let frame = window.frame
-            let origin = NSPoint(
-                x: frame.midX - panel.frame.width / 2,
-                y: frame.maxY - panel.frame.height - 56
-            )
-            panel.setFrameOrigin(origin)
-        }
-        panel.orderFrontRegardless()
-    }
-
-    func close() {
-        panel.orderOut(nil)
-    }
-
-    private static func makeContentView(title: String, message: String) -> NSView {
-        let root = NSVisualEffectView()
-        root.blendingMode = .behindWindow
-        root.material = .hudWindow
-        root.state = .active
-
-        let spinner = NSProgressIndicator()
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isIndeterminate = true
-        spinner.startAnimation(nil)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        titleLabel.textColor = .labelColor
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let messageLabel = NSTextField(labelWithString: message)
-        messageLabel.font = .systemFont(ofSize: 12)
-        messageLabel.textColor = .secondaryLabelColor
-        messageLabel.lineBreakMode = .byWordWrapping
-        messageLabel.maximumNumberOfLines = 2
-        messageLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        root.addSubview(spinner)
-        root.addSubview(titleLabel)
-        root.addSubview(messageLabel)
-
-        NSLayoutConstraint.activate([
-            spinner.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
-            spinner.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -18),
-            titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
-            messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-        ])
-
-        return root
     }
 }
 

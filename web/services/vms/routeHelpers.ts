@@ -7,6 +7,7 @@ import {
   type AuthedUser,
 } from "./auth";
 import {
+  isPaidVmPlan,
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -14,6 +15,7 @@ import {
 import {
   isVmBillingError,
   isVmAccountDeletionInProgressError,
+  isVmAttachTransportUnsupportedError,
   isVmCreateDisabledError,
   isVmDatabaseError,
   isVmProviderOperationError,
@@ -190,6 +192,26 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
   });
 }
 
+/**
+ * The paywall response for a free-plan machine whose access window lapsed:
+ * the machine and its data are preserved, reconnecting requires Pro. 402 with
+ * `upgradeRequired`/`upgradeUrl` so clients render an upgrade prompt, mirroring
+ * the free-plan variant of `vmActiveLimitExceededResponse`.
+ */
+export function vmFreeAccessExpiredResponse(input: {
+  readonly vmId: string;
+  readonly windowDays: number;
+}): Response {
+  return vmErrorResponse({
+    error: "vm_access_requires_pro",
+    status: 402,
+    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to Pro reconnects it.`,
+    action: `Upgrade to Pro at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux vm rm ${input.vmId}\`.`,
+    extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+    details: { vmId: input.vmId, windowDays: input.windowDays },
+  });
+}
+
 export function notFoundVm(vmId: string): Response {
   return vmErrorResponse({
     error: "vm_not_found",
@@ -261,6 +283,45 @@ export function vmRequiresProResponse(): Response {
   });
 }
 
+const VM_UPGRADE_URL = "https://cmux.com/pricing";
+
+/**
+ * One response for every provisioning verb that hits the active-VM limit. On a free plan the
+ * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
+ * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
+ * an error. Paid plans keep operational guidance — their cap is a safety rail, not a paywall.
+ */
+export function vmActiveLimitExceededResponse(input: {
+  readonly limit: number;
+  readonly planId: string;
+  readonly retryAction: string;
+  readonly phase?: VmLifecyclePhase;
+}): Response {
+  const paid = isPaidVmPlan(input.planId);
+  const plural = input.limit === 1 ? "" : "s";
+  if (paid) {
+    return vmErrorResponse({
+      error: "vm_active_limit_exceeded",
+      status: 402,
+      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.`,
+      action: input.retryAction,
+      extra: { limit: input.limit },
+      details: { limit: input.limit },
+      ...(input.phase ? { phase: input.phase } : {}),
+    });
+  }
+  return vmErrorResponse({
+    error: "vm_active_limit_exceeded",
+    status: 402,
+    message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
+    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more VMs with usage-based billing, ` +
+      "or free a slot with `cmux vm rm <id>`.",
+    extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+    details: { limit: input.limit, upgradeRequired: true },
+    ...(input.phase ? { phase: input.phase } : {}),
+  });
+}
+
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
   if (isVmAccountDeletionInProgressError(workflowError)) {
@@ -271,6 +332,24 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
       action: "Wait for account deletion to finish before creating Cloud VMs.",
       phase: workflowError.phase ?? "create",
       retryable: true,
+    });
+  }
+
+  if (isVmAttachTransportUnsupportedError(workflowError)) {
+    const supported = workflowError.supported.join(", ");
+    return vmErrorResponse({
+      error: "vm_attach_transport_unsupported",
+      status: 409,
+      message: `Cloud VM ${workflowError.vmId} does not serve the "${workflowError.requested}" attach transport.`,
+      action: `Request the attach endpoint with transport "cmux-remote" (supported: ${supported}), ` +
+        "or update cmux — this machine runs the cmux-tui remote daemon only.",
+      phase: "attach",
+      retryable: false,
+      details: {
+        provider: workflowError.provider,
+        requestedTransport: workflowError.requested,
+        supportedTransports: [...workflowError.supported],
+      },
     });
   }
 

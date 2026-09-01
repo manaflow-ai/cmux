@@ -7,9 +7,11 @@
 //! both into its own ghostty terminal. Rendering, key encoding, and mode
 //! queries then work identically in both cases.
 
+mod cursor_provenance;
 mod remote;
 pub(crate) mod tree;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -31,7 +33,7 @@ use ghostty_vt::{
     KeyInput, MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot,
 };
 use serde::Deserialize;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
@@ -41,6 +43,21 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
+
+pub(crate) fn parse_identity_capabilities(value: &Value) -> Result<HashSet<String>, &'static str> {
+    let Some(capabilities) = value.get("capabilities") else {
+        return Ok(HashSet::new());
+    };
+    let Some(capabilities) = capabilities.as_array() else {
+        return Err("capabilities must be an array of strings");
+    };
+    capabilities
+        .iter()
+        .map(|capability| {
+            capability.as_str().map(str::to_owned).ok_or("capabilities must be an array of strings")
+        })
+        .collect()
+}
 
 pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Config) {
     mux.update_surface_options(|options| {
@@ -59,17 +76,13 @@ pub enum Session {
 ///
 /// This is deliberately small: mutations and transport recovery remain on
 /// `Session` until their command and acknowledgement semantics are migrated.
-/// Both local and remote sessions therefore expose the same snapshot contract.
+/// Agent metadata is exposed through this boundary while the normal tree read
+/// remains on `Session::tree`.
 pub(crate) trait SessionPort: Send + Sync {
-    fn snapshot(&self) -> TreeView;
     fn agents(&self) -> Vec<AgentInfo>;
 }
 
 impl SessionPort for Session {
-    fn snapshot(&self) -> TreeView {
-        self.tree()
-    }
-
     fn agents(&self) -> Vec<AgentInfo> {
         self.agents_impl()
     }
@@ -90,7 +103,7 @@ impl CreationReceipt {
 #[derive(Clone)]
 pub(crate) struct AmbiguousCreation {
     remote: Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 }
 
@@ -119,7 +132,7 @@ impl AmbiguousCreation {
 
 fn request_receipted_creation(
     remote: &Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 ) -> anyhow::Result<SurfaceId> {
     match remote.request(request.clone()) {
@@ -356,7 +369,7 @@ fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
 }
 
 /// Attach optional cols/rows fields to a remote command.
-fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
+fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
         cmd["cols"] = json!(cols);
         cmd["rows"] = json!(rows);
@@ -364,7 +377,7 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
     cmd
 }
 
-fn creation_fields(size: Option<(u16, u16)>) -> Map<String, serde_json::Value> {
+fn creation_fields(size: Option<(u16, u16)>) -> Map<String, Value> {
     let mut fields = Map::new();
     if let Some((cols, rows)) = size {
         fields.insert("cols".to_string(), json!(cols));
@@ -388,10 +401,10 @@ fn creation_selector_fallbacks(
     }
 }
 
-fn response_surface(result: &serde_json::Value, created: &str) -> anyhow::Result<SurfaceId> {
+fn response_surface(result: &Value, created: &str) -> anyhow::Result<SurfaceId> {
     result
         .get("surface")
-        .and_then(serde_json::Value::as_u64)
+        .and_then(Value::as_u64)
         .ok_or_else(|| anyhow::anyhow!("remote {created} creation omitted its surface"))
 }
 
@@ -855,12 +868,9 @@ impl Session {
                         retry_after_ms: None,
                     };
                 };
-                let requested_surface_id = data
-                    .get("surface")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|id| id as SurfaceId);
-                let mut error =
-                    data.get("error").and_then(serde_json::Value::as_str).map(str::to_string);
+                let requested_surface_id =
+                    data.get("surface").and_then(Value::as_u64).map(|id| id as SurfaceId);
+                let mut error = data.get("error").and_then(Value::as_str).map(str::to_string);
                 let surface_id = match requested_surface_id {
                     Some(id) => {
                         match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
@@ -890,7 +900,7 @@ impl Session {
                 SidebarPluginSurface {
                     surface_id,
                     error,
-                    retry_after_ms: data.get("retry_after_ms").and_then(serde_json::Value::as_u64),
+                    retry_after_ms: data.get("retry_after_ms").and_then(Value::as_u64),
                 }
             }
         }
@@ -1215,11 +1225,10 @@ impl Session {
     pub fn surface_cwd(&self, surface: SurfaceId) -> Option<String> {
         match self {
             Session::Local(mux) => mux.surface(surface).and_then(|surface| surface.local_cwd()),
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
-                    |data| data.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned),
-                )
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "process-info", "surface": surface}))
+                .ok()
+                .and_then(|data| data.get("cwd").and_then(Value::as_str).map(str::to_owned)),
         }
     }
 
@@ -1289,7 +1298,7 @@ impl Session {
                 ))?;
                 result
                     .get("surface")
-                    .and_then(serde_json::Value::as_u64)
+                    .and_then(Value::as_u64)
                     .ok_or_else(|| anyhow::anyhow!("remote browser creation omitted its surface"))
             }
         }
@@ -2025,8 +2034,28 @@ impl Session {
 }
 
 impl SurfaceHandle {
+    #[cfg(test)]
+    pub(crate) fn test_scan_cursor_provenance(&self, bytes: &[u8]) {
+        if let SurfaceHandle::Remote(surface, _) = self {
+            surface.test_scan_cursor_provenance(bytes);
+        }
+    }
+
     pub fn is_remote(&self) -> bool {
         matches!(self, SurfaceHandle::Remote(_, _))
+    }
+
+    /// Whether the terminal application authored its cursor style (DECSCUSR)
+    /// rather than inheriting a session or frontend default. A scoped attach
+    /// client mirrors the cursor to the host terminal only when this is true.
+    /// Local surfaces render inside a full TUI that owns the host cursor, so
+    /// they always report true.
+    pub fn cursor_style_authored(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(_, _) => true,
+            SurfaceHandle::Remote(surface, _) => surface.cursor_style_authored(),
+            SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
     }
 
     pub fn kind(&self) -> SurfaceKind {
@@ -2121,7 +2150,7 @@ impl SurfaceHandle {
                         return Err(error);
                     }
                 };
-                match response.get("outcome").and_then(serde_json::Value::as_str) {
+                match response.get("outcome").and_then(Value::as_str) {
                     Some("superseded") => {
                         report(None);
                         return Ok(false);
@@ -2137,14 +2166,13 @@ impl SurfaceHandle {
                         anyhow::bail!("unknown resize outcome {other}");
                     }
                 }
-                let accepted =
-                    response.get("accepted").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                let accepted = response.get("accepted").and_then(Value::as_bool).unwrap_or(true);
                 surface.set_reported_size(desired);
                 if !accepted {
                     report(None);
                     return Ok(false);
                 }
-                response.get("reservation_id").and_then(serde_json::Value::as_u64).or(Some(0))
+                response.get("reservation_id").and_then(Value::as_u64).or(Some(0))
             }
             SurfaceHandle::RemoteBrowserUnsupported => {
                 report(None);
@@ -2803,6 +2831,15 @@ fn test_remote_session_with_view_attachment_leases() -> Session {
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_unleased_view_surface(
+    surface_id: SurfaceId,
+) -> (Session, SurfaceHandle) {
+    let (session, surface) = remote::test_unleased_view_surface(surface_id);
+    let handle = SurfaceHandle::Remote(surface, session.clone());
+    (Session::Remote(session), handle)
+}
+
+#[cfg(test)]
 fn test_remote_surface_with_missing_attachment_lease(surface_id: SurfaceId) -> SurfaceHandle {
     let (session, surface) = remote::test_unleased_view_surface(surface_id);
     SurfaceHandle::Remote(surface, session)
@@ -2888,9 +2925,9 @@ mod tests {
     use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{
-        Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
-        test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
-        test_remote_session_with_view_attachment_leases,
+        Session, SessionPort, is_remote_surface_unavailable, normalize_remote_layout_undo_error,
+        resize_action, test_remote_rejected_error_with_code,
+        test_remote_rejected_error_with_message, test_remote_session_with_view_attachment_leases,
         test_remote_surface_with_missing_attachment_lease, test_remote_transport_error,
     };
 
@@ -2993,19 +3030,6 @@ mod tests {
 
         let error = session.set_split_ratio(999_999, 0.5).unwrap_err();
         assert_eq!(error.to_string(), "unknown split 999999");
-    }
-
-    #[test]
-    fn session_port_snapshot_matches_existing_tree_read() {
-        let session =
-            Session::Local(Mux::new("session-port-snapshot-test", SurfaceOptions::default()));
-        let direct = session.tree();
-        let port: &dyn SessionPort = &session;
-        let snapshot = port.snapshot();
-        assert_eq!(snapshot.workspace_revision, direct.workspace_revision);
-        assert_eq!(snapshot.pane_revision, direct.pane_revision);
-        assert_eq!(snapshot.active_workspace, direct.active_workspace);
-        assert_eq!(snapshot.workspaces.len(), direct.workspaces.len());
     }
 
     #[test]

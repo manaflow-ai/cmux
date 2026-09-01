@@ -168,17 +168,28 @@ try {
     let attachTransport;
     let attachDurationMs;
     if (!skipAttach) {
+      // Blaxel machines run only the cmux-tui remote daemon; every other provider still
+      // serves the legacy cmuxd-remote websocket PTY.
+      const expectedTransport = created.provider === "blaxel" ? "cmux-remote" : "websocket";
+      const attachBody = expectedTransport === "cmux-remote"
+        ? { transport: "cmux-remote" }
+        : { requireDaemon: true };
       const attachStartedAt = performance.now();
       const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
         method: "POST",
         headers: { ...authHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ requireDaemon: true }),
+        body: JSON.stringify(attachBody),
       });
       attachDurationMs = Math.round(performance.now() - attachStartedAt);
       const attachText = await attach.text();
       if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
       const attached = JSON.parse(attachText);
-      if (attached.transport !== "websocket") throw new Error(`expected websocket attach, got ${attached.transport}`);
+      if (attached.transport !== expectedTransport) {
+        throw new Error(`expected ${expectedTransport} attach, got ${attached.transport}`);
+      }
+      if (expectedTransport === "cmux-remote" && !/^wss:\/\/.+\/v1\/link\?/.test(attached.route ?? "")) {
+        throw new Error("cmux-remote attach response missing the daemon route");
+      }
       attachTransport = attached.transport;
     }
 

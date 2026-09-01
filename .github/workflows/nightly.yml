@@ -483,6 +483,11 @@ jobs:
           install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
 
+      - name: Bundle the cmux-tui client
+        run: |
+          set -euo pipefail
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+
       - name: Run bundled Ghostty theme picker helper regression
         run: |
           set -euo pipefail

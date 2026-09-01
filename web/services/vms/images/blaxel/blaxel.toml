@@ -1,0 +1,19 @@
+name = "cmux-devbox"
+type = "sandbox"
+description = "cmux Cloud machine: chatmux-devbox tool parity plus an openbox/TigerVNC desktop with Ghostty, Chrome, and noVNC on 6901"
+
+[runtime]
+generation = "mk3"
+memory = 4096
+
+# cmuxd-remote websocket daemon (injected by the driver at create time).
+[[runtime.ports]]
+name = "cmuxd-ws"
+target = 7777
+protocol = "tcp"
+
+# noVNC web client served by websockify; the desktop wrapper opens this port.
+[[runtime.ports]]
+name = "novnc"
+target = 6901
+protocol = "tcp"

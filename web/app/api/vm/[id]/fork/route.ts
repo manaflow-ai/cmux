@@ -3,6 +3,7 @@ import {
   jsonResponse,
   notFoundVm,
   requestedVmTeamIdFromRequest,
+  vmActiveLimitExceededResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmRequiresProResponse,
@@ -98,7 +99,7 @@ export async function POST(
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
-        const response = createLikeErrorResponse(err);
+        const response = createLikeErrorResponse(err, entitlements.planId);
         if (response) return response;
         throw err;
       }
@@ -149,7 +150,7 @@ function idempotencyKeyFromRequest(request: Request): string | undefined {
   return raw ? raw.slice(0, 128) : undefined;
 }
 
-function createLikeErrorResponse(err: unknown): Response | null {
+function createLikeErrorResponse(err: unknown, planId: string): Response | null {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -169,13 +170,10 @@ function createLikeErrorResponse(err: unknown): Response | null {
     });
   }
   if (isVmLimitExceededError(err)) {
-    return vmErrorResponse({
-      error: "vm_active_limit_exceeded",
-      status: 402,
-      message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
-      action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
-      extra: { limit: err.limit },
-      details: { limit: err.limit },
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId,
+      retryAction: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before forking another.",
     });
   }
   if (isVmCreateCreditsInsufficientError(err)) {

@@ -506,6 +506,9 @@ struct MobileSettingsView: View {
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    onEnablePush: {
+                        await pushCoordinator.enable(trigger: "onboarding_replay")
+                    },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,

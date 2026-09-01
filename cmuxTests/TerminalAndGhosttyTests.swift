@@ -5099,6 +5099,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             appDelegate.tabManager = originalTabManager
             AppDelegate.shared = previousAppDelegate
             window.orderOut(nil)

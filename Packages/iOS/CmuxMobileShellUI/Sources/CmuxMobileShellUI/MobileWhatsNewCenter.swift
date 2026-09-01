@@ -26,8 +26,6 @@ public final class MobileWhatsNewCenter {
     static let acknowledgedAnnouncementsKey = "dev.cmux.mobile.whatsNew.acknowledgedAnnouncementIds"
     static let cacheKey = "dev.cmux.mobile.whatsNew.remoteList.v1"
     static let requestPath = "/api/whats-new"
-    /// In-app What's New webpages may load cmux-owned hosts only.
-    static let staticAllowedWebHosts: Set<String> = ["cmux.com", "www.cmux.com"]
 
     private let requestURL: URL?
     private let appVersion: String
@@ -108,9 +106,11 @@ public final class MobileWhatsNewCenter {
 
     /// Hosts an in-app What's New webpage may load: the cmux-owned production
     /// hosts plus this build's configured API host (so dev and staging pages
-    /// render against their own web app).
+    /// render against their own web app). One shared derivation
+    /// (`MobileWebPageHosts`) with the web app session broker, so navigation
+    /// and credential policy agree.
     var allowedWebHosts: Set<String> {
-        var hosts = Self.staticAllowedWebHosts
+        var hosts = MobileWebPageHosts.cmuxOwned
         if let apiHost = requestURL?.host?.lowercased() {
             hosts.insert(apiHost)
         }
@@ -242,14 +242,14 @@ public final class MobileWhatsNewCenter {
         return nil
     }
 
-    /// A webpage URL is renderable only under the shared What's New web
-    /// policy (`whatsNewWebURLAllowed`): https on an allowlisted cmux-owned
+    /// A webpage URL is renderable only under the shared in-app web policy
+    /// (`mobileWebPageURLAllowed`): https on an allowlisted cmux-owned
     /// host, or http solely for a loopback development host. The webview
     /// applies the same policy to every subsequent navigation.
     private func allowlistedWebURL(_ string: String?) -> URL? {
         guard let string,
               let url = URL(string: string),
-              whatsNewWebURLAllowed(url, allowedHosts: allowedWebHosts) else { return nil }
+              mobileWebPageURLAllowed(url, allowedHosts: allowedWebHosts) else { return nil }
         return url
     }
 

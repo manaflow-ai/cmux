@@ -43,6 +43,7 @@ parking_lot.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
+fs4.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true

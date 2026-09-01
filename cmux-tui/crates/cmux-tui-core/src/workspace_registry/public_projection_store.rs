@@ -599,6 +599,7 @@ mod tests {
                                 lifecycle: TerminalLifecycle::Launching,
                                 launch_spec: json!({}),
                                 exit: None,
+                                on_exit: TerminalOnExit::Close,
                             },
                         },
                         ResourceChange::UpsertTab(RegistryTab {

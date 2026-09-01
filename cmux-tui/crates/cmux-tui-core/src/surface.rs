@@ -2284,10 +2284,7 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
-        let cwd = opts
-            .cwd
-            .clone()
-            .or_else(|| platform::home_dir().map(|path| path.to_string_lossy().into_owned()));
+        let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
         }
@@ -4261,10 +4258,11 @@ impl Surface {
             }
             #[cfg(unix)]
             PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
+            // A keep-on-exit terminal outlives its child, so typing into the
+            // dead PTY is an expected interaction: drop the bytes silently
+            // instead of failing every keystroke on the final screen.
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => {
-                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "terminal host has exited"))
-            }
+            PtyRuntime::ExitedHosted => Ok(()),
         }
     }
 
@@ -4286,11 +4284,10 @@ impl Surface {
             if let PtyRuntime::Hosted(host) = &*runtime {
                 return host.send(MessageKind::Paste, bytes);
             }
+            // Keep-on-exit terminals accept and drop paste input the same
+            // way as keystrokes: the final screen is read-only, not broken.
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "terminal host has exited",
-                ));
+                return Ok(());
             }
         }
         let bracketed = {
@@ -8021,7 +8018,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn exited_host_placeholder_preserves_identity_and_rejects_input() {
+    fn exited_host_placeholder_preserves_identity_and_swallows_input() {
         let mux = Mux::new_for_test("exited-host-placeholder", SurfaceOptions::default());
         let identity = crate::terminal_host_runtime::TerminalHostIdentity {
             terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
@@ -8041,10 +8038,10 @@ mod tests {
             Some(TerminalHostConnectionState::Exited)
         );
         assert!(surface.is_dead());
-        assert_eq!(
-            surface.write_bytes(b"must not reach a dead host").unwrap_err().kind(),
-            std::io::ErrorKind::BrokenPipe
-        );
+        // Keep-on-exit terminals stay interactive surfaces after their child
+        // dies, so input to the dead PTY is a harmless no-op, not an error.
+        surface.write_bytes(b"must not reach a dead host").unwrap();
+        surface.write_paste(b"must not reach a dead host").unwrap();
     }
 
     #[test]

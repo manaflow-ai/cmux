@@ -4,18 +4,21 @@
 //! name stays `cmux-relay`. See README.md for the port plan and the
 //! vendored-protocol regeneration step.
 
+pub mod actions;
+pub mod autostart;
 pub mod cli;
 pub mod config;
+pub mod control;
 pub mod enrollment;
 pub mod error;
 pub mod fingerprint;
+pub mod journal_forwarder;
 pub mod pairing;
 pub mod preview_proxy;
 pub mod prompt;
-// Vendored from chatmux packages/protocol/generated/rust/relay_wire.rs
-// (see README "Vendored protocol"); never edited, only re-vendored, and
-// never formatted (the generated layout is the diff baseline).
-#[rustfmt::skip]
+pub mod pty;
+#[cfg(unix)]
+pub mod pty_deps;
 pub mod relay_wire;
 pub mod session;
 pub mod trust;
