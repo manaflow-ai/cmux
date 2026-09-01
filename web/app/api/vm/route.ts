@@ -55,6 +55,7 @@ import {
   vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
+import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import {
   createVm,
@@ -70,6 +71,13 @@ import {
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
 
+// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
+// run minutes; without an explicit budget the platform default killed them
+// mid-provision. 600s caps a hung provider call well below the 20-minute
+// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
+// uses 1800).
+export const maxDuration = 600;
+
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -84,7 +92,6 @@ export async function GET(request: Request): Promise<Response> {
         if (requestedBillingTeamId || user.billingCustomerType === "team") {
           const entitlements = resolveVmEntitlements(user, process.env, {
             requestedBillingTeamId,
-            requireTeam: false,
           });
           listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
@@ -110,7 +117,7 @@ export async function GET(request: Request): Promise<Response> {
       // resolution above, so resolve lazily here.
       if (!listEntitlements) {
         try {
-          listEntitlements = resolveVmEntitlements(user, process.env, { requireTeam: false });
+          listEntitlements = resolveVmEntitlements(user, process.env);
         } catch {
           listEntitlements = null;
         }
@@ -391,7 +398,6 @@ export async function POST(request: Request): Promise<Response> {
           entitlements = measureVmSync(timing, "entitlements", () =>
             resolveVmEntitlements(user, process.env, {
               requestedBillingTeamId,
-              requireTeam: true,
             })
           );
         } catch (err) {
@@ -493,16 +499,21 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
           if (isVmCreateCreditsInsufficientError(err)) {
+            const billsUser = entitlements.billingCustomerType === "user";
             return vmErrorResponse({
               error: "vm_create_credits_insufficient",
               status: 402,
-              message: "This team has no Cloud VM create credits left.",
-              action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+              message: billsUser
+                ? "Your account has no Cloud VM create credits left."
+                : "This team has no Cloud VM create credits left.",
+              action: billsUser
+                ? "Upgrade your plan or add Cloud VM create credits, then retry."
+                : "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
               extra: { amount: err.amount },
               details: { amount: err.amount },
             });
           }
-          const workflowError = vmWorkflowErrorResponse(err);
+          const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
           if (workflowError) return workflowError;
           throw err;
         }

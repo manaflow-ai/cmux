@@ -88,7 +88,7 @@ public struct BrowserCatalogSection: SettingCatalogSection {
     public let urlsToAlwaysOpenExternally = DefaultsKey<String>(
         id: "browser.urlsToAlwaysOpenExternally",
         defaultValue: "",
-        userDefaultsKey: "browserExternalOpenPatterns"
+        userDefaultsKey: BrowserExternalURLPolicy.userDefaultsKey
     )
 
     public let insecureHttpHostsAllowedInEmbeddedBrowser = DefaultsKey<String>(
