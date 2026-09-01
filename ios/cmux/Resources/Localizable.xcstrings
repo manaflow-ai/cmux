@@ -70093,6 +70093,23 @@
         }
       }
     },
+    "mobile.onboarding.keepAwake.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevent your Mac from sleeping while cmux is open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxが開いている間、Macがスリープするのを防ぎます。"
+          }
+        }
+      }
+    },
     "mobile.onboarding.notifications.body": {
       "extractionState": "manual",
       "localizations": {
