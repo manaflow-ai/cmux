@@ -1093,8 +1093,8 @@ struct ClaudeTaskSyncHookTests {
         ))
     }
 
-    @Test("Snapshots over the checklist cap are sent whole for atomic rejection")
-    func doesNotPublishTruncatedSnapshot() throws {
+    @Test("Snapshots over the checklist cap do not publish Feed before rejection")
+    func doesNotPublishOverCapSnapshotToFeed() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-cap")
         defer { context.cleanup() }
         let workspaceId = "33333333-3333-3333-3333-333333333333"
@@ -1129,8 +1129,11 @@ struct ClaudeTaskSyncHookTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
-        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        // The workspace reconciliation rejects the 51-item projection. Feed
+        // must not advance first, or the two task views would diverge.
+        #expect(deliveries.feed.wait(timeout: .now() + 0.25) == .timedOut)
         #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(context.state.snapshot().compactMap(feedEvent).isEmpty)
         let request = try #require(reconcileRequests(in: context).last)
         let items = try #require(request["items"] as? [[String: Any]])
         #expect(items.count == 51)
