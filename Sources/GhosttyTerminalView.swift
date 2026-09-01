@@ -9224,6 +9224,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        // Captured before the transfer starts; see the note in
+        // handleCustomDropUploadIfMatched about reattached views.
+        let originSurfaceId = terminalSurface?.id
+
         TerminalImageTransferPlanner.execute(
             plan: plan,
             operation: operation,
@@ -9282,10 +9286,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if ManagedFileTransferPolicy.isRefusal(error) {
                         ManagedFileTransferPolicy.presentRefusal()
                     } else {
-                        NSSound.beep()
+                        let posted = TerminalUploadFailureNotification.post(
+                            error: error,
+                            surfaceId: originSurfaceId
+                        )
+                        if !posted { NSSound.beep() }
                     }
 #if DEBUG
-                    cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+                    cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(originSurfaceId?.uuidString.prefix(5) ?? "nil")")
 #endif
                 }
             }

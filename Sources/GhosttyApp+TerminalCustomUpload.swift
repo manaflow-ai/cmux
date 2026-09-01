@@ -31,7 +31,15 @@ extension GhosttyApp {
                     if ManagedFileTransferPolicy.isRefusal(error) {
                         ManagedFileTransferPolicy.presentRefusal()
                     } else {
-                        NSSound.beep()
+                        // surfaceId came from the callback context captured when the
+                        // paste started, so it names the surface the user dropped on.
+                        let posted = MainActor.assumeIsolated {
+                            TerminalUploadFailureNotification.post(
+                                error: error,
+                                surfaceId: callbackContext.surfaceId
+                            )
+                        }
+                        if !posted { NSSound.beep() }
                     }
 #if DEBUG
                     cmuxDebugLog("terminal.remotePasteUpload.customFailed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")

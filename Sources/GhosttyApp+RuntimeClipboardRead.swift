@@ -303,7 +303,13 @@ extension GhosttyApp {
                             if shouldPresentFailure, ManagedFileTransferPolicy.isRefusal(error) {
                                 ManagedFileTransferPolicy.presentRefusal()
                             } else if shouldPresentFailure {
-                                NSSound.beep()
+                                let posted = MainActor.assumeIsolated {
+                                    TerminalUploadFailureNotification.post(
+                                        error: error,
+                                        surfaceId: callbackContext.surfaceId
+                                    )
+                                }
+                                if !posted { NSSound.beep() }
 #if DEBUG
                                 cmuxDebugLog(
                                     "terminal.remotePasteUpload.failed " +
