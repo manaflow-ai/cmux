@@ -632,7 +632,7 @@ mod tests {
         );
         assert_eq!(cache.order, vec![4, 5]);
         tree.workspaces[0].screens[0].panes[0].tabs.reverse();
-        let _ = rows_cached(
+        let rows = rows_cached(
             &spec(vec![SidebarResourceKind::Agents]),
             &tree,
             &agents,
@@ -640,6 +640,9 @@ mod tests {
             &HashSet::new(),
             &mut cache,
         );
-        assert_eq!(cache.order, vec![4, 5]);
+        assert_eq!(
+            rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
+            ["blocked", "working"]
+        );
     }
 }
