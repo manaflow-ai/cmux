@@ -16,11 +16,13 @@ private final class InMemoryJSONCache<Value: Codable & Sendable>: IrxJSONCache, 
         return value
     }
 
-    func save(_ newValue: Value) {
+    @discardableResult
+    func save(_ newValue: Value) -> Bool {
         lock.lock()
         value = newValue
         saveCount += 1
         lock.unlock()
+        return true
     }
 
     func clear() {
@@ -98,6 +100,17 @@ struct IrxJSONCacheMigrationTests {
         #expect(migrating.load() == nil)
     }
 
+    @Test func failedPrimaryWriteKeepsLegacyFile() throws {
+        let fileURL = temporaryFile()
+        let legacy = IrxDiskCache<[String: Int]>(fileURL: fileURL)
+        legacy.save(["rev": 4])
+        let primary = FailingJSONCache<[String: Int]>()
+        let migrating = IrxMigratingJSONCache(primary: primary, legacy: legacy)
+
+        #expect(migrating.load() == ["rev": 4])
+        #expect(legacy.load() == ["rev": 4])
+    }
+
     @Test func clearRemovesBothSides() throws {
         let fileURL = temporaryFile()
         let legacy = IrxDiskCache<[String: Int]>(fileURL: fileURL)
@@ -109,4 +122,11 @@ struct IrxJSONCacheMigrationTests {
         #expect(migrating.load() == nil)
         #expect(!FileManager.default.fileExists(atPath: fileURL.path))
     }
+}
+
+private struct FailingJSONCache<Value: Codable & Sendable>: IrxJSONCache {
+    func load() -> Value? { nil }
+    @discardableResult
+    func save(_ value: Value) -> Bool { false }
+    func clear() {}
 }

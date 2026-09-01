@@ -16,17 +16,23 @@ public struct IrxClientSession: Sendable {
     public let admit: IrxAdmit
     public let control: IrxLaneStream
     public let establishedAt: Date
+    /// Monotonic counterpart used for liveness decisions. Wall-clock time is
+    /// retained for diagnostics only because clock rollback must not suppress
+    /// a foreground zombie replacement.
+    public let establishedAtMonotonic: ContinuousClock.Instant
 
     public init(
         connection: IrxConnection,
         admit: IrxAdmit,
         control: IrxLaneStream,
-        establishedAt: Date
+        establishedAt: Date,
+        establishedAtMonotonic: ContinuousClock.Instant = .now
     ) {
         self.connection = connection
         self.admit = admit
         self.control = control
         self.establishedAt = establishedAt
+        self.establishedAtMonotonic = establishedAtMonotonic
     }
 }
 
@@ -217,8 +223,7 @@ public actor IrxPeerEngine {
                 // (that exact race produced the foreground redial storm).
                 let now = ContinuousClock.now
                 let pongAge = (await session.connection.lastPongAt).map { now - $0 }
-                let sessionAge = Duration.seconds(
-                    Date().timeIntervalSince(session.establishedAt))
+                let sessionAge = session.establishedAtMonotonic.duration(to: now)
                 let liveness = pongAge.map { min($0, sessionAge) } ?? sessionAge
                 if liveness > staleAfter {
                     self.record("foreground-stale-redial", [:])

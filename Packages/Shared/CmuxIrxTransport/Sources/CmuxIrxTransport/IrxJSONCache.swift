@@ -9,7 +9,7 @@ import Security
 public protocol IrxJSONCache<Value>: Sendable {
     associatedtype Value: Codable & Sendable
     func load() -> Value?
-    func save(_ value: Value)
+    @discardableResult func save(_ value: Value) -> Bool
     func clear()
 }
 
@@ -47,8 +47,9 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
         return try? JSONDecoder().decode(Value.self, from: data)
     }
 
-    public func save(_ value: Value) {
-        guard let data = try? JSONEncoder().encode(value) else { return }
+    @discardableResult
+    public func save(_ value: Value) -> Bool {
+        guard let data = try? JSONEncoder().encode(value) else { return false }
         let query = baseQuery()
         let attributes: [String: Any] = [
             kSecValueData as String: data,
@@ -57,14 +58,17 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
         ]
         let updateStatus = SecItemUpdate(
             query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess { return }
-        guard updateStatus == errSecItemNotFound else { return }
+        if updateStatus == errSecSuccess { return load() != nil }
+        guard updateStatus == errSecItemNotFound else { return false }
         var insert = query
         attributes.forEach { insert[$0.key] = $0.value }
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        if addStatus == errSecSuccess { return load() != nil }
         if addStatus == errSecDuplicateItem {
-            _ = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            let retry = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            return retry == errSecSuccess && load() != nil
         }
+        return false
     }
 
     public func clear() {
@@ -106,16 +110,22 @@ public struct IrxMigratingJSONCache<
     public func load() -> Value? {
         if let value = primary.load() { return value }
         guard let migrated = legacy.load() else { return nil }
-        primary.save(migrated)
+        // Keep the legacy copy when the primary is unavailable. Keychain
+        // writes can fail while the device is locked or entitlements are
+        // misconfigured; deleting the only readable copy would make the
+        // account unrecoverable on the next launch.
+        guard primary.save(migrated) else { return migrated }
         legacy.clear()
         return migrated
     }
 
-    public func save(_ value: Value) {
-        primary.save(value)
+    @discardableResult
+    public func save(_ value: Value) -> Bool {
+        guard primary.save(value) else { return false }
         // A save supersedes anything the legacy file held; drop it so a
         // later primary clear can never resurrect stale state.
         legacy.clear()
+        return true
     }
 
     public func clear() {

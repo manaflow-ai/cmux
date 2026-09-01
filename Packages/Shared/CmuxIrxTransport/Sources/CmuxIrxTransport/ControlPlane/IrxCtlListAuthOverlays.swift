@@ -1,9 +1,15 @@
 public import Foundation
 
-// Generated wire values contain only immutable strings; make that fact
-// explicit so the tolerant overlay can carry the legacy key list across
-// actor boundaries without changing the generated source.
+// Generated wire values contain only immutable value types; make that fact
+// explicit so the actor's handler closures can receive decoded directory
+// payloads without changing the schema-generated source.
+extension Binding: @unchecked Sendable {}
+extension CTLDirectory: @unchecked Sendable {}
+extension CTLDirectoryPayload: @unchecked Sendable {}
 extension GrantVerificationKey: @unchecked Sendable {}
+extension PurpleMinimumSupportedVersion: @unchecked Sendable {}
+extension ReleaseTrack: @unchecked Sendable {}
+extension Status: @unchecked Sendable {}
 
 // Hand-written OVERLAY models for the list-auth control-plane additions.
 //
