@@ -2023,6 +2023,21 @@ mod tests {
     }
 
     #[test]
+    fn reducer_state_cursor_does_not_regress_on_late_write() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-monotonic").unwrap();
+        registry
+            .put_journal_reducer_state("agent_roster", 3, 10, r#"{"entries":{"new":{}}}"#)
+            .unwrap();
+        registry
+            .put_journal_reducer_state("agent_roster", 3, 9, r#"{"entries":{"old":{}}}"#)
+            .unwrap();
+
+        let (_, cursor, snapshot) = registry.journal_reducer_state("agent_roster").unwrap().unwrap();
+        assert_eq!(cursor, 10);
+        assert!(snapshot.contains("new"));
+    }
+
+    #[test]
     fn persistent_reader_observes_commits_on_an_independent_connection() {
         let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
         let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
