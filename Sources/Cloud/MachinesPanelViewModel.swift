@@ -304,6 +304,33 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
+    /// Why the machine list could not load, classified so the empty state can
+    /// say the true thing: a server-rejected session needs a fresh sign-in, a
+    /// plan gate needs an upgrade, and only genuinely transient failures get
+    /// the retry-first "unreachable" presentation.
+    @Published private(set) var listProblem: CloudListProblem?
+
+    enum CloudListProblem: Equatable {
+        /// HTTP 401: the Cloud service no longer accepts this session.
+        case sessionRejected
+        /// HTTP 402: the plan gates Cloud access.
+        case requiresPro
+        /// Everything else — retrying may help.
+        case unreachable
+    }
+
+    /// Classify a list failure for ``listProblem``. Pure so tests can pin the
+    /// mapping without a live client.
+    nonisolated static func classifyListFailure(_ error: VMClientError) -> CloudListProblem {
+        switch error {
+        case .httpStatus(401, _):
+            return .sessionRejected
+        case .httpStatus(402, _):
+            return .requiresPro
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+            return .unreachable
+        }
+    }
     /// Human-readable label of the Cloud VM action currently running from this
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
     /// header while set — the in-app substitute for a floating progress HUD.
@@ -552,6 +579,7 @@ final class MachinesPanelViewModel: ObservableObject {
         plan = nil
         activeOperation = nil
         lastErrorDescription = nil
+        listProblem = nil
         hasLoadedOnce = false
         isLoading = false
     }
@@ -579,6 +607,7 @@ final class MachinesPanelViewModel: ObservableObject {
             readCatalog()
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
+            listProblem = nil
         } catch let error as VMClientError {
             if case .notSignedIn = error {
                 // A request can race sign-out before the auth observation or
@@ -589,13 +618,16 @@ final class MachinesPanelViewModel: ObservableObject {
                 plan = nil
                 activeOperation = nil
                 lastErrorDescription = nil
+                listProblem = nil
                 hasLoadedOnce = false
                 isLoading = false
                 return
             }
             lastErrorDescription = String(describing: error)
+            listProblem = Self.classifyListFailure(error)
         } catch {
             lastErrorDescription = String(describing: error)
+            listProblem = .unreachable
         }
         isLoading = false
         hasLoadedOnce = true
