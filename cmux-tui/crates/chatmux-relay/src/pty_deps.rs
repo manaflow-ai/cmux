@@ -573,7 +573,12 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let reader = File::from(pair.try_clone_reader_descriptor()?);
     let mut command = cmux_pty::PtyCommand::new(spec.file.clone());
     command.args(spec.args.clone());
-    command.cwd_descriptor(spec.cwd.directory.try_clone()?);
+    let directory = spec
+        .cwd
+        .directory
+        .try_clone()
+        .map_err(|_| anyhow::anyhow!("cwd descriptor clone failed"))?;
+    command.cwd_descriptor(directory);
     command.env_clear();
     for (key, value) in &spec.env {
         command.env(key, value);
@@ -940,10 +945,8 @@ impl PtyDeps for RealPtyDeps {
         command.stdout(std::process::Stdio::null());
         command.stderr(std::process::Stdio::null());
         command.process_group(0);
-        let directory = cwd
-            .directory
-            .try_clone()
-            .map_err(|error| format!("cwd descriptor clone failed: {error}"))?;
+        let directory =
+            cwd.directory.try_clone().map_err(|_| "cwd descriptor clone failed".to_owned())?;
         // Tokio exposes the underlying std::process::Command for Unix
         // pre_exec setup. fchdir runs in the child after fork and pins the
         // daemon to the validated directory descriptor.
