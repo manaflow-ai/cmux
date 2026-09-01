@@ -139,6 +139,45 @@ struct TerminalSurfaceRegistryTests {
         #expect(!registry.isRightSidebarDockSurface(id: sharedId))
     }
 
+    @Test func unregisteringReplacementRestoresPredecessorPlacement() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        let replacement = FakeSurface(
+            id: sharedID,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(original)
+        registry.register(replacement)
+        #expect(registry.isRightSidebarDockSurface(id: sharedID))
+
+        registry.unregister(replacement)
+        #expect(registry.surface(id: sharedID) === original)
+        #expect(!registry.isRightSidebarDockSurface(id: sharedID))
+    }
+
+    @Test func outgoingPlacementUpdateDoesNotMutateCanonicalReplacement() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        let replacement = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        registry.register(original)
+        registry.register(replacement)
+
+        registry.updateFocusPlacement(for: original, .rightSidebarDock)
+        #expect(
+            !registry.isRightSidebarDockSurface(id: sharedID),
+            "The replacement's placement must remain canonical during overlap"
+        )
+
+        registry.unregister(replacement)
+        #expect(registry.surface(id: sharedID) === original)
+        #expect(
+            registry.isRightSidebarDockSurface(id: sharedID),
+            "Promotion must restore the outgoing registration's updated placement"
+        )
+    }
+
     @Test func staleAndRepeatedUnregistersAreIdempotent() {
         let registry = TerminalSurfaceRegistry()
         let sharedId = UUID()
@@ -539,10 +578,10 @@ struct TerminalSurfaceRegistryTests {
         // Moving a live surface into the dock re-records its placement so the
         // dock-surface predicate (portal layering, focus cycling) sees the move
         // without recreating the surface.
-        registry.updateFocusPlacement(id: surface.id, .rightSidebarDock)
+        registry.updateFocusPlacement(for: surface, .rightSidebarDock)
         #expect(registry.isRightSidebarDockSurface(id: surface.id))
 
-        registry.updateFocusPlacement(id: surface.id, .workspace)
+        registry.updateFocusPlacement(for: surface, .workspace)
         #expect(!registry.isRightSidebarDockSurface(id: surface.id))
     }
 
@@ -579,5 +618,22 @@ struct TerminalSurfaceRegistryTests {
         #expect(snapshot.runtimeSurfaceCount == 1)
         #expect(snapshot.payload()["registered_surface_count"] as? Int == 1)
         #expect(snapshot.payload()["runtime_surface_count"] as? Int == 1)
+    }
+
+    @Test func diagnosticSnapshotCountsDuplicateIdPlacementsByRegistration() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedID = UUID()
+        let original = FakeSurface(id: sharedID, focusPlacement: .workspace)
+        let replacement = FakeSurface(
+            id: sharedID,
+            focusPlacement: .rightSidebarDock
+        )
+        registry.register(original)
+        registry.register(replacement)
+
+        let snapshot = registry.diagnosticSnapshot()
+        #expect(snapshot.registeredSurfaceCount == 2)
+        #expect(snapshot.workspaceSurfaceCount == 1)
+        #expect(snapshot.rightSidebarDockSurfaceCount == 1)
     }
 }

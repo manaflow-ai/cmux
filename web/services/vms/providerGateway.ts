@@ -5,20 +5,36 @@ import {
   getProvider,
   type AttachEndpoint,
   type AttachOptions,
+  type AttachTransport,
   type CreateOptions,
   type ExecResult,
   type ProviderId,
   type SnapshotRef,
   type SSHEndpoint,
   type VMHandle,
+  type VMVolumeInventory,
+  type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
+  type CmuxRemoteApprovalResult,
+  type CmuxRemoteAttachOptions,
+  type CmuxRemoteEndpoint,
 } from "./drivers";
-import { VmProviderOperationError } from "./errors";
+import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  /** Optional: delete a machine-owned persistent home volume after its machine is destroyed. */
+  readonly deleteHomeVolume?: (
+    provider: ProviderId,
+    volumeName: string,
+  ) => Effect.Effect<void, VmProviderOperationError>;
+  /** Optional provider volume inventory used by the report-only VM reaper. */
+  readonly listVolumes?: (
+    provider: ProviderId,
+    options?: VMVolumeListOptions,
+  ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
@@ -44,11 +60,23 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMStats, VmProviderOperationError>;
+  /** Session transports the provider serves; undefined = legacy websocket/ssh. */
+  readonly attachTransports?: (provider: ProviderId) => readonly AttachTransport[] | undefined;
   readonly openAttach: (
     provider: ProviderId,
     vmId: string,
     options?: AttachOptions,
   ) => Effect.Effect<AttachEndpoint, VmProviderOperationError>;
+  readonly openCmuxRemote?: (
+    provider: ProviderId,
+    vmId: string,
+    options?: CmuxRemoteAttachOptions,
+  ) => Effect.Effect<CmuxRemoteEndpoint, VmProviderOperationError>;
+  readonly approveCmuxRemoteEnrollment?: (
+    provider: ProviderId,
+    vmId: string,
+    invitationId: string,
+  ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
   readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
     provider: ProviderId,
@@ -81,6 +109,20 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "create", () => getProvider(provider).create(options)),
   destroy: (provider, vmId) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
+  deleteHomeVolume: (provider, volumeName) =>
+    providerEffect(provider, "deleteHomeVolume", async () => {
+      const impl = getProvider(provider);
+      // Providers without persistent volumes have nothing to delete.
+      if (!impl.deleteHomeVolume) return;
+      await impl.deleteHomeVolume(volumeName);
+    }),
+  listVolumes: (provider, options) =>
+    providerEffect(provider, "listVolumes", async () => {
+      const impl = getProvider(provider);
+      // Providers without persistent volume support have no inventory to reap.
+      if (!impl.listVolumes) return [];
+      return await impl.listVolumes(options);
+    }),
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {
       const driver = getProvider(provider);
@@ -99,7 +141,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);
       if (!driver.fork) {
-        throw new Error("Cloud VM forks are not supported by this provider");
+        throw new VmOperationUnsupportedError({ provider, operation: "fork" });
       }
       return await driver.fork(vmId);
     }),
@@ -121,8 +163,25 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return impl.getStats(vmId);
     }),
+  attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
+  openCmuxRemote: (provider, vmId, options) =>
+    providerEffect(provider, "openCmuxRemote", () => {
+      const impl = getProvider(provider);
+      if (!impl.openCmuxRemote) {
+        throw new Error(`provider ${provider} does not run the cmux-tui remote daemon yet`);
+      }
+      return impl.openCmuxRemote(vmId, options);
+    }),
+  approveCmuxRemoteEnrollment: (provider, vmId, invitationId) =>
+    providerEffect(provider, "approveCmuxRemoteEnrollment", () => {
+      const impl = getProvider(provider);
+      if (!impl.approveCmuxRemoteEnrollment) {
+        throw new Error(`provider ${provider} does not run the cmux-tui remote daemon yet`);
+      }
+      return impl.approveCmuxRemoteEnrollment(vmId, invitationId);
+    }),
   openSSH: (provider, vmId) =>
     providerEffect(provider, "openSSH", () => getProvider(provider).openSSH(vmId)),
   revokeSSHIdentity: (provider, identityHandle) =>
