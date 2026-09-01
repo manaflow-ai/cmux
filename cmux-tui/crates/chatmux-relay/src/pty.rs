@@ -2759,7 +2759,6 @@ impl Inner {
             if start_pending_viewer.swap(false, Ordering::AcqRel) {
                 start_session.pending_viewers.fetch_sub(1, Ordering::AcqRel);
             }
-            cleanup_if_empty.store(false, Ordering::Release);
             let (banner, replay, alive, delivery_lock) = {
                 let _dispatch = start_session.dispatch_lock.lock().expect("shell dispatch lock");
                 let _flow = start_session.flow_lock.lock().expect("shell flow lock");
@@ -2781,6 +2780,11 @@ impl Inner {
                         delivery_lock: Arc::clone(delivery_lock),
                     });
                     inner.draining_viewers.insert(viewer_id);
+                    // Keep cleanup armed until the viewer is published while
+                    // holding the flow lock. A close racing this callback
+                    // then either cleans up before publication, or observes
+                    // the published viewer and performs normal detach.
+                    cleanup_if_empty.store(false, Ordering::Release);
                 }
                 (banner, replay, alive, delivery_lock)
             };
