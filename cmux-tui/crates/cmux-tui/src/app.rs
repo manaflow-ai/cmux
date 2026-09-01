@@ -8652,8 +8652,14 @@ impl MachineActionWorker {
 impl Drop for MachineActionWorker {
     fn drop(&mut self) {
         self.shutdown();
+        // The reaper owns the worker handle. If it is still waiting for a
+        // provider call, dropping this handle detaches the reaper so owner
+        // destruction remains responsive. The reaper will join the worker
+        // and close the controller when the call returns.
         if let Some(reaper) = self.reaper.take() {
-            let _ = reaper.join();
+            if reaper.is_finished() {
+                let _ = reaper.join();
+            }
         }
     }
 }
