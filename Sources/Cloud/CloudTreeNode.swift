@@ -24,7 +24,9 @@ final class CloudTreeNode: NSObject {
         case workspacesGroup(machine: SurfaceMachineID)
         /// A cmux-tui workspace on a cloud machine; its children are pointer rows into
         /// the machine's pools.
-        case workspace(machine: SurfaceMachineID, SurfaceRemoteWorkspace, terminalCount: Int)
+        /// `openIn`: the local workspace already showing this remote one (its open mark;
+        /// clicking jumps there), else nil.
+        case workspace(machine: SurfaceMachineID, SurfaceRemoteWorkspace, terminalCount: Int, openIn: UUID?)
         /// A local workspace, grouping the local terminals it projects.
         case localWorkspace(CloudTreeLocalWorkspaceRow)
         case terminal(CloudTreeTerminalRow)
@@ -97,7 +99,7 @@ final class CloudTreeNode: NSObject {
             return machine
         case .terminalsPool(let machine, _), .displaysPool(let machine, _):
             return machine
-        case .workspace(let machine, _, _), .placeholder(let machine, _):
+        case .workspace(let machine, _, _, _), .placeholder(let machine, _):
             return machine
         case .localWorkspace: return .local
         case .terminal(let row): return row.resource.machine
@@ -121,7 +123,7 @@ final class CloudTreeNode: NSObject {
         case .terminalsPool: return String(localized: "cloudTree.group.terminals", defaultValue: "Terminals")
         case .displaysPool: return String(localized: "cloudTree.group.displays", defaultValue: "Displays")
         case .workspacesGroup: return String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces")
-        case .workspace(_, let workspace, _): return workspace.name
+        case .workspace(_, let workspace, _, _): return workspace.name
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.resource.title
         case .display(let resource): return resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title
@@ -295,6 +297,18 @@ enum CloudTreeNodeBuilder {
     static func nodeID(displaysPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/displays" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
     static func nodeID(workspace: String, machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ws/\(workspace)" }
+    /// The local workspace that shows a remote workspace: the one holding the most of its
+    /// members' panes (at least one). Nil when none of them is open anywhere.
+    static func localWorkspaceShowing(_ members: [SurfaceResourceID], snapshot: SurfaceCatalogSnapshot) -> UUID? {
+        guard !members.isEmpty else { return nil }
+        let wanted = Set(members)
+        var counts: [UUID: Int] = [:]
+        for projection in snapshot.projections where wanted.contains(projection.resource) {
+            counts[projection.workspaceID, default: 0] += 1
+        }
+        return counts.max { lhs, rhs in lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key.uuidString > rhs.key.uuidString }?.key
+    }
+
     static func nodeID(resource: SurfaceResourceID) -> String { "resource:\(resource.rawValue)" }
     /// A pointer row: the same resource can sit under several workspaces (and the pool),
     /// so each row's identity carries the workspace it points from — otherwise expansion,
@@ -445,11 +459,27 @@ enum CloudTreeNodeBuilder {
                         browsersByWorkspace[workspace.id, default: []].append(browser)
                     }
                 }
+                // …and displays: a workspace that points at the machine's screen shows it
+                // and opens/drags it with its terminals.
+                var displaysByWorkspace: [String: [SurfaceResource]] = [:]
+                for display in displays {
+                    for workspace in display.remoteWorkspaces {
+                        displaysByWorkspace[workspace.id, default: []].append(display)
+                    }
+                }
                 let workspaceNodes = workspaces.map { workspace, pointed in
                     let workspaceBrowsers = browsersByWorkspace[workspace.id] ?? []
+                    let workspaceDisplays = displaysByWorkspace[workspace.id] ?? []
+                    let members = (pointed + workspaceBrowsers + workspaceDisplays).map(\.id)
+                    // Every workspace can reach the machine's screen: when no view
+                    // pins a display yet, the machine's displays still show under
+                    // the workspace, so its terminals and its desktop open from one
+                    // place. Implicit rows stay out of `members`/dragGroup — only
+                    // real pointers travel with the workspace's open/drag group.
+                    let shownDisplays = workspaceDisplays.isEmpty ? displays : workspaceDisplays
                     return CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
-                        kind: .workspace(machine: machine, workspace, terminalCount: pointed.count),
+                        kind: .workspace(machine: machine, workspace, terminalCount: pointed.count, openIn: localWorkspaceShowing(members, snapshot: snapshot)),
                         children: pointed.map {
                             terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
                         } + workspaceBrowsers.map {
@@ -457,10 +487,12 @@ enum CloudTreeNodeBuilder {
                                 id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
                                 kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
                             )
+                        } + shownDisplays.map {
+                            CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0))
                         },
                         dragGroup: SurfaceResourceGroup(
                             title: workspace.name,
-                            resources: (pointed + workspaceBrowsers).map(\.id)
+                            resources: (pointed + workspaceBrowsers + workspaceDisplays).map(\.id)
                         )
                     )
                 }
