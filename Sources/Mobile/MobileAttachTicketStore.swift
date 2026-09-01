@@ -22,6 +22,9 @@ final class MobileAttachTicketStore {
     }
 
     private let lock = NSLock()
+    /// Pure route/ticket projection lives in the shared pairing package; this
+    /// store retains only issuance, persistence, and app-target error mapping.
+    private let ticketProjector = CmxMobileAttachTicketProjector()
     private var recordsByAuthToken: [String: Record] = [:]
 
     func createTicket(
@@ -221,7 +224,7 @@ final class MobileAttachTicketStore {
         case .ticketOnly:
             throw MobileAttachTicketStoreError.invalidAttachURL
         case .simulatorInjection:
-            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
+            if ticketProjector.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 return try compactAttachURL(
                     for: ticket,
                     routeDisclosureMode: .irohIdentityOnly,
@@ -248,11 +251,50 @@ final class MobileAttachTicketStore {
             }) else {
                 throw MobileAttachTicketStoreError.routeUnavailable
             }
+            // A single Iroh identity can use the compact v3 grammar even when
+            // its ticket carried discovery hints. Normalize those hints away
+            // first, then retain the small identity-only URL for the physical
+            // phone. This preserves the established QR contract while making
+            // hinted peers just as usable as hint-free peers.
+            if ticket.routes.allSatisfy({ $0.kind == .iroh }) {
+                let selectedRoutes = try MobileAttachTarget.physicalDevice.selectRoutes(
+                    from: ticket.routes
+                )
+                let projectedTicket = try physicalDeviceCompatibilityTicket(
+                    ticket,
+                    routes: selectedRoutes
+                )
+                if let pairingURL = CmxPairingQRCode().encode(
+                    projectedTicket,
+                    routeDisclosureMode: .irohIdentityOnly,
+                    pairingURLScheme: pairingURLScheme
+                ), let url = URL(string: pairingURL) {
+                    return url
+                }
+            }
+            // The plain v2 grammar can carry only Tailscale host/port routes.
+            // A physical-device pairing must nevertheless retain every
+            // advertised class so a later explicit mode can use the route it
+            // selected. Use the compact current-client grammar for any mixed
+            // or Iroh ticket, stripping only Iroh path hints (the EndpointID
+            // remains the authenticated authority) while retaining LAN and
+            // Tailscale endpoints.
+            if ticket.routes.contains(where: { $0.kind != .tailscale }) {
+                let selectedRoutes = try MobileAttachTarget.physicalDevice.selectRoutes(
+                    from: ticket.routes
+                )
+                let compactTicket = try physicalDeviceCompatibilityTicket(
+                    ticket,
+                    routes: selectedRoutes
+                )
+                return try compactAttachURL(
+                    for: compactTicket,
+                    routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                    pairingURLScheme: pairingURLScheme
+                )
+            }
             // Keep the released-client Tailscale grammar whenever a compatible
-            // route exists. Older phones cannot decode compact v1 payloads or
-            // the newer `.lan` route kind; current phones recover the complete
-            // LAN/Iroh route set from authenticated host status after this
-            // compatibility dial succeeds.
+            // route exists for the Tailscale-only case.
             if let pairingURL = tailscaleCompatibilityAttachURL(
                 for: ticket,
                 pairingURLScheme: pairingURLScheme
@@ -274,7 +316,7 @@ final class MobileAttachTicketStore {
                     pairingURLScheme: pairingURLScheme
                 )
             }
-            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
+            if ticketProjector.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 guard let pairingURL = CmxPairingQRCode().encode(
                     ticket,
                     routeDisclosureMode: .irohIdentityOnly,
@@ -298,7 +340,10 @@ final class MobileAttachTicketStore {
                     guard case let .peer(_, pathHints) = route.endpoint else {
                         return false
                     }
-                    return pathHints.isEmpty
+                    // Compact compatibility encoding below removes Iroh path
+                    // hints; they are discovery data, not pairing authority.
+                    _ = pathHints
+                    return true
                 }
                 return (route.kind == .tailscale || route.kind == .lan)
                     && !CmxLoopbackHost().matches(route)
@@ -346,49 +391,33 @@ final class MobileAttachTicketStore {
         _ ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode
     ) throws -> CmxAttachTicket {
-        let routes = ticket.routes.compactMap { route -> CmxAttachRoute? in
-            switch routeDisclosureMode {
-            case .irohIdentityOnly:
-                guard route.kind == .iroh,
-                      case let .peer(identity, _) = route.endpoint else {
-                    return nil
-                }
-                return try? CmxAttachRoute(
-                    id: route.id,
-                    kind: .iroh,
-                    endpoint: .peer(identity: identity, pathHints: []),
-                    priority: route.priority
-                )
-            case .legacyPrivateNetworkCompatibility:
-                guard route.kind != .lan else { return nil }
-                guard route.kind == .iroh else { return route }
-                guard case let .peer(identity, _) = route.endpoint else { return nil }
-                return try? CmxAttachRoute(
-                    id: route.id,
-                    kind: .iroh,
-                    endpoint: .peer(identity: identity, pathHints: []),
-                    priority: route.priority
-                )
-            }
-        }
-        guard !routes.isEmpty else {
+        do {
+            return try ticketProjector.legacyCompactTicket(
+                ticket,
+                disclosureMode: routeDisclosureMode
+            )
+        } catch CmxMobileAttachRoutePlanningError.routeUnavailable,
+                CmxMobileAttachRoutePlanningError.noRoutes {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        } catch {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
-        return try CmxAttachTicket(
-            version: ticket.version,
-            workspaceID: ticket.workspaceID,
-            terminalID: ticket.terminalID,
-            macDeviceID: ticket.macDeviceID,
-            macDisplayName: ticket.macDisplayName,
-            macUserEmail: nil,
-            macUserID: ticket.macUserID,
-            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
-            macAppVersion: ticket.macAppVersion,
-            macAppBuild: ticket.macAppBuild,
-            routes: routes,
-            expiresAt: nil,
-            authToken: nil
-        )
+    }
+
+    /// Builds the current-client physical pairing ticket while retaining every
+    /// route class and removing only private Iroh hint coordinates.
+    private func physicalDeviceCompatibilityTicket(
+        _ ticket: CmxAttachTicket,
+        routes: [CmxAttachRoute]
+    ) throws -> CmxAttachTicket {
+        do {
+            return try ticketProjector.physicalDeviceTicket(ticket, routes: routes)
+        } catch CmxMobileAttachRoutePlanningError.routeUnavailable,
+                CmxMobileAttachRoutePlanningError.noRoutes {
+            throw MobileAttachTicketStoreError.routeUnavailable
+        } catch {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        }
     }
 
     /// Keeps the authenticated ticket contract intact while omitting the new
@@ -398,29 +427,14 @@ final class MobileAttachTicketStore {
     private func ticketOnlyCompatibilityTicket(
         _ ticket: CmxAttachTicket
     ) throws -> CmxAttachTicket {
-        let compatibleRoutes = ticket.routes.filter { $0.kind != .lan }
-        guard !compatibleRoutes.isEmpty else {
-            // Released ticket-only decoders cannot represent `.lan`. A LAN-only
-            // selection therefore has no compatible bootstrap route; surface a
-            // typed route-unavailable error instead of constructing an invalid
-            // empty ticket and leaking a generic internal failure.
+        do {
+            return try ticketProjector.ticketOnlyCompatibilityTicket(ticket)
+        } catch CmxMobileAttachRoutePlanningError.routeUnavailable,
+                CmxMobileAttachRoutePlanningError.noRoutes {
             throw MobileAttachTicketStoreError.routeUnavailable
+        } catch {
+            throw MobileAttachTicketStoreError.invalidAttachURL
         }
-        try CmxAttachTicket(
-            version: ticket.version,
-            workspaceID: ticket.workspaceID,
-            terminalID: ticket.terminalID,
-            macDeviceID: ticket.macDeviceID,
-            macDisplayName: ticket.macDisplayName,
-            macUserEmail: ticket.macUserEmail,
-            macUserID: ticket.macUserID,
-            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
-            macAppVersion: ticket.macAppVersion,
-            macAppBuild: ticket.macAppBuild,
-            routes: compatibleRoutes,
-            expiresAt: ticket.expiresAt,
-            authToken: ticket.authToken
-        )
     }
 
     /// The minimal v2 Tailscale pairing URL for `ticket`, or `nil` when it
@@ -437,26 +451,7 @@ final class MobileAttachTicketStore {
         for ticket: CmxAttachTicket,
         pairingURLScheme: CmxPairingURLScheme?
     ) -> URL? {
-        guard let routes = try? MobileAttachTarget.canonicalTailscaleRoutes(
-            from: ticket.routes
-        ), !routes.isEmpty else {
-            return nil
-        }
-        guard let compatibilityTicket = try? CmxAttachTicket(
-            version: ticket.version,
-            workspaceID: ticket.workspaceID,
-            terminalID: ticket.terminalID,
-            macDeviceID: ticket.macDeviceID,
-            macDisplayName: ticket.macDisplayName,
-            macUserEmail: nil,
-            macUserID: ticket.macUserID,
-            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
-            macAppVersion: ticket.macAppVersion,
-            macAppBuild: ticket.macAppBuild,
-            routes: routes,
-            expiresAt: ticket.expiresAt,
-            authToken: nil
-        ),
+        guard let compatibilityTicket = ticketProjector.tailscaleCompatibilityTicket(ticket),
         let pairingURL = CmxPairingQRCode().encode(
             compatibilityTicket,
             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
@@ -465,16 +460,6 @@ final class MobileAttachTicketStore {
             return nil
         }
         return URL(string: pairingURL)
-    }
-
-    private static func hasOnlyIdentityOnlyIrohRoutes(_ routes: [CmxAttachRoute]) -> Bool {
-        !routes.isEmpty && routes.allSatisfy { route in
-            guard route.kind == .iroh,
-                  case let .peer(_, pathHints) = route.endpoint else {
-                return false
-            }
-            return pathHints.isEmpty
-        }
     }
 
     private func pruneExpired(now: Date) {

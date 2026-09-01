@@ -671,6 +671,10 @@ public actor MobileIrxRuntimeComposition {
     // MARK: - Dialing
 
     private func peerTarget(for request: CmxByteTransportRequest) throws -> String {
+        // Every Iroh lane shares this target-resolution boundary. Validate the
+        // captured mode before touching the engine so event, terminal,
+        // artifact, simulator, and control paths cannot bypass the policy.
+        try request.validateTransportMode()
         guard request.route.kind == .iroh,
             case let .peer(identity, pathHints) = request.route.endpoint
         else {

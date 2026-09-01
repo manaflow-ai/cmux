@@ -748,6 +748,54 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func foregroundControlSupersedesAnUnownedFeatureDial() async throws {
+        let automatic = try Self.request()
+        let feature = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            sessionPurpose: .featureLane,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let featureSession = TestConnectivitySession(continuityID: 49)
+        let foregroundSession = TestConnectivitySession(continuityID: 50)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [featureSession, foregroundSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        // A feature lane has no control owner. Foreground control is allowed to
+        // replace that unowned pending dial, but the replacement waits for the
+        // retired physical task to settle before starting.
+        let featureDial = Task {
+            try await peer.connectedSession(for: feature)
+        }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        let foregroundDial = Task {
+            try await peer.acquireControl(for: automatic, ownerID: ownerID)
+        }
+        await builder.release(call: 0)
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+
+        if case .success = await featureDial.result {
+            Issue.record("The unowned feature dial unexpectedly won foreground control")
+        }
+        let admitted = try await foregroundDial.value
+        #expect(await admitted.connectionContinuityID() == 50)
+        #expect(await peer.connectionContinuityID() == 50)
+        await peer.releaseControl(ownerID: ownerID)
+        await peer.invalidate()
+    }
+
+    @Test
     func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -1093,6 +1141,13 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         }
         selectedPathContinuation = pair.continuation
         return pair.stream
+    }
+
+    func policySelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
+        // The test session's path stream is already actor-owned; keep a
+        // separate entry point so the production peer can use its strict
+        // policy-observation seam without relying on a protocol default.
+        observedSelectedPathChanges()
     }
 
     func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool {

@@ -41,6 +41,7 @@ enum WorkspaceListConnectionChrome: Equatable {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
         } else if connectionStatus == .connected,
+                  !isRecoveringConnection,
                   let activeTransportPath,
                   !activeTransportPath.isEmpty {
             self = .statusLine(.activeTransport(activeTransportPath))

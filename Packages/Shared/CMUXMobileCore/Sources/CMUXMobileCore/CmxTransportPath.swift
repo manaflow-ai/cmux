@@ -45,22 +45,18 @@ public enum CmxTransportPath: Codable, Equatable, Hashable, Sendable {
         case let .tailscale(address):
             return formatted("cmux.transport.path.tailscaleFormat", "Tailscale · %@", address)
         case .irohDirect:
-            return localized("cmux.transport.path.irohDirect", "iroh direct")
+            return String.cmxModuleLocalized("cmux.transport.path.irohDirect", defaultValue: "iroh direct")
         /// A relay status value with an optional region.
         case let .irohRelay(region):
             if let region, !region.isEmpty {
                 return formatted("cmux.transport.path.irohRelayFormat", "iroh relay %@", region)
             }
-            return localized("cmux.transport.path.irohRelay", "iroh relay")
+            return String.cmxModuleLocalized("cmux.transport.path.irohRelay", defaultValue: "iroh relay")
         case .websocket:
-            return localized("cmux.transport.path.websocket", "WebSocket")
+            return String.cmxModuleLocalized("cmux.transport.path.websocket", defaultValue: "WebSocket")
         case .debugLoopback:
-            return localized("cmux.transport.path.loopback", "Loopback")
+            return String.cmxModuleLocalized("cmux.transport.path.loopback", defaultValue: "Loopback")
         }
-    }
-
-    private func localized(_ key: StaticString, _ value: String) -> String {
-        String(localized: key, defaultValue: String.LocalizationValue(value), bundle: .module)
     }
 
     private func formatted(
@@ -69,7 +65,7 @@ public enum CmxTransportPath: Codable, Equatable, Hashable, Sendable {
         _ argument: String
     ) -> String {
         String(
-            format: localized(key, value),
+            format: String.cmxModuleLocalized(key, defaultValue: value),
             locale: .current,
             argument
         )

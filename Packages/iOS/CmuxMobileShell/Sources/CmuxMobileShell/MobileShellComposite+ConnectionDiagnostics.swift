@@ -75,14 +75,25 @@ extension MobileShellComposite {
                     a: DiagnosticPathKind.unknown.rawValue,
                     c: attemptID
                 ))
-            case let .pathObserved(attemptID, pathKind):
-                diagnosticLog.record(DiagnosticEvent(
-                    .transportDialPath,
-                    surface: peerAlias,
-                    a: pathKind.rawValue,
-                    c: attemptID
-                ))
             }
+        }
+    }
+
+    /// Builds the separate path-attribution sink used by ``MobileCoreRPCSession``.
+    /// Keeping it outside ``MobileRPCTransportConnectEvent`` preserves source
+    /// compatibility for clients that exhaustively switch lifecycle events.
+    func transportPathDiagnosticObserver(
+        peerID: String?
+    ) -> (@Sendable (_ attemptID: Int, _ path: DiagnosticPathKind) -> Void)? {
+        guard let diagnosticLog else { return nil }
+        let peerAlias = DiagnosticCorrelation().handle(for: peerID)
+        return { attemptID, path in
+            diagnosticLog.record(DiagnosticEvent(
+                .transportDialPath,
+                surface: peerAlias,
+                a: path.rawValue,
+                c: attemptID
+            ))
         }
     }
 

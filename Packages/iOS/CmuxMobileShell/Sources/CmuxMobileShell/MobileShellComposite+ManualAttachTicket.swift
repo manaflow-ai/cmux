@@ -138,6 +138,9 @@ extension MobileShellComposite {
                     peerID: probeTicket.macDeviceID,
                     transportMode: selectedTransportMode
                 ),
+                transportPathObserver: transportPathDiagnosticObserver(
+                    peerID: probeTicket.macDeviceID
+                ),
                 sessionPurpose: .probe,
                 transportMode: selectedTransportMode
             )

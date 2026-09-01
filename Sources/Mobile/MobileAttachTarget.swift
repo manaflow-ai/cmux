@@ -30,25 +30,6 @@ enum MobileAttachTarget: String, Sendable {
         }
     }
 
-    static func canonicalTailscaleRoutes(
-        from routes: [CmxAttachRoute]
-    ) throws -> [CmxAttachRoute] {
-        do {
-            return try CmxMobileAttachRoutePlanner().canonicalTailscaleRoutes(from: routes)
-        } catch {
-            throw MobileAttachTicketStoreError.invalidAttachURL
-        }
-    }
-
-    static func canonicalLANRoutes(
-        from routes: [CmxAttachRoute]
-    ) throws -> [CmxAttachRoute] {
-        do {
-            return try CmxMobileAttachRoutePlanner().canonicalLANRoutes(from: routes)
-        } catch {
-            throw MobileAttachTicketStoreError.invalidAttachURL
-        }
-    }
 }
 
 extension Optional where Wrapped == MobileAttachTarget {

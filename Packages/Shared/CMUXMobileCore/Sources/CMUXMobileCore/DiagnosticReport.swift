@@ -379,10 +379,12 @@ public extension DiagnosticEvent {
     }
 
     /// Redacted path class carried by a selected-path or path-lifecycle event.
+    /// Per-attempt ``transportDialPath`` events are intentionally excluded:
+    /// ``DiagnosticLog`` deduplicates this accessor globally, while dial-path
+    /// records must retain one outcome for every attempt.
     var diagnosticPathKind: DiagnosticPathKind? {
         guard code == .selectedPathChanged
                 || code == .transportPathEvent
-                || code == .transportDialPath
                 || code == .transportPathMigration else {
             return nil
         }

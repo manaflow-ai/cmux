@@ -12874,6 +12874,193 @@
           }
         }
       }
+    },
+    "mobile.settings.activeTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active Transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の接続経路"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.lanFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LAN · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LAN · %@"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.tailscaleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale · %@"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.irohDirect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iroh direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iroh直接"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.irohRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iroh relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "irohリレー"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.irohRelayFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iroh relay %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "irohリレー %@"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.websocket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シミュレータ"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続経路を取得できません"
+          }
+        }
+      }
+    },
+    "mobile.connections.storeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved computer settings are unavailable. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したコンピュータ設定を利用できません。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.connections.storeUnavailable.guidance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We could not verify this computer's saved transport method."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータに保存された接続方法を確認できませんでした。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

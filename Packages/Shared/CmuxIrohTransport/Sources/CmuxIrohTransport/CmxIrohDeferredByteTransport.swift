@@ -120,6 +120,30 @@ actor CmxIrohDeferredByteTransport:
             return unavailablePathStream()
         }
         let observationID = UUID()
+        // Keep a continuation pending only while the deferred transport has
+        // not been created yet. Once a concrete transport exists but cannot
+        // observe paths, finish immediately instead of leaving the shell's
+        // observation task suspended forever.
+        if let transport,
+           let observing = transport as? any CmxByteTransportPathObserving {
+            let stream = AsyncStream<CmxTransportPath>(
+                bufferingPolicy: .bufferingNewest(1)
+            ) { continuation in
+                pathObservationContinuations[observationID] = continuation
+                continuation.onTermination = { [weak self] _ in
+                    Task { await self?.cancelPathObservation(observationID) }
+                }
+            }
+            await attachPathObservation(
+                observationID,
+                observing: observing,
+                generation: transportGeneration
+            )
+            return stream
+        }
+        if transport != nil {
+            return unavailablePathStream()
+        }
         let stream = AsyncStream<CmxTransportPath>(
             bufferingPolicy: .bufferingNewest(1)
         ) { continuation in
@@ -127,14 +151,6 @@ actor CmxIrohDeferredByteTransport:
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.cancelPathObservation(observationID) }
             }
-        }
-        if let transport,
-           let observing = transport as? any CmxByteTransportPathObserving {
-            await attachPathObservation(
-                observationID,
-                observing: observing,
-                generation: transportGeneration
-            )
         }
         return stream
     }
@@ -177,7 +193,13 @@ actor CmxIrohDeferredByteTransport:
         let changes = await observing.transportPathChanges()
         guard !closed,
               transportGeneration == generation,
-              pathObservationContinuations[id] != nil else { return }
+              pathObservationContinuations[id] != nil else {
+            // The wrapper may have closed or replaced its concrete transport
+            // while the underlying stream was being requested. Do not leave
+            // the caller's continuation orphaned in that race.
+            finishPathObservation(id)
+            return
+        }
         let task = Task { [weak self] in
             for await path in changes {
                 guard !Task.isCancelled else { return }

@@ -20,7 +20,3 @@ public extension CmxByteTransportPathObserving {
         await currentTransportPath().transportClass
     }
 }
-
-/// The mode captured for one physical dial in the privacy-safe diagnostic ring.
-/// Raw values are append-only and intentionally independent of route-kind raw
-/// values so adding a route class cannot change historical exports.

@@ -620,10 +620,6 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "purpose", value: sessionPurposeName(raw))
         case .transportPathEvent:
             return Field(key: "path", value: pathName(raw))
-        case .transportDialCancelled:
-            return Field(key: "cancellation", value: cancellationName(raw))
-        case .transportCloseReason:
-            return Field(key: "reason", value: remoteCloseReasonName(raw))
         case .inputSeqBehind:
             return Field(key: "remote_sequence", value: String(raw))
         case .byteGap:

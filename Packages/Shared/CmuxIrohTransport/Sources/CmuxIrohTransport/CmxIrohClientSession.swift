@@ -274,6 +274,17 @@ public actor CmxIrohClientSession {
         return await connection.observedSelectedPathChanges()
     }
 
+    /// Returns the non-lossy path stream reserved for session policy checks.
+    func policySelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
+        guard let connection = connection as? any CmxIrohConnectionPathInspecting else {
+            return AsyncStream { continuation in
+                continuation.yield(.unavailable)
+                continuation.finish()
+            }
+        }
+        return await connection.policySelectedPathChanges()
+    }
+
     /// Checks one live path against the source-qualified dial plan captured
     /// for this session. The raw selected-path stream carries only a socket
     /// address, so matching it back to the plan is the ownership boundary that
@@ -286,6 +297,7 @@ public actor CmxIrohClientSession {
         case .tailscale:
             return false
         case .lan:
+            if path == .unavailable { return true }
             return pathMatchesPlan(path, source: .lan)
         case .iroh:
             switch path {
@@ -421,22 +433,7 @@ public actor CmxIrohClientSession {
             return lhs == rhs
         }
         guard lhsHost == rhsHost else { return false }
-        return socketPort(from: lhs) == socketPort(from: rhs)
-    }
-
-    private func socketPort(from address: String) -> UInt16? {
-        if address.first == "[",
-           let closingBracket = address.firstIndex(of: "]") {
-            let portStart = address.index(after: closingBracket)
-            guard portStart < address.endIndex,
-                  address[portStart] == ":" else { return nil }
-            return UInt16(address[address.index(after: portStart)...])
-        }
-        guard let colon = address.lastIndex(of: ":"),
-              address[..<colon].firstIndex(of: ":") == nil else {
-            return nil
-        }
-        return UInt16(address[address.index(after: colon)...])
+        return lhs.cmxIrohSocketPort == rhs.cmxIrohSocketPort
     }
 
     /// Observes redacted path lifecycle events on the admitted connection.

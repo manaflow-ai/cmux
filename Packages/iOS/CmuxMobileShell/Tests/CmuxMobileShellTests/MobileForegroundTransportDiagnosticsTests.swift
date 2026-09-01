@@ -114,6 +114,7 @@ import Testing
     }
 
     @Test func completedPathObservationClearsActiveTransport() async throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
         let path = CmxTransportPath.tailscale(address: "100.64.0.42:56584")
         let transport = FinitePathObservationTransport(path: path)
         let route = try CmxAttachRoute(
@@ -125,7 +126,7 @@ import Testing
             transportFactory: FinitePathObservationTransportFactory(
                 transport: transport
             ),
-            now: { Date() },
+            now: { now },
             supportedRouteKinds: [.tailscale]
         )
         let ticket = try CmxAttachTicket(
@@ -134,7 +135,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(3_600)
+            expiresAt: now.addingTimeInterval(3_600)
         )
         let client = MobileCoreRPCClient(
             runtime: runtime,
@@ -165,8 +166,10 @@ import Testing
         }
         #expect(store.activeTransportPath == path)
 
+        await transport.waitUntilPathObservationInstalled()
         await transport.finishPathObservation()
-        while store.transportPathObservationTask != nil, clock.now < deadline {
+        let clearDeadline = clock.now.advanced(by: .seconds(2))
+        while store.transportPathObservationTask != nil, clock.now < clearDeadline {
             await Task.yield()
         }
         #expect(store.activeTransportPath == .unavailable)

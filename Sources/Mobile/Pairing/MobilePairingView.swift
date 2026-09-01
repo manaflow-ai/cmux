@@ -402,10 +402,10 @@ struct MobilePairingView: View {
             getIPhoneAppBadge
             if transport == .iroh {
                 irohBody(waiting: reachableViaIroh)
-            } else if transport == .tailscale {
-                tailscaleMissingBody
-            } else {
+            } else if transport == .unavailable {
                 unavailableTransportBody
+            } else {
+                tailscaleMissingBody
             }
         }
         .frame(maxWidth: .infinity)
@@ -553,6 +553,10 @@ struct MobilePairingView: View {
                 .cmuxFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
             ForEach(ready.tailscaleLines, id: \.self) { line in
+                Text(line).cmuxFont(.caption, design: .monospaced)
+                    .textSelection(.enabled).foregroundStyle(.secondary)
+            }
+            ForEach(ready.lanLines, id: \.self) { line in
                 Text(line).cmuxFont(.caption, design: .monospaced)
                     .textSelection(.enabled).foregroundStyle(.secondary)
             }

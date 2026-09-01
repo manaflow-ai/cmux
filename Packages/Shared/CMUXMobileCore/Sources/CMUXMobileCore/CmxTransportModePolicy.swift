@@ -103,6 +103,27 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
     public func validate(irohDialPlan plan: CmxIrohDialPlan) throws {
         switch mode {
         case .automatic:
+            // Automatic mode still requires the two phases to reflect the
+            // hint metadata. A public phase must not contain a private hint,
+            // and a fallback phase must not contain a public hint; otherwise
+            // an unchecked plan could try a private address before the public
+            // phase has failed.
+            if let invalidPublic = plan.publicPaths.first(where: {
+                $0.privacyScope != .publicInternet
+            }) {
+                throw CmxTransportModeError.routeClassMismatch(
+                    expected: .iroh,
+                    actual: invalidPublic.transportClass
+                )
+            }
+            if let invalidFallback = plan.privateFallbackPaths.first(where: {
+                $0.privacyScope == .publicInternet
+            }) {
+                throw CmxTransportModeError.routeClassMismatch(
+                    expected: .iroh,
+                    actual: invalidFallback.transportClass
+                )
+            }
             return
         case .direct:
             guard !plan.publicPaths.isEmpty else {
@@ -112,9 +133,13 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
                   plan.publicPaths.allSatisfy({
                       $0.kind == .directAddress && $0.source == .customVPN
                   }) else {
+                let violatingHint = plan.privateFallbackPaths.first
+                    ?? plan.publicPaths.first {
+                        $0.kind != .directAddress || $0.source != .customVPN
+                    }
                 throw CmxTransportModeError.routeClassMismatch(
                     expected: .iroh,
-                    actual: .iroh
+                    actual: violatingHint?.transportClass ?? .iroh
                 )
             }
         case .iroh:
@@ -136,18 +161,22 @@ public struct CmxTransportModePolicy: Equatable, Hashable, Sendable {
             )
         case .lan:
             guard plan.publicPaths.isEmpty else {
+                let violating = plan.publicPaths[0]
                 throw CmxTransportModeError.routeClassMismatch(
                     expected: .lan,
-                    actual: .iroh
+                    actual: violating.transportClass
                 )
             }
             guard !plan.privateFallbackPaths.isEmpty else {
                 throw CmxTransportModeError.noRoute(mode: .lan, macDisplayName: nil)
             }
             guard plan.privateFallbackPaths.allSatisfy({ $0.source == .lan }) else {
+                let violating = plan.privateFallbackPaths.first {
+                    $0.source != .lan
+                }
                 throw CmxTransportModeError.routeClassMismatch(
                     expected: .lan,
-                    actual: .iroh
+                    actual: violating?.transportClass ?? .iroh
                 )
             }
         case .tailscale:

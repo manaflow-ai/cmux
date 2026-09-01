@@ -414,6 +414,27 @@
         }
       }
     },
+    "diagnostics.connectionMethod.direct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Direct" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "直接" } }
+      }
+    },
+    "diagnostics.connectionMethod.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iroh Only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "irohのみ" } }
+      }
+    },
+    "diagnostics.connectionMethod.lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN Only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LANのみ" } }
+      }
+    },
     "diagnostics.connectionMethod.tailscale": {
       "extractionState": "manual",
       "localizations": {
@@ -471,27 +492,6 @@
             "value": "테일스케일만"
           }
         }
-      }
-    },
-    "diagnostics.connectionMethod.direct": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Direct" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "直接" } }
-      }
-    },
-    "diagnostics.connectionMethod.lan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "LAN Only" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "LANのみ" } }
-      }
-    },
-    "diagnostics.connectionMethod.iroh": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "iroh Only" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "irohのみ" } }
       }
     },
     "diagnostics.count.bytes": {
@@ -2641,7 +2641,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "LANアドバタイズ状態が変化しました"
+            "value": "LAN公開状態が変化しました"
           }
         },
         "de": {
@@ -4057,7 +4057,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "直接ダイヤル経路が接続しました"
+            "value": "直接ダイヤルの経路が成功しました"
           }
         },
         "de": {
@@ -4116,7 +4116,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "直接ダイヤルプランを作成しました"
+            "value": "トランスポートのダイヤルプランを作成しました"
           }
         },
         "de": {
@@ -4352,7 +4352,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プライベートアドレスをブローカーのポートと結合しました"
+            "value": "プライベートアドレス候補が追加されました"
           }
         },
         "de": {
@@ -9382,6 +9382,13 @@
         }
       }
     },
+    "diagnostics.path.lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LAN" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "LAN" } }
+      }
+    },
     "diagnostics.path.loopback": {
       "extractionState": "manual",
       "localizations": {
@@ -9500,20 +9507,6 @@
         }
       }
     },
-    "diagnostics.path.lan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "LAN" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "LAN" } }
-      }
-    },
-    "diagnostics.path.tailscale": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Tailscale" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Tailscale" } }
-      }
-    },
     "diagnostics.path.relay": {
       "extractionState": "manual",
       "localizations": {
@@ -9571,6 +9564,13 @@
             "value": "계전기"
           }
         }
+      }
+    },
+    "diagnostics.path.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tailscale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tailscale" } }
       }
     },
     "diagnostics.path.unknown": {
@@ -20341,6 +20341,9 @@
     "cmux.transport.error.noRoute": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ selected but no %@ route%@ is available. Check that the selected network is up and the Mac is advertising it."}},"ja":{"stringUnit":{"state":"translated","value":"%@が選択されていますが、%@経路%@が利用できません。選択したネットワークとMacの公開設定を確認してください。"}}}},
     "cmux.transport.error.targetFormat": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":" to %@"}},"ja":{"stringUnit":{"state":"translated","value":"（%@）"}}}},
     "cmux.transport.error.routeClassMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Selected %@ transport cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択した%@トランスポートでは%@経路を使用できません。"}}}},
+    "cmux.transport.error.routeClassMismatchSameClass": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected transport mode cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択したトランスポートモードでは%@経路を使用できません。"}}}},
+    "cmux.transport.error.directCandidatesRequireDirect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct address candidates require Direct mode; %@ was selected."}},"ja":{"stringUnit":{"state":"translated","value":"直接アドレス候補にはダイレクトモードが必要です。%@が選択されています。"}}}},
+    "cmux.transport.error.pathNotAllowed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected %@ mode cannot use a %@ route."}},"ja":{"stringUnit":{"state":"translated","value":"選択した%@モードでは%@経路を使用できません。"}}}},
     "diagnostics.transportMode.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Auto"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
     "diagnostics.transportMode.lan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"LAN only"}},"ja":{"stringUnit":{"state":"translated","value":"LANのみ"}}}},
     "diagnostics.transportMode.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale only"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscaleのみ"}}}},

@@ -27,7 +27,7 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
     }
 
     /// The best manual-entry candidate among `routes`, or `nil` when no route
-    /// is phone-dialable (no non-loopback `host:port` route at all).
+    /// is phone-dialable (no non-loopback, non-LAN `host:port` route at all).
     public static func best(in routes: [CmxAttachRoute]) -> CmxManualPairingEntry? {
         let candidates = routes
             .filter { $0.kind != .lan && !CmxLoopbackHost().matches($0) }

@@ -68,6 +68,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///     kinds; `nil` = the normal Iroh dial plan.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
+    ///   - transportPathObserver: Optional synchronous sink for the redacted
+    ///     negotiated path class. Kept separate from lifecycle events so adding
+    ///     path diagnostics does not change the public enum's source contract.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
@@ -83,6 +86,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
         transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) -> Void)? = nil,
+        transportPathObserver: (@Sendable (_ attemptID: Int, _ path: DiagnosticPathKind) -> Void)? = nil,
         sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
         transportMode: CmxTransportMode = .automatic
     ) {
@@ -164,6 +168,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
             transportConnectObserver: transportConnectObserver,
+            transportPathObserver: transportPathObserver,
             initialTransportSessionPurpose: sessionPurpose
         )
     }

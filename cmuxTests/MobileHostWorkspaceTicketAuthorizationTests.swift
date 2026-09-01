@@ -248,7 +248,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(decoded.authToken == nil)
     }
 
-    @Test func physicalDeviceMixedRoutesKeepLegacyTailscaleQRCodeCompatibility() throws {
+    @Test func physicalDeviceMixedRoutesPreserveAllRouteClassesInCompactQRCode() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(
             workspaceID: "",
@@ -260,11 +260,13 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let payload = try store.payload(for: ticket, target: .physicalDevice)
         let attachURL = try #require(payload["attach_url"] as? String)
         let components = try #require(URLComponents(string: attachURL))
-        #expect(components.queryItems?.first(where: { $0.name == "v" })?.value == "2")
-        #expect(components.queryItems?.contains(where: { $0.name == "payload" }) == false)
+        #expect(components.queryItems?.first(where: { $0.name == "v" })?.value == "1")
+        #expect(components.queryItems?.contains(where: { $0.name == "payload" }) == true)
         let decoded = try CmxPairingQRCode().decode(components)
-        #expect(decoded.routes == [try tailscaleRoute()])
-        #expect(decoded.routes.allSatisfy { $0.kind == .tailscale })
+        #expect(decoded.routes.map(\.kind) == [.iroh, .lan, .tailscale])
+        #expect(decoded.routes.contains { $0.kind == .lan })
+        #expect(decoded.routes.contains { $0.kind == .tailscale })
+        #expect(decoded.routes.contains { $0.kind == .iroh })
         #expect(decoded.authToken == nil)
     }
 
@@ -321,8 +323,10 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         let payload = try store.payload(for: ticket, target: .ticketOnly)
         #expect(payload["attach_url"] == nil)
-        // `ticket_only` is the authenticated full-ticket contract consumed by
-        // current RPC clients; its token and route set must remain lossless.
+        // `ticket_only` is the authenticated contract consumed by released
+        // decoders. They cannot represent the newer `.lan` route kind, so the
+        // compatibility projection intentionally drops LAN while retaining
+        // the token and every route kind those decoders understand.
         #expect((payload["routes"] as? [[String: Any]])?.count == 2)
         #expect(
             (payload["routes"] as? [[String: Any]])?.contains {

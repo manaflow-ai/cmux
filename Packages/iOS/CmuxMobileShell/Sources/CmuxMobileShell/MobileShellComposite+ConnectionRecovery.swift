@@ -4,6 +4,7 @@ public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
 public import CmuxMobileTransport
+internal import CmuxMobileSupport
 public import Foundation
 internal import OSLog
 
@@ -741,17 +742,21 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
+        // A registry reconnect may pass a freshly filtered route list while
+        // leaving grant columns out of its arguments. When that happens the
+        // exact persisted row is the authority for the Tailscale capability;
+        // never let an empty argument silently erase a valid local grant.
+        let resolvedLegacyTailscaleRoutes = legacyTailscaleRoutes.isEmpty
+            ? (knownPairing?.legacyTailscaleRoutes ?? [])
+            : legacyTailscaleRoutes
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        // Direct and Tailscale Only ride the Iroh lane below: identity-checked
-        // and encrypted, with transport admission as the single auth
-        // authority. The method's addresses (user-enabled Direct entries, or
-        // the pairing's numeric Tailscale addresses) are the COMPLETE per-dial
-        // path allowlist (no relay, no advertised or discovered paths), so
-        // resolve them from the caller's fresh row first for the same
-        // startup-restore reason as the method above, and fail closed when
-        // nothing is dialable. Raw host/port dialing cannot carry the account
-        // credential (plaintext TCP), so it stays reserved for legacy
-        // pairings without an Iroh identity (nil candidates below).
+        // Direct uses the identity-checked, encrypted Iroh lane and its
+        // user-enabled address allowlist. Tailscale Only remains a distinct
+        // raw Tailscale transport and is constrained by the exact persisted
+        // grant routes below. Resolve both authorities from the caller's fresh
+        // row first for the same startup-restore reason as the method above,
+        // and fail closed when nothing is dialable. Raw host/port dialing stays
+        // reserved for legacy pairings without an Iroh identity.
         let methodPinnedCandidates = irohMethodPinnedDialCandidates(
             forMacDeviceID: pairedMacDeviceID,
             instanceTag: instanceTagExpectation.expectedTag,
@@ -774,7 +779,7 @@ extension MobileShellComposite {
             tailscaleRequirement: resolvedMethod == .tailscale
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
-                    grantRoutes: legacyTailscaleRoutes
+                    grantRoutes: resolvedLegacyTailscaleRoutes
                 )
                 : nil,
             transportMode: resolvedMethod.transportMode
@@ -801,7 +806,7 @@ extension MobileShellComposite {
             Self.legacyTailscaleAuthorizationEvidence(
                 for: route,
                 macDeviceID: pairedMacDeviceID,
-                persistedRoutes: legacyTailscaleRoutes
+                persistedRoutes: resolvedLegacyTailscaleRoutes
             ) != nil
         }
         if firstRoute.kind == .iroh
@@ -814,7 +819,7 @@ extension MobileShellComposite {
                 )
                 let noThrowFailure = try await connect(
                     ticket: ticket,
-                    legacyTailscaleRoutes: legacyTailscaleRoutes,
+                    legacyTailscaleRoutes: resolvedLegacyTailscaleRoutes,
                     directOnlyDialCandidates: methodPinnedCandidates,
                     transportMode: resolvedMethod.transportMode,
                     pairedMacDeviceID: pairedMacDeviceID,
@@ -1020,18 +1025,66 @@ extension MobileShellComposite {
         instance: RegistryAppInstance
     ) async {
         let scope = await currentScopeSnapshot()
+        guard let scope, let pairedMacStore else { return }
+        let authoritativePairings: [MobilePairedMac]
+        do {
+            authoritativePairings = try await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        } catch {
+            connectionError = L10n.string(
+                "mobile.connections.storeUnavailable",
+                defaultValue: "Saved computer settings are unavailable. Try again."
+            )
+            connectionErrorGuidance = L10n.string(
+                "mobile.connections.storeUnavailable.guidance",
+                defaultValue: "We could not verify this computer's saved transport method."
+            )
+            return
+        }
+        guard await isScopeCurrent(scope) else { return }
+        let storedPairing = authoritativePairings.first {
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: device.deviceId,
+                instanceTag: instance.tag
+            )
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let targetMethod = connectionMethod(
-            forMacDeviceID: device.deviceId,
-            instanceTag: instance.tag
-        )
-        let candidateRoutes = Self.storedReconnectRoutes(
-            instance.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            transportMode: targetMethod.transportMode
-        )
+        let targetMethod = storedPairing.map(connectionMethod(for:))
+            ?? connectionMethodStore?.method
+            ?? .automatic
+        let candidateRoutes: [CmxAttachRoute]
+        if let storedPairing {
+            candidateRoutes = orderedReconnectRoutes(
+                for: storedPairing,
+                routes: instance.routes,
+                supportedKinds: supportedKinds
+            )
+        } else {
+            candidateRoutes = Self.storedReconnectRoutes(
+                instance.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes,
+                transportMode: targetMethod.transportMode
+            )
+        }
         guard !candidateRoutes.isEmpty else {
+            if targetMethod.transportMode.isPinned {
+                // Re-run the shared policy against the unfiltered snapshot so
+                // the user sees the concrete selected mode even when filtering
+                // removed every candidate before the reconnect helper ran.
+                captureTransportModeErrorIfNeeded(
+                    routes: instance.routes,
+                    supportedKinds: supportedKinds,
+                    macDisplayName: device.displayName ?? device.deviceId,
+                    transportMode: targetMethod.transportMode
+                )
+                presentTransportModeErrorIfNeeded()
+            }
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
             )
@@ -1051,16 +1104,7 @@ extension MobileShellComposite {
            }) {
             return
         }
-        let previousActive = pairedMacs.first { $0.isActive }
-        let storedPairing = pairedMacsForIdentityMatching.first {
-            MacPairingKey(
-                macDeviceID: $0.macDeviceID,
-                instanceTag: $0.instanceTag
-            ) == MacPairingKey(
-                macDeviceID: device.deviceId,
-                instanceTag: instance.tag
-            )
-        }
+        let previousActive = authoritativePairings.first { $0.isActive }
         let connectedRoute = (await connectStoredMacOutcome(
             name: device.displayName ?? device.deviceId,
             routes: candidateRoutes,
@@ -1076,7 +1120,7 @@ extension MobileShellComposite {
             }
             return
         }
-        if let scope, await !isScopeCurrent(scope) { return }
+        guard await isScopeCurrent(scope) else { return }
         await loadPairedMacs()
         await loadRegistryDevices()
     }
@@ -1089,12 +1133,45 @@ extension MobileShellComposite {
         accountID: String,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
+        let scope = await currentScopeSnapshot(userID: accountID)
+        guard let scope, let pairedMacStore else { return false }
+        let storedPairing: MobilePairedMac?
+        do {
+            storedPairing = try await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ).first {
+                MacPairingKey(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ) == MacPairingKey(
+                    macDeviceID: mac.deviceID,
+                    instanceTag: mac.instanceTag
+                )
+            }
+        } catch {
+            connectionError = L10n.string(
+                "mobile.connections.storeUnavailable",
+                defaultValue: "Saved computer settings are unavailable. Try again."
+            )
+            connectionErrorGuidance = L10n.string(
+                "mobile.connections.storeUnavailable.guidance",
+                defaultValue: "We could not verify this computer's saved transport method."
+            )
+            return false
+        }
+        guard await isScopeCurrent(scope), ifStillCurrent?() ?? true else { return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let targetMethod = connectionMethod(
-            forMacDeviceID: mac.deviceID,
-            instanceTag: mac.instanceTag
-        )
-        let candidateRoutes = Self.storedReconnectRoutes(
+        let targetMethod = storedPairing.map(connectionMethod(for:))
+            ?? connectionMethodStore?.method
+            ?? .automatic
+        let candidateRoutes = storedPairing.map {
+            orderedReconnectRoutes(
+                for: $0,
+                routes: mac.routes,
+                supportedKinds: supportedKinds
+            )
+        } ?? Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
@@ -1106,7 +1183,9 @@ extension MobileShellComposite {
             routes: candidateRoutes,
             pairedMacDeviceID: mac.deviceID,
             instanceTagExpectation: .require(mac.instanceTag),
+            legacyTailscaleRoutes: storedPairing?.legacyTailscaleRoutes ?? [],
             automaticReconnectAccountID: accountID,
+            knownPairing: storedPairing,
             ifStillCurrent: ifStillCurrent
         )).didConnect
     }

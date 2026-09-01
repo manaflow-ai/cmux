@@ -49,7 +49,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthForLoopbackAndAdvertisedLANRoutes() throws {
+    @Test func allowsStackAuthOnlyForLoopbackAndRejectsLANRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIPv6 = try hostPortRoute(

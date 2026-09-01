@@ -154,9 +154,8 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(
-                publicPaths: [directHint],
-                privateFallbackPaths: []
+            dialPlan: try #require(
+                CmxIrohDialPlan.directOnly(pinnedPaths: [directHint])
             ),
             credential: credential,
             transportMode: .direct

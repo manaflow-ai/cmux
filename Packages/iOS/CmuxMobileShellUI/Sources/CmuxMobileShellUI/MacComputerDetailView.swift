@@ -590,6 +590,21 @@ struct MacComputerDetailView: View {
                 }
                 .accessibilityIdentifier("MobileComputerIrohUnavailableWarning")
             }
+            if (pendingConnectionMethod ?? selectedMethod) == .lan,
+               !computerHasUsableLANRoute {
+                Label {
+                    Text(L10n.string(
+                        "mobile.connections.lanUnavailableWarning",
+                        defaultValue: "No LAN route is advertised for this computer — it stays disconnected until both devices share a local network."
+                    ))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                .accessibilityIdentifier("MobileComputerLANUnavailableWarning")
+            }
         } footer: {
             Text(connectionMethodFooterText)
         }
@@ -828,6 +843,13 @@ struct MacComputerDetailView: View {
     /// Whether this Computer currently advertises an authenticated Iroh peer.
     private var computerHasUsableIrohRoute: Bool {
         pairedMac?.routes.contains { $0.kind == .iroh } == true
+    }
+
+    /// Whether this Computer advertises at least one non-loopback LAN route.
+    private var computerHasUsableLANRoute: Bool {
+        pairedMac?.routes.contains { route in
+            route.kind == .lan && !CmxLoopbackHost().matches(route)
+        } == true
     }
 
     private var connectionMethodFooterText: String {

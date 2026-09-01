@@ -69,6 +69,14 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     /// transport factory can allocate a socket or Iroh session.
     public func validateTransportMode() throws {
         try CmxTransportModePolicy(transportMode).validate(route: route)
+        if irohDirectOnlyDialCandidates != nil, transportMode != .direct {
+            // A Direct allowlist is an exclusive capability, never an
+            // incidental hint. Reject contradictory requests before any
+            // provider can reinterpret it as a custom private path.
+            throw CmxTransportModeError.directCandidatesRequireDirectMode(
+                selectedMode: transportMode
+            )
+        }
         if transportMode == .direct,
            irohDirectOnlyDialCandidates?.isEmpty != false {
             throw CmxTransportModeError.noRoute(

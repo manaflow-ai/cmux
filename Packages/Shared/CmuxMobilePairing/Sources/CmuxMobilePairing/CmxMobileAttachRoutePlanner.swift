@@ -87,7 +87,7 @@ public struct CmxMobileAttachRoutePlanner: Sendable {
             from: routes,
             kind: .lan,
             firstPriority: 5,
-            priorityStep: 5
+            priorityStep: 10
         )
     }
 }

@@ -12,6 +12,10 @@ actor CmxConnectivityPeerSession {
 
     private struct PendingConnection {
         let id: UUID
+        /// The control owner that initiated this dial, or `nil` for a
+        /// control-free feature/event lane. This distinguishes an owned
+        /// foreground dial from an unowned pending dial when policies differ.
+        let ownerID: UUID?
         let request: CmxByteTransportRequest
         let task: Task<any CmxConnectivitySession, any Error>
     }
@@ -123,7 +127,8 @@ actor CmxConnectivityPeerSession {
                 try Task.checkCancellation()
                 let session = try await connectedSession(
                     for: request,
-                    preservesControlOwnerOnClosed: true
+                    preservesControlOwnerOnClosed: true,
+                    requestingOwnerID: ownerID
                 )
                 // The dial can finish while the caller's cancellation
                 // handler is waiting to release the owner. Do not hand a
@@ -189,7 +194,8 @@ actor CmxConnectivityPeerSession {
 
     func connectedSession(
         for request: CmxByteTransportRequest,
-        preservesControlOwnerOnClosed: Bool = false
+        preservesControlOwnerOnClosed: Bool = false,
+        requestingOwnerID: UUID? = nil
     ) async throws -> any CmxConnectivitySession {
         try requirePeer(request)
         var corpseRetriesRemaining = 1
@@ -236,12 +242,13 @@ actor CmxConnectivityPeerSession {
                     < Self.maximumRetiredDialCleanupCount else {
                     throw CmxConnectivityEngineError.superseded
                 }
-                if pendingConnection != nil {
+                if let existingPending = pendingConnection {
                     // A control owner already owns this physical dial. A
                     // policy-different feature lane must wait for that owner
                     // to release it instead of canceling the foreground dial
                     // and installing its own policy under the owner's lease.
-                    guard controlOwner == nil else {
+                    if let controlOwner,
+                       existingPending.ownerID == controlOwner.id {
                         throw CmxConnectivityEngineError.superseded
                     }
                     // A different transport policy supersedes the pending
@@ -265,7 +272,12 @@ actor CmxConnectivityPeerSession {
                     }
                     return session
                 }
-                pending = PendingConnection(id: UUID(), request: request, task: task)
+                pending = PendingConnection(
+                    id: UUID(),
+                    ownerID: requestingOwnerID,
+                    request: request,
+                    task: task
+                )
                 pendingConnection = pending
                 publishSnapshot()
             }
@@ -320,6 +332,18 @@ actor CmxConnectivityPeerSession {
                 }
                 corpseRetriesRemaining -= 1
                 continue redial
+            }
+
+            // The path can migrate between the builder's final admission and
+            // this installation point. Re-read it before publishing the
+            // session so a policy-forbidden path cannot become active while
+            // the non-lossy observer is still being scheduled.
+            if let path = await currentPolicyViolation(
+                in: connected,
+                request: request
+            ) {
+                await connected.close()
+                throw path
             }
 
             // The dead-on-arrival probe suspends this actor. A concurrent
@@ -467,7 +491,7 @@ actor CmxConnectivityPeerSession {
             )
         }
         let pathObservationTask = Task { [weak self] in
-            let changes = await connected.observedSelectedPathChanges()
+            let changes = await connected.policySelectedPathChanges()
             for await path in changes {
                 guard !Task.isCancelled else { return }
                 await self?.pathDidChange(id: id, path: path)
@@ -840,6 +864,22 @@ actor CmxConnectivityPeerSession {
         }
     }
 
+    private func currentPolicyViolation(
+        in session: any CmxConnectivitySession,
+        request: CmxByteTransportRequest
+    ) async -> CmxTransportModeError? {
+        let path = await session.observedSelectedPath()
+        guard path != .unavailable,
+              !(await session.pathIsAllowed(path)) else {
+            return nil
+        }
+        let concrete = await session.transportPath(for: path)
+        return .pathNotAllowed(
+            mode: request.transportMode,
+            actual: concrete.transportClass ?? .iroh
+        )
+    }
+
     private func pathDidChange(
         id: UUID,
         path: CmxIrohObservedConnectionPath
@@ -850,11 +890,23 @@ actor CmxConnectivityPeerSession {
         // ownership policy cannot be preempted by the path observer.
         guard !(await activeConnection.session.isClosed()),
               self.activeConnection?.id == id else { return }
-        let pathIsAllowed: Bool
+        // Preserve every concrete callback value for policy enforcement. Only
+        // an unavailable marker is replaced with the latest actor-owned
+        // snapshot, because it is the documented transient gap between paths.
+        // In particular, an `.unknown` value emitted by the bounded
+        // fail-closed stream must not be overwritten by a later healthy path.
+        let pathToCheck: CmxIrohObservedConnectionPath
         if path == .unavailable {
+            let currentPath = await activeConnection.session.observedSelectedPath()
+            pathToCheck = currentPath == .unavailable ? path : currentPath
+        } else {
+            pathToCheck = path
+        }
+        let pathIsAllowed: Bool
+        if pathToCheck == .unavailable {
             pathIsAllowed = true
         } else {
-            pathIsAllowed = await activeConnection.session.pathIsAllowed(path)
+            pathIsAllowed = await activeConnection.session.pathIsAllowed(pathToCheck)
         }
         guard pathIsAllowed else {
             // This owner is shared by foreground and secondary clients. Enforce

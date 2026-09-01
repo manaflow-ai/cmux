@@ -65,4 +65,21 @@ extension String {
         }
         return colonCount > 1 ? self : nil
     }
+
+    /// The port portion of an Iroh socket address, or `nil` when absent.
+    var cmxIrohSocketPort: UInt16? {
+        if first == "[",
+           let closingBracket = firstIndex(of: "]") {
+            let portStart = index(after: closingBracket)
+            guard portStart < endIndex, self[portStart] == ":" else {
+                return nil
+            }
+            return UInt16(self[index(after: portStart)...])
+        }
+        guard let colon = lastIndex(of: ":"),
+              self[..<colon].firstIndex(of: ":") == nil else {
+            return nil
+        }
+        return UInt16(self[index(after: colon)...])
+    }
 }

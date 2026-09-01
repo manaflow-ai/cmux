@@ -17,7 +17,7 @@ struct MacComputerListSection: Equatable, Identifiable {
 
     /// Group per-Computer snapshots by their configured connection method,
     /// preserving the input (last-seen-newest-first) order within each
-    /// section. Only non-empty sections are returned, Iroh first.
+    /// section. Only non-empty sections are returned, Auto first.
     static func sections(from snapshots: [MacComputerSnapshot]) -> [MacComputerListSection] {
         var byMethod: [MobileConnectionMethod: [MacComputerSnapshot]] = [:]
         for snapshot in snapshots {

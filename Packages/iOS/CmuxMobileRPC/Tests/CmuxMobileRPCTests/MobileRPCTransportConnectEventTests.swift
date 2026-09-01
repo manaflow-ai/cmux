@@ -157,10 +157,12 @@ import Testing
     @Test func connectedDialCarriesAdmittedSessionLink() async throws {
         let transport = LinkedDiagnosticSessionTransport(sessionID: 91)
         let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let (paths, pathContinuation) = AsyncStream<DiagnosticPathKind>.makeStream()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             diagnosticTransport: .iroh,
-            transportConnectObserver: { event in _ = continuation.yield(event) }
+            transportConnectObserver: { event in _ = continuation.yield(event) },
+            transportPathObserver: { _, path in _ = pathContinuation.yield(path) }
         )
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.host.status",
@@ -174,28 +176,30 @@ import Testing
         )
         await session.tearDown(error: .connectionClosed)
         continuation.finish()
+        pathContinuation.finish()
         let recorded = await collect(events)
-        #expect(recorded.count == 3)
+        #expect(recorded.count == 2)
         guard case .attempt = recorded[0],
-              case let .connected(_, _, _, sessionID) = recorded[1],
-              case let .pathObserved(_, path) = recorded[2] else {
-            Issue.record("Expected attempt, connected, then negotiated path")
+              case let .connected(_, _, _, sessionID) = recorded[1] else {
+            Issue.record("Expected attempt, then connected")
             return
         }
         #expect(sessionID == 91)
-        #expect(path == .direct)
+        #expect(await collect(paths) == [.direct])
     }
 
-    @Test func pathObservedEventDoesNotCarryLANAddress() async throws {
+    @Test func pathObserverDoesNotCarryLANAddress() async throws {
         let transport = LinkedDiagnosticSessionTransport(
             sessionID: 92,
             path: .lan(address: "192.168.1.42:58_465")
         )
         let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let (paths, pathContinuation) = AsyncStream<DiagnosticPathKind>.makeStream()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             diagnosticTransport: .lan,
-            transportConnectObserver: { event in _ = continuation.yield(event) }
+            transportConnectObserver: { event in _ = continuation.yield(event) },
+            transportPathObserver: { _, path in _ = pathContinuation.yield(path) }
         )
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.host.status",
@@ -209,16 +213,9 @@ import Testing
         )
         await session.tearDown(error: .connectionClosed)
         continuation.finish()
-        let recorded = await collect(events)
-        guard let pathEvent = recorded.first(where: {
-            if case .pathObserved = $0 { return true }
-            return false
-        }) else {
-            Issue.record("Expected a path-observed event")
-            return
-        }
-        guard case let .pathObserved(_, path) = pathEvent else { return }
-        #expect(!String(describing: path).contains("192.168.1.42"))
+        pathContinuation.finish()
+        _ = await collect(events)
+        #expect(await collect(paths) == [.lan])
     }
 
     private func collect(
@@ -229,6 +226,16 @@ import Testing
             events.append(event)
         }
         return events
+    }
+
+    private func collect(
+        _ stream: AsyncStream<DiagnosticPathKind>
+    ) async -> [DiagnosticPathKind] {
+        var paths: [DiagnosticPathKind] = []
+        for await path in stream {
+            paths.append(path)
+        }
+        return paths
     }
 }
 

@@ -246,6 +246,12 @@ public actor CmxNetworkByteTransport: CmxByteTransport, CmxByteTransportPathObse
 
     /// Emits the route's initial class and any Network.framework path updates.
     public func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        if isTerminal {
+            return AsyncStream { continuation in
+                continuation.yield(advertisedTransportPath)
+                continuation.finish()
+            }
+        }
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             pathContinuations[id] = continuation
@@ -730,6 +736,12 @@ public actor CmxNetworkByteTransport: CmxByteTransport, CmxByteTransportPathObse
 
     private func handleNetworkPathUpdate(_ path: NWPath) async {
         guard !isTerminal else { return }
+        guard tailscaleBinding != nil else {
+            // LAN and loopback transports share this Network.framework seam,
+            // but their path changes are not Tailscale authorization events.
+            publishTransportPath()
+            return
+        }
         tailscalePathRevision = tailscalePathRevision == .max ? 1 : tailscalePathRevision + 1
         MobileDebugLog.shared.append(
             "tailscale.connection.path_update revision=\(tailscalePathRevision) path=\(Self.pathSummary(path))"

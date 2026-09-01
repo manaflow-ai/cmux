@@ -162,6 +162,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     public func context(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIrohClientContext {
+        try request.validateTransportMode()
         let route = request.route
         guard route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
@@ -572,7 +573,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         at clock: Date,
         transportMode: CmxTransportMode
     ) async throws -> CmxIrohClientContext {
-        if let directOnly {
+        if transportMode == .direct, let directOnly {
             return try directOnlyContext(
                 candidates: directOnly,
                 targetBinding: targetBinding,

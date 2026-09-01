@@ -22,15 +22,11 @@ public enum CmxTransportClass: String, Codable, CaseIterable, Hashable, Sendable
     /// Localized name for user-facing diagnostics and errors.
     public var displayName: String {
         switch self {
-        case .lan: localized("cmux.transport.class.lan", "LAN")
-        case .tailscale: localized("cmux.transport.class.tailscale", "Tailscale")
-        case .iroh: localized("cmux.transport.class.iroh", "iroh")
-        case .websocket: localized("cmux.transport.class.websocket", "WebSocket")
-        case .debugLoopback: localized("cmux.transport.class.loopback", "Loopback")
+        case .lan: String.cmxModuleLocalized("cmux.transport.class.lan", defaultValue: "LAN")
+        case .tailscale: String.cmxModuleLocalized("cmux.transport.class.tailscale", defaultValue: "Tailscale")
+        case .iroh: String.cmxModuleLocalized("cmux.transport.class.iroh", defaultValue: "iroh")
+        case .websocket: String.cmxModuleLocalized("cmux.transport.class.websocket", defaultValue: "WebSocket")
+        case .debugLoopback: String.cmxModuleLocalized("cmux.transport.class.loopback", defaultValue: "Loopback")
         }
-    }
-
-    private func localized(_ key: StaticString, _ value: String) -> String {
-        String(localized: key, defaultValue: String.LocalizationValue(value), bundle: .module)
     }
 }

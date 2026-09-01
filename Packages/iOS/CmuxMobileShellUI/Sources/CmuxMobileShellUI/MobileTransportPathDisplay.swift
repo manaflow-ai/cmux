@@ -3,7 +3,7 @@ import CmuxMobileSupport
 
 /// Localized rendering for the concrete path shown in connection chrome.
 extension CmxTransportPath {
-    var mobileStatusDisplayValue: String? {
+    nonisolated var mobileStatusDisplayValue: String? {
         switch self {
         case .unavailable:
             return nil

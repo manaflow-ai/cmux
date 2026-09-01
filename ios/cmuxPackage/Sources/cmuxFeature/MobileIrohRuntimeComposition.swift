@@ -707,6 +707,7 @@ public final class MobileIrohRuntimeComposition:
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
+        try request.validateTransportMode()
         let runtime = try await preparedRuntimeForConnection()
         return try runtime.transportFactory.makeTransport(for: request)
     }
@@ -723,6 +724,7 @@ public final class MobileIrohRuntimeComposition:
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
+        try request.validateTransportMode()
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.openBidirectionalLane(
             for: request,
@@ -797,6 +799,7 @@ public final class MobileIrohRuntimeComposition:
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
+        try request.validateTransportMode()
         let runtime = try await preparedRuntimeForConnection()
         return try await runtime.serverEventByteStream(for: request)
     }

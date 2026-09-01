@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import Foundation
 import CmuxMobileSupport
 
 /// Foreground transport-path observation and attribution.
@@ -18,10 +19,13 @@ extension MobileShellComposite {
         }
         stopTransportPathObservation()
         activeTransportPath = .unavailable
+        transportPathObservationGeneration = UUID()
+        let observationGeneration = transportPathObservationGeneration
         transportPathObservationClientID = clientID
         transportPathObservationTask = Task { @MainActor [weak self, client] in
             defer {
                 if let self,
+                   self.transportPathObservationGeneration == observationGeneration,
                    self.transportPathObservationClientID == clientID {
                     self.transportPathObservationTask = nil
                     self.transportPathObservationClientID = nil
@@ -38,7 +42,8 @@ extension MobileShellComposite {
             for await path in changes {
                 guard !Task.isCancelled,
                       self.remoteClient === client,
-                      ObjectIdentifier(client) == clientID else { return }
+                      ObjectIdentifier(client) == clientID,
+                      self.transportPathObservationGeneration == observationGeneration else { return }
                 await self.applyObservedTransportPath(path, client: client)
             }
         }
@@ -49,6 +54,7 @@ extension MobileShellComposite {
         transportPathObservationTask?.cancel()
         transportPathObservationTask = nil
         transportPathObservationClientID = nil
+        transportPathObservationGeneration = UUID()
         activeTransportPath = .unavailable
     }
 
@@ -85,8 +91,8 @@ extension MobileShellComposite {
         // A migration onto a different class is a hard policy violation. Drop
         // the client immediately; the normal recovery owner may retry only
         // routes that satisfy the same pinned mode.
-        let error = CmxTransportModeError.routeClassMismatch(
-            expected: client.transportMode.pinnedClass ?? .iroh,
+        let error = CmxTransportModeError.pathNotAllowed(
+            mode: client.transportMode,
             actual: path.transportClass ?? .iroh
         )
         // Read the admitted session correlation before teardown clears the

@@ -35,8 +35,32 @@ struct CmxIrohLibConnection:
 
     @concurrent
     func observedSelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let callback = CmxIrohLibPathChangeCallback(continuation: continuation)
+        makePathChangeStream(
+            bufferingPolicy: .bufferingNewest(1),
+            failClosedOnOverflow: false
+        )
+    }
+
+    @concurrent
+    func policySelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
+        // Policy enforcement cannot silently coalesce transitions. Keep the
+        // stream bounded and convert an overflow into an explicit unknown
+        // state; the peer-session policy check then fails closed.
+        makePathChangeStream(
+            bufferingPolicy: .bufferingNewest(32),
+            failClosedOnOverflow: true
+        )
+    }
+
+    private func makePathChangeStream(
+        bufferingPolicy: AsyncStream<CmxIrohObservedConnectionPath>.Continuation.BufferingPolicy,
+        failClosedOnOverflow: Bool
+    ) -> AsyncStream<CmxIrohObservedConnectionPath> {
+        AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
+            let callback = CmxIrohLibPathChangeCallback(
+                continuation: continuation,
+                failClosedOnOverflow: failClosedOnOverflow
+            )
             let handle = driver.watchPaths(callback: callback)
             continuation.yield(
                 CmxIrohObservedConnectionPath(

@@ -146,12 +146,10 @@ extension MobileShellComposite {
     /// The method-pinned Iroh dial allowlist for one pairing, or `nil` when the
     /// pairing's effective method places no address pin on the Iroh dial.
     ///
-    /// Direct pins the dial to the user-enabled addresses. Tailscale Only on an
-    /// Iroh-identified pairing pins the dial to the pairing's numeric Tailscale
-    /// addresses: the method constrains PATHS while transport admission stays
-    /// the single auth authority, so control, background control, and terminal
-    /// lanes all live and die by the same dial policy. Legacy pairings without
-    /// an Iroh identity return `nil` and keep the grant-gated raw host lane.
+    /// Direct pins the Iroh dial to the user-enabled addresses. Tailscale Only
+    /// uses the exact locally authorized raw Tailscale route; it never adds an
+    /// Iroh allowlist or silently changes wire transports. Legacy pairings keep
+    /// the same grant-gated raw host lane.
     ///
     /// An empty array means the method is pinned with nothing dialable:
     /// callers must fail closed and never substitute another path. Entries
@@ -179,10 +177,9 @@ extension MobileShellComposite {
                 )
             }
         case .tailscale:
-            // Tailscale Only is a distinct wire transport. Even a Tailscale
-            // address carried as an Iroh hint would violate the user's hard
-            // no-fallback contract, so this mode never constructs an Iroh
-            // allowlist.
+            // Tailscale is a distinct plaintext TCP transport. Its local grant
+            // is checked at the route-selection boundary, so it must not be
+            // reinterpreted as a custom private Iroh path.
             return nil
         case .automatic:
             return nil

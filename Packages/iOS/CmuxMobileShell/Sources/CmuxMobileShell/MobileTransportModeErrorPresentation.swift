@@ -47,10 +47,26 @@ extension CmxTransportModeError {
             let displayTarget = target?.isEmpty == false ? target ?? fallbackTarget : fallbackTarget
             return String(format: format, displayTarget)
         case let .routeClassMismatch(expected, actual):
+            if expected == actual {
+                return String(format: L10n.string(
+                    "mobile.transportMode.routeClassMismatchSameClass",
+                    defaultValue: "The selected transport mode cannot use a %@ route."
+                ), actual.displayName)
+            }
             return String(format: L10n.string(
                 "mobile.transportMode.routeClassMismatch",
-                defaultValue: "The selected %@ mode cannot use a %@ route."
+                defaultValue: "Selected %@ transport cannot use a %@ route."
             ), expected.displayName, actual.displayName)
+        case let .directCandidatesRequireDirectMode(selectedMode):
+            return String(format: L10n.string(
+                "mobile.transportMode.directCandidatesRequireDirect",
+                defaultValue: "Direct address candidates require Direct mode; %@ was selected."
+            ), selectedMode.displayName)
+        case let .pathNotAllowed(mode, actual):
+            return String(format: L10n.string(
+                "mobile.transportMode.pathNotAllowed",
+                defaultValue: "The selected %@ mode cannot use a %@ route."
+            ), mode.displayName, actual.displayName)
         }
     }
 
@@ -86,6 +102,16 @@ extension CmxTransportModeError {
                 )
             }
         case .routeClassMismatch:
+            return L10n.string(
+                "mobile.transportMode.guidance.mismatch",
+                defaultValue: "Change the transport mode or restore a route in the selected network."
+            )
+        case .directCandidatesRequireDirectMode:
+            return L10n.string(
+                "mobile.transportMode.guidance.direct",
+                defaultValue: "Enable a direct address for this computer or choose another transport mode."
+            )
+        case .pathNotAllowed:
             return L10n.string(
                 "mobile.transportMode.guidance.mismatch",
                 defaultValue: "Change the transport mode or restore a route in the selected network."

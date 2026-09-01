@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxMobilePairing
 import Darwin
 import Foundation
 
@@ -74,54 +75,12 @@ final class MobileRouteResolver: @unchecked Sendable {
         tailscaleHosts: [String],
         lanHosts: [String] = MobileRouteResolver.lanRouteHosts()
     ) -> MobileHostRouteSnapshot {
-        var resolved: [CmxAttachRoute] = []
-
-        if Self.includesDebugLoopbackRoute {
-            if let debugRoute = try? CmxAttachRoute(
-                id: CmxAttachTransportKind.debugLoopback.rawValue,
-                kind: .debugLoopback,
-                endpoint: .hostPort(host: "127.0.0.1", port: port),
-                priority: 0
-            ) {
-                resolved.append(debugRoute)
-            }
-        }
-
-        let numericLANHosts = Self.deduplicatedHosts(lanHosts).filter {
-            Self.isLANPeerAddress($0) && !Self.isTailscalePeerAddress($0)
-        }
-        for (index, lanHost) in numericLANHosts.enumerated() {
-            let id = index == 0
-                ? CmxAttachTransportKind.lan.rawValue
-                : "\(CmxAttachTransportKind.lan.rawValue)_\(index + 1)"
-            if let lanRoute = try? CmxAttachRoute(
-                id: id,
-                kind: .lan,
-                endpoint: .hostPort(host: lanHost, port: port),
-                priority: 5 + (index * 5)
-            ) {
-                resolved.append(lanRoute)
-            }
-        }
-
-        let numericTailscaleHosts = Self.deduplicatedHosts(tailscaleHosts).filter {
-            Self.isTailscalePeerAddress($0)
-        }
-        for (index, tailscaleHost) in numericTailscaleHosts.enumerated() {
-            let id = index == 0
-                ? CmxAttachTransportKind.tailscale.rawValue
-                : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
-            if let tailscaleRoute = try? CmxAttachRoute(
-                id: id,
-                kind: .tailscale,
-                endpoint: .hostPort(host: tailscaleHost, port: port),
-                priority: 10 + (index * 10)
-            ) {
-                resolved.append(tailscaleRoute)
-            }
-        }
-
-        return MobileHostRouteSnapshot(routes: resolved)
+        MobileHostRouteSnapshot(routes: CmxMobileHostRouteBuilder().routes(
+            port: port,
+            tailscaleHosts: tailscaleHosts,
+            lanHosts: lanHosts,
+            includeDebugLoopback: Self.includesDebugLoopbackRoute
+        ))
     }
 
     private struct TailscaleAddressCandidate {
@@ -264,15 +223,7 @@ final class MobileRouteResolver: @unchecked Sendable {
     }
 
     private static func deduplicatedHosts(_ hosts: [String]) -> [String] {
-        var seen = Set<String>()
-        return hosts.filter { host in
-            let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !normalized.isEmpty, !seen.contains(normalized) else {
-                return false
-            }
-            seen.insert(normalized)
-            return true
-        }
+        CmxMobileHostRouteBuilder.deduplicatedHosts(hosts)
     }
 
     private static func preferredTailscaleAddressCandidate(
@@ -314,7 +265,7 @@ final class MobileRouteResolver: @unchecked Sendable {
 
             switch Int32(address.pointee.sa_family) {
             case AF_INET:
-                if isTailscaleCGNAT(candidate) {
+                if CmxMobileHostRouteBuilder.isTailscalePeerAddress(candidate) {
                     candidates.append(
                         TailscaleAddressCandidate(
                             interfaceName: interfaceName,
@@ -324,7 +275,7 @@ final class MobileRouteResolver: @unchecked Sendable {
                     )
                 }
             case AF_INET6:
-                if isTailscaleIPv6ULA(candidate) {
+                if CmxMobileHostRouteBuilder.isTailscalePeerAddress(candidate) {
                     candidates.append(
                         TailscaleAddressCandidate(
                             interfaceName: interfaceName,
@@ -380,35 +331,8 @@ final class MobileRouteResolver: @unchecked Sendable {
         return isTailscaleDNSName(name) ? name : nil
     }
 
-    private static func isTailscaleCGNAT(_ ipAddress: String) -> Bool {
-        let octets = ipAddress.split(separator: ".").compactMap { Int($0) }
-        guard octets.count == 4 else {
-            return false
-        }
-        guard octets[0] == 100 && (64...127).contains(octets[1]) else {
-            return false
-        }
-        if octets[1] == 100, octets[2] == 0 || octets[2] == 100 {
-            return false
-        }
-        if octets[1] == 115, octets[2] == 92 || octets[2] == 93 {
-            return false
-        }
-        return true
-    }
-
-    private static func isTailscaleIPv6ULA(_ ipAddress: String) -> Bool {
-        var address = in6_addr()
-        let parsed = ipAddress.withCString { pointer in
-            inet_pton(AF_INET6, pointer, &address)
-        }
-        guard parsed == 1 else { return false }
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        return bytes.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0])
-    }
-
     private static func isTailscalePeerAddress(_ host: String) -> Bool {
-        isTailscaleCGNAT(host) || isTailscaleIPv6ULA(host)
+        CmxMobileHostRouteBuilder.isTailscalePeerAddress(host)
     }
 
     /// Enumerates usable non-loopback addresses on ordinary LAN interfaces.
@@ -430,30 +354,7 @@ final class MobileRouteResolver: @unchecked Sendable {
     }
 
     private static func isLANPeerAddress(_ host: String) -> Bool {
-        let normalized = host.split(separator: "%", maxSplits: 1, omittingEmptySubsequences: true)
-            .first.map(String.init) ?? host
-        let octets = normalized.split(separator: ".").compactMap { Int($0) }
-        if octets.count == 4 {
-            guard octets.allSatisfy({ (0...255).contains($0) }) else { return false }
-            if octets[0] == 10 || (octets[0] == 192 && octets[1] == 168) {
-                return true
-            }
-            if octets[0] == 172 && (16...31).contains(octets[1]) {
-                return true
-            }
-            return octets[0] == 169 && octets[1] == 254
-        }
-
-        var address = in6_addr()
-        guard normalized.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else {
-            return false
-        }
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        let isULA = bytes.first.map { $0 & 0xfe == 0xfc } ?? false
-        // IPv6 link-local addresses require an interface scope that cannot be
-        // carried portably from the Mac to the iPhone. Advertise only ULA
-        // addresses, which are cross-device routable within the LAN.
-        return isULA
+        CmxMobileHostRouteBuilder.isLANPeerAddress(host)
     }
 
     private static func isTailscaleInterfaceName(_ name: String) -> Bool {

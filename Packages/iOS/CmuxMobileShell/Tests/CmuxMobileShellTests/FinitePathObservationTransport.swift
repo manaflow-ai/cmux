@@ -9,6 +9,7 @@ actor FinitePathObservationTransport: CmxByteTransportPathObserving {
     private var queuedFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var pathContinuation: AsyncStream<CmxTransportPath>.Continuation?
+    private var pathObservationWaiters: [CheckedContinuation<Void, Never>] = []
     private var isClosed = false
 
     init(path: CmxTransportPath) {
@@ -58,9 +59,12 @@ actor FinitePathObservationTransport: CmxByteTransportPathObserving {
         isClosed = true
         pathContinuation?.finish()
         pathContinuation = nil
-        let waiters = receiveWaiters
-        receiveWaiters.removeAll()
-        for waiter in waiters {
+        let waiters = pathObservationWaiters
+        pathObservationWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        let receiveWaiters = self.receiveWaiters
+        self.receiveWaiters.removeAll()
+        for waiter in receiveWaiters {
             waiter.resume(returning: nil)
         }
     }
@@ -69,9 +73,21 @@ actor FinitePathObservationTransport: CmxByteTransportPathObserving {
 
     func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
         let (stream, continuation) = AsyncStream<CmxTransportPath>.makeStream()
+        pathContinuation?.finish()
         pathContinuation = continuation
         continuation.yield(path)
+        let waiters = pathObservationWaiters
+        pathObservationWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
         return stream
+    }
+
+    /// Waits until the current observation has installed its continuation.
+    func waitUntilPathObservationInstalled() async {
+        if pathContinuation != nil { return }
+        await withCheckedContinuation { continuation in
+            pathObservationWaiters.append(continuation)
+        }
     }
 
     func finishPathObservation() {

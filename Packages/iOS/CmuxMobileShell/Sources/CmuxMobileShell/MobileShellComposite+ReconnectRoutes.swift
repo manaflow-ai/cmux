@@ -324,13 +324,11 @@ extension MobileShellComposite {
         case .lan:
             // LAN Only is represented by the encrypted Iroh peer route; its
             // context provider narrows the private plan to LAN hints.
-            return modeRoutes.filter { $0.kind == .iroh }
-        case .tailscale:
-            // The policy already filtered this to one concrete class; the
-            // caller's Tailscale grant check further narrows it.
             return modeRoutes
-        case .iroh, .direct:
-            return modeRoutes.filter { $0.kind == .iroh }
+        case .tailscale, .iroh, .direct:
+            // `CmxTransportModePolicy.routes(from:)` is the single class
+            // authority; do not duplicate a no-op filter here.
+            return modeRoutes
         }
     }
 
@@ -343,7 +341,7 @@ extension MobileShellComposite {
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
         let method = connectionMethod(for: mac)
-        let routes = Self.storedReconnectRoutes(
+        let selectedRoutes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
@@ -355,7 +353,34 @@ extension MobileShellComposite {
                 : nil,
             transportMode: method.transportMode
         )
-        return routes
+        return method == .direct
+            ? selectedRoutes.filter { $0.kind == .iroh }
+            : selectedRoutes
+    }
+
+    /// Applies the effective method to a fresh registry route snapshot using
+    /// the persisted pairing's authority and Direct/Tailscale pin state.
+    func orderedReconnectRoutes(
+        for mac: MobilePairedMac,
+        routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> [CmxAttachRoute] {
+        let method = connectionMethod(for: mac)
+        let selectedRoutes = Self.storedReconnectRoutes(
+            routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscaleRequirement: method == .tailscale
+                ? TailscaleRouteRequirement(
+                    macDeviceID: mac.macDeviceID,
+                    grantRoutes: mac.legacyTailscaleRoutes ?? []
+                )
+                : nil,
+            transportMode: method.transportMode
+        )
+        return method == .direct
+            ? selectedRoutes.filter { $0.kind == .iroh }
+            : selectedRoutes
     }
 
     /// Refresh the active row only while its account, device, and authenticated
@@ -651,11 +676,10 @@ extension MobileShellComposite {
         // candidate and is already scoped to this account/device/instance, so use
         // it directly instead of mistaking registry equality for "no route."
         if currentMac.routes != mac.routes {
-            let reconnectRoutes = Self.storedReconnectRoutes(
-                currentMac.routes,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes,
-                transportMode: resolvedMethod.transportMode
+            let reconnectRoutes = orderedReconnectRoutes(
+                for: currentMac,
+                routes: currentMac.routes,
+                supportedKinds: supportedKinds
             )
             if containsDialableRoute(reconnectRoutes) {
                 return .refreshedRoutes(reconnectRoutes)
@@ -676,11 +700,10 @@ extension MobileShellComposite {
                 ? .confirmedMissingIroh
                 : .inconclusive
         }
-        let reconnectRoutes = Self.storedReconnectRoutes(
-            updatedRoutes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            transportMode: resolvedMethod.transportMode
+        let reconnectRoutes = orderedReconnectRoutes(
+            for: currentMac,
+            routes: updatedRoutes,
+            supportedKinds: supportedKinds
         )
         // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
         // stale or downgraded input. Keep the local Iroh capability pin instead

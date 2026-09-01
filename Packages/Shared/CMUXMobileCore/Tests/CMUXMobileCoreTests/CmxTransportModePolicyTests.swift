@@ -1,4 +1,4 @@
-import CMUXMobileCore
+@testable import CMUXMobileCore
 import Foundation
 import Testing
 
@@ -266,6 +266,24 @@ struct CmxTransportModePolicyTests {
         )
         #expect(throws: CmxTransportModeError.self) {
             try emptyRequest.validateTransportMode()
+        }
+    }
+
+    @Test("a Direct allowlist cannot be attached to another mode")
+    func directCandidatesAreRestrictedToDirectMode() throws {
+        let route = try irohRoute()
+        let candidate = CmxIrohDirectDialCandidate(address: "10.0.0.8", port: nil)
+        for mode in [CmxTransportMode.iroh, .lan] {
+            let request = CmxByteTransportRequest(
+                route: route,
+                expectedPeerDeviceID: "mac",
+                authorizationMode: .transportAdmission,
+                irohDirectOnlyDialCandidates: [candidate],
+                transportMode: mode
+            )
+            #expect(throws: CmxTransportModeError.self) {
+                try request.validateTransportMode()
+            }
         }
     }
 

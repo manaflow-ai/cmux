@@ -1149,6 +1149,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var activeTransportPath: CmxTransportPath = .unavailable
     @ObservationIgnored var transportPathObservationTask: Task<Void, Never>?
     @ObservationIgnored var transportPathObservationClientID: ObjectIdentifier?
+    @ObservationIgnored var transportPathObservationGeneration = UUID()
     package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -3441,7 +3442,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let aliasesByPairingID = physicalMacAliasCanonicalIDsByCanonicalID(
             in: macs,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            defaultTransportMode: connectionMethodStore?.method.transportMode
+                ?? .automatic
         )
         storedPairedMacAliasCanonicalIDsByCanonicalID = aliasesByPairingID
         storedPairedMacAliasCanonicalIDsByDeviceID = aliasesByPairingID.reduce(
@@ -3986,12 +3989,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let coalesced = Self.coalescePairedMacsByDialEndpoint(
             visibleLoaded,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            defaultTransportMode: connectionMethodStore?.method.transportMode
+                ?? .automatic
         )
         let aliasIDsByPairingID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoaded,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            defaultTransportMode: connectionMethodStore?.method.transportMode
+                ?? .automatic
         )
         pairedMacAliasIDsByRepresentativeID = coalesced.reduce(into: [String: [String]]()) { result, mac in
             result[mac.id] = aliasIDsByPairingID[mac.id] ?? [mac.macDeviceID]
@@ -4747,10 +4754,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func manualHostRoute(
         host: String,
-        port: Int,
-        preferredKind: CmxAttachTransportKind? = nil
+        port: Int
     ) throws -> CmxAttachRoute {
-        let routeKind = preferredKind ?? MobileShellRouteAuthPolicy.manualRouteKind(for: host)
+        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
         return try CmxAttachRoute(
             id: routeKind.rawValue,
             kind: routeKind,
@@ -5245,6 +5251,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             transportConnectObserver: transportConnectDiagnosticObserver(
                 peerID: mac.macDeviceID,
                 transportMode: connectionTransportMode
+            ),
+            transportPathObserver: transportPathDiagnosticObserver(
+                peerID: mac.macDeviceID
             ),
             sessionPurpose: .backgroundControl,
             transportMode: connectionTransportMode
@@ -6129,7 +6138,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             physicalMacAliasCanonicalIDsByCanonicalID(
                 in: visibleLoadedMacs,
                 supportedKinds: supportedRouteKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+                preferNonLoopback: Self.prefersNonLoopbackRoutes,
+                defaultTransportMode: connectionMethodStore?.method.transportMode
+                    ?? .automatic
             )
         let exactOnlineMacs = visibleLoadedMacs.filter {
             isSecondaryMacOnlineInCurrentPresence(
@@ -6178,12 +6189,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let endpointDistinctMacs = Self.coalescePairedMacsByDialEndpoint(
             onlineLoadedMacs,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            defaultTransportMode: connectionMethodStore?.method.transportMode
+                ?? .automatic
         )
         let macs = Self.coalescePairedMacsByIrohEndpointAuthority(
             endpointDistinctMacs,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            defaultTransportMode: connectionMethodStore?.method.transportMode
+                ?? .automatic
         )
         // During a bounded foreground redial, `clearRemoteConnectionContext()`
         // has already nil'd `foregroundMacDeviceID`, which would make the very
@@ -6243,7 +6258,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let endpointID = Self.irohEndpointID(
                     for: mac,
                     supportedKinds: supportedRouteKinds,
-                    preferNonLoopback: Self.prefersNonLoopbackRoutes
+                    preferNonLoopback: Self.prefersNonLoopbackRoutes,
+                    defaultTransportMode: connectionMethodStore?.method.transportMode
+                        ?? .automatic
                 ) {
                     foregroundIrohEndpointIDs.insert(
                         Self.scopedIrohEndpointID(
@@ -6280,7 +6297,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let endpointID = Self.irohEndpointID(
                 for: mac,
                 supportedKinds: supportedRouteKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+                preferNonLoopback: Self.prefersNonLoopbackRoutes,
+                defaultTransportMode: connectionMethodStore?.method.transportMode
+                    ?? .automatic
             ) else {
                 // `makeSecondaryClient` still supports an authorized legacy
                 // Tailscale route. Iroh support on the runtime is global and
@@ -9963,6 +9982,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 transportConnectObserver: transportConnectDiagnosticObserver(
                     peerID: ticket.macDeviceID,
                     transportMode: connectionTransportMode
+                ),
+                transportPathObserver: transportPathDiagnosticObserver(
+                    peerID: ticket.macDeviceID
                 ),
                 transportMode: connectionTransportMode
             )

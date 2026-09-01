@@ -87,14 +87,28 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport, CmxByteTransportPath
     }
 
     func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
-        guard let transport,
-              let observing = transport as? any CmxByteTransportPathObserving else {
-            return AsyncStream { continuation in
-                continuation.yield(.tailscale(address: routeHost(request.route)))
-                continuation.finish()
-            }
+        guard !isClosed else {
+            return unavailablePathStream()
         }
-        return await observing.transportPathChanges()
+        do {
+            // Await preparation instead of returning a synthetic finished
+            // stream. A subscriber that arrives during tunnel setup must stay
+            // attached until the concrete transport can report migrations.
+            let transport = try await preparedTransport()
+            guard let observing = transport as? any CmxByteTransportPathObserving else {
+                return unavailablePathStream()
+            }
+            return await observing.transportPathChanges()
+        } catch {
+            return unavailablePathStream()
+        }
+    }
+
+    private func unavailablePathStream() -> AsyncStream<CmxTransportPath> {
+        AsyncStream { continuation in
+            continuation.yield(.unavailable)
+            continuation.finish()
+        }
     }
 
     private func routeHost(_ route: CmxAttachRoute) -> String {

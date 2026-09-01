@@ -53,8 +53,8 @@ struct CmxIrohSelectedTransportPathTests {
         let session = try CmxIrohClientSession(
             endpoint: TestIrohEndpoint(identity: localIdentity),
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(
-                publicPaths: [],
+            dialPlan: try CmxIrohDialPlan(
+                validatingPublicPaths: [],
                 privateFallbackPaths: [hint]
             ),
             credential: try .pairGrant("e30.e30.AA")
