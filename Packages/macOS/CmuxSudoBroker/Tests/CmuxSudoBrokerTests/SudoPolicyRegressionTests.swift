@@ -172,10 +172,15 @@ struct SudoPolicyRegressionTests {
             currentDirectory: "/tmp",
             createdAt: .now
         )
-        #expect(throws: SudoSpoolError.requestCapacityExceeded) {
+        do {
             try boundedStore.enqueue(
                 SudoPendingRequest(request: secondRequest, script: "echo second\n")
             )
+            Issue.record("Expected the pending-request capacity limit to reject the second request")
+        } catch SudoSpoolError.requestCapacityExceeded {
+            // Expected: the configured one-request admission bound is enforced.
+        } catch {
+            Issue.record("Unexpected admission error: \(error)")
         }
     }
 
