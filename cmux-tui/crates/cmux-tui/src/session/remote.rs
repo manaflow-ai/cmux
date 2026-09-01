@@ -975,7 +975,7 @@ enum RequestDeadline {
 }
 
 impl RequestDeadline {
-    fn remaining(self) -> Result<Duration, RemoteRequestError> {
+    fn remaining(&self) -> Result<Duration, RemoteRequestError> {
         match self {
             Self::Standard => Ok(REMOTE_REQUEST_TIMEOUT),
             Self::Fixed(timeout) => Ok(timeout),
