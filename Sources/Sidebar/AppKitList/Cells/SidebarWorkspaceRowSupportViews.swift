@@ -32,17 +32,54 @@ struct SidebarRowPalette {
         )
     }
 
+    /// Non-nil only for an inactive, custom-tinted `solidFill` row: the vivid
+    /// surface its text is actually drawn on. Text roles derive a readable
+    /// foreground against it instead of the fixed semantic/accent colors, which
+    /// fail WCAG contrast on a bright card
+    /// (https://github.com/manaflow-ai/cmux/issues/2586-adjacent sidebar report).
+    var tintedTextBackground: NSColor? {
+        sidebarWorkspaceRowTintedTextBackgroundNSColor(
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            isActive: model.isActive,
+            isMultiSelected: model.isMultiSelected,
+            customColorHex: model.snapshot.customColorHex,
+            colorScheme: colorScheme
+        )
+    }
+
     var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : semantic(.labelColor)
+        if model.isActive { return selectedForeground(1.0) }
+        if let background = tintedTextBackground {
+            return cmuxReadableForegroundNSColor(on: background, meeting: 4.5, preferredOpacity: 1.0)
+        }
+        return semantic(.labelColor)
     }
 
     func secondary(
         _ selectedOpacity: CGFloat = 0.75,
         inactiveOpacity: CGFloat? = nil
     ) -> NSColor {
-        model.isActive
-            ? selectedForeground(selectedOpacity)
-            : semantic(.secondaryLabelColor, opacity: inactiveOpacity)
+        if model.isActive { return selectedForeground(selectedOpacity) }
+        if let background = tintedTextBackground {
+            return cmuxReadableForegroundNSColor(
+                on: background,
+                meeting: 4.5,
+                preferredOpacity: max(selectedOpacity, 0.6)
+            )
+        }
+        return semantic(.secondaryLabelColor, opacity: inactiveOpacity)
+    }
+
+    /// Keeps an explicit, full-opacity color (e.g. the blue "Running" status
+    /// tint) when it already reads on a tinted row, else a readable-base
+    /// foreground. A no-op on untinted rows.
+    func legibleOnTint(_ preferred: NSColor, minimumContrast: CGFloat = 4.5) -> NSColor {
+        guard let background = tintedTextBackground else { return preferred }
+        return cmuxReadableForegroundNSColor(
+            preferred: preferred,
+            on: background,
+            minimumContrast: minimumContrast
+        )
     }
 
     /// Link color for row-owned text. AppKit paints `.link` runs in
@@ -51,7 +88,9 @@ struct SidebarRowPalette {
     /// blue. Active rows therefore derive the link color from the selected
     /// foreground so a custom `sidebarSelectionColorHex` stays legible.
     var linkText: NSColor {
-        model.isActive ? selectedForeground(1.0) : semantic(.linkColor)
+        if model.isActive { return selectedForeground(1.0) }
+        if tintedTextBackground != nil { return legibleOnTint(semantic(.linkColor)) }
+        return semantic(.linkColor)
     }
 
 }
@@ -365,12 +404,17 @@ final class SidebarRowIconTextLine: NSView {
             default: color = palette.secondary(0.9)
             }
         } else {
+            // On a custom-tinted row the fixed status hues fail contrast against
+            // the vivid card, so route them through `legibleOnTint` (a no-op on
+            // untinted rows). `semantic(...)` resolves the system color to a
+            // concrete sRGB value first, matching the row's cmux scheme and
+            // keeping the contrast math off a catalog color.
             switch log.level {
             case .info: color = palette.secondary(0.5)
-            case .progress: color = .systemBlue
-            case .success: color = .systemGreen
-            case .warning: color = .systemOrange
-            case .error: color = .systemRed
+            case .progress: color = palette.legibleOnTint(palette.semantic(.systemBlue))
+            case .success: color = palette.legibleOnTint(palette.semantic(.systemGreen))
+            case .warning: color = palette.legibleOnTint(palette.semantic(.systemOrange))
+            case .error: color = palette.legibleOnTint(palette.semantic(.systemRed))
             }
         }
         iconView.isHidden = false
