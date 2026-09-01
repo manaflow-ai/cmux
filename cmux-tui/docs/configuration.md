@@ -120,8 +120,8 @@ the reload re-evaluates the path precedence described above using the running pr
 environment and the files that exist. It therefore can switch between the default and
 legacy fallback files when those files appear or disappear. Changing `CMUX_TUI_CONFIG`
 or `CMUX_MUX_CONFIG` in a separate shell does not change the running process environment.
-`sidebar plugin use`
-sends that reload automatically when the resolved session socket is reachable.
+`sidebar plugin use` does not send this reload; run `cmux server reload-config`
+separately for a running local session whose socket is reachable.
 
 Return to the built-in sidebar with:
 
