@@ -9,11 +9,15 @@ budget evaluator.  No test launches cmux or charges child RSS to app budgets.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +65,13 @@ class TargetScaleMetricsTests(unittest.TestCase):
         self.assertEqual(parsed["iosurface_bytes"], 53 * metrics.BYTES_PER_MIB)
         self.assertEqual(parsed["ioaccelerator_bytes"], 39 * metrics.BYTES_PER_MIB)
         self.assertEqual(parsed["dirty_graphics_bytes"], 50 * metrics.BYTES_PER_MIB)
+
+    def test_footprint_parser_reads_camel_case_peak_key(self) -> None:
+        parsed = metrics.parse_footprint_output(
+            "physicalFootprintPeak: 512M\nphysicalFootprint: 500M\n"
+        )
+        self.assertEqual(parsed["phys_footprint_bytes"], 500 * metrics.BYTES_PER_MIB)
+        self.assertEqual(parsed["phys_footprint_peak_bytes"], 512 * metrics.BYTES_PER_MIB)
 
     def test_thread_roles_are_stable(self) -> None:
         listing = """\
@@ -121,13 +132,21 @@ tid thcomm
         self.assertEqual(decoded["schema_version"], metrics.SCHEMA_VERSION)
         self.assertEqual(decoded["fixture_contract"]["sizes"], list(metrics.FIXTURE_SIZES))
         self.assertFalse(decoded["fixture_contract"]["child_workload_charged_to_app"])
-        self.assertEqual(len(decoded["runs"]), 4)
+        self.assertEqual(len(decoded["runs"]), len(metrics.FIXTURE_SIZES))
 
     def test_short_cpu_sample_is_rejected(self) -> None:
         run = metrics.synthetic_run(200)
         run["cpu"]["duration_seconds"] = metrics.MIN_CPU_SECONDS - 1
         codes = {failure["code"] for failure in metrics.evaluate_run(run)}
         self.assertIn("cpu_duration", codes)
+
+    def test_sparse_cpu_sample_is_unavailable(self) -> None:
+        run = metrics.synthetic_run(200)
+        run["cpu"]["sample_count"] = 1
+        failures = metrics.evaluate_run(run)
+        codes = {failure["code"] for failure in failures}
+        self.assertIn("cpu_samples", codes)
+        self.assertNotIn("idle_cpu", codes)
 
     def test_missing_app_footprint_is_rejected(self) -> None:
         run = metrics.synthetic_run(10)
@@ -177,13 +196,48 @@ class TargetScaleFixtureTests(unittest.TestCase):
             super().__init__(args)
             self.create_payload = create_payload
             self.calls: list[tuple[str, dict[str, object]]] = []
+            self.fail_topology = False
+            self.runtime_ready_count = 1
+            self.capture_called = False
 
         def _workspace_ids(self) -> list[str]:
             return ["old-workspace"]
 
         def _pane_topology(self, workspace_id: str) -> list[dict[str, object]]:
             del workspace_id
+            if self.fail_topology:
+                raise runner.BenchmarkError("synthetic topology failure")
             return [{"id": "pane", "surface_ids": ["surface"], "selected": "surface"}]
+
+        def _runtime_terminal_stats(self, workspace_id: str) -> dict[str, object]:
+            del workspace_id
+            return {"reported_count": 1, "runtime_ready_count": self.runtime_ready_count}
+
+        def _seed_scrollback(
+            self,
+            workspace_id: str,
+            panes: list[dict[str, object]],
+            scrollback_bytes: int,
+        ) -> int:
+            del workspace_id, panes
+            return scrollback_bytes
+
+        def _assert_visibility(self, workspace_id: str, expected_live: int) -> None:
+            del workspace_id, expected_live
+
+        def _settle(self) -> None:
+            return None
+
+        def _capture_snapshot(self) -> dict[str, object]:
+            self.capture_called = True
+            return metrics.synthetic_run(1)["first_settled"]
+
+        def _cycle_visibility(self, workspace_id: str, panes: list[dict[str, object]]) -> None:
+            del workspace_id, panes
+
+        def _sample_cpu(self, duration_seconds: float) -> dict[str, object]:
+            del duration_seconds
+            return metrics.synthetic_run(1)["cpu"]
 
         def rpc(
             self,
@@ -216,6 +270,105 @@ class TargetScaleFixtureTests(unittest.TestCase):
         workspace_id, _panes = fixture._create_fixture(1)
 
         self.assertEqual(workspace_id, "created-workspace")
+
+    def test_run_size_closes_workspace_when_fixture_setup_raises(self) -> None:
+        fixture = self._Runner({"workspace_id": "created-workspace"})
+        fixture.fail_topology = True
+
+        with self.assertRaises(runner.BenchmarkError):
+            fixture.run_size(1)
+
+        self.assertIn(("workspace.close", {"workspace_id": "created-workspace"}), fixture.calls)
+
+    def test_run_size_rejects_unready_runtime_before_measurement(self) -> None:
+        fixture = self._Runner({"workspace_id": "created-workspace"})
+        fixture.runtime_ready_count = 0
+
+        with self.assertRaises(runner.BenchmarkError):
+            fixture.run_size(1)
+
+        self.assertFalse(fixture.capture_called)
+
+    def test_socket_owner_falls_back_to_the_launched_app_only(self) -> None:
+        fixture = self._Runner({})
+        fixture.proc = SimpleNamespace(pid=42)
+        with mock.patch.object(runner, "_text_value", return_value="99\n"), mock.patch.object(
+            runner, "_safe_text", return_value="cmuxd helper"
+        ):
+            self.assertEqual(fixture.socket_owner_pid(), 42)
+
+    def test_child_cleanup_escalates_after_term_grace(self) -> None:
+        with mock.patch.object(runner, "_wait_for_pids", side_effect=[{123}, set()]) as wait_for_pids:
+            with mock.patch.object(runner.os, "kill") as kill:
+                self.assertEqual(runner._terminate_pids([123]), set())
+
+        self.assertEqual(wait_for_pids.call_count, 2)
+        self.assertEqual(
+            kill.call_args_list,
+            [mock.call(123, runner.signal.SIGTERM), mock.call(123, runner.signal.SIGKILL)],
+        )
+
+    def test_target_scale_workflow_uses_safe_console_home_and_tagged_cleanup(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "perf-target-scale.yml").read_text(encoding="utf-8")
+        self.assertNotIn("awk '{print $2}'", workflow)
+        self.assertIn("cmuxd-dev-${PERF_TAG}.sock", workflow)
+        self.assertIn("scripts/ci/cleanup-target-scale.sh", workflow)
+
+
+class TargetScaleCleanupTests(unittest.TestCase):
+    def test_cleanup_script_reaps_tagged_processes_and_both_sockets(self) -> None:
+        script = ROOT / "scripts" / "ci" / "cleanup-target-scale.sh"
+        self.assertTrue(script.is_file())
+        tag = f"test-cleanup-{os.getpid()}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            log = root / "signals.log"
+            state = root / "state"
+            home = root / "home"
+            cmuxd_socket = home / "Library" / "Application Support" / "cmux" / f"cmuxd-dev-{tag}.sock"
+            cmuxd_socket.parent.mkdir(parents=True)
+            cmuxd_socket.touch()
+
+            (fake_bin / "pgrep").write_text("#!/bin/sh\nprintf '123\\n'\n", encoding="utf-8")
+            (fake_bin / "lsof").write_text("#!/bin/sh\nprintf '456\\n'\n", encoding="utf-8")
+            (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (fake_bin / "kill").write_text(
+                "#!/bin/sh\n"
+                "printf '%s %s\\n' \"$1\" \"$2\" >> \"$CMUX_TEST_SIGNAL_LOG\"\n"
+                "if [ \"$1\" = '-0' ]; then\n"
+                "  if [ -e \"$CMUX_TEST_SIGNAL_STATE\" ]; then exit 1; fi\n"
+                "  : > \"$CMUX_TEST_SIGNAL_STATE\"\n"
+                "  exit 0\n"
+                "fi\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            for command in fake_bin.iterdir():
+                command.chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", str(script), tag],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "HOME": str(home),
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "CMUX_TEST_SIGNAL_LOG": str(log),
+                    "CMUX_TEST_SIGNAL_STATE": str(state),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(cmuxd_socket.exists())
+            signals = log.read_text(encoding="utf-8")
+            self.assertIn("-TERM 123", signals)
+            self.assertIn("-TERM 456", signals)
+            self.assertIn("-KILL 123", signals)
 
 
 class TargetScaleArtifactTests(unittest.TestCase):
