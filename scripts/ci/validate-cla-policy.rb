@@ -26,12 +26,21 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # base-controlled guard, followed by the workflow change.
 EXPECTED_WORKFLOW_DIGEST = "d4db98df5a1b1e6f3b006a82639761a0513eeeaf153a9eb2b98d42d1af782145"
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
-EXPECTED_GUARD_WORKFLOW_DIGEST = "796d55eb22d05bfe06e821c3e704e7d4404081dd35d6af7c49b2fb3618bcd194"
-EXPECTED_GUARD_SCRIPT_DIGEST = "dd5465765c5e3b20db76ca7b939a40b50a2dcc02800015310f384429031cfab3"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "dfe6acc7a284001034c095fc50abd8bd4c64fc73e36bbe089c4c53169c062fdf"
+EXPECTED_GUARD_SCRIPT_DIGEST = "7e61437e6d623876d1bf7e7c7a06bbd82745e4d4a2a5397604dfd4ead24aef05"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
 TRUSTED_REVIEWER_IDS = %w[54008264 38676809].freeze
+
+# Keep the admission contract in one small, executable specification. The
+# pull-request workflow is still checked as data below, but its shell cannot be
+# run by this privileged workflow because it comes from an untrusted revision.
+CLA_SIGN_PHRASE = "I have read the CLA Document v2.2 and I hereby sign the CLA"
+CLA_RECHECK_PHRASE = "recheck"
+CLA_LIFECYCLE_ACTIONS = %w[opened edited reopened synchronize].freeze
+CLA_TRUSTED_ASSOCIATIONS = %w[OWNER MEMBER COLLABORATOR].freeze
+POSITIVE_ID = /\A[1-9][0-9]*\z/
 
 def fail!(message)
   raise PolicyError, message
@@ -155,6 +164,128 @@ def assert_permission(job_value, name, permission, expected)
   fail!("#{name}.permissions.#{permission} must be #{expected}") unless permissions[permission] == expected
 end
 
+# Return the observable result of the exact admission contract. `:ordinary`
+# means a valid human discussion comment that must not reach the signer. The
+# `:malformed` result represents a fail-closed event or metadata shape error.
+# This is deliberately independent of the candidate workflow text. The
+# structural checks in `validate_workflow` bind the candidate to the same
+# contract, while this matrix catches accidental drift in the trusted policy
+# specification itself.
+def cla_admission_outcome(event)
+  return :malformed unless event.is_a?(Hash)
+
+  event_name = event[:event_name]
+  event_action = event[:action]
+  if event_name == "pull_request_target"
+    return :admitted if CLA_LIFECYCLE_ACTIONS.include?(event_action)
+
+    return :malformed
+  end
+  return :malformed unless event_name == "issue_comment" && event_action == "created"
+
+  required = %i[
+    issue_state
+    issue_pull_request
+    comment_body
+    comment_author_type
+    comment_author_id
+    comment_author_login
+    pr_author_id
+    comment_author_association
+  ]
+  return :malformed unless required.all? { |key| event.key?(key) }
+  return :malformed unless event[:issue_state] == "open" && event[:issue_pull_request] == true
+
+  author_type = event[:comment_author_type]
+  author_id = event[:comment_author_id]
+  author_login = event[:comment_author_login]
+  pr_author_id = event[:pr_author_id]
+  association = event[:comment_author_association]
+  return :malformed unless author_type == "User" && author_login.is_a?(String) && !author_login.empty?
+  return :malformed if author_login.downcase.end_with?("[bot]")
+  return :malformed unless author_id.is_a?(String) && author_id.match?(POSITIVE_ID)
+  return :malformed unless pr_author_id.is_a?(String) && pr_author_id.match?(POSITIVE_ID)
+  return :malformed unless association.is_a?(String) && !association.empty? && !association.match?(/[\r\n]/)
+
+  if event[:comment_body] == CLA_SIGN_PHRASE
+    return :admitted if author_id == pr_author_id
+
+    return :ordinary
+  end
+  if event[:comment_body] == CLA_RECHECK_PHRASE
+    return :admitted if author_id == pr_author_id || CLA_TRUSTED_ASSOCIATIONS.include?(association)
+
+    return :ordinary
+  end
+
+  :ordinary
+end
+
+def run_trusted_cla_regression_matrix!
+  base = {
+    event_name: "issue_comment",
+    action: "created",
+    issue_state: "open",
+    issue_pull_request: true,
+    comment_body: CLA_RECHECK_PHRASE,
+    comment_author_type: "User",
+    comment_author_id: "300",
+    comment_author_login: "contributor",
+    pr_author_id: "300",
+    comment_author_association: "NONE"
+  }
+  cases = []
+  add = lambda do |name, changes, expected|
+    cases << [name, base.merge(changes), expected]
+  end
+
+  add.call("author-recheck", {}, :admitted)
+  add.call("exact-sign", { comment_body: CLA_SIGN_PHRASE }, :admitted)
+  add.call("non-author-sign", {
+    comment_body: CLA_SIGN_PHRASE,
+    comment_author_id: "301",
+    comment_author_login: "reviewer",
+    comment_author_association: "MEMBER"
+  }, :ordinary)
+  add.call("legacy-sign", { comment_body: "I have read the CLA Document and I hereby sign the CLA" }, :ordinary)
+  add.call("uppercase-recheck", { comment_body: "RECHECK" }, :ordinary)
+  add.call("padded-sign", { comment_body: " #{CLA_SIGN_PHRASE} " }, :ordinary)
+  add.call("wrapped-sign", { comment_body: "Please sign: #{CLA_SIGN_PHRASE}" }, :ordinary)
+  add.call("ordinary-comment", { comment_body: "Thanks for the review!" }, :ordinary)
+  CLA_TRUSTED_ASSOCIATIONS.each do |association|
+    add.call("#{association.downcase}-recheck", {
+      comment_author_id: "301",
+      comment_author_login: "maintainer",
+      comment_author_association: association
+    }, :admitted)
+  end
+  add.call("untrusted-recheck", { comment_author_id: "301" }, :ordinary)
+  add.call("bot-type", { comment_author_type: "Bot" }, :malformed)
+  add.call("bot-login", { comment_author_login: "github-actions[bot]" }, :malformed)
+  add.call("missing-author-id", { comment_author_id: nil }, :malformed)
+  add.call("malformed-association", { comment_author_association: "MEMBER\nOWNER" }, :malformed)
+  add.call("closed-issue", { issue_state: "closed" }, :malformed)
+  add.call("non-pull-request", { issue_pull_request: false }, :malformed)
+  add.call("wrong-comment-action", { action: "edited" }, :malformed)
+  CLA_LIFECYCLE_ACTIONS.each do |action|
+    add.call("pull-request-#{action}", {
+      event_name: "pull_request_target",
+      action: action
+    }, :admitted)
+  end
+  add.call("pull-request-closed", { event_name: "pull_request_target", action: "closed" }, :malformed)
+  add.call("unsupported-event", { event_name: "push", action: "" }, :malformed)
+  cases << ["nil-event", nil, :malformed]
+
+  failures = []
+  cases.each do |name, event, expected|
+    actual = cla_admission_outcome(event)
+    failures << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
+  end
+  fail!("trusted CLA regression matrix failed: #{failures.join('; ')}") unless failures.empty?
+  puts "PASS: trusted CLA regression matrix (#{cases.length} cases)"
+end
+
 def validate_workflow(raw)
   document = YAML.safe_load(raw, aliases: false)
   fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
@@ -187,6 +318,12 @@ def validate_workflow(raw)
 
   fail!("CLACommentGate must have no permissions") unless gate["permissions"] == {}
   fail!("CLACompatibility must have no permissions") unless compatibility["permissions"] == {}
+  admission_step = steps(gate, "CLACommentGate").find { |step| step.is_a?(Hash) && step["id"] == "admission" }
+  admission_run = admission_step && admission_step["run"]
+  fail!("CLACommentGate admission implementation is missing") unless admission_run.is_a?(String)
+  fail!("CLA signing must require the pull-request opener") unless admission_run.match?(
+    /if \[\[ "\$\{COMMENT_AUTHOR_ID\}" != "\$\{PR_AUTHOR_ID\}" \]\]; then\s+printf 'admitted=false\\n'/
+  )
   assert_permission(assistant, "CLAAssistant", "contents", "write")
   assert_permission(assistant, "CLAAssistant", "issues", "write")
   assert_permission(assistant, "CLAAssistant", "pull-requests", "write")
@@ -205,7 +342,7 @@ def validate_workflow(raw)
     "path-to-signatures" => "signatures/version2/cla.json",
     "branch" => "cla-signatures",
     "required-base-ref" => "main",
-    "custom-pr-sign-comment" => "I have read the CLA Document v2.2 and I hereby sign the CLA",
+    "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
     "allowlist-ids" => "38676809,67667005",
     "require-opener-as-author" => "true"
   }.each do |key, expected|
@@ -233,8 +370,8 @@ def validate_workflow(raw)
   # fixture harnesses exercise their full event matrix; this base-controlled
   # check ensures a PR cannot remove the invariants from that harness's input.
   [
-    "github.event.comment.body == 'recheck'",
-    "github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'",
+    "github.event.comment.body == '#{CLA_RECHECK_PHRASE}'",
+    "github.event.comment.body == '#{CLA_SIGN_PHRASE}'",
     "github.event.comment.user.type == 'User'",
     "github.event.comment.user.id == github.event.issue.user.id",
     "github.event.action == 'created'",
@@ -243,6 +380,11 @@ def validate_workflow(raw)
     "if: success()",
     "issues: write"
   ].each { |fragment| assert_text(raw, fragment) }
+  sign_author_guard = Regexp.new(
+    "github\\.event\\.comment\\.body == '#{Regexp.escape(CLA_SIGN_PHRASE)}'\\s*&&\\s*" \
+    "github\\.event\\.comment\\.user\\.id == github\\.event\\.issue\\.user\\.id"
+  )
+  fail!("CLA signing trigger does not require the pull-request opener") unless raw.match?(sign_author_guard)
   fail!("CLA workflow may not checkout a pull-request ref") if raw.match?(/ref:\s*\$\{\{\s*github\.event\.pull_request/)
 
   uses = []
@@ -278,11 +420,13 @@ def validate_guard_workflow(raw)
     require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
   end
   triggers = document["on"] || document[true]
+  fail!("guard workflow has no mapping of triggers") unless triggers.is_a?(Hash)
+  target = triggers["pull_request_target"]
   fail!("guard workflow has unsafe triggers") unless
-    triggers.is_a?(Hash) &&
     !triggers.key?("pull_request") &&
-    triggers["pull_request_target"].is_a?(Hash) &&
-    triggers["pull_request_target"]["branches"] == ["main"]
+    target.is_a?(Hash) &&
+    target["branches"] == ["main"] &&
+    target["types"] == %w[opened edited reopened synchronize]
   fail!("guard workflow must have empty top-level permissions") unless document["permissions"] == {}
   guard_job = document.dig("jobs", "validate")
   fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)
@@ -326,6 +470,7 @@ def validate_guard_script(raw)
 end
 
 begin
+  run_trusted_cla_regression_matrix!
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
   base_sha = required_env("BASE_SHA", SHA)
