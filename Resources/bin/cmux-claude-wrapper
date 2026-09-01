@@ -887,6 +887,10 @@ cmux_node_options_dir() {
 # ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath — keep the two in step.
 is_cmux_restore_module_path() {
     local module_path="$1"
+    # node consumes surrounding double quotes in NODE_OPTIONS, so an inherited value can carry
+    # them around the path. Trim them, matching ClaudeNodeOptionsRestoreModule.isCmuxOwnedPath.
+    module_path="${module_path#[\"\']}"
+    module_path="${module_path%[\"\']}"
     [[ "$module_path" == */"$CMUX_NODE_OPTIONS_MODULE_NAME" ]] || return 1
     local parent_dir="${module_path%/*}"
     if [[ -n "${CMUX_NODE_OPTIONS_ACTIVE_DIR:-}" && "$parent_dir" == "$CMUX_NODE_OPTIONS_ACTIVE_DIR" ]]; then

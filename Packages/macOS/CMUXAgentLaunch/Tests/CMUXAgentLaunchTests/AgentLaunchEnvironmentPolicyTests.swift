@@ -70,6 +70,24 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected == ["NODE_OPTIONS": "--trace-warnings"])
     }
 
+    @Test(
+        "Drops a cmux preload whose path arrives wrapped in quotes",
+        arguments: [
+            "--require=\"/tmp/cmux-claude-node-options/restore-node-options.cjs\"",
+            "--require \"/tmp/cmux-claude-node-options/restore-node-options.cjs\"",
+        ]
+    )
+    func dropsQuotedPreload(injected: String) {
+        // node consumes surrounding double quotes in NODE_OPTIONS, so an inherited value can
+        // carry them around the path.
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["NODE_OPTIONS": "\(injected) --trace-warnings"],
+            kind: "claude"
+        )
+
+        #expect(selected == ["NODE_OPTIONS": "--trace-warnings"])
+    }
+
     @Test("Keeps a caller preload written in the space-separated form")
     func keepsCallerPreloadInSpaceForm() {
         let nodeOptions = "--require /opt/vendor/instrument.cjs --trace-warnings"

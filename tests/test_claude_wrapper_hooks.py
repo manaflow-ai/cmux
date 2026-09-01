@@ -2784,6 +2784,32 @@ def test_live_socket_keeps_caller_preload_in_space_separated_form(failures: list
     )
 
 
+def test_live_socket_replaces_reaped_module_wrapped_in_quotes(failures: list[str]) -> None:
+    """node consumes surrounding double quotes in NODE_OPTIONS, so an inherited value can carry
+    them around the path. Missing that leaves the dead preload in place."""
+    for spelling in ('--require="{path}"', '--require "{path}"'):
+        with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-quoted-") as td:
+            sandbox = Path(td)
+            reaped = sandbox / "reaped" / "cmux-claude-node-options" / "restore-node-options.cjs"
+            code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+                socket_state="live",
+                argv=["hello"],
+                node_options=f"{spelling.format(path=reaped)} --trace-warnings",
+                node_options_dir=str(sandbox / "state" / "cmux" / "node-options"),
+            )
+            expect(code == 0, f"quoted {spelling!r}: wrapper exited {code}: {stderr}", failures)
+            expect(
+                str(reaped) not in node_options,
+                f"quoted {spelling!r}: dead preload survived, got {node_options!r}",
+                failures,
+            )
+            expect(
+                child_node_options == "--trace-warnings",
+                f"quoted {spelling!r}: expected only the caller's flags in the child, got {child_node_options!r}",
+                failures,
+            )
+
+
 def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="missing",
@@ -2963,6 +2989,7 @@ def main() -> int:
     test_live_socket_keeps_caller_preload_that_resembles_the_cmux_location(failures)
     test_live_socket_replaces_reaped_module_in_every_require_spelling(failures)
     test_live_socket_keeps_caller_preload_in_space_separated_form(failures)
+    test_live_socket_replaces_reaped_module_wrapped_in_quotes(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
