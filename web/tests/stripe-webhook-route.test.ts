@@ -804,8 +804,8 @@ describe("Stripe billing webhook route", () => {
   });
 });
 
-function webhookRequest(): Request {
-  return new Request("https://cmux.test/api/stripe/webhook", {
+function webhookRequest(origin = "https://cmux.test"): Request {
+  return new Request(`${origin}/api/stripe/webhook`, {
     method: "POST",
     headers: { "stripe-signature": "t=1,v1=test" },
     body: JSON.stringify({ id: "evt_1" }),
