@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxSettings
 import Foundation
 import XCTest
 
