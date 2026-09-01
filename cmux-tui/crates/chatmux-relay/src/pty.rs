@@ -1379,6 +1379,9 @@ impl Inner {
             }
         };
         if let Err((code, message)) = reservation_result {
+            if cancellation.is_cancelled() {
+                return;
+            }
             fail(code, &message);
             return;
         }
