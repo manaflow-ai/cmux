@@ -12146,6 +12146,12 @@ struct VerticalTabsSidebar: View, Equatable {
             let liveWorkspaceIds = Set(tabManager.tabs.map(\.id))
             return Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.compactMap { group in
+                    if group.isEmpty {
+                        // Empty pinned groups still have a draggable header. Its
+                        // stable group identity is consumed by the reorder
+                        // resolver as `.reorderGroup`, not as a workspace id.
+                        return (group.id, group.id)
+                    }
                     guard liveWorkspaceIds.contains(group.anchorWorkspaceId) else { return nil }
                     return (group.id, group.anchorWorkspaceId)
                 }
