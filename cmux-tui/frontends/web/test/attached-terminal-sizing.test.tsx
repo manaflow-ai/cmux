@@ -9,8 +9,8 @@ type TerminalMock = {
   options: Record<string, unknown>;
   writes: Array<string | Uint8Array>;
   disableStdinDuringWrites: boolean[];
-    customKeyEventHandler?: (event: KeyboardEvent) => boolean;
-  };
+  customKeyEventHandler?: (event: KeyboardEvent) => boolean;
+};
 const terminalMocks = vi.hoisted(() => ({
   instances: [] as TerminalMock[],
 }));
@@ -27,12 +27,12 @@ vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     options: Record<string, unknown>;
     writes: Array<string | Uint8Array> = [];
+    disableStdinDuringWrites: boolean[] = [];
     customKeyEventHandler?: (event: KeyboardEvent) => boolean;
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
       terminalMocks.instances.push(this);
-      this.disableStdinDuringWrites = [];
     }
 
     loadAddon() {}
