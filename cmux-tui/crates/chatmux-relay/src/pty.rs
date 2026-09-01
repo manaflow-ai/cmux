@@ -1043,9 +1043,6 @@ impl Inner {
         }
     }
 
-    fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
-        self.close(pty_id);
-    }
 }
 
 /// A resolved open: what to echo, plus a deferred `start` that begins output.
