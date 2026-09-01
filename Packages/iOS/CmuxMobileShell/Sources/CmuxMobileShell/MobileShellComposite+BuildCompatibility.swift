@@ -2,11 +2,93 @@ internal import CmuxMobileRPC
 internal import CmuxMobileShellModel
 internal import Foundation
 
+/// The single admission outcome for an authenticated Mac: channel/tag
+/// compatibility (``MobileMacBuildCompatibilityPolicy``) first, then the
+/// release-lane version floor (``MobileMacCompatPolicy``).
+enum MacBuildAdmissionVerdict: Equatable {
+    case allowed
+    case buildIncompatible
+    case macAppVersionTooOld(MobileMacCompatPolicy.Violation)
+}
+
+#if DEBUG
+/// Dogfood switch for the release-lane version gate, which otherwise never
+/// fires in development builds (they only admit development-tag Macs).
+/// Launch the tagged Mac with `CMUX_DEBUG_MOBILE_APP_VERSION=<old version>`
+/// and the phone/simulator with `CMUX_DEBUG_FORCE_MAC_COMPAT=1` (or the
+/// launch argument `-CMUXDebugForceMacCompat YES`); the gate then evaluates
+/// the dev Mac with its channel derived from the reported version grammar.
+enum MobileMacCompatDebugOverride {
+    static var forceEvaluation: Bool {
+        ProcessInfo.processInfo.environment["CMUX_DEBUG_FORCE_MAC_COMPAT"] == "1"
+            || UserDefaults.standard.bool(forKey: "CMUXDebugForceMacCompat")
+    }
+}
+#endif
+
 @MainActor
 extension MobileShellComposite {
     /// Whether authenticated host status belongs to this iOS build's audience.
     func macBuildIsCompatible(instanceTag: String?) -> Bool {
         buildCompatibilityPolicy?.allows(instanceTag: instanceTag) ?? true
+    }
+
+    /// Admits an authenticated Mac through both compatibility authorities:
+    /// the channel/tag policy, then the release-lane minimum-version policy
+    /// for the tier matching this app's version.
+    func authenticatedMacBuildAdmission(
+        instanceTag: String?,
+        clientNamespace: String? = nil,
+        macAppVersion: String?,
+        client: MobileCoreRPCClient
+    ) -> MacBuildAdmissionVerdict {
+        guard authenticatedMacBuildIsCompatible(
+            instanceTag: instanceTag,
+            clientNamespace: clientNamespace,
+            macAppVersion: macAppVersion,
+            client: client
+        ) else {
+            return .buildIncompatible
+        }
+        guard let channel = versionGateChannel(
+            instanceTag: instanceTag,
+            macAppVersion: macAppVersion
+        ) else {
+            return .allowed
+        }
+        guard let violation = macCompatPolicy.violation(
+            iosVersion: versionGateIOSAppVersion,
+            channel: channel,
+            macAppVersion: macAppVersion
+        ) else {
+            return .allowed
+        }
+        return .macAppVersionTooOld(violation)
+    }
+
+    /// The release lane the version gate holds this Mac to, or `nil` when
+    /// the Mac is outside the gate. Only the official audience is gated:
+    /// development builds admit only development-tag Macs (rebuilt from
+    /// source), and a `nil` policy is a preview/test fixture that admits
+    /// everything. The DEBUG override makes the gate dogfoodable by deriving
+    /// a dev Mac's channel from its reported version grammar.
+    private func versionGateChannel(
+        instanceTag: String?,
+        macAppVersion: String?
+    ) -> MobileMacCompatPolicy.Channel? {
+        switch buildCompatibilityPolicy {
+        case .official:
+            return MobileMacCompatPolicy.constrainedChannel(instanceTag: instanceTag)
+        case .development:
+            #if DEBUG
+            guard MobileMacCompatDebugOverride.forceEvaluation else { return nil }
+            return macAppVersion?.contains("-nightly.") == true ? .nightly : .stable
+            #else
+            return nil
+            #endif
+        case nil:
+            return nil
+        }
     }
 
     /// Whether authenticated host status belongs to this build, including the

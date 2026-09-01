@@ -1040,6 +1040,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let connectionMethodStore: MobileConnectionMethodStore?
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
+    /// Minimum Mac app versions this iOS version accepts on the release
+    /// lanes (`default`, `nightly`). Starts from the compiled-in
+    /// ``MobileMacCompatPolicy/baked`` fallback; the app root replaces it
+    /// with the fetched (or cached) `/api/mobile-mac-compat` list.
+    public var macCompatPolicy: MobileMacCompatPolicy = .baked
+    /// Version-gate details captured when a connect route is rejected, so
+    /// the end-of-attempt classification names the exact versions instead of
+    /// a generic code. Cleared with the pairing error at attempt start.
+    var pendingMacVersionGateViolation: MobileMacCompatPolicy.Violation?
     /// Single physical-Mac identity authority shared by every connection role.
     let macInstanceTagAuthority: MobileMacInstanceTagAuthority
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
@@ -2844,7 +2853,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return
             }
-            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
+            let category = resolvingMacVersionGateViolation(
+                MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
+            )
             applyPairingFailure(category, phase: "connect")
             if sameRouteProbeClient.map({ remoteClient === $0 }) == true {
                 return
@@ -4587,13 +4598,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard remoteClient === client else { return }
         let resolvedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard authenticatedMacBuildIsCompatible(
+        switch authenticatedMacBuildAdmission(
             instanceTag: resolvedTag,
             clientNamespace: clientNamespace,
             macAppVersion: macAppVersion,
             client: client
-        ) else {
+        ) {
+        case .allowed:
+            break
+        case .buildIncompatible:
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
+            return
+        case let .macAppVersionTooOld(violation):
+            // Explain before disconnecting (mirrors
+            // applyStoredMacUpdateRequiredFailure ordering): the saved pairing
+            // stays intact and reconnects once the Mac updates.
+            applyPairingFailure(
+                .macAppVersionTooOld(
+                    macVersion: violation.macAppVersion,
+                    requiredVersion: violation.requiredVersionDisplay,
+                    isNightlyChannel: violation.channel == .nightly
+                ),
+                phase: "identity"
+            )
+            connectionRequiresReauth = false
+            rejectForegroundHostIdentity(client: client, reason: "mac_app_version_too_old")
             return
         }
         if let activeMacInstanceTag,
@@ -9886,12 +9915,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let hasAuthenticatedIdentity = reportedDeviceID?.isEmpty == false
                     let reportedInstanceTag = hasAuthenticatedIdentity ? status.macInstanceTag : nil
-                    guard authenticatedMacBuildIsCompatible(
+                    switch authenticatedMacBuildAdmission(
                         instanceTag: reportedInstanceTag,
                         clientNamespace: status.macClientNamespace,
                         macAppVersion: status.macAppVersion,
                         client: client
-                    ) else {
+                    ) {
+                    case .allowed:
+                        break
+                    case .buildIncompatible:
                         mobileShellLog.error(
                             "rejecting route from incompatible Mac build reported=\(reportedInstanceTag ?? "missing", privacy: .public)"
                         )
@@ -9901,6 +9933,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             "Mac build is incompatible with this iOS build"
                         )
                         recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
+                        continue routeLoop
+                    case let .macAppVersionTooOld(violation):
+                        mobileShellLog.error(
+                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public)"
+                        )
+                        await client.disconnect()
+                        pendingMacVersionGateViolation = violation
+                        lastError = MobileShellConnectionError.rpcError(
+                            "mac_app_version_too_old",
+                            "Mac app version is below this iOS build's minimum"
+                        )
+                        recordHostAuthenticationFailure(route: route, failure: .unsupportedRoute)
                         continue routeLoop
                     }
                     let authority = macInstanceTagAuthority.resolve(
@@ -11215,6 +11259,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
+        pendingMacVersionGateViolation = nil
+    }
+
+    /// The running app's marketing version, driving Mac version-gate tier
+    /// selection. Empty in test fixtures (their stamp provider defaults to
+    /// the empty stamp), which parses to no tier and therefore no gate.
+    var versionGateIOSAppVersion: String {
+        feedbackStampProvider().appVersion
+    }
+
+    /// Replaces a generic classification with the exact version-gate
+    /// violation captured while the failed attempt's routes were rejected.
+    /// The stash wins whenever set: even when a later route failed
+    /// differently (say, a timeout), the actionable truth is that the Mac
+    /// the routes reach is below the version floor.
+    private func resolvingMacVersionGateViolation(
+        _ category: MobilePairingFailureCategory
+    ) -> MobilePairingFailureCategory {
+        guard let violation = pendingMacVersionGateViolation else { return category }
+        pendingMacVersionGateViolation = nil
+        return .macAppVersionTooOld(
+            macVersion: violation.macAppVersion,
+            requiredVersion: violation.requiredVersionDisplay,
+            isNightlyChannel: violation.channel == .nightly
+        )
     }
 
     private func clearTerminalCreationErrorIfRecovered() {

@@ -37,6 +37,10 @@ struct CMUXMobileRootView: View {
     /// Optional so previews and package hosts remain migration-free by default.
     @Environment(MobileAutoConnectMigrationStore.self) private var autoConnectMigrationStore:
         MobileAutoConnectMigrationStore?
+    /// Minimum-Mac-version list shared with onboarding copy. Optional so
+    /// previews and package hosts keep the store's compiled-in fallback.
+    @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
+        MobileMacCompatCenter?
     /// Persists the last durable milestone in first-run onboarding.
     @Bindable private var onboardingStore: MobileOnboardingStore
     @State private var isAwaitingOnboardingReconnectStart = false
@@ -298,6 +302,18 @@ struct CMUXMobileRootView: View {
             // lifecycle callbacks, so it cannot start a duplicate dial.
             await finishAuthenticationBootstrapAndConnect()
         }
+        #if os(iOS)
+        .task {
+            // Push the cached (or baked) Mac minimum-version list into the
+            // store before its first admission check, then refresh from
+            // /api/mobile-mac-compat and push the update. Connections that
+            // race the fetch still enforce the compiled-in fallback.
+            guard let macCompatCenter else { return }
+            store.macCompatPolicy = macCompatCenter.policy
+            await macCompatCenter.refresh()
+            store.macCompatPolicy = macCompatCenter.policy
+        }
+        #endif
         .onChange(of: store.tailscaleSetupStatus, initial: true) { _, status in
             tailscaleSetupPrompt.apply(.shellStatusChanged(status))
         }

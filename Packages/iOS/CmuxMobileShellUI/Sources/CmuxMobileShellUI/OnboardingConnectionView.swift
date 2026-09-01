@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -8,6 +9,10 @@ struct OnboardingConnectionView: View {
     let connectionMethod: MobileConnectionMethod
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// Names the minimum Mac version for this app version in the connect
+    /// copy. Optional so previews without the app root keep versionless copy.
+    @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
+        MobileMacCompatCenter?
 
     var body: some View {
         ZStack {
@@ -94,6 +99,15 @@ struct OnboardingConnectionView: View {
             )
         }
         if connectionMethod == .tailscale {
+            if let requiredMacVersion {
+                return String(
+                    format: L10n.string(
+                        "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat",
+                        defaultValue: "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
+                    ),
+                    requiredMacVersion
+                )
+            }
             return L10n.string(
                 "mobile.onboarding.connect.tailscaleBody",
                 defaultValue: """
@@ -102,10 +116,28 @@ struct OnboardingConnectionView: View {
                 """
             )
         }
+        if let requiredMacVersion {
+            return String(
+                format: L10n.string(
+                    "mobile.onboarding.connect.bodyWithMinVersionFormat",
+                    defaultValue: "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+                ),
+                requiredMacVersion
+            )
+        }
         return L10n.string(
             "mobile.onboarding.connect.body",
             defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
         )
+    }
+
+    /// The minimum stable-channel Mac version this app version accepts, from
+    /// the fetched (or compiled-in) policy tier; `nil` when no tier applies,
+    /// which keeps the versionless copy.
+    private var requiredMacVersion: String? {
+        macCompatCenter?.policy
+            .tier(forIOSVersion: AppVersionInfo.current().marketingVersion)?
+            .stableMinVersion.description
     }
 }
 

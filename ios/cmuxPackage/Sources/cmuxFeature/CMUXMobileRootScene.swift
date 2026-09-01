@@ -72,6 +72,10 @@ public struct CMUXMobileRootScene: View {
     /// the shell's one-time sheet and Settings > What's New share one fetch
     /// and one cache through `@Environment(MobileWhatsNewCenter.self)`.
     @State private var whatsNewCenter: MobileWhatsNewCenter
+    /// Minimum-Mac-version state (remote list + per-origin cache), hosted at
+    /// this root so onboarding copy and the shell store's connection gate
+    /// share one fetch through `@Environment(MobileMacCompatCenter.self)`.
+    @State private var macCompatCenter: MobileMacCompatCenter
     /// Exchanges the native Stack session for cmux web session cookies so
     /// in-app webviews (What's New web pages) render as the signed-in user.
     /// Injected as a plain environment value through
@@ -164,6 +168,9 @@ public struct CMUXMobileRootScene: View {
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
         _whatsNewCenter = State(
             initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
+        )
+        _macCompatCenter = State(
+            initialValue: MobileMacCompatCenter(apiBaseURL: auth.config.apiBaseURL)
         )
         webAppSession = MobileWebAppSessionBroker(
             tokens: auth.coordinator,
@@ -398,6 +405,7 @@ public struct CMUXMobileRootScene: View {
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
             .environment(whatsNewCenter)
+            .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
             #endif
     }

@@ -86,6 +86,16 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// route before this iOS version can reconnect securely. This is version
     /// skew, not an account failure, so the saved pairing stays intact.
     case macUpdateRequired
+    /// The authenticated Mac's app version is below the minimum this iOS
+    /// version supports (``MobileMacCompatPolicy``). The saved pairing stays
+    /// intact: the same Mac reconnects as soon as it updates.
+    /// `macVersion` is `nil` when the Mac predates version reporting;
+    /// `requiredVersion` is the channel-specific minimum to name in copy.
+    case macAppVersionTooOld(
+        macVersion: String?,
+        requiredVersion: String,
+        isNightlyChannel: Bool
+    )
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
@@ -134,7 +144,7 @@ extension MobilePairingFailureCategory: DiagnosticFailureProviding {
         case .invalidCode, .unrecognizedVersion:
             .protocolViolation
         case .loopbackRejected, .unsupportedRoute, .noSupportedRoute,
-             .macUpdateRequired:
+             .macUpdateRequired, .macAppVersionTooOld:
             .unsupportedRoute
         case .routeCleanupBlocked:
             .endpointUnavailable
@@ -171,6 +181,7 @@ extension MobilePairingFailureCategory {
         case .unrecognizedVersion: return "unrecognized_version"
         case .loopbackRejected: return "loopback_rejected"
         case .macUpdateRequired: return "mac_update_required"
+        case .macAppVersionTooOld: return "mac_app_version_too_old"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .routeCleanupBlocked: return "route_cleanup_blocked"
@@ -356,6 +367,41 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.macUpdateRequired",
                 defaultValue: "Update cmux on this Mac to connect securely."
             )
+        case let .macAppVersionTooOld(macVersion, requiredVersion, isNightlyChannel):
+            // Product-neutral copy on every channel: versions carry no internal
+            // lane vocabulary, so there is no separate official variant.
+            if isNightlyChannel {
+                guard let macVersion else {
+                    return L10n.string(
+                        "mobile.pairing.macVersionTooOld.nightlyUnknown",
+                        defaultValue: "This version of the app needs a newer cmux Nightly on this Mac."
+                    )
+                }
+                return String(
+                    format: L10n.string(
+                        "mobile.pairing.macVersionTooOld.nightlyFormat",
+                        defaultValue: "This Mac is running cmux %1$@, but this version of the app needs a newer cmux Nightly."
+                    ),
+                    macVersion
+                )
+            }
+            guard let macVersion else {
+                return String(
+                    format: L10n.string(
+                        "mobile.pairing.macVersionTooOld.unknownFormat",
+                        defaultValue: "This Mac is running an older version of cmux. This version of the app requires cmux %1$@ or newer on the Mac."
+                    ),
+                    requiredVersion
+                )
+            }
+            return String(
+                format: L10n.string(
+                    "mobile.pairing.macVersionTooOld.format",
+                    defaultValue: "This Mac is running cmux %1$@, but this version of the app requires cmux %2$@ or newer on the Mac."
+                ),
+                macVersion,
+                requiredVersion
+            )
         case .unsupportedRoute:
             return L10n.string(
                 "mobile.pairing.secureRouteRequired",
@@ -479,6 +525,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.macUpdateRequired",
                 defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
             )
+        case .macAppVersionTooOld:
+            return L10n.string(
+                "mobile.pairing.guidance.macVersionTooOld",
+                defaultValue: "On the Mac, update cmux (cmux menu > Check for Updates, or download the latest from cmux.com). This computer reconnects automatically after the update."
+            )
         case .routeCleanupBlocked:
             return L10n.string(
                 "mobile.pairing.guidance.routeCleanupBlocked",
@@ -585,6 +636,12 @@ extension MobilePairingFailureCategory {
         if let normalizedCode {
             if normalizedCode == "build_incompatible" {
                 return .buildIncompatible
+            }
+            if normalizedCode == "mac_app_version_too_old" {
+                // The composite replaces this with the exact captured
+                // versions (`resolvingMacVersionGateViolation`); this pure
+                // mapping is the version-less fallback.
+                return .macUpdateRequired
             }
             if normalizedCode == "account_mismatch" {
                 return .accountMismatch
