@@ -517,6 +517,7 @@ final class TuiManualIOPump {
     private var stopped = false
     private var everRenderedAttach = false
     private var consecutiveUnexplainedFailures = 0
+    private var reconnectAttempt = 0
     private var lastKnownGrid: TuiManualIOGrid?
     private var resizeScheduler = TuiManualIOResizeScheduler()
     private var resizeAckTimeoutTask: Task<Void, Never>?
@@ -608,6 +609,7 @@ final class TuiManualIOPump {
         case .reconnecting, .failed:
             guard !stopped else { return }
             consecutiveUnexplainedFailures = 0
+            reconnectAttempt = 0
             retryTask?.cancel()
             retryTask = nil
             state = .reconnecting(attempt: 1)
@@ -934,6 +936,7 @@ final class TuiManualIOPump {
             guard !Task.isCancelled, let self,
                   self.generation == liveGeneration, self.state == .live else { return }
             self.consecutiveUnexplainedFailures = 0
+            self.reconnectAttempt = 0
             self.liveStabilityTask = nil
         }
     }
@@ -944,8 +947,9 @@ final class TuiManualIOPump {
         if case .reconnecting(let previous) = state {
             attempt = previous + 1
         } else {
-            attempt = 1
+            attempt = max(1, reconnectAttempt + 1)
         }
+        reconnectAttempt = attempt
         state = .reconnecting(attempt: attempt)
         let delay = TuiManualIOPumpPolicy.retryDelay(attempt: attempt)
         let sleep = sleep
