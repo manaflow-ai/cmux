@@ -11957,7 +11957,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let requestedMacDeviceID = requestedRow?.macDeviceID ?? foregroundMacDeviceID
-        let requestedInstanceTag = requestedRow?.macInstanceTag ?? activeMacInstanceTag
+        // A known workspace owner may legitimately have no instance tag in a
+        // legacy snapshot. Keep that absence instead of borrowing the global
+        // foreground tag, which may belong to a different Mac instance.
+        let requestedInstanceTag: String? = {
+            guard let requestedRow else { return activeMacInstanceTag }
+            if requestedRow.macDeviceID?.isEmpty == false {
+                return requestedRow.macInstanceTag
+            }
+            return requestedRow.macInstanceTag ?? activeMacInstanceTag
+        }()
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
