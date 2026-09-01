@@ -121,3 +121,79 @@ extension Workspace {
         alert.runModal()
     }
 }
+
+
+/// Writes local rename intents through to the cloud machine a local workspace or pane
+/// stands for, so the name persists on that daemon and reaches every attached client.
+/// The pane leg lives in `Workspace.setPanelCustomTitle`; this type carries the
+/// workspace leg plus the pure target/name rules both legs and the tests share.
+enum CloudWorkspaceRenameWriteThrough {
+    /// The one remote cmux-tui workspace a local workspace stands for. The persisted
+    /// binding wins; otherwise the projected cloud resources decide, but only when
+    /// every view agrees on a single remote workspace — a local workspace composing
+    /// panes from several remote workspaces (or pool terminals) has no one name to
+    /// write, so nothing propagates.
+    static func remoteTarget(
+        binding: WorkspaceCloudVMBinding?,
+        projectedResources: [SurfaceResource]
+    ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
+        if let binding, let remote = binding.remoteWorkspaceID, !remote.isEmpty {
+            return (.cloud(binding.vmID), remote)
+        }
+        var seen = Set<String>()
+        var found: (SurfaceMachineID, String)?
+        for resource in projectedResources where !resource.machine.isLocal {
+            for workspace in resource.remoteWorkspaces {
+                seen.insert("\(resource.machine.rawValue)\u{1F}\(workspace.id)")
+                found = (resource.machine, workspace.id)
+            }
+        }
+        guard seen.count == 1, let found else { return nil }
+        return (found.0, found.1)
+    }
+
+    /// The daemon-side name for a local title: the "<machine>: " prefix the open path
+    /// added is dropped, so renaming "quick-swan: api" writes "api", not the prefix.
+    static func remoteName(fromLocalTitle title: String, machine: SurfaceMachineID) -> String? {
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "\(machine.rawValue): "
+        if name.hasPrefix(prefix) {
+            name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return name.isEmpty ? nil : name
+    }
+
+    /// Best-effort write-through of a local workspace rename: the daemon persists and
+    /// broadcasts the rename, and the next snapshot re-sync is authoritative either way.
+    @MainActor
+    static func propagate(workspace: Workspace, localTitle: String?) {
+        guard let localTitle, !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let catalog = SurfaceCatalog.shared
+        let projected = catalog.projectionRecords(forWorkspace: workspace.id).compactMap { catalog.resources[$0.resource] }
+        guard let target = remoteTarget(binding: workspace.cloudVMBinding, projectedResources: projected),
+              let name = remoteName(fromLocalTitle: localTitle, machine: target.machine),
+              let provider = catalog.provider(for: target.machine) else { return }
+        Task { @MainActor in
+            do { try await provider.renameRemoteWorkspace(id: target.remoteWorkspaceID, name: name) }
+            catch {
+                #if DEBUG
+                cmuxDebugLog("cloud.rename.workspace.failed ws=\(workspace.id) error=\(String(describing: error))")
+                #endif
+            }
+        }
+    }
+
+    /// Records which machine + remote workspace a just-opened local workspace stands
+    /// for, so later local renames write through without guessing from its panes.
+    @MainActor
+    static func bind(localWorkspaceID: UUID, machine: SurfaceMachineID, remoteWorkspaceID: String?) {
+        guard let vmID = machine.cloudMachineID,
+              let manager = AppDelegate.shared?.tabManagerFor(tabId: localWorkspaceID),
+              let workspace = manager.workspacesById[localWorkspaceID] else { return }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: vmID,
+            isBase: workspace.cloudVMBinding?.isBase ?? false,
+            remoteWorkspaceID: remoteWorkspaceID ?? workspace.cloudVMBinding?.remoteWorkspaceID
+        )
+    }
+}

@@ -258,12 +258,17 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "vm_id is required", data: ["workspace_id": workspaceId.uuidString])
         }
         let isBase = v2Bool(params, "base") ?? false
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase)
+        // Optional: which cmux-tui workspace on the machine this local workspace stands
+        // for. A rebind that omits it keeps the recorded one (Base re-opens rebind).
+        let remoteRaw = v2RawString(params, "remote_workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteWorkspaceID = remoteRaw?.isEmpty == false ? remoteRaw : workspace.cloudVMBinding?.remoteWorkspaceID
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase, remoteWorkspaceID: remoteWorkspaceID)
         return .ok([
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "vm_id": vmID,
             "base": isBase,
+            "remote_workspace_id": remoteWorkspaceID ?? NSNull(),
             "transport": "cmux-remote",
         ])
     }

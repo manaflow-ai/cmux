@@ -93,6 +93,41 @@ import Testing
         #expect(shell.title == "")
     }
 
+    @Test func cloudRenameWriteThroughTargetsAndNames() throws {
+        // The persisted binding wins over projections.
+        let bound = CloudWorkspaceRenameWriteThrough.remoteTarget(
+            binding: WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_main"),
+            projectedResources: []
+        )
+        #expect(bound?.machine == .cloud("vivid-newt"))
+        #expect(bound?.remoteWorkspaceID == "ws_main")
+
+        // Without a binding, projections decide only when every view agrees…
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
+        let shell = try #require(resources.first { $0.id.key == "term_shell" })
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [shell])?.remoteWorkspaceID == "ws_api")
+
+        // …a terminal viewed in two remote workspaces, or no panes at all, refuses to guess.
+        let build = try #require(resources.first { $0.id.key == "term_build" })
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
+        #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
+
+        // The open path's "<machine>: " prefix drops; plain titles pass through; blank clears propagate nothing.
+        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
+        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
+        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
+    }
+
+    @Test func cloudVMBindingSnapshotCarriesTheRemoteWorkspace() throws {
+        // Legacy snapshots (no remote id) still decode and restore machine-only bindings.
+        let legacy = try JSONDecoder().decode(SessionCloudVMBindingSnapshot.self, from: Data(#"{"vmID":"vivid-newt","isBase":false}"#.utf8))
+        #expect(Workspace.restoredCloudVMBinding(from: legacy) == WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false))
+        // New snapshots round-trip the remote workspace id through Codable and restore.
+        let bound = SessionCloudVMBindingSnapshot(vmID: "vivid-newt", isBase: true, remoteWorkspaceID: "ws_main")
+        let decoded = try JSONDecoder().decode(SessionCloudVMBindingSnapshot.self, from: JSONEncoder().encode(bound))
+        #expect(Workspace.restoredCloudVMBinding(from: decoded) == WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true, remoteWorkspaceID: "ws_main"))
+    }
+
     @Test func snapshotBrowsersJoinTheirWorkspaces() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["browsers"] = [

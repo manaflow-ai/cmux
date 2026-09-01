@@ -26,7 +26,8 @@ extension TabManager {
         tabId: UUID,
         title: String?,
         source: Workspace.CustomTitleSource = .user,
-        propagateToRemoteTmux: Bool = true
+        propagateToRemoteTmux: Bool = true,
+        propagateToCloud: Bool = true
     ) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
@@ -55,6 +56,13 @@ extension TabManager {
                 workspaceId: tabId,
                 title: title
             )
+        }
+        // A local workspace standing for a cloud machine's cmux-tui workspace writes a
+        // USER rename through to that daemon (persisted there, broadcast to every
+        // client). Auto titles never propagate — the daemon name is user-owned — and
+        // clearing only reverts the local title.
+        if applied, propagateToCloud, source == .user {
+            CloudWorkspaceRenameWriteThrough.propagate(workspace: tabs[index], localTitle: title)
         }
         return applied
     }

@@ -313,6 +313,9 @@ extension TerminalController {
                 )
                 workspaceID = opened.workspaceID
                 projections = opened.projections
+                await CloudWorkspaceRenameWriteThrough.bind(
+                    localWorkspaceID: opened.workspaceID, machine: machine, remoteWorkspaceID: remoteWorkspaceID
+                )
             }
             return [
                 "machine": machine.rawValue,

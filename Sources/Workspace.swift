@@ -189,7 +189,7 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
-            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase) },
+            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase, remoteWorkspaceID: $0.remoteWorkspaceID) },
             surfaceProjections: surfaceProjectionRecordsForSession,
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
@@ -2461,6 +2461,16 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
     let vmID: String
     /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
     let isBase: Bool
+    /// The cmux-tui workspace on the machine this local workspace stands for (`ws_…`),
+    /// recorded when a remote workspace is opened locally. Local workspace renames
+    /// write through to it (`CloudWorkspaceRenameWriteThrough`).
+    let remoteWorkspaceID: String?
+
+    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
+        self.vmID = vmID
+        self.isBase = isBase
+        self.remoteWorkspaceID = remoteWorkspaceID
+    }
 
     /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
     static func normalizedVMID(_ raw: String?) -> String? {
@@ -2950,7 +2960,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// machine id is malformed.
     static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
         guard let snapshot, let vmID = WorkspaceCloudVMBinding.normalizedVMID(snapshot.vmID) else { return nil }
-        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase)
+        let remote = snapshot.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase, remoteWorkspaceID: remote?.isEmpty == false ? remote : nil)
     }
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
@@ -5330,6 +5341,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )
+        }
+        // A pane projecting a cloud terminal writes a USER rename through to the
+        // machine's daemon tab name (`tab rename`): persisted there, broadcast, and
+        // shown by every attached client (tree rows, other Macs, TUI tab bars).
+        // Clearing only reverts the local override; the daemon name stays.
+        if source == .user, !trimmed.isEmpty,
+           let resource = cloudProjectedResource(forPanel: panelId), resource.kind == .terminal,
+           let provider = SurfaceCatalog.shared.provider(for: resource.machine) {
+            Task { @MainActor in
+                do { try await provider.renameTerminal(resource.id, name: trimmed) }
+                catch {
+                    #if DEBUG
+                    cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelId) error=\(String(describing: error))")
+                    #endif
+                }
+            }
         }
         return true
     }
