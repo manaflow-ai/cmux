@@ -1029,7 +1029,7 @@ struct RemoteResumeBindingTests {
             ))
         )
         workspace.surfaceResumeBindingsByPanelId[surfaceID] = unscopedRemoteBinding
-        workspace.restoredAgentSnapshotsByPanelId.removeValue(forKey: surfaceID)
+        workspace.restoredAgentLifecycle.setSnapshot(nil, panelId: surfaceID)
         let unscopedResult = try v2Result(request: [
             "id": "unscoped-remote-agent-hook-resume-get",
             "method": "surface.resume.get",
@@ -1070,7 +1070,7 @@ struct RemoteResumeBindingTests {
             autoResume: true
         )
         #expect(workspace.setSurfaceResumeBinding(customAgentBinding, panelId: surfaceID))
-        workspace.restoredAgentSnapshotsByPanelId.removeValue(forKey: surfaceID)
+        workspace.restoredAgentLifecycle.setSnapshot(nil, panelId: surfaceID)
         let customResult = try v2Result(request: [
             "id": "custom-agent-without-restore-snapshot",
             "method": "surface.resume.get",

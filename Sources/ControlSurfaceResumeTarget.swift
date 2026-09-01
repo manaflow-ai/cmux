@@ -496,8 +496,9 @@ extension TerminalController {
            var command = binding.launchCommand {
             let builtInAgentKind: String? = if let restorableAgent = target.restorableAgent {
                 restorableAgent.workingDirectoryOptionPolicyBuiltInKind
-            } else if let parsedKind = RestorableAgentKind(rawValue: normalizedKind),
-                      parsedKind.customAgentID == nil {
+            } else if RestorableAgentKind.allCases.contains(where: {
+                $0.rawValue == normalizedKind.lowercased()
+            }) {
                 normalizedKind
             } else {
                 nil

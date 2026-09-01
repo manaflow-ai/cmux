@@ -636,14 +636,6 @@ struct AgentLaunchSanitizerTests {
         )
         #expect(
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-                from: ["cursor-agent", "resume", "session", "--workspace", "/local/repo", "--model", "fast"],
-                workingDirectory: nil,
-                agentKind: "cursor",
-                removeAllWorkingDirectoryOptions: true
-            ) == ["cursor-agent", "resume", "session", "--model", "fast"]
-        )
-        #expect(
-            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: ["kimi", "--resume", "session", "--work-dir=/tmp/project", "--model", "kimi-k2"],
                 workingDirectory: "/tmp/project"
             ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
@@ -723,6 +715,14 @@ struct AgentLaunchSanitizerTests {
                 agentKind: "qoder",
                 removeAllWorkingDirectoryOptions: true
             ) == ["qoder", "--workspace", "/tmp/other"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["cursor-agent", "resume", "session", "--workspace", "/local/repo", "--model", "fast"],
+                workingDirectory: nil,
+                agentKind: "cursor",
+                removeAllWorkingDirectoryOptions: true
+            ) == ["cursor-agent", "resume", "session", "--model", "fast"]
         )
         #expect(
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(

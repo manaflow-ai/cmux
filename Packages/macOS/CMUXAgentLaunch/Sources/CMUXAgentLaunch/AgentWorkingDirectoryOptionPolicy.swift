@@ -84,13 +84,6 @@ public struct AgentWorkingDirectoryOptionPolicy: Sendable {
             valueOptions.insert("-C")
         }
 
-        if normalizedBuiltInAgentKind == nil {
-            // Without an exact built-in identity, `-C` remains ambiguous as
-            // well. Keep it only for value matching, never as an unconditional
-            // removal candidate.
-            valueOptions.insert("-C")
-        }
-
         self.valueOptions = valueOptions
         self.unconditionallyRemovableValueOptions = unconditionallyRemovableValueOptions
         self.attachedShortValueOptions = attachedShortValueOptions

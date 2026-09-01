@@ -90,7 +90,7 @@ import Testing
             .path
         let binding = SurfaceResumeBindingSnapshot(
             kind: "claude",
-            command: "claude-teams --resume stale-session",
+            command: "'\(staleExecutable)' claude-teams --resume stale-session",
             cwd: "/home/remote/project",
             checkpointId: "stale-session",
             source: "agent-hook",
