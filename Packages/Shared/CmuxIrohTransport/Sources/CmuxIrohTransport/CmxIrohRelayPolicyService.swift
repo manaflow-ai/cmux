@@ -14,11 +14,6 @@ public actor CmxIrohRelayPolicyService {
     private var currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot.inactive
     private var continuations: [UUID: AsyncStream<CmxIrohRelayDiagnosticsSnapshot>.Continuation] = [:]
     private var operationRevision: UInt64 = 0
-    /// Operations that have claimed a revision and are suspended in an
-    /// injected persistence or broker call. Expiry must yield while any such
-    /// operation is in flight so it cannot publish an unavailable snapshot
-    /// ahead of a committed preference mutation.
-    private var activeOperations: Set<UInt64> = []
 
     /// Creates an inactive relay policy service with injected persistence boundaries.
     public init(
@@ -93,7 +88,6 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
-        defer { endOperation(operation) }
         do {
             try await Resolver.validatePreferenceRevision(
                 response.preferenceRevision,
@@ -153,7 +147,6 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
-        defer { endOperation(operation) }
         let persisted: CmxIrohPersistedRelayPreference
         do {
             guard let stored = try await preferenceStore.load(accountID: accountID) else {
@@ -248,59 +241,28 @@ public actor CmxIrohRelayPolicyService {
         }
     }
 
-    /// Returns a fail-closed policy for an expired managed endpoint authority.
+    /// Builds a fail-closed policy for an expired managed endpoint authority.
     ///
-    /// This deliberately does not reload the cached catalog. A broker refresh
-    /// can commit a newer catalog before the live endpoint accepts it; using
-    /// that newer value here would postpone revocation of the policy that is
-    /// actually installed. The caller should install the returned empty
-    /// managed profile, then allow a later reachable refresh to restore relay
-    /// service.
+    /// Expiry is based on the profile that the endpoint actually accepted, not
+    /// the service's latest resolved preference. This lets an older managed
+    /// profile be revoked even when a concurrent settings mutation has already
+    /// resolved a custom profile. The operation is deliberately read-only and
+    /// does not wait on broker, persistence, or keychain work.
     ///
-    /// - Parameter accountID: Account whose persisted preference is retained.
+    /// - Parameter appliedPolicy: The policy snapshot most recently accepted
+    ///   by the live endpoint.
     /// - Returns: A managed-unavailable effective policy with no relay URLs,
-    ///   or `nil` when custom relay authority is already active or a newer
-    ///   policy operation superseded this expiry decision.
+    ///   or `nil` when the applied endpoint profile is not managed.
     public func expireManagedPolicy(
-        accountID: String
+        appliedPolicy: CmxIrohEffectiveRelayPolicy
     ) async -> CmxIrohEffectiveRelayPolicy? {
-        // A preference refresh/update already owns the service state. Let it
-        // finish and publish its authoritative result instead of advancing
-        // the operation revision with a competing expiry decision.
-        guard activeOperations.isEmpty else { return nil }
-        // Custom profiles can retain the managed catalog as metadata, but its
-        // expiry must never disable a valid custom endpoint profile. Returning
-        // nil is an explicit no-op: callers must not carry this snapshot into
-        // a later endpoint application while a preference mutation is in
-        // flight.
-        if let currentEffective,
-           (currentEffective.source == .custom
-            || currentEffective.source == .customUnavailable) {
-            return nil
-        }
-        let operation = beginOperation()
-        defer { endOperation(operation) }
-        let configuration: CmxIrohAccountRelayConfiguration?
-        let revision: Int64?
-        if let currentEffective {
-            // The normal live-endpoint path is synchronous after the operation
-            // token is claimed, so another service operation cannot supersede
-            // the fail-closed decision while preference persistence suspends.
-            configuration = currentEffective.requestedConfiguration
-            revision = currentEffective.preferenceRevision
-        } else {
-            let persisted = try? await preferenceStore.load(accountID: accountID)
-            configuration = persisted?.requested
-            revision = persisted?.revision
-        }
-        guard isCurrent(operation) else { return nil }
-        return publishUnavailable(
-            configuration: configuration,
-            revision: revision,
+        guard appliedPolicy.source == .managed else { return nil }
+        return Resolver.unavailableResolution(
+            configuration: appliedPolicy.requestedConfiguration,
+            revision: appliedPolicy.preferenceRevision,
             source: .managedUnavailable,
-            operation: operation,
             failure: .policyExpired
-        )
+        ).effective
     }
 
     /// Updates only the active preference while retaining dormant account fields.
@@ -340,7 +302,6 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
-        defer { endOperation(operation) }
         guard let broker else { throw CmxIrohRelayPolicyServiceError.brokerUnavailable }
         _ = try JSONEncoder().encode(configuration)
         let expectedRevision: Int64?
@@ -534,12 +495,7 @@ public actor CmxIrohRelayPolicyService {
 
     private func beginOperation() -> UInt64 {
         operationRevision &+= 1
-        activeOperations.insert(operationRevision)
         return operationRevision
-    }
-
-    private func endOperation(_ operation: UInt64) {
-        activeOperations.remove(operation)
     }
 
     private func requireCurrent(_ operation: UInt64) throws {

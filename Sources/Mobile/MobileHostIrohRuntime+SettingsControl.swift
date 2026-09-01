@@ -65,7 +65,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective, expectedServicePolicy: effective)
+        guard try await applyRelayPolicy(
+            effective,
+            expectedServicePolicy: effective
+        ) else {
+            throw SettingsError.superseded
+        }
         await refreshRelayPolicyAfterMutation(context)
     }
 
@@ -106,7 +111,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective, expectedServicePolicy: effective)
+        guard try await applyRelayPolicy(
+            effective,
+            expectedServicePolicy: effective
+        ) else {
+            throw SettingsError.superseded
+        }
         if definition.authMode == .staticToken, let deviceSecret {
             effective = try await context.service.setStaticCredential(
                 deviceSecret,
@@ -116,7 +126,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 trustRoot: context.trustRoot,
                 now: Date()
             )
-            try await applyRelayPolicy(effective, expectedServicePolicy: effective)
+            guard try await applyRelayPolicy(
+                effective,
+                expectedServicePolicy: effective
+            ) else {
+                throw SettingsError.superseded
+            }
         }
         await refreshRelayPolicyAfterMutation(context)
     }
@@ -134,7 +149,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective, expectedServicePolicy: effective)
+        guard try await applyRelayPolicy(
+            effective,
+            expectedServicePolicy: effective
+        ) else {
+            throw SettingsError.superseded
+        }
         await refreshRelayPolicyAfterMutation(context)
     }
 
@@ -482,10 +502,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         )
                         continue
                     }
+                    let expectedAppliedPolicy = self.relayPolicyAppliedEffective
                     let didApply = try await self.applyRelayPolicy(
                         effective,
                         refreshTaskID: taskID,
-                        expectedServicePolicy: effective
+                        expectedServicePolicy: effective,
+                        expectedAppliedPolicy: expectedAppliedPolicy,
+                        requireAppliedPolicyMatch: true
                     )
                     guard didApply else {
                         // A path transition can invalidate an otherwise valid
@@ -654,12 +677,16 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         // committed a newer catalog while its endpoint installation was
         // suspended; this operation intentionally creates an empty managed
         // profile for the authority that is actually installed.
-        guard let expired = await service.expireManagedPolicy(accountID: accountID),
-              await service.effectivePolicy() == expired else {
+        guard let appliedPolicy = relayPolicyAppliedEffective,
+              appliedPolicy.source == .managed,
+              let expired = await service.expireManagedPolicy(
+                  appliedPolicy: appliedPolicy
+              ) else {
             return false
         }
         guard !Task.isCancelled,
               ownsRelayPolicyRefreshTask(taskID),
+              relayPolicyAppliedEffective == appliedPolicy,
               (relayPolicyNetworkReachable == true) == expectedReachability else {
             return false
         }
@@ -668,7 +695,9 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             refreshTaskID: taskID,
             allowOffline: true,
             expectedReachability: expectedReachability,
-            expectedServicePolicy: expired
+            expectedAppliedPolicy: appliedPolicy,
+            requireAppliedPolicyMatch: true,
+            updatesResolvedState: false
         )
     }
 
@@ -799,10 +828,10 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 now: Date()
             )
             guard await context.service.effectivePolicy() == effective else { return }
-            _ = try await applyRelayPolicy(
+            guard try await applyRelayPolicy(
                 effective,
                 expectedServicePolicy: effective
-            )
+            ) else { return }
         } catch {
             guard relayPolicyService === context.service,
                   activeAccountID == context.accountID else { return }
@@ -818,7 +847,10 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         refreshTaskID: UUID? = nil,
         allowOffline: Bool = false,
         expectedReachability: Bool? = nil,
-        expectedServicePolicy: CmxIrohEffectiveRelayPolicy? = nil
+        expectedServicePolicy: CmxIrohEffectiveRelayPolicy? = nil,
+        expectedAppliedPolicy: CmxIrohEffectiveRelayPolicy? = nil,
+        requireAppliedPolicyMatch: Bool = false,
+        updatesResolvedState: Bool = true
     ) async throws -> Bool {
         let diagnostics = await relayPolicyService?.diagnosticsSnapshot()
         if let refreshTaskID {
@@ -836,6 +868,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 return false
             }
         }
+        if requireAppliedPolicyMatch {
+            guard relayPolicyAppliedEffective == expectedAppliedPolicy else {
+                return false
+            }
+        }
         if let runtime {
             if let refreshTaskID {
                 guard ownsRelayPolicyRefreshTask(refreshTaskID),
@@ -847,6 +884,18 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 }
             }
             try await runtime.replaceRelayPolicy(effective)
+        }
+        // The endpoint mutation is authoritative for expiry bookkeeping. Do
+        // not wait for the service-side fence before recording what it
+        // accepted; a concurrent preference refresh may legitimately publish a
+        // different resolved snapshot while this replacement suspends.
+        if !requireAppliedPolicyMatch || relayPolicyAppliedEffective == expectedAppliedPolicy {
+            relayPolicyAppliedEffective = effective
+        }
+        if requireAppliedPolicyMatch {
+            guard relayPolicyAppliedEffective == effective else {
+                return false
+            }
         }
         if let expectedServicePolicy {
             guard let service = relayPolicyService,
@@ -863,10 +912,11 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 return false
             }
         }
-        relayPolicyAppliedEffective = effective
-        relayPolicyEffective = effective
-        relayPolicyDiagnostics = diagnostics
-        publishIrohSettingsUpdate()
+        if updatesResolvedState {
+            relayPolicyEffective = effective
+            relayPolicyDiagnostics = diagnostics
+            publishIrohSettingsUpdate()
+        }
         return true
     }
 

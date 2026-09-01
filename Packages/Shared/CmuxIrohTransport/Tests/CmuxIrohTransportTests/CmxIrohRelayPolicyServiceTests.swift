@@ -217,38 +217,48 @@ struct CmxIrohRelayPolicyServiceTests {
     }
 
     @Test
-    func expiryYieldsToAnInFlightPolicyOperation() async throws {
+    func expiryUsesAppliedManagedProfileAfterServicePreferenceChanges() async throws {
         let fixture = RelayPolicyServiceTestFixture()
-        let trustRoot = try fixture.firstTrustRoot
-        let secureStore = RelayPolicyServiceSuspendedSecureStore()
-        let service = CmxIrohRelayPolicyService(
-            policyCache: CmxIrohRelayPolicyCache(
-                secureStore: TestSecureCredentialStore()
+        let stores = makeStores()
+        let applied = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .automatic,
+                preferenceRevision: 1
             ),
-            preferenceStore: CmxIrohRelayPreferenceStore(
-                secureStore: secureStore
-            ),
-            credentialStore: CmxIrohCustomRelayCredentialStore(
-                secureStore: TestSecureCredentialStore()
-            )
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
         )
-        let restoreTask = Task {
-            await service.restore(
-                accountID: "account-a",
-                trustRoot: trustRoot,
-                relayCredential: nil,
-                now: fixture.now
-            )
-        }
+        let definition = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .none
+        )
+        let current = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 2),
+                preference: .custom([definition]),
+                preferenceRevision: 2
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: nil,
+            now: fixture.now
+        )
 
-        await secureStore.waitUntilReadStarts()
-        // The suspended restore owns the service operation. Expiry yields
-        // instead of publishing an unavailable snapshot that could supersede
-        // the operation when its persistence call resumes.
-        #expect(await service.expireManagedPolicy(accountID: "account-a") == nil)
-
-        await secureStore.resumeRead()
-        _ = await restoreTask.value
+        // The endpoint can still hold `applied` while the service has already
+        // resolved `current`; expiry must revoke the applied managed authority
+        // without overwriting the newer custom preference.
+        let expired = try #require(
+            await stores.service.expireManagedPolicy(appliedPolicy: applied)
+        )
+        #expect(expired.source == .managedUnavailable)
+        #expect(expired.requestedConfiguration == applied.requestedConfiguration)
+        #expect(await stores.service.effectivePolicy() == current)
     }
 
     @Test
@@ -381,7 +391,7 @@ struct CmxIrohRelayPolicyServiceTests {
             preference: .automatic,
             preferenceRevision: 1
         )
-        _ = try await stores.service.install(
+        let applied = try await stores.service.install(
             response: firstResponse,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
@@ -401,12 +411,15 @@ struct CmxIrohRelayPolicyServiceTests {
         )
 
         let expired = try #require(
-            await stores.service.expireManagedPolicy(accountID: "account-a")
+            await stores.service.expireManagedPolicy(appliedPolicy: applied)
         )
         #expect(expired.source == .managedUnavailable)
         #expect(expired.endpointRelayProfile.allowedRelayURLs.isEmpty)
-        #expect(await stores.service.diagnosticsSnapshot().policyExpiresAt == nil)
-        #expect(await stores.service.diagnosticsSnapshot().failure == .policyExpired)
+        #expect(await stores.service.effectivePolicy()?.managedPolicy?.expiresAt == renewedExpiry)
+        #expect(
+            await stores.service.diagnosticsSnapshot().policyExpiresAt
+                == Date(timeIntervalSince1970: TimeInterval(renewedExpiry))
+        )
 
         // The durable cache remains available for the next reachable refresh;
         // expiring the currently installed endpoint policy must not erase its
@@ -441,7 +454,7 @@ struct CmxIrohRelayPolicyServiceTests {
             now: fixture.now
         )
 
-        let expired = await stores.service.expireManagedPolicy(accountID: "account-a")
+        let expired = await stores.service.expireManagedPolicy(appliedPolicy: custom)
         #expect(expired == nil)
         #expect(await stores.service.effectivePolicy() == custom)
         #expect(custom.source == .custom)
@@ -459,7 +472,7 @@ struct CmxIrohRelayPolicyServiceTests {
             region: "home",
             authMode: .none
         )
-        _ = try await stores.service.install(
+        let custom = try await stores.service.install(
             response: CmxIrohRelayPolicyResponse(
                 policy: fixture.token(sequence: 1),
                 preference: .custom([definition]),
@@ -471,12 +484,12 @@ struct CmxIrohRelayPolicyServiceTests {
             now: fixture.now
         )
 
-        // Treat a custom result as an optional so this regression test also
-        // compiles against the pre-fix non-optional API. The pre-fix early
-        // return hands the caller a snapshot that can be applied after a
-        // newer managed preference wins the service generation.
-        let staleCustom: CmxIrohEffectiveRelayPolicy? =
-            await stores.service.expireManagedPolicy(accountID: "account-a")
+        // A custom profile is not an expiry candidate. Returning no snapshot
+        // prevents a stale custom result from being applied after a newer
+        // managed preference wins the service generation.
+        let staleCustom = await stores.service.expireManagedPolicy(
+            appliedPolicy: custom
+        )
         #expect(staleCustom == nil)
 
         let managed = try await stores.service.install(

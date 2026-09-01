@@ -73,6 +73,7 @@ final class MobileHostIrohRuntime {
         case unavailable
         case incompleteCustomRelay
         case missingCustomRelay
+        case superseded
     }
     static let shared = MobileHostIrohRuntime()
 
