@@ -129,6 +129,26 @@ struct CodexTabTitlePresentationTests {
         #expect(!tab.isLoading)
     }
 
+    @Test("a remote tmux title event also reconciles stale Codex presentation state")
+    func remoteMirrorTitleEventReconcilesPresentation() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "some-name"))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.isRemoteTmuxMirror = true
+
+        // Mirror title events intentionally do not overwrite the local stable
+        // title. They still must clear any transient projection inherited
+        // before the workspace became a mirror.
+        #expect(!workspace.updatePanelTitle(panelId: panelId, title: "remote-name"))
+
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.title == "some-name")
+        #expect(!tab.isLoading)
+    }
+
     @Test("another agent lifecycle key does not borrow Codex title markers")
     func nonCodexLifecycleIsIgnored() throws {
         let workspace = Workspace()
