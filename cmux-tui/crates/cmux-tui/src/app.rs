@@ -16863,12 +16863,15 @@ impl App {
         modifiers: KeyModifiers,
         now: Instant,
     ) -> bool {
+        let host_selection_modifier = |modifiers| {
+            modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT
+        };
         if !previous.repeatable
             || screen.is_none()
             || previous.surface != surface
             || previous.screen != screen
-            || previous.modifiers != KeyModifiers::NONE
-            || modifiers != KeyModifiers::NONE
+            || previous.modifiers != modifiers
+            || !host_selection_modifier(modifiers)
         {
             return false;
         }
@@ -21999,9 +22002,9 @@ impl App {
         self.finish_active_drag();
 
         // A repeat is valid only for presses that land directly in a PTY
-        // content cell. Any chrome, overlay, browser, or modified click ends
-        // the pending terminal click sequence.
-        let repeat_target = modifiers == KeyModifiers::NONE
+        // content cell. Shift is the host-selection override when an inner
+        // PTY application owns mouse input, so preserve it for repeats.
+        let repeat_target = (modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT)
             && self.hit_at(x, y).is_none()
             && self.pane_area_at(x, y).is_some_and(|area| {
                 self.surface_kind(area.surface) == Some(SurfaceKind::Pty)
