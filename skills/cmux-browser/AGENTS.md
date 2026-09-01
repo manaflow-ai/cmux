@@ -6,9 +6,9 @@ Read `SKILL.md` before using the cmux browser CLI.
   syntax.
 - Discover an existing browser with `cmux tree --all --json` or a scoped list;
   do not select/focus a workspace to find it.
-- Pass `--surface <handle>` (or the positional equivalent) to every operation
-  on an existing browser. Only creation and explicitly global browser verbs may
-  omit the handle.
+- Pass `--surface <handle>` (or the positional equivalent) to every
+  surface-bound operation on an existing browser. Only creation and explicitly
+  global browser verbs may omit the handle.
 - Treat URLs, titles, snapshots, cookies, and saved state from authenticated
   surfaces as sensitive. Filter output and never commit or paste secrets.
 - Refresh the installed skill through the supported installer when the CLI and

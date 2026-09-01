@@ -47,6 +47,11 @@ def test_old_unscoped_forms_are_rejected(validator: ModuleType) -> None:
         browser + "url",
         browser + "snapshot -i",
         browser + "list",
+        browser + "dialog accept",
+        browser + "addinitscript script",
+        browser + "addscript script",
+        browser + "addstyle css",
+        browser + "screencast start",
     ]
     examples = [
         validator.ShellExample(Path("stale-fixture.md"), line, text)
@@ -56,12 +61,37 @@ def test_old_unscoped_forms_are_rejected(validator: ModuleType) -> None:
     if parse_errors:
         raise AssertionError(f"fixture parser failed: {parse_errors}")
     errors = [error for command in commands for error in validator.validate_command(command)]
-    if len(errors) != 4:
-        raise AssertionError(f"expected all four stale forms to fail, got {errors}")
-    if not all("explicit" in error and "surface" in error for error in errors[:3]):
+    if len(errors) != len(fixture):
+        raise AssertionError(f"expected every stale form to fail, got {errors}")
+    surface_errors = errors[:3] + errors[4:]
+    if not all("explicit" in error and "surface" in error for error in surface_errors):
         raise AssertionError(f"surface omissions were not diagnosed: {errors}")
     if "unsupported browser verb 'list'" not in errors[3]:
         raise AssertionError(f"stale list verb was not diagnosed: {errors}")
+
+
+def test_explicitly_global_verbs_are_allowed_without_surface(validator: ModuleType) -> None:
+    fixture = [
+        "cmux browser identify --json",
+        "cmux browser devtools toggle",
+        "cmux browser design-mode status",
+        "cmux browser zoom in",
+        "cmux browser history clear --force",
+        "cmux browser react-grab toggle",
+        "cmux browser open https://example.test",
+        "cmux browser profiles list",
+        "cmux browser import --non-interactive",
+    ]
+    examples = [
+        validator.ShellExample(Path("global-fixture.md"), line, text)
+        for line, text in enumerate(fixture, start=1)
+    ]
+    commands, parse_errors = validator.browser_commands(examples)
+    if parse_errors:
+        raise AssertionError(f"global fixture parser failed: {parse_errors}")
+    errors = [error for command in commands for error in validator.validate_command(command)]
+    if errors:
+        raise AssertionError(f"explicitly global browser verbs were rejected: {errors}")
 
 
 def test_scoped_aliases_are_accepted(validator: ModuleType) -> None:
@@ -212,6 +242,7 @@ def main() -> int:
     tests = [
         lambda: test_repository_contract(validator),
         lambda: test_old_unscoped_forms_are_rejected(validator),
+        lambda: test_explicitly_global_verbs_are_allowed_without_surface(validator),
         lambda: test_scoped_aliases_are_accepted(validator),
         lambda: test_nested_commands_are_checked(validator),
         lambda: test_literal_substitution_text_is_ignored(validator),

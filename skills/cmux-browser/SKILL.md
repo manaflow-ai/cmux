@@ -17,7 +17,7 @@ cmux --version
 There are two deliberately different command shapes:
 
 - **Create a browser surface** with `open`, `open-split`, or `new`. These commands may be workspace-scoped and do not need a surface handle.
-- **Use an existing surface** with every navigation, inspection, interaction, tab, state, or diagnostic command. Pass the handle explicitly with `--surface <handle>` or as the first positional token.
+- **Use an existing surface** with every surface-bound navigation, inspection, interaction, tab, state, or diagnostic command. Pass the handle explicitly with `--surface <handle>` or as the first positional token.
 
 Prefer the flag form in scripts because it makes the target unmissable:
 
@@ -36,7 +36,12 @@ The positional form is equivalent (`cmux browser "$SURFACE" get url`). `url` and
 `get-url` are accepted URL aliases, and the short interactive snapshot flag is
 accepted when a surface is already present; use `get url` and
 `snapshot --interactive` in new documentation so the target and operation are
-clear. There is no unscoped form for an existing-surface operation.
+clear. Surface-bound operations have no unscoped form. The current CLI's
+explicitly global browser verbs (`open`, `open-split`, `new`, `identify`,
+`import`, `profile`, `profiles`, `react-grab`, `reactgrab`, `devtools`,
+`dev-tools`, `focus-mode`, `design-mode`, `zoom`, and `history`) may omit the
+handle and use caller/workspace routing; do not infer a target from visible
+focus for any other verb.
 
 ## Find an existing browser surface without changing focus
 
@@ -99,6 +104,10 @@ SURFACE="$(
         else error("multiple matches; use workspace/pane context")
         end'
 )"
+if [[ -z "$SURFACE" ]]; then
+  printf '%s\n' 'no uniquely matching browser surface; provide workspace/pane context' >&2
+  exit 1
+fi
 cmux browser --surface "$SURFACE" get url
 ```
 

@@ -35,12 +35,16 @@ ROOT = Path(__file__).resolve().parent.parent
 # cannot quietly remain in an installed skill.
 SURFACE_REQUIRED_VERBS = frozenset(
     {
+        "addinitscript",
+        "addscript",
+        "addstyle",
         "back",
         "click",
         "check",
         "cookies",
         "console",
         "dblclick",
+        "dialog",
         "download",
         "errors",
         "eval",
@@ -79,6 +83,7 @@ SURFACE_REQUIRED_VERBS = frozenset(
         "scrollinto",
         "scrollintoview",
         "select",
+        "screencast",
         "snapshot",
         "state",
         "storage",
@@ -139,6 +144,10 @@ HELP_MARKERS = (
     "snapshot [--interactive|-i]",
     "get <url|title|text|html|value|attr|count|box|styles>",
     "tab <new|list|switch|close|<index>>",
+    "dialog <accept|dismiss>",
+    "addinitscript|addscript",
+    "addstyle",
+    "screencast <start|stop>",
 )
 
 

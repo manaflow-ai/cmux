@@ -1,8 +1,11 @@
 # Browser Surface Discovery
 
-Existing-surface browser commands always need an explicit surface handle. Find
-the handle with read-only topology commands; never select or focus a workspace
-just to make an implicit target work.
+Surface-bound existing-surface browser commands need an explicit surface
+handle. The CLI also has a small, explicit global-verb allowlist (for example
+`identify`, `devtools`, `design-mode`, `zoom`, `history`, and creation/import
+verbs); those commands may omit a handle according to `SKILL.md`. Find a
+surface-bound handle with read-only topology commands; never select or focus a
+workspace just to make an implicit target work.
 
 ## Caller workspace
 
@@ -70,6 +73,10 @@ SURFACE="$(
         else error("multiple matches; use workspace/pane context")
         end'
 )"
+if [[ -z "$SURFACE" ]]; then
+  printf '%s\n' 'no uniquely matching browser surface; provide workspace/pane context' >&2
+  exit 1
+fi
 cmux browser --surface "$SURFACE" get url
 ```
 

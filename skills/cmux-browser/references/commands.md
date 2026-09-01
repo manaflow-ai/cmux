@@ -3,7 +3,8 @@
 ## Surface contract
 
 Run `cmux browser --help` against the installed binary before relying on exact
-syntax. Creation verbs (`open`, `open-split`, `new`) may omit a surface. Every
+syntax. Creation verbs (`open`, `open-split`, `new`) and the explicitly global
+browser verbs listed in `SKILL.md` may omit a surface. Every surface-bound
 command that reads or mutates an existing browser must include one:
 
 ```bash
