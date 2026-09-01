@@ -2404,9 +2404,7 @@ mod tests {
             }
         }
 
-        surface
-            .try_with_terminal(|terminal| terminal.vt_write(b"\x1b]7;file:///tmp/hostless\x1b\\"))
-            .unwrap();
+        surface.set_test_pwd(Some("file:///tmp/hostless".into()));
         let process =
             dispatch(&mux, parsed_request("terminal.process.get", &selectors, json!({}), None))
                 .unwrap();
