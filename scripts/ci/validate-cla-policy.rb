@@ -25,11 +25,11 @@ CLA_ACTION = "manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc183663530
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634b48c029bc728f5c1d1"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f50762b532ea14e4440"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "01a363114d66fbf3802c94672232d3f7f71e11ebc31499682896bc30b447421e"
+EXPECTED_GUARD_SCRIPT_DIGEST = "52bf04eff367cd8c23598783e6bf6231dee86d55f194de979bccec1f5e4a33ad"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -53,6 +53,9 @@ ALLOWED_SECRET_PATHS = [
   %w[jobs CLALedgerWriter steps] + [0] + %w[env GITHUB_TOKEN],
   %w[jobs RerunFailedCLA steps] + [1] + %w[env GH_TOKEN],
   %w[jobs LockMergedPullRequest steps] + [0] + %w[env GITHUB_TOKEN]
+].freeze
+GUARD_ALLOWED_SECRET_PATHS = [
+  %w[jobs validate steps] + [2] + %w[env GH_TOKEN]
 ].freeze
 
 ADMISSION_ENV = {
@@ -98,6 +101,58 @@ RERUN_ENV = {
 }.freeze
 GITHUB_CONTEXT_IN_RUN = /\$\{\{[^}]*\bgithub\b[^}]*\}\}/im
 TOKEN_ENV_IN_RUN = /(?:\A|[^A-Za-z0-9_])(?:GITHUB_TOKEN|GH_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|RUNNER_TOKEN)(?:\z|[^A-Za-z0-9_])/i
+
+# The guard workflow is itself a privileged control-plane input. Keep its
+# checkout, environment, and shell contracts as immutable data. Whitespace is
+# normalized only at line boundaries so a YAML block scalar cannot gain an
+# extra command, redirection, or interpolation while retaining the reviewed
+# command sequence.
+GUARD_CHECKOUT_WITH = {
+  "repository" => "${{ github.repository }}",
+  "ref" => "${{ github.workflow_sha }}",
+  "fetch-depth" => 1,
+  "persist-credentials" => false,
+  "sparse-checkout" => "scripts/ci/validate-cla-policy.rb",
+  "sparse-checkout-cone-mode" => false
+}.freeze
+GUARD_VERIFY_ENV = {
+  "WORKFLOW_SHA" => "${{ github.workflow_sha }}"
+}.freeze
+GUARD_VALIDATE_ENV = {
+  "GH_TOKEN" => GITHUB_TOKEN_EXPRESSION,
+  "GH_REPO" => "${{ github.repository }}",
+  "PR_NUMBER" => "${{ github.event.pull_request.number }}",
+  "BASE_SHA" => "${{ github.event.pull_request.base.sha }}",
+  "HEAD_SHA" => "${{ github.event.pull_request.head.sha }}"
+}.freeze
+GUARD_VERIFY_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+  [[ "$(git rev-parse HEAD)" == "$WORKFLOW_SHA" ]]
+  [[ -f scripts/ci/validate-cla-policy.rb ]]
+SH
+GUARD_VALIDATE_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  candidate_dir="$(mktemp -d "$RUNNER_TEMP/cla-policy.XXXXXX")"
+  trap 'rm -rf "$candidate_dir"' EXIT
+  CANDIDATE_DIR="$candidate_dir" ruby scripts/ci/validate-cla-policy.rb
+  if [[ -f "$candidate_dir/rerun-failed-cla.sh" ]]; then
+    shellcheck --shell=bash "$candidate_dir/rerun-failed-cla.sh"
+  fi
+  if [[ -f "$candidate_dir/cla.yml" ]]; then
+    archive="$RUNNER_TEMP/actionlint.tar.gz"
+    curl -fsSL -o "$archive" \
+      "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz"
+    echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $archive" | sha256sum --check --strict
+    tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+    "$RUNNER_TEMP/actionlint" "$candidate_dir/cla.yml"
+  fi
+SH
+# These hashes make the reviewed command contracts auditable without relying
+# on YAML formatting. They are recomputed from normalize_run_text below when
+# this policy file changes intentionally.
+GUARD_VERIFY_RUN_HASH = "708659eb2df9c50e070dab49190c2c3712a1485a5292eadb86eb4ae3fb01cbb5"
+GUARD_VALIDATE_RUN_HASH = "759f3978ae0a2e0620eb2630cd4c1ec2cbff8f9bcc9a37f76b330b845091bda8"
 
 # Keep the admission contract in one small, executable specification. The
 # pull-request workflow is still checked as data below, but its shell cannot be
@@ -657,22 +712,97 @@ def walk_paths(value, path = [], &block)
   end
 end
 
-def assert_exact_secret_paths(document)
+def assert_exact_secret_paths(document, allowed_paths: ALLOWED_SECRET_PATHS)
   expected = {}
-  ALLOWED_SECRET_PATHS.each { |path| expected[path] = GITHUB_TOKEN_EXPRESSION }
+  allowed_paths.each { |path| expected[path] = GITHUB_TOKEN_EXPRESSION }
   actual = {}
   walk_paths(document) do |path, value|
     next unless value.is_a?(String) && value.match?(/\bsecrets\b|\bgithub\.token\b/i)
 
     actual[path] = value
   end
-  fail!("CLA workflow token references are not the reviewed contract") unless actual == expected
+  fail!("workflow token references are not the reviewed contract") unless actual == expected
 end
 
 def assert_safe_run_text(run, name)
   fail!("#{name} must be a shell string") unless run.is_a?(String)
   fail!("#{name} may not interpolate the GitHub context") if run.match?(GITHUB_CONTEXT_IN_RUN)
   fail!("#{name} may not access a token environment variable") if run.match?(TOKEN_ENV_IN_RUN)
+end
+
+def normalize_run_text(run)
+  run.to_s.gsub("\r\n", "\n").lines.map(&:rstrip).join("\n").strip
+end
+
+def assert_exact_normalized_run(run, expected, expected_digest, name)
+  assert_safe_run_text(run, name)
+  normalized = normalize_run_text(run)
+  fail!("#{name} is not the reviewed shell contract") unless
+    normalized == normalize_run_text(expected) && Digest::SHA256.hexdigest(normalized) == expected_digest
+end
+
+def run_guard_contract_regression_matrix!
+  checks = 0
+  expect_failure = lambda do |name, &block|
+    failed = false
+    begin
+      block.call
+    rescue PolicyError
+      failed = true
+    end
+    fail!("#{name} guard contract regression failed") unless failed
+    checks += 1
+  end
+
+  checkout = { "with" => GUARD_CHECKOUT_WITH.dup }
+  assert_action_inputs(checkout, GUARD_CHECKOUT_WITH, "regression guard checkout")
+  checks += 1
+  expect_failure.call("changed checkout ref") do
+    changed = Marshal.load(Marshal.dump(checkout))
+    changed["with"]["ref"] = "${{ github.event.pull_request.head.sha }}"
+    assert_action_inputs(changed, GUARD_CHECKOUT_WITH, "regression guard checkout")
+  end
+
+  verification = { "env" => GUARD_VERIFY_ENV.dup, "run" => GUARD_VERIFY_RUN }
+  assert_exact_environment(verification, GUARD_VERIFY_ENV, "regression guard verification")
+  assert_exact_normalized_run(
+    verification["run"], GUARD_VERIFY_RUN, GUARD_VERIFY_RUN_HASH, "regression guard verification run"
+  )
+  checks += 2
+  expect_failure.call("added verification token env") do
+    changed = Marshal.load(Marshal.dump(verification))
+    changed["env"]["GH_TOKEN"] = GITHUB_TOKEN_EXPRESSION
+    assert_exact_environment(changed, GUARD_VERIFY_ENV, "regression guard verification")
+  end
+  expect_failure.call("changed verification shell") do
+    assert_exact_normalized_run(
+      "#{verification["run"]}\nprintf 'unexpected\\n'",
+      GUARD_VERIFY_RUN,
+      GUARD_VERIFY_RUN_HASH,
+      "regression guard verification run"
+    )
+  end
+
+  validation = { "env" => GUARD_VALIDATE_ENV.dup, "run" => GUARD_VALIDATE_RUN }
+  assert_exact_environment(validation, GUARD_VALIDATE_ENV, "regression guard validation")
+  assert_exact_normalized_run(
+    validation["run"], GUARD_VALIDATE_RUN, GUARD_VALIDATE_RUN_HASH, "regression guard validation run"
+  )
+  checks += 2
+  expect_failure.call("added validation secret env") do
+    changed = Marshal.load(Marshal.dump(validation))
+    changed["env"]["EXTRA_TOKEN"] = "${{ secrets.OTHER_TOKEN }}"
+    assert_exact_environment(changed, GUARD_VALIDATE_ENV, "regression guard validation")
+  end
+  expect_failure.call("GitHub context in validation shell") do
+    assert_exact_normalized_run(
+      "#{validation["run"]}\nprintf '%s\\n' '${{ github['token'] }}'",
+      GUARD_VALIDATE_RUN,
+      GUARD_VALIDATE_RUN_HASH,
+      "regression guard validation run"
+    )
+  end
+  puts "PASS: guard workflow contract regression matrix (#{checks} cases)"
 end
 
 def assert_safe_run_values(document)
@@ -1261,12 +1391,9 @@ def validate_script(raw)
   end
 end
 
-def validate_guard_workflow(raw)
+def validate_guard_workflow(raw, authorize: true)
   document = parse_workflow(raw)
   digest = workflow_digest(raw)
-  if digest != EXPECTED_GUARD_WORKFLOW_DIGEST
-    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
-  end
   triggers = document["on"] || document[true]
   fail!("guard workflow has no mapping of triggers") unless triggers.is_a?(Hash)
   target = triggers["pull_request_target"]
@@ -1290,10 +1417,6 @@ def validate_guard_workflow(raw)
   fail!("guard workflow must use an ephemeral GitHub-hosted runner") unless guard_job["runs-on"] == "ubuntu-24.04"
   fail!("guard workflow must use read-only permissions") unless
     guard_job["permissions"] == { "contents" => "read", "pull-requests" => "read" }
-  fail!("guard workflow must verify the immutable checkout") unless
-    raw.include?("ref: ${{ github.workflow_sha }}") &&
-    raw.include?("persist-credentials: false") &&
-    raw.include?("scripts/ci/validate-cla-policy.rb")
   guard_steps = guard_job["steps"]
   fail!("guard workflow steps are malformed") unless guard_steps.is_a?(Array) && guard_steps.length == 3
   assert_step_keys(guard_steps[0], "guard checkout step", %w[name uses with])
@@ -1301,13 +1424,37 @@ def validate_guard_workflow(raw)
   assert_step_keys(guard_steps[2], "guard validation step", %w[name env run])
   fail!("guard workflow checkout step is not the immutable checkout") unless
     guard_steps[0]["uses"] == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
-  fail!("guard workflow verification step may not access a token or network") if
-    guard_steps[1]["run"].to_s.match?(/\b(gh|curl|wget|ssh|sudo|eval|source)\b|secrets\.GITHUB_TOKEN|GITHUB_TOKEN/)
+  assert_action_inputs(guard_steps[0], GUARD_CHECKOUT_WITH, "guard checkout step")
+  fail!("guard checkout step has an unexpected name") unless guard_steps[0]["name"] == "Checkout immutable guard revision"
+  fail!("guard checkout step must pin the trusted repository") unless
+    guard_steps[0].dig("with", "repository") == "${{ github.repository }}"
+  fail!("guard verification step has an unexpected name") unless guard_steps[1]["name"] == "Verify trusted checkout"
+  assert_exact_environment(guard_steps[1], GUARD_VERIFY_ENV, "guard checkout verification step")
+  assert_exact_normalized_run(
+    guard_steps[1]["run"],
+    GUARD_VERIFY_RUN,
+    GUARD_VERIFY_RUN_HASH,
+    "guard checkout verification step run"
+  )
+  fail!("guard validation step has an unexpected name") unless
+    guard_steps[2]["name"] == "Run trusted CLA regression matrix and validate policy as data"
+  assert_exact_environment(guard_steps[2], GUARD_VALIDATE_ENV, "guard validation step")
+  assert_exact_normalized_run(
+    guard_steps[2]["run"],
+    GUARD_VALIDATE_RUN,
+    GUARD_VALIDATE_RUN_HASH,
+    "guard validation step run"
+  )
+  assert_exact_secret_paths(document, allowed_paths: GUARD_ALLOWED_SECRET_PATHS)
+  assert_safe_run_values(document)
   uses = []
   walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
   uses.each do |reference|
     fail!("guard workflow may not use repository-local actions") if reference.start_with?("./")
     fail!("guard workflow uses an unapproved action") unless reference == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+  end
+  if authorize && digest != EXPECTED_GUARD_WORKFLOW_DIGEST
+    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
   end
 rescue Psych::Exception
   fail!("guard workflow YAML is invalid")
@@ -1339,6 +1486,14 @@ def validate_guard_script(raw)
     "assert_exact_environment",
     "assert_exact_secret_paths",
     "assert_safe_run_text",
+    "assert_exact_normalized_run",
+    "run_guard_contract_regression_matrix!",
+    "GUARD_CHECKOUT_WITH",
+    "GUARD_VERIFY_ENV",
+    "GUARD_VALIDATE_ENV",
+    "GUARD_VERIFY_RUN_HASH",
+    "GUARD_VALIDATE_RUN_HASH",
+    "GUARD_ALLOWED_SECRET_PATHS",
     "GITHUB_CONTEXT_IN_RUN",
     "TOKEN_ENV_IN_RUN",
     "TRUSTED_REVIEW_STATES",
@@ -1367,6 +1522,7 @@ end
 
 begin
   run_yaml_regression_matrix!
+  run_guard_contract_regression_matrix!
   run_trusted_cla_regression_matrix!
   run_environment_regression_matrix!
   run_trusted_review_regression_matrix!
