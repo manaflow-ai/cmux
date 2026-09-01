@@ -113,7 +113,11 @@ extension ContentView {
             { _ in value }
         }
 
-        return RightSidebarMode.availableModes().map { mode in
+        // Palette execution resolves through the mode's shortcut action;
+        // customSidebar has none yet (a new cmux-owned shortcut carries the
+        // full settings/config/docs policy), so it stays out of the palette
+        // until that lands. The mode bar, CLI, and socket verb cover it.
+        return RightSidebarMode.availableModes().filter { $0.shortcutAction != nil }.map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),

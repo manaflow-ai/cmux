@@ -80,7 +80,8 @@ struct HiddenRightSidebarContentMountingTests {
             onOpenFilePreview: { _ in },
             onOpenArtifact: { _ in },
             onOpenAsPane: { _ in },
-            onClose: {}
+            onClose: {},
+            customSidebarDataContext: { _ in [:] }
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)

@@ -6,6 +6,10 @@ import CmuxArtifacts
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebarInterpreterClient
+import CmuxSidebarRemoteRender
+import CmuxSwiftRender
+import CmuxSwiftRenderUI
 import SwiftUI
 
 enum RightSidebarContentMountPolicy {
@@ -42,6 +46,9 @@ struct RightSidebarPanelView: View {
     let onOpenArtifact: (ArtifactSidebarRowSnapshot) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    /// Live data context for the Custom mode's JS/Swift sidebar (built by the
+    /// window's ContentView, which owns the unread model this view never sees).
+    let customSidebarDataContext: (Date) -> [String: SwiftValue]
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -67,6 +74,11 @@ struct RightSidebarPanelView: View {
 
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
+    /// The right rail's OWN worker client. Never share the left sidebar's:
+    /// the remote host swaps files in place on one client, so a shared client
+    /// would make the two rails fight over one worker process.
+    @State private var customSidebarWorkerClient: RenderWorkerClient?
 
     init(
         tabManager: TabManager,
@@ -403,11 +415,61 @@ struct RightSidebarPanelView: View {
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
                 )
             case .customSidebar:
-                EmptyView()
+                customSidebarPanel
             }
         } else {
             Color.clear
         }
+    }
+
+    /// Custom mode: mounts the selected `~/.config/cmux/sidebars/<name>.{js,swift,json}`
+    /// through the same surface as the left sidebar and panes (file-watched,
+    /// hot-reloading, same data keys and `cmux(...)` actions).
+    @ViewBuilder
+    private var customSidebarPanel: some View {
+        if let name = fileExplorerState.customSidebarName,
+           let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarSurface(
+                    fileURL: fileURL,
+                    dataContext: customSidebarDataContext(timeline.date),
+                    dispatch: makeCmuxSidebarActionDispatch(),
+                    contentInsets: CustomSidebarContentInsets(top: 8, bottom: 8),
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $customSidebarWorkerClient
+                )
+            }
+            .onDisappear {
+                shutdownCustomSidebarWorkerClient()
+            }
+        } else {
+            VStack(spacing: 6) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.tertiary)
+                Text(String(
+                    localized: "rightSidebar.customSidebar.empty",
+                    defaultValue: "No custom sidebar selected"
+                ))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                Text(String(
+                    localized: "rightSidebar.customSidebar.emptyHint",
+                    defaultValue: "Pick one with: cmux right-sidebar set custom <name>"
+                ))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func shutdownCustomSidebarWorkerClient() {
+        guard let client = customSidebarWorkerClient else { return }
+        customSidebarWorkerClient = nil
+        Task { await client.shutdown() }
     }
 
     private var sessionIndexDirectory: String? {

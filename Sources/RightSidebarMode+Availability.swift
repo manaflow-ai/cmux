@@ -17,6 +17,8 @@ extension RightSidebarMode {
             return .dock
         case "cloud", "machines", "vms":
             return .machines
+        case "custom", "custom-sidebar":
+            return .customSidebar
         default:
             return nil
         }
@@ -38,7 +40,7 @@ extension RightSidebarMode {
         machinesEnabled: Bool
     ) -> [RightSidebarMode] {
         allCases.filter {
-            $0 != .customSidebar && $0.isAvailable(
+            $0.isAvailable(
                 artifactsEnabled: artifactsEnabled,
                 feedEnabled: feedEnabled,
                 dockEnabled: dockEnabled,
@@ -89,7 +91,11 @@ extension RightSidebarMode {
         case .machines:
             return machinesEnabled
         case .customSidebar:
-            return false
+            // Available once the custom-sidebars beta is on AND a right-side
+            // sidebar has been picked (right_sidebar set custom <name>); the
+            // mode bar then grows a Custom button.
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+                && FileExplorerState.persistedCustomSidebarName() != nil
         }
     }
 
