@@ -367,6 +367,7 @@ extension SessionEntry {
         guard value.contains("$") || value.contains("`") else { return value }
         guard value.hasPrefix(prefix), value.hasSuffix(suffix) else { return nil }
         let encoded = value.dropFirst(prefix.count).dropLast(suffix.count)
+        guard encoded.first == "\\" else { return nil }
         let octets = encoded.split(separator: "\\", omittingEmptySubsequences: true)
         guard !octets.isEmpty else { return nil }
         var bytes: [UInt8] = []
