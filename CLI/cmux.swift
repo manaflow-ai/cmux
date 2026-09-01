@@ -33182,15 +33182,15 @@ export default CMUXSessionRestore;
                 cursor = parent
                 ancestorDepth += 1
             }
-            let projectRoot = discoveredProjectRoot ?? cwdURL
+            let resolvedProjectRoot = discoveredProjectRoot ?? cwdURL
             applyConfig(
-                at: projectRoot
+                at: resolvedProjectRoot
                     .appendingPathComponent(".cursor", isDirectory: true)
                     .appendingPathComponent("cli.json", isDirectory: false),
                 readsApprovalMode: false
             )
-            if cwdURL.path != projectRoot.path,
-               cwdURL.path.hasPrefix(projectRoot.path + "/") {
+            if cwdURL.path != resolvedProjectRoot.path,
+               cwdURL.path.hasPrefix(resolvedProjectRoot.path + "/") {
                 // Keep the hook's synchronous policy lookup bounded: the
                 // global file, repository root, and current project directory
                 // cover the supported effective layers without walking every

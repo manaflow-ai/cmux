@@ -10,7 +10,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
     func inputTypedDuringReplayIsDiscardedBeforeForwarding() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let socketPath = makeSocketPath()
-        var controlListener = try bindUnixSocket(at: socketPath)
+        let controlListener = try bindUnixSocket(at: socketPath)
         let bridgeListener = try bindLoopbackTCP()
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
@@ -198,7 +198,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             allowReplay: DispatchSemaphore,
             forwardedCaptured: DispatchSemaphore
         ) throws {
-            var stopFDs = [-1, -1]
+            var stopFDs: [Int32] = [-1, -1]
             guard pipe(&stopFDs) == 0 else {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
@@ -234,7 +234,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
                     forwardedCaptured: forwardedCaptured
                 )
             }
-            thread.qualityOfService = .userInitiated
+            thread.qualityOfService = QualityOfService.userInitiated
             thread.start()
         }
 
