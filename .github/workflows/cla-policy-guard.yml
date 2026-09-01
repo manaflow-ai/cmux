@@ -12,7 +12,9 @@ permissions: {}
 jobs:
   validate:
     name: CLA policy guard
-    runs-on: ubuntu-24.04
+    # Keep the trusted guard on the same repo-controlled Linux runner path as
+    # the rest of CI so the Blacksmith/overflow cutover is one variable flip.
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read

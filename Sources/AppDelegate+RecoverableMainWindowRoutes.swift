@@ -163,7 +163,8 @@ extension AppDelegate {
 
     private func recoverableMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
         let liveWindowIdentities = Set(NSApp.windows.map { ObjectIdentifier($0) })
-        mainWindowLifecycleCoordinator.orphanedRoutes().compactMap { route in
+        var snapshots: [MainWindowRouteSnapshot] = []
+        for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
             guard let manager = route.tabManager,
                   tabManagerCanOwnRecoverableMainWindowRoute(manager),
                   let window = liveRecoverableMainWindow(
@@ -171,10 +172,16 @@ extension AppDelegate {
                       cachedWindow: route.window,
                       liveWindowIdentities: liveWindowIdentities
                   ) else {
-                return nil
+                continue
             }
-            return storedRecoverableMainWindowRouteSnapshot(for: route, window: window)
+            if let snapshot = storedRecoverableMainWindowRouteSnapshot(
+                for: route,
+                window: window
+            ) {
+                snapshots.append(snapshot)
+            }
         }
+        return snapshots
     }
 
     private func currentMainWindowsByWindowId() -> [UUID: NSWindow] {
@@ -463,11 +470,15 @@ extension AppDelegate {
                 // projection if the ownership-sensitive refresh deadline is
                 // unavailable. Never substitute an empty index merely because
                 // a bounded refresh timed out before this irreversible freeze.
-                restorableAgentIndex = await SharedLiveAgentIndex.shared
-                    .indexRefreshingNow()
-                    ?? Task.detached(priority: .utility) {
+                if let refreshedAgentIndex = await SharedLiveAgentIndex.shared
+                    .indexRefreshingNow() {
+                    restorableAgentIndex = refreshedAgentIndex
+                } else {
+                    let fallbackTask = Task.detached(priority: .utility) {
                         RestorableAgentSessionIndex.load()
-                    }.value
+                    }
+                    restorableAgentIndex = await fallbackTask.value
+                }
             }
             guard !Task.isCancelled else { return }
             let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
