@@ -9,9 +9,9 @@ cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
-cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
+cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first (--refresh = the sidebar's Refresh: fleet list + every provider, so a machine you just created shows up)
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
-cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
+cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row); an EMPTY workspace answers opened=0 and opens nothing (D9)
 cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs (drop a workspace row onto a pane)
 cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane (CLI placement)
 cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
@@ -19,7 +19,7 @@ cmux vm workspace rename <id> <ws-id> <name>   # rename that workspace (the row'
 cmux vm workspace close <id> <ws-id>   # close that workspace; its terminals KEEP RUNNING and detach into the Terminals pool
 cmux vm workspace rm <id> <ws-id>      # delete that workspace AND kill every terminal in it (the row's "Delete Workspace and Terminals…"). Permanent.
 cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×); its local panes close too
-cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
+cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, remote_workspaces, …}], workspaces: [{id, title, ref, selected}] (this Mac), resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
@@ -38,9 +38,11 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
       ○ term_88a…  bash                                  ← exited
   terminals/                                   ← the pool: every terminal the machine owns
   desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
+  ports/
+    3000  (cmux vm open vivid-newt:port/3000)     ← forwarded ports the machine listens on
 ```
 
-The sidebar shows the same tree in the same order (Workspaces, Terminals, Displays); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md).
+The sidebar shows the same tree in the same order (Terminals, Displays, Workspaces, Ports); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). Placement flags that name nothing (`--workspace workspace:99`, `--pane pane:99`) are errors, never a silent open in the selected workspace; `--tabs`/`--tab` cannot be combined with a pane side.
 
 ## Surfaces: one open path for terminals, screens and browsers
 
