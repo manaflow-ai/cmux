@@ -8,13 +8,13 @@ private let closedItemHistoryLogger = Logger(
     category: "ClosedItemHistory"
 )
 
-struct ClosedPanelSplitPlacement: Codable {
+nonisolated struct ClosedPanelSplitPlacement: Codable, Sendable {
     let orientation: SplitOrientation
     let insertFirst: Bool
     let anchorPanelId: UUID?
 }
 
-struct ClosedPanelHistoryEntry: Codable {
+nonisolated struct ClosedPanelHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let paneId: UUID
     let paneAnchorPanelId: UUID?
@@ -53,14 +53,14 @@ struct ClosedPanelHistoryEntry: Codable {
     }
 }
 
-struct ClosedWorkspaceHistoryEntry: Codable {
+nonisolated struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let windowId: UUID?
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
 
-struct ClosedWindowHistoryEntry: Codable {
+nonisolated struct ClosedWindowHistoryEntry: Codable, Sendable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot
 
@@ -73,13 +73,13 @@ struct ClosedWindowHistoryEntry: Codable {
     }
 }
 
-enum ClosedItemHistoryEntry: Codable {
+nonisolated enum ClosedItemHistoryEntry: Codable, Sendable {
     case panel(ClosedPanelHistoryEntry)
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
 }
 
-struct ClosedItemHistoryRecord: Identifiable, Codable {
+nonisolated struct ClosedItemHistoryRecord: Identifiable, Codable, Sendable {
     let id: UUID
     let closedAt: Date
     var entry: ClosedItemHistoryEntry
@@ -807,14 +807,14 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 }
 
-private struct ClosedItemHistoryPersistenceSnapshot: Codable {
+private nonisolated struct ClosedItemHistoryPersistenceSnapshot: Codable, Sendable {
     static let currentVersion = 1
 
     var version: Int = currentVersion
     var records: [ClosedItemHistoryRecord]
 }
 
-private struct ClosedItemHistoryLoadedRecords {
+private nonisolated struct ClosedItemHistoryLoadedRecords: Sendable {
     let records: [ClosedItemHistoryRecord]
     let didTrim: Bool
 }

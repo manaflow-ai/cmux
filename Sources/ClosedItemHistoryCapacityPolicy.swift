@@ -1,11 +1,11 @@
 import Foundation
 
 /// Applies independent bounds to the shared closed-item history.
-struct ClosedItemHistoryCapacityPolicy {
+nonisolated struct ClosedItemHistoryCapacityPolicy: Sendable {
     let totalCapacity: Int?
     let workspaceCapacity: Int?
 
-    private struct RecencyKey {
+    private nonisolated struct RecencyKey: Sendable {
         let recordIndex: Int
         let closedAt: Date
     }
