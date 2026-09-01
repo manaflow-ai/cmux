@@ -24,6 +24,11 @@
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro required",
+      "message": "Cloud VMs require a cmux Pro plan.",
+      "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
     }
   },
   "ios": {
@@ -110,6 +115,13 @@
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Verify your email to continue",
+    "emailUnverifiedBody": "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    "genericTitle": "Sign-in could not be completed",
+    "genericBody": "Please try again. If the problem continues, contact support.",
+    "backToSignIn": "Back to sign in"
+  },
   "common": {
     "downloadForMac": "Download for Mac",
     "viewOnGitHub": "View on GitHub",
@@ -172,7 +184,8 @@
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
         "nosub": "No active Stripe subscription was found for this account.",
-        "error": "Billing could not be updated. Try again shortly."
+        "error": "Billing could not be updated. Try again shortly.",
+        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active."
       },
       "free": {
         "name": "Free",

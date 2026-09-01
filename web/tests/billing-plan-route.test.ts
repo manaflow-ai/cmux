@@ -105,7 +105,9 @@ describe("billing plan route", () => {
       clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
       selectedTeam: { id: "team-founder", clientReadOnlyMetadata: {} },
     });
-    stripeSubscriptionResults = [[], [{ id: "sub_team" }]];
+    // Founder metadata skips the extra Founder-row probe in the personal
+    // resolver, so the selected team's active query consumes the third slot.
+    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
 
     const response = await planResponse();
 
@@ -151,7 +153,7 @@ describe("billing plan route", () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
-    stripeSubscriptionResults = [[], [{ id: "sub_team" }]];
+    stripeSubscriptionResults = [[], [], [], [{ id: "sub_team" }]];
 
     const response = await planResponse();
 

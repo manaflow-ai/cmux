@@ -24,6 +24,11 @@
         "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
         "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro が必要です",
+      "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
+      "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
     }
   },
   "ios": {
@@ -110,6 +115,13 @@
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
     "ogDescription": "無料・オープンソースのAIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
+  "authError": {
+    "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
+    "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "genericTitle": "サインインを完了できませんでした",
+    "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
+    "backToSignIn": "サインインに戻る"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -172,7 +184,8 @@
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
         "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
-        "error": "請求を更新できませんでした。しばらくしてから再試行してください。"
+        "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
+        "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。"
       },
       "free": {
         "name": "Free",

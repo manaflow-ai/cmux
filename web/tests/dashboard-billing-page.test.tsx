@@ -167,10 +167,25 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
+  test("does not expose Stripe management for a durable Founder row with a customer", async () => {
+    subscriptionRows = [{
+      ...stripeSubscriptionRow({ cancelAtPeriodEnd: false }),
+      raw: { metadata: { founders_edition: "true" } },
+    }];
+    customerRows = [{ id: "cus_founder" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain("/api/billing/subscription");
+    expect(html).not.toContain("/api/billing/portal");
+  });
+
   test("keeps a Founder personal plan alongside a Team subscription", async () => {
     proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
     proUser.selectedTeam = { id: "team-founder", displayName: "Founder Team" };
     subscriptionResults = [
+      [],
       [],
       [],
       [
@@ -224,9 +239,26 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("Confirm cancellation");
   });
 
+  test("renders a past-due banner that links to the Stripe portal", async () => {
+    subscriptionRows = [stripeSubscriptionRow({
+      cancelAtPeriodEnd: false,
+      status: "past_due",
+    })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain(
+      "Your latest payment failed. Update your payment method to keep your plan active.",
+    );
+    expect(html).toContain('href="/api/billing/portal"');
+  });
+
   test("renders active Stripe Team with seats, cancel, and team portal actions", async () => {
     proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
     subscriptionResults = [
+      [],
+      [],
       [],
       [],
       [
@@ -256,6 +288,8 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -276,6 +310,8 @@ describe("dashboard billing page", () => {
     subscriptionResults = [
       [],
       [],
+      [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -292,6 +328,8 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$35/seat/mo");
 
     subscriptionResults = [
+      [],
+      [],
       [],
       [],
       [
@@ -321,6 +359,8 @@ describe("dashboard billing page", () => {
       { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
     ]);
     subscriptionResults = [
+      [],
+      [],
       [],
       [],
       [
@@ -398,6 +438,7 @@ async function renderBillingPage(searchParams: Record<string, string> = {}) {
 
 function stripeSubscriptionRow({
   cancelAtPeriodEnd,
+  status = "active",
   plan = "pro",
   scope = "user",
   seats = null,
@@ -406,6 +447,7 @@ function stripeSubscriptionRow({
   recurringInterval,
 }: {
   cancelAtPeriodEnd: boolean;
+  status?: string;
   plan?: string;
   scope?: string;
   seats?: number | null;
@@ -415,7 +457,7 @@ function stripeSubscriptionRow({
 }) {
   return {
     id: "sub_123",
-    status: "active",
+    status,
     priceId: "price_123",
     plan,
     scope,

@@ -15,6 +15,11 @@
         "fork": "Не повторюйте спробу. Створіть нову VM за допомогою `cmux vm new`.",
         "default": "Не повторюйте спробу. Виконайте `cmux vm ls` або зверніться до підтримки, якщо вважаєте це помилкою."
       }
+    },
+    "requiresPro": {
+      "title": "Потрібен cmux Pro",
+      "message": "Для Cloud VM потрібен план cmux Pro.",
+      "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
     }
   },
   "billingRecovery": {
@@ -47,6 +52,13 @@
     "title": "cmux — Термінал, створений для багатозадачності",
     "description": "Безкоштовний нативний термінал для macOS з відкритим кодом на базі Ghostty. Працює з Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider і будь-яким інструментом CLI. Вертикальні вкладки, кільця сповіщень, розділені панелі та socket API.",
     "ogDescription": "Безкоштовний термінал для macOS з відкритим кодом для агентів кодування AI. Працює з Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider і будь-яким інструментом CLI."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Підтвердьте електронну пошту, щоб продовжити",
+    "emailUnverifiedBody": "Увійдіть способом, який ви використовували спочатку, а потім підтвердьте електронну пошту перед використанням цього способу входу.",
+    "genericTitle": "Не вдалося увійти",
+    "genericBody": "Спробуйте ще раз. Якщо проблема не зникне, зверніться до служби підтримки.",
+    "backToSignIn": "Повернутися до входу"
   },
   "common": {
     "downloadForMac": "Завантажити для Mac",

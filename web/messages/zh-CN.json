@@ -15,6 +15,11 @@
         "fork": "请勿重试。请使用 `cmux vm new` 创建新的虚拟机。",
         "default": "请勿重试。使用 `cmux vm ls` 查看虚拟机；如果你认为这是错误，请联系支持团队。"
       }
+    },
+    "requiresPro": {
+      "title": "需要 cmux Pro",
+      "message": "云端虚拟机需要 cmux Pro 套餐。",
+      "action": "请前往 {upgradeUrl} 升级到 cmux Pro 以创建云端虚拟机。"
     }
   },
   "billingRecovery": {
@@ -47,6 +52,13 @@
     "title": "cmux — 专为多任务打造的终端",
     "description": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直标签页、通知环、分割面板和 socket API。",
     "ogDescription": "面向 AI 编程 agent 的免费开源 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
+  },
+  "authError": {
+    "emailUnverifiedTitle": "验证邮箱后继续",
+    "emailUnverifiedBody": "请使用最初注册时的方式登录，然后验证邮箱，再使用此登录方式。",
+    "genericTitle": "无法完成登录",
+    "genericBody": "请重试。如果问题仍然存在，请联系支持。",
+    "backToSignIn": "返回登录"
   },
   "common": {
     "downloadForMac": "下载 Mac 版",

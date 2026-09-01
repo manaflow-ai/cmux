@@ -15,6 +15,11 @@
         "fork": "Ne réessayez pas. Créez une nouvelle VM avec `cmux vm new`.",
         "default": "Ne réessayez pas. Exécutez `cmux vm ls` ou contactez le support si cela vous semble incorrect."
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro requis",
+      "message": "Les Cloud VM nécessitent un abonnement cmux Pro.",
+      "action": "Passez à cmux Pro sur {upgradeUrl} pour créer des Cloud VM."
     }
   },
   "billingRecovery": {
@@ -47,6 +52,13 @@
     "title": "cmux — Le terminal conçu pour le multitâche",
     "description": "Terminal macOS natif open source et gratuit basé sur Ghostty. Fonctionne avec Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider et tout outil CLI. Onglets verticaux, anneaux de notification, panneaux divisés et une socket API.",
     "ogDescription": "Terminal macOS open source et gratuit pour les agents de programmation IA. Fonctionne avec Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider et tout outil CLI."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Vérifiez votre adresse e-mail pour continuer",
+    "emailUnverifiedBody": "Connectez-vous avec la méthode utilisée à l’origine, puis vérifiez votre adresse e-mail avant d’utiliser cette méthode de connexion.",
+    "genericTitle": "Connexion impossible",
+    "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
+    "backToSignIn": "Retour à la connexion"
   },
   "common": {
     "downloadForMac": "Télécharger pour Mac",

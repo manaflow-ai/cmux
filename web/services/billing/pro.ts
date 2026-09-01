@@ -6,10 +6,10 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
-import { inArray, eq, and, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
-import { stripeSubscriptions } from "../../db/schema";
+import { stripeCustomers, stripeSubscriptions } from "../../db/schema";
 import {
   getStackServerApp,
   isStackConfigured,
@@ -37,6 +37,13 @@ export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
+/** Subscription states that Stripe Billing Portal can manage or recover. */
+export const STRIPE_PORTAL_RECOVERABLE_STATUSES = [
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+] as const;
 
 // Mirrors Stack's ReadonlyJson so ServerUser.update stays assignable.
 export type ProMetadataJson =
@@ -102,6 +109,21 @@ export type ProReconcileUser = ProMetadataCustomer & {
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
 export type ActiveFounderSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
+export type StripeCustomerQuery = (stackUserId: string) => Promise<boolean>;
+export type StripeBillingStatus = {
+  /** The existing Stripe customer id, when one is recorded for this owner. */
+  readonly customerId: string | null;
+  /** The newest recorded Pro subscription state, if any. */
+  readonly subscriptionStatus: string | null;
+  /** Whether the newest subscription is scheduled to cancel at period end. */
+  readonly cancelAtPeriodEnd: boolean;
+  readonly hasCustomer: boolean;
+  /** Whether the newest subscription grants current Pro access. */
+  readonly hasActiveSubscription: boolean;
+};
+export type StripeBillingStatusQuery = (
+  stackUserId: string,
+) => Promise<StripeBillingStatus>;
 export type FreshProMetadataUserMutation = <Result>(
   userId: string,
   operation: (
@@ -238,6 +260,9 @@ export async function resolveProPlanStatus(
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
     hasActiveFounderSubscription?: ActiveFounderSubscriptionQuery;
+    hasStripeCustomer?: StripeCustomerQuery;
+    /** Optional state snapshot used by checkout and deterministic callers. */
+    stripeBillingStatus?: StripeBillingStatus | StripeBillingStatusQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
     claimPendingBilling?: PendingBillingClaimResolver;
   } = {},
@@ -265,6 +290,16 @@ export async function resolveProPlanStatus(
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const metadataFounderEntitlement = hasFounderEditionEntitlement(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
+  const hasLegacyQueryOverrides = Boolean(
+    options.hasActiveStripeSubscription || options.hasStripeCustomer,
+  );
+  const stripeBillingStatus = user.id
+    ? await resolveStripeBillingStatus(
+        user.id,
+        options.stripeBillingStatus,
+        hasLegacyQueryOverrides,
+      )
+    : null;
   let hasActiveStripeSubscription = false;
   let hasActiveFounderSubscription = metadataFounderEntitlement;
   if (user.id) {
@@ -272,6 +307,15 @@ export async function resolveProPlanStatus(
       hasActiveStripeSubscription = await options.hasActiveStripeSubscription(user.id);
       if (!hasActiveStripeSubscription && options.hasActiveFounderSubscription) {
         hasActiveFounderSubscription ||= await options.hasActiveFounderSubscription(user.id);
+      }
+    } else if (stripeBillingStatus) {
+      hasActiveStripeSubscription = stripeBillingStatus.hasActiveSubscription;
+      if (!hasActiveStripeSubscription) {
+        if (options.hasActiveFounderSubscription) {
+          hasActiveFounderSubscription ||= await options.hasActiveFounderSubscription(user.id);
+        } else if (!hasActiveFounderSubscription) {
+          hasActiveFounderSubscription = await hasActiveFounderStripeSubscription(user.id);
+        }
       }
     } else {
       // One bounded read classifies both regular and Founder rows, avoiding a
@@ -290,6 +334,22 @@ export async function resolveProPlanStatus(
     hasActiveStripeSubscription,
     hasActiveFounderSubscription,
   );
+  // A customer row alone is not enough to open the portal. Stripe cannot start
+  // a new subscription from the portal after a terminal cancellation (or when
+  // the row has no subscription), so only recoverable subscription states keep
+  // billing management enabled.
+  const hasStripeCustomer = user.id
+    ? options.hasStripeCustomer
+      ? await options.hasStripeCustomer(user.id)
+      : stripeBillingStatus?.hasCustomer ?? (hasActiveStripeSubscription && !stripeBillingStatus)
+    : false;
+  const billingManagement: BillingManagementKind = stripeBillingStatus
+    ? hasActiveStripeSubscription || isStripePortalRecoverable(stripeBillingStatus)
+      ? "stripe"
+      : "none"
+    : hasActiveStripeSubscription || hasStripeCustomer
+      ? "stripe"
+      : "none";
   let metadataChanged = false;
 
   if (
@@ -306,10 +366,44 @@ export async function resolveProPlanStatus(
 
   return {
     ...normalizedPlan,
+    billingManagement,
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
   };
+}
+
+/**
+ * Returns true only when the Stripe portal has a subscription it can manage.
+ * Terminally canceled subscriptions and customer-only rows must continue to
+ * the checkout flow instead.
+ */
+export function isStripePortalRecoverable(
+  status: Pick<StripeBillingStatus, "hasCustomer" | "subscriptionStatus" | "cancelAtPeriodEnd">,
+): boolean {
+  if (!status.hasCustomer || !status.subscriptionStatus) return false;
+  if (status.subscriptionStatus === "canceled") return false;
+  return status.cancelAtPeriodEnd ||
+    (STRIPE_PORTAL_RECOVERABLE_STATUSES as readonly string[]).includes(
+      status.subscriptionStatus,
+    );
+}
+
+async function resolveStripeBillingStatus(
+  stackUserId: string,
+  configured: StripeBillingStatus | StripeBillingStatusQuery | undefined,
+  hasLegacyQueryOverrides: boolean,
+): Promise<StripeBillingStatus | null> {
+  if (configured) {
+    return typeof configured === "function"
+      ? await configured(stackUserId)
+      : configured;
+  }
+  // Keep the small query seams used by existing reconciliation tests. Normal
+  // application callers use the complete snapshot so terminal subscription
+  // states can be distinguished from a bare customer row.
+  if (hasLegacyQueryOverrides) return null;
+  return await stripeBillingStatusForUser(stackUserId);
 }
 
 async function reconcileProMetadataIfAvailable(
@@ -386,6 +480,159 @@ export async function hasActiveStripeProSubscription(
   }
 }
 
+/** Return whether a personal Stripe customer exists, even when its
+ * subscription is canceled or unpaid. */
+export async function hasStripeCustomerForUser(stackUserId: string): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.stackUserId, stackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+/**
+ * Reads the personal Stripe customer and newest Pro subscription in one state
+ * snapshot. A customer row is retained for checkout identity, while the
+ * newest subscription supplies portal/recovery metadata.
+ */
+export async function stripeBillingStatusForUser(
+  stackUserId: string,
+): Promise<StripeBillingStatus> {
+  try {
+    const db = cloudDb();
+    const customerRowsPromise = db
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.stackUserId, stackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    const subscriptionQuery = db
+      .select({
+        status: stripeSubscriptions.status,
+        cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
+        currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+        updatedAt: stripeSubscriptions.updatedAt,
+        raw: stripeSubscriptions.raw,
+      })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackUserId, stackUserId),
+          isNull(stripeSubscriptions.stackTeamId),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          // Founder rows are durable entitlement records, not Stripe-managed
+          // subscriptions. Keep them out of the portal snapshot even when a
+          // customer row happens to exist for the same account.
+          sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'`,
+        ),
+      );
+    const orderedSubscriptionQuery = typeof subscriptionQuery.orderBy === "function"
+      ? subscriptionQuery.orderBy(
+          desc(stripeSubscriptions.updatedAt),
+          desc(stripeSubscriptions.currentPeriodEnd),
+        )
+      : subscriptionQuery;
+    // Active access comes from any active row; the newest row only supplies
+    // portal metadata so a newer canceled row cannot hide a paid subscription.
+    const [customerRows, subscriptionRows, hasActiveSubscription] = await Promise.all([
+      customerRowsPromise,
+      orderedSubscriptionQuery.limit(10),
+      hasActiveStripeProSubscription(stackUserId),
+    ]);
+    const subscription = pickPortalMetadataRow(
+      subscriptionRows.filter((row) => !isFounderSubscriptionRaw(row.raw)),
+    );
+    return stripeBillingStatusFromRows(
+      customerRows[0]?.id ?? null,
+      subscription,
+      hasActiveSubscription,
+    );
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
+    throw error;
+  }
+}
+
+/** Return whether a billing team's Stripe customer exists. */
+export async function hasStripeCustomerForTeam(stackTeamId: string): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(eq(stripeCustomers.stackTeamId, stackTeamId))
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+/** Reads a billing team's Stripe customer and newest Team subscription. */
+export async function stripeBillingStatusForTeam(
+  stackTeamId: string,
+): Promise<StripeBillingStatus> {
+  try {
+    const db = cloudDb();
+    const customerRowsPromise = db
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(eq(stripeCustomers.stackTeamId, stackTeamId))
+      .limit(1);
+    const subscriptionQuery = db
+      .select({
+        status: stripeSubscriptions.status,
+        cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
+        currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+        updatedAt: stripeSubscriptions.updatedAt,
+      })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackTeamId, stackTeamId),
+          eq(stripeSubscriptions.scope, "team"),
+          eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+        ),
+      );
+    const orderedSubscriptionQuery = typeof subscriptionQuery.orderBy === "function"
+      ? subscriptionQuery.orderBy(
+          desc(stripeSubscriptions.updatedAt),
+          desc(stripeSubscriptions.currentPeriodEnd),
+        )
+      : subscriptionQuery;
+    const [customerRows, subscriptionRows, hasActiveSubscription] = await Promise.all([
+      customerRowsPromise,
+      orderedSubscriptionQuery.limit(10),
+      hasActiveTeamSubscriptionForTeam(stackTeamId),
+    ]);
+    const subscription = pickPortalMetadataRow(subscriptionRows);
+    return stripeBillingStatusFromRows(
+      customerRows[0]?.id ?? null,
+      subscription,
+      hasActiveSubscription,
+    );
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
+    throw error;
+  }
+}
+
 /** Return whether a durable Founder-marked personal row is still present. */
 export async function hasActiveFounderStripeSubscription(
   stackUserId: string,
@@ -411,6 +658,7 @@ async function activeStripeSubscriptionState(
       .where(
         and(
           eq(stripeSubscriptions.stackUserId, stackUserId),
+          isNull(stripeSubscriptions.stackTeamId),
           eq(stripeSubscriptions.scope, "user"),
           eq(stripeSubscriptions.plan, PRO_PLAN_ID),
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
@@ -638,4 +886,55 @@ function normalizedPlanValue(value: unknown): string | null {
 
 function isMissingDatabaseConfig(error: unknown): boolean {
   return error instanceof Error && /DATABASE_URL is required/.test(error.message);
+}
+
+/**
+ * Pick the subscription row that should drive portal/recovery metadata. A
+ * stale canceled row can be newer than a recoverable one, so prefer any
+ * recoverable row and sort by its current period end.
+ */
+function pickPortalMetadataRow<T extends {
+  readonly status?: string | null;
+  readonly cancelAtPeriodEnd?: boolean | null;
+  readonly currentPeriodEnd?: Date | null;
+}>(rows: readonly T[]): T | undefined {
+  const recoverable = rows.filter((row) =>
+    (row.status && (STRIPE_PORTAL_RECOVERABLE_STATUSES as readonly string[]).includes(row.status)) ||
+    Boolean(row.cancelAtPeriodEnd));
+  if (recoverable.length === 0) return rows[0];
+  return [...recoverable].sort((left, right) =>
+    (right.currentPeriodEnd?.getTime() ?? 0) -
+    (left.currentPeriodEnd?.getTime() ?? 0))[0];
+}
+
+function stripeBillingStatusFromRows(
+  customerId: string | null,
+  subscription: {
+    readonly status?: string | null;
+    readonly cancelAtPeriodEnd?: boolean | null;
+  } | undefined,
+  activeSubscriptionOverride?: boolean,
+): StripeBillingStatus {
+  const subscriptionStatus = subscription?.status ??
+    (activeSubscriptionOverride ? "active" : null);
+  return {
+    customerId,
+    subscriptionStatus,
+    cancelAtPeriodEnd: Boolean(subscription?.cancelAtPeriodEnd),
+    hasCustomer: customerId !== null,
+    hasActiveSubscription: activeSubscriptionOverride ?? (
+      subscriptionStatus !== null &&
+      (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
+    ),
+  };
+}
+
+function emptyStripeBillingStatus(): StripeBillingStatus {
+  return {
+    customerId: null,
+    subscriptionStatus: null,
+    cancelAtPeriodEnd: false,
+    hasCustomer: false,
+    hasActiveSubscription: false,
+  };
 }

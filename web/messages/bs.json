@@ -15,6 +15,11 @@
         "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
         "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
+    },
+    "requiresPro": {
+      "title": "Potreban je cmux Pro",
+      "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
+      "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
     }
   },
   "billingRecovery": {
@@ -47,6 +52,13 @@
     "title": "cmux — Terminal napravljen za multitasking",
     "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
     "ogDescription": "Besplatan i otvorenog koda macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Potvrdite e-poštu za nastavak",
+    "emailUnverifiedBody": "Prijavite se metodom koji ste prvobitno koristili, a zatim potvrdite e-poštu prije korištenja ovog načina prijave.",
+    "genericTitle": "Prijava nije dovršena",
+    "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
+    "backToSignIn": "Nazad na prijavu"
   },
   "common": {
     "downloadForMac": "Preuzmi za Mac",

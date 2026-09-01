@@ -15,6 +15,11 @@
         "fork": "កុំ​ព្យាយាម​ម្តងទៀត។ បង្កើត VM ថ្មីដោយប្រើ `cmux vm new`។",
         "default": "កុំ​ព្យាយាម​ម្តងទៀត។ ដំណើរការ `cmux vm ls` ឬទាក់ទងជំនួយ ប្រសិនបើអ្នកគិតថានេះជាកំហុស។"
       }
+    },
+    "requiresPro": {
+      "title": "ត្រូវការ cmux Pro",
+      "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
+      "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
     }
   },
   "billingRecovery": {
@@ -47,6 +52,13 @@
     "title": "cmux — ស្ថានីយដែលបង្កើតសម្រាប់ពហុកិច្ចការ",
     "description": "ស្ថានីយ macOS ដើមកំណើតប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹង, បន្ទះបំបែក, និង socket API។",
     "ogDescription": "ស្ថានីយ macOS ប្រភពកូដបើកចំហ និងឥតគិតថ្លៃសម្រាប់ភ្នាក់ងារសរសេរកូដ AI។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។"
+  },
+  "authError": {
+    "emailUnverifiedTitle": "ផ្ទៀងផ្ទាត់អ៊ីមែលរបស់អ្នក ដើម្បីបន្ត",
+    "emailUnverifiedBody": "ចូលដោយប្រើវិធីដែលអ្នកបានប្រើដំបូង បន្ទាប់មកផ្ទៀងផ្ទាត់អ៊ីមែល មុនពេលប្រើវិធីចូលនេះ។",
+    "genericTitle": "មិនអាចបញ្ចប់ការចូលបានទេ",
+    "genericBody": "សូមព្យាយាមម្តងទៀត។ ប្រសិនបើបញ្ហានៅតែមាន សូមទាក់ទងជំនួយ។",
+    "backToSignIn": "ត្រឡប់ទៅការចូល"
   },
   "common": {
     "downloadForMac": "ទាញយកសម្រាប់ Mac",

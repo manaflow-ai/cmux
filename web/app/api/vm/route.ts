@@ -26,7 +26,6 @@ import {
   defaultMemoryMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
   maxMemoryMbForPlan,
   resolveVmEntitlements,
   vmFreeAccessWindowDays,
@@ -53,7 +52,7 @@ import {
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
@@ -65,7 +64,6 @@ import {
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
-  measureVmSync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
@@ -303,6 +301,86 @@ export async function POST(request: Request): Promise<Response> {
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
+        // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
+        // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
+        // so we don't store unbounded idempotency metadata.
+        const rawKey = (
+          request.headers.get("idempotency-key") ||
+          request.headers.get("x-cmux-idempotency-key") ||
+          ""
+        ).trim();
+        const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
+
+        const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
+        if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
+          let refreshedUser: AuthedUser | null;
+          try {
+            refreshedUser = await measureVmAsync(timing, "auth", () =>
+              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+            );
+          } catch (error) {
+            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
+          }
+          if (!refreshedUser) return unauthorized();
+          user = refreshedUser;
+        }
+        // Read-time reconcile: a Stripe subscription change is corrected here
+        // right before paid limits apply. Best-effort — billing reads must
+        // not block VM creation, so the whole reconcile races a hard
+        // deadline and VM create proceeds with current metadata on timeout.
+        try {
+          if (isStackConfigured()) {
+            const changed = await withBillingReconcileDeadline(
+              measureVmAsync(timing, "billing_reconcile", async () => {
+                const serverUser = await getStackServerApp().getUser(user.id);
+                return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+              })
+            );
+            if (changed) {
+              const reconciledUser = await measureVmAsync(timing, "auth", () =>
+                verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+              );
+              if (reconciledUser) user = reconciledUser;
+            }
+          }
+        } catch (err) {
+          console.error("[VM] Pro plan reconcile failed", err);
+        }
+        const account = await measureVmAsync(timing, "entitlements", () =>
+          resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId })
+        );
+        if (!account.ok) return account.response;
+        const entitlements = account.entitlements;
+        setSpanAttributes(span, {
+          "cmux.billing.team_id_set": !!entitlements.billingTeamId,
+          "cmux.billing.customer_type": entitlements.billingCustomerType,
+          "cmux.billing.plan_id": entitlements.planId,
+          "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
+          "cmux.vm.max_active": entitlements.maxActiveVms,
+        });
+
+        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
+        const memoryMb =
+          candidate.memoryMb === undefined
+            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
+            : candidate.memoryMb as number;
+        if (memoryMb > maxMemoryMb) {
+          return vmErrorResponse({
+            error: "vm_memory_exceeds_plan",
+            status: 400,
+            message: "The requested Cloud VM size exceeds this plan's memory limit.",
+            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
+            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
+          });
+        }
+        setSpanAttributes(span, {
+          "cmux.vm.memory_mb": memoryMb,
+          "cmux.vm.max_memory_mb": maxMemoryMb,
+        });
+
+        // Resolve provider/image only after the paid-plan boundary. A free or
+        // unknown plan must receive `vm_requires_pro` without consulting
+        // provider configuration, image manifests, or provider SDKs.
         // An explicit manifest image names its own provider: the CLI sends
         // provider-specific image ids without a provider field, and the
         // deployment default must not reroute them under the wrong provider.
@@ -341,100 +419,12 @@ export async function POST(request: Request): Promise<Response> {
           throw err;
         }
         const image = imageSelection.image;
-        // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
-        // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
-        // so we don't store unbounded idempotency metadata.
-        const rawKey = (
-          request.headers.get("idempotency-key") ||
-          request.headers.get("x-cmux-idempotency-key") ||
-          ""
-        ).trim();
-        const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
         setSpanAttributes(span, {
           "cmux.vm.provider": provider,
           "cmux.vm.image_set": image.length > 0,
           "cmux.vm.image_version": imageSelection.imageVersion,
           "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
           "cmux.idempotency_key_set": !!idempotencyKey,
-        });
-
-        const requestedBillingTeamId = body.billingTeamId || requestedVmTeamIdFromRequest(request);
-        if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-          let refreshedUser: AuthedUser | null;
-          try {
-            refreshedUser = await measureVmAsync(timing, "auth", () =>
-              verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-            );
-          } catch (error) {
-            return authProviderErrorResponse(error, "/api/vm.create.team-auth");
-          }
-          if (!refreshedUser) return unauthorized();
-          user = refreshedUser;
-        }
-        // Read-time reconcile: a Stripe subscription change is corrected here
-        // right before paid limits apply. Best-effort — billing reads must
-        // not block VM creation, so the whole reconcile races a hard
-        // deadline and VM create proceeds with current metadata on timeout.
-        try {
-          if (isStackConfigured()) {
-            const changed = await withBillingReconcileDeadline(
-              measureVmAsync(timing, "billing_reconcile", async () => {
-                const serverUser = await getStackServerApp().getUser(user.id);
-                return serverUser ? reconcileProPlanMetadata(serverUser) : false;
-              })
-            );
-            if (changed) {
-              const reconciledUser = await measureVmAsync(timing, "auth", () =>
-                verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
-              );
-              if (reconciledUser) user = reconciledUser;
-            }
-          }
-        } catch (err) {
-          console.error("[VM] Pro plan reconcile failed", err);
-        }
-        let entitlements;
-        try {
-          entitlements = measureVmSync(timing, "entitlements", () =>
-            resolveVmEntitlements(user, process.env, {
-              requestedBillingTeamId,
-            })
-          );
-        } catch (err) {
-          if (isVmBillingTeamResolutionError(err)) {
-            return billingTeamErrorResponse(err);
-          }
-          throw err;
-        }
-        setSpanAttributes(span, {
-          "cmux.billing.team_id_set": !!entitlements.billingTeamId,
-          "cmux.billing.customer_type": entitlements.billingCustomerType,
-          "cmux.billing.plan_id": entitlements.planId,
-          "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
-          "cmux.vm.max_active": entitlements.maxActiveVms,
-        });
-
-        if (isVmProGateBlocked(entitlements)) {
-          return vmRequiresProResponse();
-        }
-
-        const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
-        const memoryMb =
-          candidate.memoryMb === undefined
-            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
-            : candidate.memoryMb as number;
-        if (memoryMb > maxMemoryMb) {
-          return vmErrorResponse({
-            error: "vm_memory_exceeds_plan",
-            status: 400,
-            message: "The requested Cloud VM size exceeds this plan's memory limit.",
-            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
-            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
-          });
-        }
-        setSpanAttributes(span, {
-          "cmux.vm.memory_mb": memoryMb,
-          "cmux.vm.max_memory_mb": maxMemoryMb,
         });
 
         // Wire the machine to coderouter: mint a per-machine route token and

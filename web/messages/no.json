@@ -15,6 +15,11 @@
         "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux vm new`.",
         "default": "Ikke prøv på nytt. Kjør `cmux vm ls`, eller kontakt brukerstøtte hvis du mener dette er feil."
       }
+    },
+    "requiresPro": {
+      "title": "cmux Pro kreves",
+      "message": "Cloud VM-er krever en cmux Pro-plan.",
+      "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
     }
   },
   "billingRecovery": {
@@ -47,6 +52,13 @@
     "title": "cmux — Terminalen bygget for multitasking",
     "description": "Gratis og åpen kildekode nativ macOS-terminal bygget på Ghostty. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy. Vertikale faner, varselsringer, delte paneler og en socket API.",
     "ogDescription": "Gratis og åpen kildekode macOS-terminal for AI-kodingsagenter. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy."
+  },
+  "authError": {
+    "emailUnverifiedTitle": "Bekreft e-posten din for å fortsette",
+    "emailUnverifiedBody": "Logg inn med metoden du brukte opprinnelig, og bekreft deretter e-posten før du bruker denne innloggingsmetoden.",
+    "genericTitle": "Innloggingen kunne ikke fullføres",
+    "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
+    "backToSignIn": "Tilbake til innlogging"
   },
   "common": {
     "downloadForMac": "Last ned for Mac",
