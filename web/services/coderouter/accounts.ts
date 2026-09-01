@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
   deleteAccount,
@@ -143,6 +143,15 @@ export const removeAccount = createAccountRemover({
 export function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
   const provider = value.provider;
+  if (provider === "anthropic-apikey" || provider === "openai-apikey") {
+    const apiKey = boundedString(value.apiKey, 4_096);
+    if (!apiKey) return null;
+    const accountId = boundedString(value.accountId, 512) ?? apiKeyAccountId(apiKey);
+    const email = boundedString(value.email, 320) ??
+      boundedString(value.label, 320) ??
+      accountId;
+    return { provider, apiKey, accountId, email };
+  }
   const accessToken = boundedString(value.accessToken, 32_768);
   const refreshToken = boundedString(value.refreshToken, 32_768);
   const accountId = boundedString(value.accountId, 512);
@@ -200,6 +209,14 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
     };
   }
   return null;
+}
+
+/**
+ * A key's dedupe identity within a team: the same key connected twice is one
+ * account, and the key itself never appears in an identifier or a log line.
+ */
+export function apiKeyAccountId(apiKey: string): string {
+  return `key:${createHash("sha256").update(apiKey).digest("hex").slice(0, 32)}`;
 }
 
 function boundedString(value: unknown, max: number): string | null {

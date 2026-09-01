@@ -20,6 +20,27 @@ const credential: CodeRouterCredential = {
 };
 
 describe("coderouter credential envelope encryption", () => {
+  test("round trips an API key credential (no refresh material, no expiry)", async () => {
+    const keys = fakeKeys();
+    const key: CodeRouterCredential = {
+      provider: "openai-apikey",
+      apiKey: "sk-openai-secret-value",
+      accountId: "key:1234",
+      email: "work key",
+    };
+    const encrypted = await encryptCredential({
+      accountId: "00000000-0000-4000-8000-000000000002",
+      teamId: "team-1",
+      provider: "openai-apikey",
+      credentialRevision: 1,
+      credential: key,
+      keyId: "test-key",
+      keys,
+    });
+    expect(JSON.stringify(encrypted)).not.toContain("sk-openai-secret-value");
+    expect(await decryptCredential(encrypted, keys)).toEqual(key);
+  });
+
   test("round trips without exposing provider secrets", async () => {
     const keys = fakeKeys();
     const encrypted = await encrypt(keys);

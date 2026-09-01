@@ -14,6 +14,7 @@ import type {
   CodeRouterCredential,
   CodeRouterProvider,
 } from "./types";
+import { credentialExpiryDate } from "./types";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -274,7 +275,7 @@ export async function insertAccountWithCredential(input: {
         label,
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         updatedAt: new Date(),
       })
       .onConflictDoNothing({
@@ -318,7 +319,7 @@ export async function replaceAccountCredential(input: {
         label: credentialLabel(input.credential),
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         refreshLeaseId: null,
         refreshLeaseExpiresAt: null,
         lastFailureCode: null,
@@ -368,7 +369,7 @@ export async function importEncryptedCredential(input: {
       .set({
         label: credentialLabel(input.credential),
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         updatedAt: new Date(),
       })
       .where(and(
@@ -401,7 +402,7 @@ export async function upsertAccountMetadata(input: {
       label,
       state: "active",
       vaultRevision: input.vaultRevision,
-      credentialExpiresAt: new Date(input.credential.expiresAt),
+      credentialExpiresAt: credentialExpiryDate(input.credential),
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -414,7 +415,7 @@ export async function upsertAccountMetadata(input: {
         label,
         state: "active",
         vaultRevision: input.vaultRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         lastFailureCode: null,
         updatedAt: new Date(),
       },
@@ -863,7 +864,7 @@ export async function completeRefreshLease(input: {
       .set({
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         refreshLeaseId: null,
         refreshLeaseExpiresAt: null,
         lastFailureCode: null,

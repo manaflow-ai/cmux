@@ -14,6 +14,7 @@ import type {
   CodeRouterCredential,
   CodeRouterProvider,
 } from "./types";
+import { CODEROUTER_PROVIDERS } from "./types";
 
 const ALGORITHM = "aes-256-gcm" as const;
 const DATA_KEY_BYTES = 32;
@@ -194,7 +195,7 @@ function assertIdentity(input: {
   if (
     !input.accountId ||
     !input.teamId ||
-    !["codex", "opencode-go", "claude"].includes(input.provider) ||
+    !CODEROUTER_PROVIDERS.includes(input.provider) ||
     !Number.isSafeInteger(input.credentialRevision) ||
     input.credentialRevision < 1
   ) {
@@ -222,6 +223,16 @@ function strictBase64(value: string, label: string): Buffer {
 
 function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
+  if (value.provider === "anthropic-apikey" || value.provider === "openai-apikey") {
+    return string(value.apiKey) && string(value.accountId) && string(value.email)
+      ? {
+        provider: value.provider,
+        apiKey: value.apiKey,
+        accountId: value.accountId,
+        email: value.email,
+      }
+      : null;
+  }
   const {
     accessToken,
     refreshToken,

@@ -1,4 +1,26 @@
-export type CodeRouterProvider = "codex" | "opencode-go" | "claude";
+export type CodeRouterProvider =
+  | "codex"
+  | "opencode-go"
+  | "claude"
+  | "anthropic-apikey"
+  | "openai-apikey";
+
+/** Every provider id the vault may store, in one place for CHECKs and parsers. */
+export const CODEROUTER_PROVIDERS: readonly CodeRouterProvider[] = [
+  "codex",
+  "opencode-go",
+  "claude",
+  "anthropic-apikey",
+  "openai-apikey",
+];
+
+/**
+ * The account kinds each data plane can route over. The first entry is the
+ * plane's own id: session bindings are keyed on it, so a session stays sticky
+ * to one account no matter which kind it landed on.
+ */
+export const CLAUDE_PLANE_PROVIDERS: readonly CodeRouterProvider[] = ["claude", "anthropic-apikey"];
+export const CODEX_PLANE_PROVIDERS: readonly CodeRouterProvider[] = ["codex", "openai-apikey"];
 
 export type CodexCredential = {
   readonly provider: "codex";
@@ -31,10 +53,40 @@ export type ClaudeCredential = {
   readonly expiresAt: number;
 };
 
+/**
+ * A long-lived provider API key. Nothing rotates: there is no refresh token
+ * and no expiry, so a provider 401 means the key itself is dead.
+ */
+export type ApiKeyCredential = {
+  readonly provider: "anthropic-apikey" | "openai-apikey";
+  readonly apiKey: string;
+  /** Dedupe identity within the team (a hash of the key, or a mirror id). */
+  readonly accountId: string;
+  /** Display label; doubles as the vault's non-empty "email" slot. */
+  readonly email: string;
+};
+
 export type CodeRouterCredential =
   | CodexCredential
   | OpenCodeGoCredential
-  | ClaudeCredential;
+  | ClaudeCredential
+  | ApiKeyCredential;
+
+export function isApiKeyCredential(
+  credential: CodeRouterCredential,
+): credential is ApiKeyCredential {
+  return credential.provider === "anthropic-apikey" || credential.provider === "openai-apikey";
+}
+
+/** Epoch ms the credential stops being usable; API keys never expire on their own. */
+export function credentialExpiresAt(credential: CodeRouterCredential): number {
+  return isApiKeyCredential(credential) ? Number.POSITIVE_INFINITY : credential.expiresAt;
+}
+
+/** The stored `credential_expires_at` column value: null for a key that never expires. */
+export function credentialExpiryDate(credential: CodeRouterCredential): Date | null {
+  return isApiKeyCredential(credential) ? null : new Date(credential.expiresAt);
+}
 
 export type VaultAccount = {
   readonly revision: number;
