@@ -117,20 +117,16 @@ async function reconcileStripeSubscriptionsLocked(
       let rowRepaired = false;
       try {
         const remote = await retrieve(snapshot.id);
-        if (hasDrift(snapshot, remote)) {
-          rowDrifted = true;
-          if (!options.dryRun) {
-            const result = await apply(remote);
-            if (isSkipped(result)) {
-              throw new Error("Stripe subscription could not be mapped to a billing principal");
-            }
-            rowRepaired = true;
-          }
-        }
 
-        // After repeated Stack deadline trips, stop starting new drift checks
-        // for this run: an outage must not strand one un-cancellable request
-        // per remaining team row.
+        // Observe team seat drift BEFORE any mutation. This orders the
+        // fail-closed identity checks inside detectTeamSeatDrift ahead of
+        // apply(remote), so a subscription whose Stripe metadata points at a
+        // different team (or a non-team plan) never mutates entitlements; and
+        // the observation compares the roster against a snapshot that apply
+        // has not yet rewritten. Trade-off: a Stack deadline trip also defers
+        // that row's status repair to the next cycle, which is the safe side.
+        // The trip breaker keeps a Stack outage from stranding more than a
+        // few un-cancellable requests per run.
         if (
           isTeamSnapshot(snapshot) &&
           isActiveStripeSubscriptionStatus(remote.status) &&
@@ -143,6 +139,17 @@ async function reconcileStripeSubscriptionsLocked(
             captureTeamSeatDrift,
           );
           rowDrifted ||= seatDrift.drifted;
+        }
+
+        if (hasDrift(snapshot, remote)) {
+          rowDrifted = true;
+          if (!options.dryRun) {
+            const result = await apply(remote);
+            if (isSkipped(result)) {
+              throw new Error("Stripe subscription could not be mapped to a billing principal");
+            }
+            rowRepaired = true;
+          }
         }
       } catch (error) {
         if (error instanceof StackDeadlineError) stackDeadlineTrips += 1;
