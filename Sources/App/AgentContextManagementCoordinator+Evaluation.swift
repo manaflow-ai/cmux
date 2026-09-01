@@ -76,6 +76,8 @@ extension AgentContextManagementCoordinator {
             )
             return
         }
+        let claimedWorkspaceID = Self.uuid(from: event.workspaceId)
+        let claimedSurfaceID = Self.uuid(from: event.surfaceId)
         guard let workspaceID = Self.uuid(from: event.workspaceId),
               let surfaceID = Self.uuid(from: event.surfaceId),
               let owner = owner(for: surfaceID, preferredWorkspaceID: workspaceID),
@@ -92,8 +94,8 @@ extension AgentContextManagementCoordinator {
               ) else {
             structuredLog(
                 "provider-evidence.ignored",
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
+                workspaceID: claimedWorkspaceID,
+                surfaceID: claimedSurfaceID ?? Self.invalidEvidenceSurfaceID,
                 detail: "reason=target-or-session-mismatch source=\(event.source)"
             )
             return
@@ -167,8 +169,6 @@ extension AgentContextManagementCoordinator {
                 panelId: surfaceID,
                 provider: state.provider
             ),
-            surfaceAvailable: liveTerminal?.surface.hasLiveSurface == true,
-            preservationAvailable: preservationPathAvailable,
             provider: state.provider,
             lifecycle: state.lifecycle,
             shellActivity: state.shellActivity,
@@ -179,7 +179,9 @@ extension AgentContextManagementCoordinator {
             preserveState: settings.preservesState,
             preservationCompleted: state.preservationCompleted,
             preservationAwaitingAcknowledgement: state.preservationAwaitingAcknowledgement,
-            manualRecoveryRequired: state.manualRecoveryRequired
+            manualRecoveryRequired: state.manualRecoveryRequired,
+            surfaceAvailable: liveTerminal?.surface.hasLiveSurface == true,
+            preservationAvailable: preservationPathAvailable
         )
         let decision = policy.decide(input)
         structuredLog(
@@ -194,7 +196,7 @@ extension AgentContextManagementCoordinator {
                 // A lifecycle/provider confirmation can legitimately arrive
                 // after the first marker. Do not turn that transient evidence
                 // gap into a permanent manual-intervention latch.
-                if reason != .pressureUnconfirmed {
+                if reason != AgentContextInjectionBlockReason.pressureUnconfirmed {
                     state.manualRecoveryRequired = true
                 }
                 if reason == .preservationUnavailable {

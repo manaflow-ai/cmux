@@ -5392,15 +5392,17 @@ class TerminalController {
                         atIndex: sourceIndex,
                         focus: focus
                     ) == nil {
-                        agentContextManagementCoordinator.remove(
+                        app.agentContextManagementCoordinator.remove(
                             panelId: transfer.panelId,
-                            workspace: sourceWorkspace
+                            workspace: sourceWorkspace,
+                            ownerOverride: .workspace(sourceWorkspace)
                         )
                     }
                 } else {
-                    agentContextManagementCoordinator.remove(
+                    app.agentContextManagementCoordinator.remove(
                         panelId: transfer.panelId,
-                        workspace: sourceWorkspace
+                        workspace: sourceWorkspace,
+                        ownerOverride: .workspace(sourceWorkspace)
                     )
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)

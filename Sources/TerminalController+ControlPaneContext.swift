@@ -660,15 +660,17 @@ extension TerminalController: ControlPaneContext {
                     atIndex: sourceIndex,
                     focus: true
                 ) == nil {
-                    agentContextManagementCoordinator.remove(
+                    AppDelegate.shared?.agentContextManagementCoordinator.remove(
                         panelId: detached.panelId,
-                        workspace: sourceWorkspace
+                        workspace: sourceWorkspace,
+                        ownerOverride: .workspace(sourceWorkspace)
                     )
                 }
             } else {
-                agentContextManagementCoordinator.remove(
+                AppDelegate.shared?.agentContextManagementCoordinator.remove(
                     panelId: detached.panelId,
-                    workspace: sourceWorkspace
+                    workspace: sourceWorkspace,
+                    ownerOverride: .workspace(sourceWorkspace)
                 )
             }
             return .createWorkspaceFailed

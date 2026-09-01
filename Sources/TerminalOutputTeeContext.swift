@@ -361,7 +361,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         }) else {
             return
         }
-        let contextPressureHandler = contextPressureHandler
+        let handler = contextPressureHandler
         let forwardQueue = forwardQueue
         forwardQueue.withLock { state in
             guard !state.released else { return }
@@ -388,7 +388,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
             state.nextContextPressureDrainID &+= 1
             let drainID = state.nextContextPressureDrainID
             state.contextPressureDrainID = drainID
-            state.contextPressureDrainTask = Task { [forwardQueue, contextPressureHandler] in
+            state.contextPressureDrainTask = Task { [forwardQueue, handler] in
                 defer {
                     forwardQueue.withLock { state in
                         guard state.contextPressureDrainID == drainID else { return }
@@ -418,7 +418,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
                                 && state.contextPressureMonitoringGeneration == next.monitoringGeneration
                         }
                         guard isCurrent, !Task.isCancelled else { return }
-                        contextPressureHandler(
+                        handler(
                             workspaceID,
                             surfaceID,
                             next.generation,

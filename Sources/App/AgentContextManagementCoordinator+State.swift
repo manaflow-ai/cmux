@@ -5,6 +5,12 @@ import Foundation
 
 @MainActor
 extension AgentContextManagementCoordinator {
+    /// Main-actor ownership handle for a live Workspace or Dock container.
+    ///
+    /// Nested types do not inherit the enclosing extension's global-actor
+    /// isolation under Swift 6, so the annotation is explicit: every lookup
+    /// touches AppKit-backed, main-actor state on the concrete owner.
+    @MainActor
     enum PanelOwner {
         case workspace(Workspace)
         case dock(DockSplitStore)

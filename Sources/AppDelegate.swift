@@ -10735,7 +10735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "id": UUID().uuidString,
             "method": "surface.send_text",
             "params": [
-                "workspace_id": target.tabId.uuidString,
+                "workspace_id": target.tabID.uuidString,
                 "surface_id": targetSurfaceID.uuidString,
                 "text": text + "\r",
             ],
