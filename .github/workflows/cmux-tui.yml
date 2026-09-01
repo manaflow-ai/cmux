@@ -481,6 +481,11 @@ jobs:
             cargo test -p chatmux-relay --locked
             exit 0
           fi
+          ignored_tests="$(cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored)"
+          if grep -Eq ': test$' <<<"$ignored_tests"; then
+            echo "::error::test_filter '$TEST_FILTER' matches ignored tests; focused runs must execute at least one non-ignored test" >&2
+            exit 1
+          fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
             | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
           if ! grep -Eq ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt"; then
