@@ -1463,7 +1463,7 @@ impl Inner {
         // Keep the opening reservation held until the attachment is installed.
         // The short state lock couples this transition with revocation, while
         // no PTY operation runs under it.
-        let (surface, start, previous) = {
+        let (surface, start, previous, publication_gate) = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let auth_changed = self
                 .transport_auth
@@ -1552,6 +1552,10 @@ impl Inner {
             }
             return;
         }
+
+        // The attachment is now published in the relay state. Do not hold
+        // the lifecycle gate across transport callbacks, which may block.
+        drop(_publication);
 
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
@@ -1686,13 +1690,15 @@ impl Inner {
         // Exit publication crosses the transport boundary. Release the
         // lifecycle state before invoking the callback.
         drop(_operation);
+        // Exit state is already removed from the attachment map. Release the
+        // lifecycle gate before crossing the transport boundary.
+        drop(_publication);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
             "code": code,
         }));
-        drop(_publication);
     }
 
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
@@ -1912,6 +1918,7 @@ impl Inner {
             // Killing a PTY can acquire a platform mutex. Keep it outside the
             // lifecycle barrier and the per-attachment operation gate.
             drop(_operation);
+            drop(_publication);
             attachment.control.kill();
         }
     }
