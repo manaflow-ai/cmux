@@ -29,7 +29,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "db82ef01a5e63966972dc2043f45222c868226d6f197067ddb16d5bcde8b3b8e"
+EXPECTED_GUARD_SCRIPT_DIGEST = "518d54e5d7bec1978dbfaf6a164e51853f93898761f868b70709801f90e847be"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1623,6 +1623,17 @@ begin
       Digest::SHA256.hexdigest(base_workflow.to_s) == LEGACY_CLA_WORKFLOW_DIGEST &&
       Digest::SHA256.hexdigest(base_script.to_s) == LEGACY_CLA_RERUN_DIGEST
     fail!("the legacy v2 CLA workflow must migrate to v3 before its helper changes")
+  end
+  if base_workflow == head_workflow &&
+      !legacy_v2_base?(
+        base_workflow_digest: Digest::SHA256.hexdigest(base_workflow),
+        base_script_digest: Digest::SHA256.hexdigest(base_script.to_s)
+      )
+    # A guard-only change still has to prove that the policy already running
+    # on main is a reviewed v3 policy. The exact legacy v2 pair is the one
+    # intentional bridge: it is immutable base state and is allowed only
+    # until the separate v3 migration PR lands.
+    validate_workflow(head_workflow)
   end
   if base_workflow != head_workflow
     fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
