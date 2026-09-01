@@ -81,7 +81,7 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(
-      "STRIPE_PRO_YEARLY_PRICE_ID is retired; use STRIPE_PRO_YEARLY_288_PRICE_ID",
+      "STRIPE_PRO_YEARLY_PRICE_ID is retired; use STRIPE_PRO_YEARLY_432_PRICE_ID",
     );
   });
 

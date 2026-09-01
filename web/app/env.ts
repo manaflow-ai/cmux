@@ -204,9 +204,15 @@ export const env = createEnv({
     // which can refer to the grandfathered $240/year price.
     STRIPE_PRO_YEARLY_PRICE_ID: retiredEnvValue(
       "STRIPE_PRO_YEARLY_PRICE_ID",
-      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+      "STRIPE_PRO_YEARLY_432_PRICE_ID",
     ),
-    STRIPE_PRO_YEARLY_288_PRICE_ID: z.string().min(1).optional(),
+    // Retired 2026-09 with the $45/$432 repricing; it referred to the $288
+    // annual price.
+    STRIPE_PRO_YEARLY_288_PRICE_ID: retiredEnvValue(
+      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+      "STRIPE_PRO_YEARLY_432_PRICE_ID",
+    ),
+    STRIPE_PRO_YEARLY_432_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_YEARLY_PRICE_ID: z.string().min(1).optional(),
     CMUX_APP_PRICING_CHECKOUT_URL: z.string().url().optional(),
@@ -379,8 +385,9 @@ export const env = createEnv({
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
-    STRIPE_PRO_YEARLY_288_PRICE_ID: trimEnv(
-      process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
+    STRIPE_PRO_YEARLY_288_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_288_PRICE_ID),
+    STRIPE_PRO_YEARLY_432_PRICE_ID: trimEnv(
+      process.env.STRIPE_PRO_YEARLY_432_PRICE_ID,
     ),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
