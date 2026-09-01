@@ -1237,31 +1237,60 @@ mod tests {
 
     #[test]
     fn known_package_launchers_require_the_real_cli_entrypoint() {
-        let pi = ForegroundJob {
-            process_group_id: 7,
-            processes: vec![process(
+        for (pid, script) in [
+            (
                 7,
-                "node.exe",
-                &[
-                    "node.exe",
-                    r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\cli.js",
-                ],
-            )],
-        };
-        assert_eq!(identify_job(ManifestSet::bundled(), &pi).unwrap().0.id(), "pi");
-
-        let build_script = ForegroundJob {
-            process_group_id: 8,
-            processes: vec![process(
+                r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\cli.js",
+            ),
+            (
                 8,
-                "node.exe",
-                &[
-                    "node.exe",
-                    r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\scripts\build.js",
-                ],
-            )],
-        };
-        assert!(identify_job(ManifestSet::bundled(), &build_script).is_none());
+                r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js",
+            ),
+        ] {
+            let pi = ForegroundJob {
+                process_group_id: pid,
+                processes: vec![process(pid, "node.exe", &["node.exe", script])],
+            };
+            assert_eq!(identify_job(ManifestSet::bundled(), &pi).unwrap().0.id(), "pi");
+        }
+
+        for (pid, script) in [
+            (
+                9,
+                r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\scripts\build.js",
+            ),
+            (
+                10,
+                r"C:\Users\user\node_modules\@earendil-works\pi-coding-agent\dist\bundle\update.js",
+            ),
+            (11, r"C:\workspace\dist\bundle\cli.js"),
+            (
+                12,
+                r"C:\workspace\node_modules\other-package\dist\bundle\cli.js",
+            ),
+            (
+                13,
+                r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\cli.exe",
+            ),
+            (
+                14,
+                r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\cli.js\other.js",
+            ),
+            (
+                15,
+                r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.exe",
+            ),
+            (
+                16,
+                r"C:\workspace\node_modules\@earendil-works\pi-coding-agent\dist\bundle\cli.js\other.js",
+            ),
+        ] {
+            let build_script = ForegroundJob {
+                process_group_id: pid,
+                processes: vec![process(pid, "node.exe", &["node.exe", script])],
+            };
+            assert!(identify_job(ManifestSet::bundled(), &build_script).is_none(), "script: {script}");
+        }
     }
 
     #[test]
