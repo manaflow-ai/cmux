@@ -205507,13 +205507,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A YouTube video or playlist URL, or a local .mp4/.mov file path. Playlists loop and advance automatically. Press Return to apply."
+            "value": "A YouTube video or playlist URL or ID, or a local .mp4/.m4v/.mov file path. Playlists loop and advance automatically. Press Return to apply."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "YouTube の動画またはプレイリストの URL、あるいはローカルの .mp4／.mov ファイルパス。プレイリストはループしながら自動で次の動画へ進みます。Return キーで適用します。"
+            "value": "YouTube の動画またはプレイリストの URL か ID、あるいはローカルの .mp4／.m4v／.mov ファイルパス。プレイリストはループしながら自動で次の動画へ進みます。Return キーで適用します。"
           }
         }
       }

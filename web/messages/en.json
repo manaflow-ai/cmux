@@ -1878,7 +1878,7 @@
           "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
           "videoBackground": "Dynamic video background. A muted, non-interactive video (YouTube video/playlist embed, or a looping local file) plays behind terminal content in every window, dimmed so text stays readable. Playback pauses automatically while the window is occluded or minimized. Off by default.",
           "videoBackgroundEnabled": "Play the configured video source behind terminal content.",
-          "videoBackgroundSource": "A YouTube video or playlist URL (playlists loop and advance automatically), or a local .mp4/.m4v/.mov file path played with AVFoundation.",
+          "videoBackgroundSource": "A YouTube video or playlist URL, a raw YouTube video or playlist ID, or a local .mp4/.m4v/.mov file path played with AVFoundation. Playlists loop and advance automatically.",
           "videoBackgroundDimOpacity": "Opacity of the terminal background fill drawn over the video (0 shows the video undimmed, 1 hides it). Higher keeps terminal text more readable.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
