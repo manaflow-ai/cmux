@@ -128,20 +128,9 @@ extension AgentContextManagementCoordinator {
             )
             return
         }
-        guard state.pressure.isUnderPressure
-            || state.lifecycle == .running
-            || state.shellActivity == .commandRunning else {
-            // A pre-compact hook may arrive just before the PTY marker. Keep a
-            // short-lived token only while the provider is demonstrably in a
-            // live turn; an idle/unbound hook cannot authorize later text.
-            structuredLog(
-                "provider-evidence.ignored",
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
-                detail: "reason=no-live-turn"
-            )
-            return
-        }
+        // The hook is independent evidence and may arrive before the PTY
+        // marker or its lifecycle callback. It is still bound to this exact
+        // session and expires before it can span an unrelated later turn.
         state.providerEvidenceConfirmed = true
         state.providerEvidenceReceivedAt = acceptedAt
         states[surfaceID] = state
