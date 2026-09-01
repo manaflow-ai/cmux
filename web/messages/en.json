@@ -183,7 +183,8 @@
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
         "nosub": "No active Stripe subscription was found for this account.",
-        "error": "Billing could not be updated. Try again shortly."
+        "error": "Billing could not be updated. Try again shortly.",
+        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active."
       },
       "free": {
         "name": "Free",
