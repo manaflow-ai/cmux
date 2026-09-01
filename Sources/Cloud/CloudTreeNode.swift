@@ -507,7 +507,9 @@ enum CloudTreeNodeBuilder {
                 ))
             }
         }
-        let browsers = resources.filter { $0.kind == .browser && $0.port == nil && $0.remoteViewCount == 0 }
+        // Daemon browsers no workspace views (a localhost URL still keeps its browser row;
+        // only the probe's canonical `port:<n>` resources are port rows).
+        let browsers = resources.filter { $0.kind == .browser && !$0.id.key.hasPrefix("port:") && $0.remoteViewCount == 0 }
         if !browsers.isEmpty {
             children.append(CloudTreeNode(
                 id: nodeID(browsersGroup: machine),

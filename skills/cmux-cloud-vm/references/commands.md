@@ -45,7 +45,7 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
     3000  (cmux vm open vivid-newt:port/3000)     ← forwarded ports the machine listens on
 ```
 
-The sidebar shows the same tree in the same order (Terminals, Displays, Workspaces, Ports); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). Placement flags that name nothing (`--workspace workspace:99`, `--pane pane:99`) are errors, never a silent open in the selected workspace; `--tabs`/`--tab` cannot be combined with a pane side.
+The sidebar shows the same nodes (its order under a machine: Terminals, Displays, Workspaces, Ports; the CLI leads with `workspaces/`, then the detached pool, `desktop`, `ports/`); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). Placement flags that name nothing (`--workspace workspace:99`, `--pane pane:99`) are errors, never a silent open in the selected workspace; `--tabs`/`--tab` cannot be combined with a pane side.
 
 ## Surfaces: one open path for terminals, screens and browsers
 

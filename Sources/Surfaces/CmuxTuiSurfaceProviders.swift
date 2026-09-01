@@ -180,9 +180,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private let links: CloudMachineLinkManager
     private unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
-    private var refreshDebounce: Task<Void, Never>?
-    /// When the pending re-read's burst began (bounds how long deltas may defer it).
-    private var refreshFirstRequestedAt: ContinuousClock.Instant?
+    /// The re-read loop: one in flight at a time, re-run once when deltas arrived meanwhile.
+    private var refreshLoop: Task<Void, Never>?
+    private var refreshDirty = false
     private var portsCache: (ports: [Int], at: Date)?
     private let portsTTL: TimeInterval = 30
     /// Preview endpoints already minted for this machine's ports (``SurfacePortEndpointCache``):
@@ -216,8 +216,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func stop() {
         changeWatcher?.cancel()
         changeWatcher = nil
-        refreshDebounce?.cancel()
-        refreshDebounce = nil
+        refreshLoop?.cancel()
+        refreshLoop = nil
+        refreshDirty = false
         endpointPrefetch?.cancel()
         endpointPrefetch = nil
     }
@@ -541,6 +542,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// called directly — not as a side effect of creating a terminal.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         let (link, socketPath) = try await connectedLink()
+        // The default name counts the machine's workspaces; when the catalog has never
+        // synced this session, ask the daemon first so an existing `main` is counted.
+        if info.remoteWorkspaces == nil {
+            _ = try await syncRemoteWorkspaces(link: link, socketPath: socketPath)
+        }
         let existingCount = knownRemoteWorkspaces().count
         let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? name!.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -676,36 +682,20 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// Coalescing window for daemon deltas (they arrive in bursts; one re-read per burst).
-    nonisolated static let refreshDebounceWindow: Duration = .milliseconds(400)
-    /// A re-read may be pushed back by newer deltas only this long: a session that
-    /// never goes quiet (a busy shell retitling on every command) must still be
-    /// re-read, not starved until the 45 s poll.
-    nonisolated static let refreshMaxDeferral: Duration = .seconds(2)
-
-    /// Whether a new delta may restart the pending re-read's window, given when the
-    /// first delta of the burst arrived. Pure, so the bound is testable.
-    nonisolated static func mayDeferRefresh(firstRequestedAt: ContinuousClock.Instant, now: ContinuousClock.Instant) -> Bool {
-        now - firstRequestedAt < refreshMaxDeferral
-    }
-
-    /// Daemon deltas arrive in bursts; one re-read per burst is plenty. The delay is a
-    /// deliberate coalescing window, restarted by the next delta — but never past
-    /// `refreshMaxDeferral` from the first one.
+    /// Daemon deltas arrive in bursts. Instead of a timer, one actor-owned loop: a delta
+    /// marks the provider dirty; if no re-read is in flight one starts now, and a re-read
+    /// that finishes dirty runs exactly one follow-up. A burst costs at most two snapshot
+    /// reads, and a session that never goes quiet is still re-read after every pass —
+    /// never starved, never delayed by a coalescing window.
     private func scheduleRefresh() {
-        let now = ContinuousClock.now
-        if let pending = refreshDebounce, !pending.isCancelled, let firstRequestedAt = refreshFirstRequestedAt {
-            guard Self.mayDeferRefresh(firstRequestedAt: firstRequestedAt, now: now) else { return }
-            pending.cancel()
-        } else {
-            refreshFirstRequestedAt = now
-        }
-        refreshDebounce = Task { [weak self] in
-            try? await Task.sleep(for: Self.refreshDebounceWindow)
-            guard !Task.isCancelled, let self else { return }
-            self.refreshDebounce = nil
-            self.refreshFirstRequestedAt = nil
-            await self.refresh(force: false)
+        refreshDirty = true
+        guard refreshLoop == nil else { return }
+        refreshLoop = Task { @MainActor [weak self] in
+            defer { self?.refreshLoop = nil }
+            while let self, self.refreshDirty, !Task.isCancelled {
+                self.refreshDirty = false
+                await self.refresh(force: false)
+            }
         }
     }
 
