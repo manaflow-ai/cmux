@@ -24,10 +24,10 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # secret reference, action input, or permission while retaining the fragments
 # checked below. Policy changes require a separate, reviewed update to this
 # base-controlled guard, followed by the workflow change.
-EXPECTED_WORKFLOW_DIGEST = "d4db98df5a1b1e6f3b006a82639761a0513eeeaf153a9eb2b98d42d1af782145"
+EXPECTED_WORKFLOW_DIGEST = "f458101f6f17bc28381f2ee4f063d9b4333fa2cf7c7bec18b0a656a3311d9033"
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "cb08e6837d8065897016f12cf30c85e0153fc5c3c2d9ca1e6b409f4237541bc4"
-EXPECTED_GUARD_SCRIPT_DIGEST = "fba44dda662ef1ea91b0e840e8988d12a3856813b9bdd6ced72dc0d4dad81b2e"
+EXPECTED_GUARD_SCRIPT_DIGEST = "a4eafdb5a9486eb96c76bd95b3c8e3f04b71783599f511d8466b69f124e92279"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
