@@ -2577,6 +2577,8 @@ impl Inner {
                         draining_viewers: HashSet::new(),
                     }),
                 });
+                shell_session.pending_viewers.fetch_add(1, Ordering::AcqRel);
+                pending_viewer.store(true, Ordering::Release);
                 // Session-level plumbing runs for the session's whole life:
                 // the ring fills even while detached, and exit ends the
                 // session for every attached viewer. One fanout sink is
@@ -2676,6 +2678,7 @@ impl Inner {
         // A stable viewer id lets release remove exactly this sink.
         let viewer_id = next_viewer_id();
         let released = Arc::new(AtomicBool::new(false));
+        let cleanup_if_empty = Arc::new(AtomicBool::new(created));
         let closing = Arc::new(AtomicBool::new(false));
         let (on_data, on_exit) = self.sinks(pty_id, context);
 
@@ -2686,6 +2689,9 @@ impl Inner {
             viewer_id,
             released: Arc::clone(&released),
             pending_viewer: Arc::clone(&pending_viewer),
+            manager: Arc::clone(&self),
+            session_name: session.to_owned(),
+            cleanup_if_empty: Arc::clone(&cleanup_if_empty),
         });
 
         let start_session = Arc::clone(&shell_session);
@@ -2696,6 +2702,7 @@ impl Inner {
             if start_pending_viewer.swap(false, Ordering::AcqRel) {
                 start_session.pending_viewers.fetch_sub(1, Ordering::AcqRel);
             }
+            cleanup_if_empty.store(false, Ordering::Release);
             let (banner, replay, alive, delivery_lock) = {
                 let _dispatch = start_session.dispatch_lock.lock().expect("shell dispatch lock");
                 let _flow = start_session.flow_lock.lock().expect("shell flow lock");
@@ -2775,10 +2782,13 @@ impl Inner {
 }
 
 struct ShellViewerControl {
+    manager: Arc<Inner>,
+    session_name: String,
     session: Arc<ShellSession>,
     viewer_id: u64,
     released: Arc<AtomicBool>,
     pending_viewer: Arc<AtomicBool>,
+    cleanup_if_empty: Arc<AtomicBool>,
 }
 
 impl ShellViewerControl {
@@ -2794,6 +2804,17 @@ impl ShellViewerControl {
             inner.paused_backlog.remove(&self.viewer_id);
             inner.draining_viewers.remove(&self.viewer_id);
             inner.paused_viewers.remove(&self.viewer_id);
+        }
+        if self.cleanup_if_empty.load(Ordering::Acquire)
+            && self.session.pending_viewers.load(Ordering::Acquire) == 0
+            && self.session.inner.lock().expect("shell inner lock").viewers.is_empty()
+            && remove_cached_shell_if_same_without_viewers(
+                &self.manager,
+                &self.session_name,
+                &self.session,
+            )
+        {
+            self.session.control.kill();
         }
     }
 }
