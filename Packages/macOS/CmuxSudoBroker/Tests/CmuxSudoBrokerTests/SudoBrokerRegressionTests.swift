@@ -285,10 +285,12 @@ struct SudoBrokerRegressionTests {
             messages: messages
         )
 
+        let eventStream = await broker.events()
+        var events = eventStream.makeAsyncIterator()
         _ = try await broker.start()
-        for _ in 0..<100 {
-            await Task.yield()
-            if fixture.store.result(id: request.id) != nil { break }
+        while let event = await events.next() {
+            guard case .snapshot(let snapshots) = event else { continue }
+            if snapshots.isEmpty { break }
         }
 
         #expect(fixture.store.result(id: request.id)?.errorCode == .requesterUnavailable)
