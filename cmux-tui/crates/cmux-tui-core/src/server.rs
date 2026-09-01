@@ -4871,7 +4871,7 @@ impl SocketStartLock {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
-            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK).mode(0o600);
         }
         let file = options.open(&path)?;
         #[cfg(unix)]
@@ -4882,6 +4882,12 @@ impl SocketStartLock {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
                     "session-server start lock is not a regular file",
+                ));
+            }
+            if metadata.nlink() != 1 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "session-server start lock has unexpected hard links",
                 ));
             }
             if metadata.uid() != unsafe { libc::geteuid() } {
