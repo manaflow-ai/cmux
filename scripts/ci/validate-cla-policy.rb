@@ -20,11 +20,11 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956"
 # The privileged workflow is an explicit reviewed policy, not an extensible
-# script. Its parsed document is compared with the trusted base revision, so a
+# script. Its exact bytes are compared with the trusted base revision, so a
 # policy change requires trusted review without a fragile follow-up hash bump.
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
-EXPECTED_GUARD_WORKFLOW_DIGEST = "cb08e6837d8065897016f12cf30c85e0153fc5c3c2d9ca1e6b409f4237541bc4"
-EXPECTED_GUARD_SCRIPT_DIGEST = "c83d3eb0092b562896157e542f0b638d5ab540c55d9bb88589bc5c72ef2a6c4c"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "63a96bd533e09afaa8aecfe871362b07e28697cf2a1ed85459b5991001d885f8"
+EXPECTED_GUARD_SCRIPT_DIGEST = "a2b91eea0805be406ac8c59805b12a2d6e9b470066a2b7378f1c126387f6dd7e"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -110,20 +110,23 @@ def walk(value, &block)
   end
 end
 
-def canonical(value)
-  case value
-  when Hash
-    value.keys.sort_by(&:to_s).each_with_object({}) do |key, result|
-      result[key.to_s] = canonical(value[key])
-    end
-  when Array
-    value.map { |child| canonical(child) }
-  else
-    value
-  end
-end
-
 def parse_workflow(raw)
+  stream = Psych.parse_stream(raw)
+  fail!("CLA workflow must contain exactly one YAML document") unless stream.children.length == 1
+  root = stream.children.first.root
+  fail!("CLA workflow is not a YAML mapping") unless root.is_a?(Psych::Nodes::Mapping)
+  keys = root.children.each_slice(2).map do |key_node, _value_node|
+    fail!("CLA workflow has a non-scalar top-level key") unless key_node.is_a?(Psych::Nodes::Scalar)
+
+    key_node.value
+  end
+  fail!("CLA workflow has duplicate top-level keys") unless keys.uniq.length == keys.length
+  # Psych applies YAML 1.1 boolean coercion to an unquoted `on` key. GitHub
+  # uses the literal key, so accepting `true` here would validate a workflow
+  # that GitHub does not trigger. Keep the lexical key check before loading.
+  fail!("CLA workflow must contain the literal on trigger key") unless keys.include?("on")
+  fail!("CLA workflow must not use a boolean trigger key") if keys.include?("true")
+
   document = YAML.safe_load(raw, aliases: false)
   fail!("CLA workflow is not a YAML mapping") unless document.is_a?(Hash)
   document
@@ -132,9 +135,10 @@ rescue Psych::Exception => error
 end
 
 def workflow_digest(raw)
-  # Hash the parsed document so formatting-only edits do not trigger a
-  # privileged policy review.
-  Digest::SHA256.hexdigest(JSON.generate(canonical(parse_workflow(raw))))
+  # Hash the exact bytes after validating the YAML lexical structure. A parsed
+  # digest can hide duplicate keys or YAML 1.1/GitHub parser differences.
+  parse_workflow(raw)
+  Digest::SHA256.hexdigest(raw)
 end
 
 def guard_script_digest(raw)
@@ -163,6 +167,24 @@ def step_using(job_value, action, name)
   found = steps(job_value, name).find { |step| step.is_a?(Hash) && step["uses"] == action }
   fail!("#{name} does not use #{action}") unless found
   found
+end
+
+def step_using_with(job_value, action, input, expected, name)
+  found = steps(job_value, name).find do |step|
+    step.is_a?(Hash) &&
+      step["uses"] == action &&
+      step["with"].is_a?(Hash) &&
+      step["with"][input].to_s == expected
+  end
+  fail!("#{name} does not use #{action} with #{input}=#{expected}") unless found
+  found
+end
+
+def dependencies(job_value, name)
+  value = job_value["needs"]
+  result = value.is_a?(Array) ? value : [value]
+  fail!("#{name}.needs is malformed") unless result.all? { |item| item.is_a?(String) && !item.empty? }
+  result
 end
 
 def assert_text(text, fragment)
@@ -299,7 +321,7 @@ end
 
 def validate_workflow(raw, trusted_base_digest)
   document = parse_workflow(raw)
-  candidate_digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
+  candidate_digest = workflow_digest(raw)
   require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA")) unless candidate_digest == trusted_base_digest
 
   triggers = document["on"] || document[true]
@@ -318,26 +340,48 @@ def validate_workflow(raw, trusted_base_digest)
 
   gate = job(document, "CLACommentGate")
   assistant = job(document, "CLAAssistant")
+  writer = job(document, "CLALedgerWriter")
   compatibility = job(document, "CLACompatibility")
   rerun = job(document, "RerunFailedCLA")
   lock = job(document, "LockMergedPullRequest")
-  [gate, assistant, compatibility, rerun, lock].each_with_index do |value, index|
-    names = %w[CLACommentGate CLAAssistant CLACompatibility RerunFailedCLA LockMergedPullRequest]
+  [gate, assistant, writer, compatibility, rerun, lock].each_with_index do |value, index|
+    names = %w[CLACommentGate CLAAssistant CLALedgerWriter CLACompatibility RerunFailedCLA LockMergedPullRequest]
     fail!("#{names[index]} has no runner") unless value.key?("runs-on")
   end
 
-  fail!("CLACommentGate must have no permissions") unless gate["permissions"] == {}
+  fail!("CLACommentGate must use read-only permissions") unless
+    gate["permissions"] == { "contents" => "read", "issues" => "read", "pull-requests" => "read" }
   fail!("CLACompatibility must have no permissions") unless compatibility["permissions"] == {}
+  fail!("CLA Assistant result must have no permissions") unless assistant["permissions"] == {}
+  fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
+  fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
+  fail!("CLA ledger writer must run only after successful admission") unless
+    writer["if"].to_s.include?("needs.CLACommentGate.result == 'success'") &&
+    writer["if"].to_s.include?("needs.CLACommentGate.outputs.admitted == 'true'")
+  fail!("CLA Assistant result must depend on the ledger writer") unless dependencies(assistant, "CLAAssistant").include?("CLALedgerWriter")
+  fail!("CLA Assistant result must always report the writer outcome") unless assistant["if"].to_s.include?("always()")
+  fail!("CLA compatibility must depend on the v2 result") unless dependencies(compatibility, "CLACompatibility").include?("CLAAssistant")
   admission_step = steps(gate, "CLACommentGate").find { |step| step.is_a?(Hash) && step["id"] == "admission" }
   admission_run = admission_step && admission_step["run"]
   fail!("CLACommentGate admission implementation is missing") unless admission_run.is_a?(String)
   sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?:\n\s*fi)/m]
   fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
   fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
-  assert_permission(assistant, "CLAAssistant", "contents", "write")
-  assert_permission(assistant, "CLAAssistant", "issues", "write")
-  assert_permission(assistant, "CLAAssistant", "pull-requests", "write")
-  fail!("CLAAssistant must not have actions: write") if assistant.dig("permissions", "actions") == "write"
+  preflight = step_using_with(gate, CLA_ACTION, "mode", "signer-preflight", "CLACommentGate")
+  preflight_with = preflight["with"]
+  {
+    "required-base-ref" => "main",
+    "custom-pr-sign-comment" => CLA_SIGN_PHRASE,
+    "require-opener-as-author" => "true"
+  }.each do |key, expected|
+    fail!("CLA signer preflight input #{key} is unsafe") unless preflight_with[key].to_s == expected
+  end
+  fail!("CLA signer preflight must be conditional on the exact signing phrase") unless preflight["if"].to_s.include?(CLA_SIGN_PHRASE)
+  fail!("CLA gate must expose the signer preflight result") unless gate.dig("outputs", "signer_authorized").to_s.include?("signer_preflight")
+  assert_permission(writer, "CLALedgerWriter", "contents", "write")
+  assert_permission(writer, "CLALedgerWriter", "issues", "write")
+  assert_permission(writer, "CLALedgerWriter", "pull-requests", "write")
+  fail!("CLALedgerWriter must not have actions: write") if writer.dig("permissions", "actions") == "write"
   assert_permission(rerun, "RerunFailedCLA", "actions", "write")
   assert_permission(rerun, "RerunFailedCLA", "contents", "read")
   assert_permission(rerun, "RerunFailedCLA", "issues", "read")
@@ -345,7 +389,7 @@ def validate_workflow(raw, trusted_base_digest)
   assert_permission(lock, "LockMergedPullRequest", "issues", "write")
   assert_permission(lock, "LockMergedPullRequest", "pull-requests", "read")
 
-  action_step = step_using(assistant, CLA_ACTION, "CLAAssistant")
+  action_step = step_using(writer, CLA_ACTION, "CLALedgerWriter")
   with_values = action_step["with"]
   fail!("CLA action inputs are missing") unless with_values.is_a?(Hash)
   {
@@ -426,9 +470,8 @@ def validate_script(raw)
 end
 
 def validate_guard_workflow(raw)
-  document = YAML.safe_load(raw, aliases: false)
-  fail!("guard workflow is not a YAML mapping") unless document.is_a?(Hash)
-  digest = Digest::SHA256.hexdigest(JSON.generate(canonical(document)))
+  document = parse_workflow(raw)
+  digest = workflow_digest(raw)
   if digest != EXPECTED_GUARD_WORKFLOW_DIGEST
     require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
   end
@@ -441,6 +484,9 @@ def validate_guard_workflow(raw)
     target["branches"] == ["main"] &&
     target["types"] == %w[opened edited reopened synchronize]
   fail!("guard workflow must have empty top-level permissions") unless document["permissions"] == {}
+  jobs = document["jobs"]
+  fail!("guard workflow jobs are malformed") unless jobs.is_a?(Hash)
+  fail!("guard workflow has an unexpected job") unless jobs.keys == ["validate"]
   guard_job = document.dig("jobs", "validate")
   fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)
   fail!("guard workflow must use read-only permissions") unless
@@ -452,7 +498,7 @@ def validate_guard_workflow(raw)
   uses = []
   walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
   uses.each do |reference|
-    next if reference.start_with?("./")
+    fail!("guard workflow may not use repository-local actions") if reference.start_with?("./")
     fail!("guard action reference is not pinned") unless reference.match?(/\A[^@]+@[0-9a-f]{40}\z/)
   end
 rescue Psych::Exception
@@ -466,10 +512,15 @@ def validate_guard_script(raw)
   end
   [
     "def parse_workflow",
+    "Psych.parse_stream",
     "def workflow_digest",
+    "Digest::SHA256.hexdigest(raw)",
+    "literal on trigger key",
     "base_workflow_digest",
     "validate_workflow(head_workflow, base_workflow_digest)",
     "def validate_workflow",
+    "signer-preflight",
+    "CLALedgerWriter",
     "base_workflow != head_workflow",
     "guard_changed && policy_changed",
     "pull-request revision deletes the rerun helper",
