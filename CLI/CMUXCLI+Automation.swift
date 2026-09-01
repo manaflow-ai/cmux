@@ -76,6 +76,12 @@ extension CMUXCLI {
             )
             throw CLIError(message: String.localizedStringWithFormat(format, id))
         }
+        guard !rule.usesWorkspaceTagPredicate || automationEventProvidesWorkspaceTags(event) else {
+            throw CLIError(message: automationLocalized(
+                "cli.automation.error.workspaceTagsRequired",
+                defaultValue: "offline automation test requires workspace tags in the event payload"
+            ))
+        }
         let matched = rule.matches(event: event)
         let redactor = AutomationPayloadRedactor()
         let payload: [String: Any] = [
@@ -209,6 +215,8 @@ extension CMUXCLI {
             return String(localized: "cli.automation.error.eventObject", defaultValue: "automation test event must be a JSON object")
         case "cli.automation.output.noRules":
             return String(localized: "cli.automation.output.noRules", defaultValue: "No automation rules")
+        case "cli.automation.error.workspaceTagsRequired":
+            return String(localized: "cli.automation.error.workspaceTagsRequired", defaultValue: "offline automation test requires workspace tags in the event payload")
         default:
             return defaultValue
         }
@@ -236,5 +244,17 @@ extension CMUXCLI {
             throw CLIError(message: Self.automationUsage())
         }
         return limit
+    }
+
+    private func automationEventProvidesWorkspaceTags(_ event: [String: Any]) -> Bool {
+        let payload = event["payload"] as? [String: Any] ?? [:]
+        return payload["workspace_tag"] != nil
+            || payload["workspace_tags"] != nil
+            || payload["tag"] != nil
+            || payload["tags"] != nil
+            || event["workspace_tag"] != nil
+            || event["workspace_tags"] != nil
+            || event["tag"] != nil
+            || event["tags"] != nil
     }
 }

@@ -57,6 +57,7 @@ final class AutomationEngine {
     private var restartAttempt = 0
     private var reloadTask: Task<Void, Never>?
     private var enabledUpdateTasks: [String: (requestID: UUID, task: Task<Void, Never>)] = [:]
+    private var enabledUpdateRequestIDs: [String: UUID] = [:]
 
     init(
         configStore: AutomationConfigStore = AutomationConfigStore(),
@@ -190,6 +191,7 @@ final class AutomationEngine {
         firingTasks.values.forEach { $0.cancel() }
         enabledUpdateTasks.values.forEach { $0.task.cancel() }
         enabledUpdateTasks.removeAll(keepingCapacity: true)
+        enabledUpdateRequestIDs.removeAll(keepingCapacity: true)
         workspaceTagsCache.removeAll(keepingCapacity: true)
         pendingTagResolutions.removeAll(keepingCapacity: true)
     }
@@ -224,6 +226,12 @@ final class AutomationEngine {
             return .success(rules.count)
         } catch {
             clearActiveRules()
+            // Keep a control-only subscription alive so a later
+            // config.reloaded event can recover from an invalid file without
+            // requiring an application restart.
+            if shouldRun {
+                installSubscription(afterSequence: eventBus.latestSequence)
+            }
             record(
                 ruleID: "",
                 eventName: "config.reload",
@@ -331,15 +339,21 @@ final class AutomationEngine {
         guard rules.contains(where: { $0.id == id }) else { return false }
         enabledUpdateTasks[id]?.task.cancel()
         let requestID = UUID()
+        enabledUpdateRequestIDs[id] = requestID
         let task = Task { @MainActor [weak self] in
             defer {
                 guard let self,
-                      self.enabledUpdateTasks[id]?.requestID == requestID else { return }
+                      self.enabledUpdateRequestIDs[id] == requestID else { return }
+                self.enabledUpdateRequestIDs.removeValue(forKey: id)
                 self.enabledUpdateTasks.removeValue(forKey: id)
             }
             guard let self else { return }
             guard !Task.isCancelled else { return }
-            let result = await self.setEnabled(id: id, enabled: enabled)
+            let result = await self.setEnabled(
+                id: id,
+                enabled: enabled,
+                requestID: requestID
+            )
             switch result {
             case .success:
                 self.record(
@@ -349,6 +363,8 @@ final class AutomationEngine {
                     detail: enabled ? "rule enabled" : "rule disabled",
                     chain: []
                 )
+            case .failure(let error) where error is CancellationError:
+                break
             case .failure(let error):
                 self.record(
                     ruleID: id,
@@ -364,9 +380,21 @@ final class AutomationEngine {
     }
 
     func setEnabled(id: String, enabled: Bool) async -> Result<AutomationRule, Error> {
+        await setEnabled(id: id, enabled: enabled, requestID: nil)
+    }
+
+    private func setEnabled(
+        id: String,
+        enabled: Bool,
+        requestID: UUID?
+    ) async -> Result<AutomationRule, Error> {
         do {
             let rule = try await configStore.updateRuleOffMain(id: id) { rule in
                 rule.enabled = enabled
+            }
+            if let requestID,
+               enabledUpdateRequestIDs[id] != requestID {
+                return .failure(CancellationError())
             }
             if let index = rules.firstIndex(where: { $0.id == id }) {
                 rules[index] = rule

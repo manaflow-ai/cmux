@@ -92,8 +92,14 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let automationEngine,
-              let payload = automationEngine.showPayload(id: id) else {
+        guard let automationEngine else {
+            return .err(
+                code: "unavailable",
+                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload."),
+                data: nil
+            )
+        }
+        guard let payload = automationEngine.showPayload(id: id) else {
             return .err(
                 code: "not_found",
                 message: Self.automationRuleNotFoundMessage(id),
@@ -119,8 +125,14 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let automationEngine,
-              let payload = automationEngine.testPayload(id: id, event: event) else {
+        guard let automationEngine else {
+            return .err(
+                code: "unavailable",
+                message: String(localized: "automation.error.engineUnavailable", defaultValue: "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload."),
+                data: nil
+            )
+        }
+        guard let payload = automationEngine.testPayload(id: id, event: event) else {
             return .err(
                 code: "not_found",
                 message: Self.automationRuleNotFoundMessage(id),

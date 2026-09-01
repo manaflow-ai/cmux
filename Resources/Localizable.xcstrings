@@ -199,6 +199,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "automation test のイベントは JSON オブジェクトである必要があります" } }
       }
     },
+    "cli.automation.error.workspaceTagsRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "offline automation test requires workspace tags in the event payload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オフラインの自動化テストにはイベントペイロードのワークスペースタグが必要です" } }
+      }
+    },
     "cli.automation.output.noRules": {
       "extractionState": "manual",
       "localizations": {

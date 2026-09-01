@@ -214,9 +214,7 @@ nonisolated struct AutomationAction: Codable, Equatable, Sendable {
         }
         var parameters: [String: AutomationJSONValue] = [:]
         for key in container.allKeys where key.stringValue != "action" {
-            if let value = try container.decodeIfPresent(AutomationJSONValue.self, forKey: key) {
-                parameters[key.stringValue] = value
-            }
+            parameters[key.stringValue] = try container.decode(AutomationJSONValue.self, forKey: key)
         }
         self.init(action: action, parameters: parameters)
     }
@@ -520,9 +518,9 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
         case (.bool(let lhs), .bool(let rhs)):
             return lhs == rhs
         case (.bool(let lhs), .string(let rhs)):
-            return lhs == ["true", "1", "yes"].contains(rhs.lowercased())
+            return Self.booleanValue(for: rhs) == lhs
         case (.string(let lhs), .bool(let rhs)):
-            return ["true", "1", "yes"].contains(lhs.lowercased()) == rhs
+            return Self.booleanValue(for: lhs) == rhs
         case (.integer(let lhs), .integer(let rhs)):
             return lhs == rhs
         case (.integer(let lhs), .double(let rhs)):
@@ -564,7 +562,9 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
                 hasActualNull = true
             case .string(let string):
                 actualStrings.insert(string)
-                actualStringBooleanValues.insert(Self.booleanValue(for: string))
+                if let boolean = Self.booleanValue(for: string) {
+                    actualStringBooleanValues.insert(boolean)
+                }
             case .bool(let boolean):
                 actualBooleans.insert(boolean)
             case .integer, .double:
@@ -580,7 +580,7 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
                 return true
             case .string(let string):
                 if actualStrings.contains(string) { return true }
-                if actualBooleans.contains(Self.booleanValue(for: string)) { return true }
+                if let boolean = Self.booleanValue(for: string), actualBooleans.contains(boolean) { return true }
             case .bool(let boolean):
                 if actualBooleans.contains(boolean) { return true }
                 if actualStringBooleanValues.contains(boolean) { return true }
@@ -595,8 +595,12 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
         return false
     }
 
-    private static func booleanValue(for string: String) -> Bool {
-        ["true", "1", "yes"].contains(string.lowercased())
+    private static func booleanValue(for string: String) -> Bool? {
+        switch string.lowercased() {
+        case "true", "1", "yes": return true
+        case "false", "0", "no": return false
+        default: return nil
+        }
     }
 }
 

@@ -72,7 +72,7 @@ struct AutomationRuleTests {
                 AutomationRule(
                     id: "one",
                     when: AutomationWhen(category: "workspace"),
-                    actions: [AutomationAction(action: "notify")]
+                    actions: [AutomationAction(action: "notify", parameters: ["nullable": .null])]
                 )
             ]
         )
@@ -103,6 +103,23 @@ struct AutomationRuleTests {
                     ]
                 ]
             )
+        )
+    }
+
+    @Test("boolean predicates reject unknown string spellings")
+    func unknownBooleanStringsDoNotCoerceToFalse() {
+        let rule = AutomationRule(
+            id: "state",
+            when: AutomationWhen(category: "agent"),
+            predicates: ["enabled": .bool(false)],
+            actions: [AutomationAction(action: "notify")]
+        )
+        #expect(
+            !rule.matches(event: [
+                "name": "agent.status",
+                "category": "agent",
+                "payload": ["enabled": "pending"]
+            ])
         )
     }
 
@@ -244,9 +261,21 @@ struct AutomationRuleTests {
         }
         let pid = try #require(childPID)
         for _ in 0..<50 {
-            if kill(pid, 0) != 0, errno == ESRCH { break }
+            if Self.processHasExited(pid) { break }
             try await clock.sleep(for: .milliseconds(20))
         }
-        #expect(kill(pid, 0) != 0)
+        #expect(Self.processHasExited(pid))
+    }
+
+    private static func processHasExited(_ pid: pid_t) -> Bool {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
+              size > 0,
+              info.kp_proc.p_pid == pid else {
+            return true
+        }
+        return Int32(info.kp_proc.p_stat) == SZOMB
     }
 }
