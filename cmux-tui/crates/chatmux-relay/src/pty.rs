@@ -225,14 +225,12 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     use std::os::unix::io::FromRawFd;
 
-    // O_PATH (Linux) and O_EXEC (macOS) keep execute-only directories
-    // usable as cwd values. O_RDONLY is the portable fallback for other Unix
-    // targets, where it preserves the previous behavior when readable.
+    // Linux O_PATH avoids requiring read permission. Darwin and other Unix
+    // targets use O_RDONLY because their libc does not expose a portable
+    // execute-only directory-open flag.
     #[cfg(target_os = "linux")]
     const ACCESS_MODE: libc::c_int = libc::O_PATH;
-    #[cfg(target_os = "macos")]
-    const ACCESS_MODE: libc::c_int = libc::O_EXEC;
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(target_os = "linux"))]
     const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
     let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
     let mut parent = std::fs::OpenOptions::new()
