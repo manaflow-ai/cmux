@@ -68,10 +68,11 @@ struct CreatedTerminalSelection: Equatable {
         // A snapshot may omit the instance tag while the host is still
         // converging. A pinned tag remains authoritative, so a legacy/untagged
         // sibling cannot match accidentally while its owner is unknown.
-        let expectedTag = normalizedCreatedTerminalIdentity(macInstanceTag)
-        let actualTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
+        let tagAuthority = MobileMacInstanceTagAuthority()
+        let expectedTag = tagAuthority.normalize(macInstanceTag)
+        let actualTag = tagAuthority.normalize(workspace.macInstanceTag)
         if let expectedTag {
-            guard actualTag == expectedTag else { return false }
+            guard tagAuthority.sameStoredAuthority(expectedTag, actualTag) else { return false }
         } else {
             // A pin without a tag belongs to the legacy/untagged pairing only;
             // a tagged row is a distinct sibling until the pin learns that tag.
@@ -96,9 +97,11 @@ struct CreatedTerminalSelection: Equatable {
         default:
             break
         }
-        let expectedTag = normalizedCreatedTerminalIdentity(macInstanceTag)
-        let actualTag = normalizedCreatedTerminalIdentity(workspace.macInstanceTag)
-        if let expectedTag, let actualTag, expectedTag != actualTag {
+        let tagAuthority = MobileMacInstanceTagAuthority()
+        let expectedTag = tagAuthority.normalize(macInstanceTag)
+        let actualTag = tagAuthority.normalize(workspace.macInstanceTag)
+        if let expectedTag, let actualTag,
+           !tagAuthority.sameStoredAuthority(expectedTag, actualTag) {
             return false
         }
         // A pin with no owner metadata is safe to preserve only when the
