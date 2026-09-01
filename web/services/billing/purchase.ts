@@ -341,7 +341,24 @@ export async function recordCheckoutCompletion(
           mappedCustomerBeforeLookup.stackUserId,
         )),
     );
-    if (claimedReplay) {
+    // Direct canonical-owner resolution (for a verified Gmail alias) does not
+    // create a billing claim. Once that exact customer/subscription pair is
+    // already mapped, an idempotent replay is still safe to acknowledge.
+    const canonicalOwnerReplay = Boolean(
+      !input.allowCanonicalOwnershipRecovery &&
+        !claimedReplay &&
+        user?.isAnonymous === true &&
+        checkoutEmailValue &&
+        mappedOwner &&
+        isVerifiedCanonicalBillingOwner(mappedOwner, checkoutEmailValue) &&
+        (await hasMappedStripeSubscriptionOwnership(
+          db,
+          customerId,
+          subscription.id,
+          mappedCustomerBeforeLookup.stackUserId,
+        )),
+    );
+    if (claimedReplay || canonicalOwnerReplay) {
       return {
         scope: "user",
         stackUserId: mappedCustomerBeforeLookup.stackUserId,
@@ -2753,10 +2770,11 @@ async function hasActiveFounderSubscription(
         eq(stripeSubscriptions.plan, PRO_PLAN_ID),
         inArray(stripeSubscriptions.status, [...ACTIVE_STRIPE_SUBSCRIPTION_STATUSES]),
         isNull(stripeSubscriptions.stackTeamId),
+        sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'`,
       ),
     )
-    .limit(100);
-  return rows.some((row) => isFounderSubscriptionRaw(row.raw));
+    .limit(1);
+  return rows.length > 0;
 }
 
 async function attachPurchaseEmailOrRecordClaim(
@@ -3140,6 +3158,28 @@ async function hasClaimedBillingOwnership(
         eq(billingEmailClaims.stackUserId, sourceStackUserId),
         eq(billingEmailClaims.claimedByUserId, targetStackUserId),
         eq(billingEmailClaims.plan, PRO_PLAN_ID),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+async function hasMappedStripeSubscriptionOwnership(
+  db: BillingDbClient,
+  customerId: string,
+  subscriptionId: string,
+  stackUserId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: stripeSubscriptions.id })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.id, subscriptionId),
+        eq(stripeSubscriptions.customerId, customerId),
+        eq(stripeSubscriptions.stackUserId, stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
+        isNull(stripeSubscriptions.stackTeamId),
       ),
     )
     .limit(1);

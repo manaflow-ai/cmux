@@ -1100,6 +1100,74 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(real.update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
   });
 
+  test("acknowledges a replay after direct canonical-owner remapping", async () => {
+    const anonymous = {
+      id: "anonymous_replay_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const real = {
+      id: "canonical_replay_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      args[0] === anonymous.id ? anonymous : real,
+    );
+    const listUsers = mock(async () => [
+      {
+        id: real.id,
+        primaryEmail: real.primaryEmail,
+        primaryEmailVerified: true,
+        isAnonymous: false,
+        isRestricted: false,
+      },
+    ]);
+    const input = checkoutInput("cus_direct_replay");
+    input.session.client_reference_id = anonymous.id;
+    input.subscription.metadata.stackUserId = anonymous.id;
+
+    // First delivery resolves the canonical owner and writes the remapped
+    // local rows. The exact queue is intentionally longer than the minimum so
+    // account-lease reads remain harmless as the implementation evolves.
+    selectResults = Array.from({ length: 20 }, () => []);
+    const db = fakeDb();
+    await recordCheckoutCompletion(input as never, {
+      db: db as never,
+      stackApp: { getUser, listUsers } as never,
+    });
+    const writesAfterFirstDelivery = inserts.length + updates.length;
+
+    // A delayed replay sees the already-mapped customer and exact subscription
+    // row. It must acknowledge the durable ownership without writing anything.
+    inserts.length = 0;
+    updates.length = 0;
+    selectResults = [
+      [{ stackUserId: real.id, stackTeamId: null }],
+      [{ id: "sub_123" }],
+    ];
+    const replay = await recordCheckoutCompletion(input as never, {
+      db: db as never,
+      stackApp: { getUser, listUsers } as never,
+    });
+
+    expect(writesAfterFirstDelivery).toBeGreaterThan(0);
+    expect(replay).toEqual({
+      scope: "user",
+      stackUserId: real.id,
+      subscriptionId: "sub_123",
+    });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(listUsers).toHaveBeenCalledTimes(1);
+  });
+
   test("moves an already-parked alias customer without leaving a claim", async () => {
     const anonymous = {
       id: "anonymous_parked",

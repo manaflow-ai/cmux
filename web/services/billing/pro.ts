@@ -6,7 +6,7 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
-import { inArray, eq, and, or } from "drizzle-orm";
+import { inArray, eq, and, or, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
@@ -393,7 +393,10 @@ async function activeStripeSubscriptionState(
 ): Promise<{ readonly regular: boolean; readonly founder: boolean }> {
   try {
     const rows = await cloudDb()
-      .select({ raw: stripeSubscriptions.raw })
+      .select({
+        regular: sql<boolean>`coalesce(bool_or(${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'), false)`,
+        founder: sql<boolean>`coalesce(bool_or(${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'), false)`,
+      })
       .from(stripeSubscriptions)
       .where(
         and(
@@ -403,10 +406,26 @@ async function activeStripeSubscriptionState(
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
       )
-      .limit(100);
+      .limit(1);
+    const aggregate = rows[0] as
+      | { regular?: unknown; founder?: unknown }
+      | undefined;
+    if (
+      aggregate &&
+      ("regular" in aggregate || "founder" in aggregate)
+    ) {
+      return {
+        regular: aggregate.regular === true,
+        founder: aggregate.founder === true,
+      };
+    }
+    // Lightweight test doubles and older adapters may return raw rows instead
+    // of the aggregate projection. Keep that fallback bounded by the adapter;
+    // production PostgreSQL always returns the single aggregate row above.
+    const rawRows = rows as unknown as readonly { raw?: unknown }[];
     return {
-      regular: rows.some((row) => !isFounderSubscriptionRaw(row.raw)),
-      founder: rows.some((row) => isFounderSubscriptionRaw(row.raw)),
+      regular: rawRows.some((row) => !isFounderSubscriptionRaw(row.raw)),
+      founder: rawRows.some((row) => isFounderSubscriptionRaw(row.raw)),
     };
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return { regular: false, founder: false };

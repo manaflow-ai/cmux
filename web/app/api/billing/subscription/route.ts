@@ -148,10 +148,11 @@ async function activeStripeSubscriptionForStackUser(stackUserId: string) {
         eq(stripeSubscriptions.scope, "user"),
         eq(stripeSubscriptions.plan, PRO_PLAN_ID),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'`,
       ),
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(100);
+    .limit(1);
   return rows.find((row) => !isFounderSubscriptionRaw(row.raw)) ?? null;
 }
 

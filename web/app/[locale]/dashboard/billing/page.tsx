@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
@@ -165,10 +165,11 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
         eq(stripeSubscriptions.scope, "user"),
         eq(stripeSubscriptions.plan, PRO_PLAN_ID),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'`,
       ),
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(100);
+    .limit(1);
   return rows.find((row) => !isFounderSubscriptionRaw(row.raw)) ?? null;
 }
 
