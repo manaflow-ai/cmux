@@ -6,8 +6,15 @@ import SwiftUI
 @MainActor
 struct TerminalSessionRestoreRow: View {
     @State private var restoreTerminalSessions: DefaultsValueModel<Bool>
+    private let afterCommit: @MainActor @Sendable () -> Void
 
-    init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    /// Creates a row backed by the injected defaults store and host callback.
+    init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        afterCommit: @escaping @MainActor @Sendable () -> Void = {}
+    ) {
+        self.afterCommit = afterCommit
         _restoreTerminalSessions = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -16,13 +23,15 @@ struct TerminalSessionRestoreRow: View {
         )
     }
 
+    /// Renders the localized title, state-dependent explanation, and switch.
     var body: some View {
+        let title = String(
+            localized: "settings.terminal.restoreTerminalSessions",
+            defaultValue: "Restore Terminal Sessions on Reopen"
+        )
         SettingsCardRow(
             configurationReview: .json("terminal.restoreTerminalSessions"),
-            String(
-                localized: "settings.terminal.restoreTerminalSessions",
-                defaultValue: "Restore Terminal Sessions on Reopen"
-            ),
+            title,
             subtitle: restoreTerminalSessions.current
                 ? String(
                     localized: "settings.terminal.restoreTerminalSessions.subtitleOn",
@@ -37,11 +46,12 @@ struct TerminalSessionRestoreRow: View {
                 "",
                 isOn: Binding(
                     get: { restoreTerminalSessions.current },
-                    set: { restoreTerminalSessions.set($0) }
+                    set: { restoreTerminalSessions.set($0, afterCommit: afterCommit) }
                 )
             )
             .labelsHidden()
             .controlSize(.small)
+            .accessibilityLabel(title)
             .accessibilityIdentifier("SettingsTerminalRestoreSessionsToggle")
         }
         .task {

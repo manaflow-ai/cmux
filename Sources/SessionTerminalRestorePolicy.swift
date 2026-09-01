@@ -1,23 +1,32 @@
 import Foundation
+import CmuxWorkspaces
 
-/// Applies the terminal-session restore preference at every persisted-session
-/// boundary. Explicit closed-item restores opt out of this policy at their
-/// call site; relaunch and manual previous-launch restores use it by default.
-struct SessionTerminalRestorePolicy {
+/// App-side adapter that applies the terminal-session restore preference at
+/// every persisted-session boundary. The scalable workspace/group planning
+/// algorithm is owned by ``TerminalSessionRestorePlanner`` in the
+/// `CmuxWorkspaces` package; this type only bridges the app's wire-format DTOs
+/// and filters their AppKit-specific dock layout. Explicit closed-item restores
+/// opt out at their call site.
+struct SessionTerminalRestorePolicy: Sendable {
     let restoreTerminalSessions: Bool
 
+    /// Creates a policy from an already-resolved preference value.
     init(restoreTerminalSessions: Bool) {
         self.restoreTerminalSessions = restoreTerminalSessions
     }
 
-    init(defaults: UserDefaults = .standard) {
-        self.init(
-            restoreTerminalSessions: TerminalSessionRestoreSettings.isEnabled(
-                defaults: defaults
-            )
-        )
+    /// Captures the effective preference from an injected settings owner.
+    init(settings: TerminalSessionRestoreSettings) {
+        self.init(restoreTerminalSessions: settings.isEnabled)
     }
 
+    /// Captures the effective preference from the supplied defaults store.
+    init(defaults: UserDefaults = .standard) {
+        self.init(settings: TerminalSessionRestoreSettings(defaults: defaults))
+    }
+
+    /// Filters an app snapshot once, preserving browser-only windows and
+    /// returning `nil` when no restorable content remains.
     func appSnapshotForRestore(_ snapshot: AppSessionSnapshot) -> AppSessionSnapshot? {
         guard !restoreTerminalSessions else { return snapshot }
         var filtered = snapshot
@@ -25,6 +34,7 @@ struct SessionTerminalRestorePolicy {
         return filtered.windows.isEmpty ? nil : filtered
     }
 
+    /// Filters one window snapshot using this policy's captured value.
     func windowSnapshotForRestore(_ snapshot: SessionWindowSnapshot) -> SessionWindowSnapshot? {
         guard !restoreTerminalSessions else { return snapshot }
         var filtered = snapshot
@@ -39,101 +49,98 @@ struct SessionTerminalRestorePolicy {
         return filtered
     }
 
+    /// Filters workspace and dock snapshots without rereading UserDefaults.
     func tabManagerSnapshotForRestore(
         _ snapshot: SessionTabManagerSnapshot
     ) -> SessionTabManagerSnapshot {
         guard !restoreTerminalSessions else { return snapshot }
 
-        let retained = snapshot.workspaces.enumerated().filter {
-            !workspaceContainsTerminalSurface($0.element)
-        }
-        var filtered = snapshot
-        filtered.workspaces = retained.map(\.element)
-        filtered.selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex.flatMap { index in
-            retained.firstIndex { $0.offset == index }
-        }
-        filtered.workspaceGroups = filteredWorkspaceGroups(
-            snapshot.workspaceGroups,
-            originalWorkspaces: snapshot.workspaces,
-            retainedWorkspaces: filtered.workspaces,
-            retainedOriginalOffsets: retained.map(\.offset)
+        let planner = TerminalSessionRestorePlanner(
+            restoreTerminalSessions: restoreTerminalSessions
         )
+        let plan = planner.planWorkspaces(
+            snapshot.workspaces.map {
+                TerminalSessionRestoreWorkspaceDescriptor(
+                    workspaceID: $0.workspaceId,
+                    groupID: $0.groupId,
+                    containsTerminalSurface: workspaceContainsTerminalSurface($0)
+                )
+            },
+            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex,
+            groups: snapshot.workspaceGroups?.map {
+                TerminalSessionRestoreGroupDescriptor(
+                    id: $0.id,
+                    anchorMemberIndex: $0.anchorMemberIndex,
+                    anchorWorkspaceID: $0.anchorWorkspaceId,
+                    // TabManager keeps every pinned group durable when all of
+                    // its members are filtered, including legacy snapshots
+                    // that omitted `anchorIsEmpty`.
+                    preserveWhenEmpty: $0.isPinned == true
+                )
+            }
+        )
+        var filtered = snapshot
+        filtered.workspaces = plan.retainedOriginalOffsets.map { snapshot.workspaces[$0] }
+        filtered.selectedWorkspaceIndex = plan.selectedWorkspaceIndex
+        var groupPlansByID: [UUID: TerminalSessionRestoreGroupPlan] = [:]
+        for groupPlan in plan.groups ?? [] {
+            // Keep the first plan for a duplicate/corrupt group id, matching
+            // TabManager's de-duplication behavior during restore.
+            groupPlansByID[groupPlan.id] = groupPlansByID[groupPlan.id] ?? groupPlan
+        }
+        if let groups = snapshot.workspaceGroups {
+            let filteredGroups = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
+                guard let groupPlan = groupPlansByID[group.id] else { return nil }
+                var filteredGroup = group
+                filteredGroup.anchorMemberIndex = groupPlan.anchorMemberIndex
+                filteredGroup.anchorWorkspaceId = groupPlan.anchorWorkspaceID
+                return filteredGroup
+            }
+            filtered.workspaceGroups = filteredGroups.isEmpty ? nil : filteredGroups
+        }
         return filtered
     }
 
+    /// Reports whether a workspace's main or embedded Dock contains a terminal.
     private func workspaceContainsTerminalSurface(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
         snapshot.panels.contains(where: panelContainsTerminalSurface)
             || snapshot.dock?.panels.contains(where: panelContainsTerminalSurface) == true
     }
 
+    /// Reports whether a persisted panel represents a terminal surface.
     private func panelContainsTerminalSurface(_ snapshot: SessionPanelSnapshot) -> Bool {
         snapshot.type == .terminal || snapshot.terminal != nil
     }
 
-    private func filteredWorkspaceGroups(
-        _ groups: [SessionWorkspaceGroupSnapshot]?,
-        originalWorkspaces: [SessionWorkspaceSnapshot],
-        retainedWorkspaces: [SessionWorkspaceSnapshot],
-        retainedOriginalOffsets: [Int]
-    ) -> [SessionWorkspaceGroupSnapshot]? {
-        guard let groups else { return nil }
-        let filtered = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
-            let originalMembers = originalWorkspaces.enumerated().filter {
-                $0.element.groupId == group.id
-            }
-            let retainedMembers = retainedWorkspaces.enumerated().compactMap {
-                (entry: (offset: Int, element: SessionWorkspaceSnapshot))
-                    -> (offset: Int, element: SessionWorkspaceSnapshot)? in
-                let index = entry.offset
-                let workspace = entry.element
-                guard workspace.groupId == group.id else { return nil }
-                let originalOffset = retainedOriginalOffsets.indices.contains(index)
-                    ? retainedOriginalOffsets[index]
-                    : index
-                return (offset: originalOffset, element: workspace)
-            }
-            guard !retainedMembers.isEmpty else { return nil }
-
-            let anchorOriginalOffset = group.anchorMemberIndex.flatMap { index in
-                originalMembers.indices.contains(index) ? originalMembers[index].offset : nil
-            }
-            let anchorIndex = retainedMembers.firstIndex { member in
-                member.offset == anchorOriginalOffset
-            } ?? retainedMembers.firstIndex { member in
-                member.element.workspaceId == group.anchorWorkspaceId
-            } ?? 0
-
-            var filteredGroup = group
-            filteredGroup.anchorMemberIndex = anchorIndex
-            filteredGroup.anchorWorkspaceId = retainedMembers[anchorIndex].element.workspaceId
-            return filteredGroup
-        }
-        return filtered.isEmpty ? nil : filtered
-    }
-
+    /// Filters a window or workspace Dock and repairs its source ownership map.
     private func splitContainerSnapshotForRestore(
         _ snapshot: SessionSplitContainerSnapshot?,
         retainedWorkspaceIDs: Set<UUID>
     ) -> SessionSplitContainerSnapshot? {
         guard let snapshot else { return nil }
-        let retainedPanels = snapshot.panels.filter { !panelContainsTerminalSurface($0) }
-        guard !retainedPanels.isEmpty else { return nil }
+        let planner = TerminalSessionRestorePlanner(
+            restoreTerminalSessions: restoreTerminalSessions
+        )
+        guard let plan = planner.planContainer(
+            panels: snapshot.panels.map {
+                TerminalSessionRestorePanelDescriptor(
+                    id: $0.id,
+                    containsTerminalSurface: panelContainsTerminalSurface($0)
+                )
+            },
+            focusedPanelID: snapshot.focusedPanelId,
+            layout: terminalRestoreLayout(from: snapshot.layout)
+        ) else {
+            return nil
+        }
 
         var filtered = snapshot
-        filtered.panels = retainedPanels
-        let retainedPanelIDs = Set(retainedPanels.map(\.id))
-        filtered.focusedPanelId = snapshot.focusedPanelId.flatMap {
-            retainedPanelIDs.contains($0) ? $0 : retainedPanels.first?.id
+        let retainedPanelIDs = Set(plan.retainedPanelIDs)
+        filtered.panels = snapshot.panels.filter {
+            retainedPanelIDs.contains($0.id) && !panelContainsTerminalSurface($0)
         }
-        filtered.layout = filteredLayout(
-            snapshot.layout,
-            retaining: retainedPanelIDs
-        ) ?? .pane(
-            SessionPaneLayoutSnapshot(
-                panelIds: retainedPanels.map(\.id),
-                selectedPanelId: retainedPanels.first?.id
-            )
-        )
+        filtered.focusedPanelId = plan.focusedPanelID
+        filtered.layout = sessionLayout(from: plan.layout)
         if let sourceWorkspaceIds = snapshot.sourceWorkspaceIdsByPanelId {
             filtered.sourceWorkspaceIdsByPanelId = sourceWorkspaceIds.filter {
                 retainedPanelIDs.contains($0.key) && retainedWorkspaceIDs.contains($0.value)
@@ -142,43 +149,49 @@ struct SessionTerminalRestorePolicy {
         return filtered
     }
 
-    private func filteredLayout(
-        _ layout: SessionWorkspaceLayoutSnapshot,
-        retaining panelIDs: Set<UUID>
-    ) -> SessionWorkspaceLayoutSnapshot? {
+    /// Converts the app layout DTO into the package planner's neutral tree.
+    private func terminalRestoreLayout(
+        from layout: SessionWorkspaceLayoutSnapshot
+    ) -> TerminalSessionRestoreLayout {
         switch layout {
         case .pane(let pane):
-            let retainedIDs = pane.panelIds.filter { panelIDs.contains($0) }
-            guard !retainedIDs.isEmpty else { return nil }
             return .pane(
-                SessionPaneLayoutSnapshot(
-                    panelIds: retainedIDs,
-                    selectedPanelId: pane.selectedPanelId.flatMap {
-                        panelIDs.contains($0) ? $0 : retainedIDs.first
-                    },
-                    isFullWidthTabMode: pane.isFullWidthTabMode
-                )
+                panelIDs: pane.panelIds,
+                selectedPanelID: pane.selectedPanelId,
+                isFullWidthTabMode: pane.isFullWidthTabMode
             )
         case .split(let split):
-            let first = filteredLayout(split.first, retaining: panelIDs)
-            let second = filteredLayout(split.second, retaining: panelIDs)
-            switch (first, second) {
-            case let (first?, second?):
-                return .split(
-                    SessionSplitLayoutSnapshot(
-                        orientation: split.orientation,
-                        dividerPosition: split.dividerPosition,
-                        first: first,
-                        second: second
-                    )
+            return .split(
+                orientation: split.orientation == .horizontal ? .horizontal : .vertical,
+                dividerPosition: split.dividerPosition,
+                first: terminalRestoreLayout(from: split.first),
+                second: terminalRestoreLayout(from: split.second)
+            )
+        }
+    }
+
+    /// Converts a neutral planner tree back into the app persistence DTO.
+    private func sessionLayout(
+        from layout: TerminalSessionRestoreLayout
+    ) -> SessionWorkspaceLayoutSnapshot {
+        switch layout {
+        case let .pane(panelIDs, selectedPanelID, isFullWidthTabMode):
+            return .pane(
+                SessionPaneLayoutSnapshot(
+                    panelIds: panelIDs,
+                    selectedPanelId: selectedPanelID,
+                    isFullWidthTabMode: isFullWidthTabMode
                 )
-            case let (first?, nil):
-                return first
-            case let (nil, second?):
-                return second
-            case (nil, nil):
-                return nil
-            }
+            )
+        case let .split(orientation, dividerPosition, first, second):
+            return .split(
+                SessionSplitLayoutSnapshot(
+                    orientation: orientation == .horizontal ? .horizontal : .vertical,
+                    dividerPosition: dividerPosition,
+                    first: sessionLayout(from: first),
+                    second: sessionLayout(from: second)
+                )
+            )
         }
     }
 }

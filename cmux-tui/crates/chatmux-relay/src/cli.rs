@@ -37,6 +37,7 @@ pub struct ParsedArgs {
     command_flag: Option<String>,
     pub backend: Option<String>,
     pub enrollment_file: Option<String>,
+    pub config_path: Option<String>,
     pub allow_root: Vec<String>,
     pub no_onboard: bool,
     pub code_mode: bool,
@@ -59,7 +60,7 @@ fn missing_value(flag: &str) -> CliUsageError {
 }
 
 fn is_value_flag(argument: &str) -> bool {
-    matches!(argument, "--backend" | "--allow-root" | "--enrollment-file")
+    matches!(argument, "--backend" | "--allow-root" | "--enrollment-file" | "--config")
 }
 
 fn is_mode_flag(argument: &str) -> bool {
@@ -83,7 +84,8 @@ where
 
         if is_value_flag(argument) {
             let value = args.get(index + 1).map(String::as_str);
-            let usable = value.is_some_and(|value| value != "--" && !value.starts_with('-'));
+            let usable = value
+                .is_some_and(|value| !value.is_empty() && value != "--" && !value.starts_with('-'));
             if !usable {
                 return Err(missing_value(argument));
             }
@@ -91,7 +93,8 @@ where
             match argument {
                 "--allow-root" => parsed.allow_root.push(value),
                 "--backend" => parsed.backend = Some(value),
-                _ => parsed.enrollment_file = Some(value),
+                "--enrollment-file" => parsed.enrollment_file = Some(value),
+                _ => parsed.config_path = Some(value),
             }
             index += 2;
             continue;
@@ -205,6 +208,14 @@ mod tests {
     }
 
     #[test]
+    fn accepts_explicit_config_path_for_autostart_services() {
+        let parsed = parse(&["--config", "/srv/chatmux/config.json", "--no-onboard"])
+            .expect("config path parses");
+        assert_eq!(parsed.config_path.as_deref(), Some("/srv/chatmux/config.json"));
+        assert!(parsed.no_onboard);
+    }
+
+    #[test]
     fn reserves_coderouter_and_rejects_every_other_positional_without_reflection() {
         let coderouter = parse(&["coderouter", "grant"]).expect_err("coderouter refused");
         assert_eq!(coderouter.code, "coderouter_unavailable");
@@ -224,6 +235,7 @@ mod tests {
             &["--backend", "--code"][..],
             &["--backend", "--"][..],
             &["--allow-root", "--status"][..],
+            &["--config", ""][..],
         ] {
             let error = parse(args).expect_err("missing value refused");
             assert!(error.message.contains("requires a value"), "{args:?}: {}", error.message);

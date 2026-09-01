@@ -1,5 +1,7 @@
 import Foundation
 import CmuxCore
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import Testing
 
@@ -12,10 +14,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalSessionRestoreOptOutTests {
-    private let restoreTerminalSessionsKey = "terminal.restoreTerminalSessions"
-
     @Test
-    func disablingTerminalRestoreSkipsTerminalWorkspaces() throws {
+    func disablingTerminalRestoreSkipsTerminalWorkspaces() async throws {
         let source = TabManager()
         let terminalWorkspace = try #require(source.selectedWorkspace)
         let browserWorkspace = source.addWorkspace(
@@ -40,23 +40,53 @@ struct TerminalSessionRestoreOptOutTests {
         filteredInput.workspaces = [snapshot.workspaces[0], browserSnapshot]
         filteredInput.selectedWorkspaceIndex = 1
 
-        let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: restoreTerminalSessionsKey)
-        defaults.set(false, forKey: restoreTerminalSessionsKey)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: restoreTerminalSessionsKey)
-            } else {
-                defaults.removeObject(forKey: restoreTerminalSessionsKey)
-            }
+        let suiteName = "cmux.terminal-restore-tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let notificationCenter = NotificationCenter()
+        let settings = TerminalSessionRestoreSettings(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: TerminalSessionRestoreSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
         }
+        defer {
+            notificationCenter.removeObserver(observer)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        #expect(settings.isEnabled)
+        let defaultsStore = UserDefaultsSettingsStore(defaults: defaults)
+        let restoreKey = SettingCatalog().terminal.restoreTerminalSessions
+        let restoreModel = DefaultsValueModel(store: defaultsStore, key: restoreKey)
+        _ = restoreModel.set(false) {
+            settings.notifyDidChange()
+        }
+        for _ in 0..<1_000 where notificationCount == 0 {
+            await Task.yield()
+        }
+        #expect(!settings.isEnabled)
+        #expect(notificationCount == 1)
+        #expect(!settings.setEnabled(false))
+        #expect(notificationCount == 1)
 
         let restored = TabManager()
-        restored.restoreSessionSnapshot(filteredInput)
+        let policy = SessionTerminalRestorePolicy(settings: settings)
+        restored.restoreSessionSnapshot(
+            filteredInput,
+            terminalRestorePolicy: policy
+        )
 
         #expect(restored.tabs.count == 1)
         #expect(restored.tabs.first?.customTitle == "Browser-only workspace")
         #expect(!restored.tabs.contains { $0.id == terminalWorkspaceId })
         #expect(restored.tabs.first?.id != terminalWorkspace.id)
+        #expect(settings.reset())
+        #expect(settings.isEnabled)
+        #expect(notificationCount == 2)
     }
 }

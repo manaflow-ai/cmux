@@ -147,6 +147,12 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Machine desktop wrapper panes: the URL lives inside long-lived app panes,
+  // so it must never be rewritten into the locale tree.
+  if (pathname.startsWith("/vm/desktop/")) {
+    return NextResponse.next();
+  }
+
   const isChangelogVersionPath =
     /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
       pathname,

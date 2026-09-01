@@ -413,7 +413,11 @@ public struct TerminalSection: View {
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
             }
             SettingsCardDivider()
-            TerminalSessionRestoreRow(defaultsStore: defaultsStore, catalog: catalog)
+            TerminalSessionRestoreRow(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                afterCommit: { hostActions.terminalSessionRestoreDidChange() }
+            )
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.autoResumeAgentSessions"),

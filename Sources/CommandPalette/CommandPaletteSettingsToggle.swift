@@ -478,14 +478,13 @@ enum CommandPaletteSettingsToggleCommands {
                     "relaunch",
                 ],
                 isOn: { defaults in
-                    TerminalSessionRestoreSettings.isEnabled(defaults: defaults)
+                    TerminalSessionRestoreSettings(defaults: defaults).isEnabled
                 },
                 setOn: { newValue, defaults, notificationCenter in
-                    TerminalSessionRestoreSettings.setEnabled(
-                        newValue,
+                    _ = TerminalSessionRestoreSettings(
                         defaults: defaults,
                         notificationCenter: notificationCenter
-                    )
+                    ).setEnabled(newValue)
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
