@@ -1434,7 +1434,7 @@ impl WorkspaceRegistry {
         validated: &crate::journal_kernel::ValidatedJournalIngress,
         origin: &str,
         idempotency_key: &str,
-) -> anyhow::Result<JournalAppendCommit> {
+    ) -> anyhow::Result<JournalAppendCommit> {
         let tx = self.connection.transaction()?;
         let commit =
             append_journal_ingress_transaction(&tx, ingress, validated, origin, idempotency_key)?;
