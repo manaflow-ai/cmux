@@ -121,6 +121,7 @@
 		A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
+		D11305000000000000000003 /* AgentHookPromptDepthPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11305000000000000000004 /* AgentHookPromptDepthPolicy.swift */; };
 		A77A0010A1B2C3D4E5F60001 /* AgentJournalLazyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */; };
 		A77A0005A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A0006A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift */; };
 		A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */; };
@@ -3171,6 +3172,7 @@
 		918100000000000000000100 /* AgentHookFailureStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookFailureStage.swift; sourceTree = "<group>"; };
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
+		D11305000000000000000004 /* AgentHookPromptDepthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookPromptDepthPolicy.swift; sourceTree = "<group>"; };
 		A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLazyStore.swift; sourceTree = "<group>"; };
 		A77A0006A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenter.swift; sourceTree = "<group>"; };
 		A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenterTests.swift; sourceTree = "<group>"; };
@@ -8198,6 +8200,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */,
 				8A87C45F990549A8A0A6EE01 /* AgentSurfaceResumeBindingClearOutcome.swift */,
 				B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */,
+				D11305000000000000000004 /* AgentHookPromptDepthPolicy.swift */,
 				89930003AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBinding.swift */,
 				89930009AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingProbe.swift */,
 				89930008AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingResult.swift */,
@@ -11464,6 +11467,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				918100000000000000000101 /* AgentHookFailureStage.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
+				D11305000000000000000003 /* AgentHookPromptDepthPolicy.swift in Sources */,
 				C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,

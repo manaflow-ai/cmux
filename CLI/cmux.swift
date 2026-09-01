@@ -414,12 +414,14 @@ final class ClaudeHookSessionStore {
 
     private let statePath: String
     private let fileManager: FileManager
+    private let promptDepthPolicy: AgentHookPromptDepthPolicy
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        promptDepthPolicy: AgentHookPromptDepthPolicy = .balanced
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
@@ -433,6 +435,7 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.promptDepthPolicy = promptDepthPolicy
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -1209,6 +1212,11 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
+            if promptDepthPolicy.closesActivePrompt {
+                record.beginAuthoritativePrompt(turnId: normalizedTurnId)
+                state.sessions[normalized] = record
+                return (staleTerminalTurn: false, nested: false)
+            }
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
@@ -1294,7 +1302,13 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
-            let depthAfterStop = max(0, depthBeforeStop - 1)
+            let depthAfterStop = promptDepthPolicy.closesActivePrompt
+                ? 0
+                : max(0, depthBeforeStop - 1)
+            let lifecycleWhenClosed: AgentHibernationLifecycleState? = agentLifecycle
+                ?? (promptDepthPolicy.closesActivePrompt ? .idle : nil)
+            let runtimeWhenClosed: AgentHookRuntimeStatus? = runtimeStatus
+                ?? (promptDepthPolicy.closesActivePrompt ? .idle : nil)
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1304,17 +1318,23 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: nil,
-                agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
+                agentLifecycle: depthAfterStop == 0 ? lifecycleWhenClosed : .running,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus,
+                runtimeStatus: depthAfterStop == 0 ? runtimeWhenClosed : runtimeStatus,
+                updateRuntimeStatus: updateRuntimeStatus
+                    || (promptDepthPolicy.closesActivePrompt && depthAfterStop == 0),
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
+            if promptDepthPolicy.closesActivePrompt {
+                record.endAuthoritativePrompt()
+                state.sessions[normalized] = record
+                return false
+            }
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
                 var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
@@ -1467,6 +1487,9 @@ final class ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
+            if promptDepthPolicy.closesActivePrompt, agentLifecycle == .unknown {
+                record.clearPromptStartState()
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1646,7 +1669,7 @@ final class ClaudeHookSessionStore {
             if codexSessionStartIsStale(record, incomingPID: pid) {
                 return false
             }
-            clearCodexSessionStartTurnState(on: &record)
+            record.clearPromptStartState()
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1876,13 +1899,6 @@ final class ClaudeHookSessionStore {
             return false
         }
         return incomingPID == existingPID
-    }
-
-    private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
-        record.activePromptDepth = nil
-        record.activePromptTurnId = nil
-        record.activePromptTurnIds = nil
-        record.lastPromptTurnId = nil
     }
 
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
@@ -33555,7 +33571,8 @@ export default CMUXSessionRestore;
             processEnv: env.merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
-            )
+            ),
+            promptDepthPolicy: def.promptDepthPolicy
         )
 
         let hookCwd = input.cwd
