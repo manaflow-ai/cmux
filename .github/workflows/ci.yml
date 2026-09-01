@@ -12,6 +12,7 @@ on:
       - "plans/**"
       - "ios/**"
       - "web/**"
+      - "cmux-browser/**"
       - "daemon/remote/**"
       - "homebrew-cmux/**"
       - "README*.md"
@@ -39,6 +40,7 @@ jobs:
       web: ${{ steps.detect.outputs.web }}
       go: ${{ steps.detect.outputs.go }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
+      ghosttykit_guard: ${{ steps.detect.outputs.ghosttykit_guard }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -60,6 +62,7 @@ jobs:
               echo "web=true"
               echo "go=true"
               echo "agent_session_web=true"
+              echo "ghosttykit_guard=true"
             } >> "$GITHUB_OUTPUT"
           }
 
@@ -115,6 +118,7 @@ jobs:
                 echo "web=false"
                 echo "go=false"
                 echo "agent_session_web=false"
+                echo "ghosttykit_guard=true"
               } >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -131,6 +135,11 @@ jobs:
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
               --files-from /tmp/cmux-ci-changed-files.txt
+            if [ "$has_ghosttykit_guard_file" = true ]; then
+              echo "ghosttykit_guard=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "ghosttykit_guard=false" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
@@ -138,6 +147,7 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+          echo "ghosttykit_guard=true" >> "$GITHUB_OUTPUT"
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -376,11 +386,13 @@ jobs:
 
   ghosttykit-release-check:
     name: GhosttyKit release check
+    needs: changes
     permissions:
       contents: read
-    # The pull_request trigger excludes only independent non-app areas;
-    # workflow_dispatch keeps the same guard available for explicit CI runs.
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    # Keep the network-backed provenance check scoped to the files it protects.
+    # The broad app trigger must not make an unrelated PR depend on a release
+    # download, while workflow_dispatch still runs the explicit guard.
+    if: ${{ needs.changes.result == 'success' && needs.changes.outputs.ghosttykit_guard == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -1822,7 +1834,7 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["PREFLIGHT_NEEDS"])
-          required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")
+          required = ("changes", "workflow-guard-tests")
           allowed_routed = {
               "remote-daemon-tests",
               "web-typecheck",
@@ -1839,6 +1851,13 @@ jobs:
                   bad[name] = result
 
           outputs = needs["changes"].get("outputs", {})
+          ghostty_result = needs["ghosttykit-release-check"]["result"]
+          ghostty_required = outputs.get("ghosttykit_guard") == "true"
+          if ghostty_required:
+              if ghostty_result != "success":
+                  bad["ghosttykit-release-check"] = ghostty_result
+          elif ghostty_result not in {"success", "skipped"}:
+              bad["ghosttykit-release-check"] = ghostty_result
           routed_outputs = {
               "remote-daemon-tests": "go",
               "web-typecheck": "web",

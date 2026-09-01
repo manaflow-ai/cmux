@@ -66,7 +66,7 @@ def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
         assert not any(fnmatch(path, pattern) for pattern in ignored), path
 
     # Clearly non-app paths retain the cheap skip behavior.
-    for path in ["docs/ci.md", "ios/cmux/ContentView.swift", "web/app/page.tsx"]:
+    for path in ["docs/ci.md", "ios/cmux/ContentView.swift", "web/app/page.tsx", "cmux-browser/src/index.ts"]:
         assert any(fnmatch(path, pattern) for pattern in ignored), path
 
 
@@ -355,6 +355,7 @@ def linux_preflight_needs(
         "web": "true",
         "go": "true",
         "agent_session_web": "true",
+        "ghosttykit_guard": "true",
     }
     if outputs:
         route_outputs.update(outputs)
@@ -431,7 +432,13 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
 
     assert "CI router changed; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "go=true", "agent_session_web=true"]
+    assert outputs == [
+        "macos=true",
+        "web=true",
+        "go=true",
+        "agent_session_web=true",
+        "ghosttykit_guard=true",
+    ]
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
@@ -463,6 +470,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "web=true",
             "go=true",
             "agent_session_web=true",
+            "ghosttykit_guard=true",
         ]
 
 
@@ -547,6 +555,7 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
             "web=true",
             "go=false",
             "agent_session_web=false",
+            "ghosttykit_guard=false",
         ]
 
 
@@ -554,7 +563,13 @@ def test_workflow_empty_diff_runs_all_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
     assert "PR diff is empty; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "go=true", "agent_session_web=true"]
+    assert outputs == [
+        "macos=true",
+        "web=true",
+        "go=true",
+        "agent_session_web=true",
+        "ghosttykit_guard=true",
+    ]
 
 
 def test_router_changes_run_everything() -> None:
@@ -597,6 +612,7 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
         "web=false",
         "go=false",
         "agent_session_web=false",
+        "ghosttykit_guard=true",
     ]
 
 
@@ -619,6 +635,7 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
         "web=false",
         "go=false",
         "agent_session_web=false",
+        "ghosttykit_guard=true",
     ]
 
 
@@ -631,6 +648,7 @@ def test_workflow_only_pr_keeps_fail_open_routing() -> None:
         "web=true",
         "go=true",
         "agent_session_web=true",
+        "ghosttykit_guard=true",
     ]
 
 
@@ -796,7 +814,9 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
-    assert 'required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")' in block
+    assert 'required = ("changes", "workflow-guard-tests")' in block
+    assert 'ghostty_required = outputs.get("ghosttykit_guard") == "true"' in block
+    assert 'ghostty_result not in {"success", "skipped"}' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block
@@ -821,6 +841,30 @@ def test_linux_preflight_allows_unrouted_job_skip() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "remote-daemon-tests: skipped" in result.stdout
+
+
+def test_linux_preflight_allows_unneeded_ghostty_guard_skip() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(
+            outputs={"ghosttykit_guard": "false"},
+            results={"ghosttykit-release-check": "skipped"},
+        )
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ghosttykit-release-check: skipped" in result.stdout
+
+
+def test_linux_preflight_requires_ghostty_guard_when_requested() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(
+            outputs={"ghosttykit_guard": "true"},
+            results={"ghosttykit-release-check": "skipped"},
+        )
+    )
+
+    assert result.returncode != 0
+    assert "ghosttykit-release-check: skipped" in result.stderr
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
