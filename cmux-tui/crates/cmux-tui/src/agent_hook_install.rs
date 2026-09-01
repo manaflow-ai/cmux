@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 #[cfg(not(unix))]
 use std::process::Command;
 use std::process::{Child, Output, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
@@ -726,20 +727,45 @@ fn run_hermes_command(binary: &Path, args: &[&str]) -> anyhow::Result<Output> {
 
 type HermesOutputReader = std::thread::JoinHandle<io::Result<Vec<u8>>>;
 
-fn spawn_hermes_reaper(
-    child: Child,
-    #[cfg(unix)] child_exit: Option<UnixChildExitSignal>,
-) -> io::Result<()> {
-    let reaper = move || {
+struct HermesReapState {
+    child: Mutex<Option<Child>>,
+    #[cfg(unix)]
+    child_exit: Mutex<Option<UnixChildExitSignal>>,
+}
+
+impl HermesReapState {
+    fn new(child: Child, #[cfg(unix)] child_exit: Option<UnixChildExitSignal>) -> Self {
+        Self {
+            child: Mutex::new(Some(child)),
+            #[cfg(unix)]
+            child_exit: Mutex::new(child_exit),
+        }
+    }
+
+    fn reap(&self) {
+        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+        if let Some(mut child) = child {
+            let _ = child.wait();
+        }
         #[cfg(unix)]
-        child_exit.expect("Unix child exit observer").finish();
-        let _ = child.wait();
-    };
+        if let Some(child_exit) =
+            self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take()
+        {
+            child_exit.finish();
+        }
+    }
+}
+
+fn spawn_hermes_reaper(state: Arc<HermesReapState>) -> io::Result<()> {
+    let reaper_state = Arc::clone(&state);
     if hermes_reaper_spawn_should_fail() {
-        drop(reaper);
+        drop(reaper_state);
         return Err(io::Error::other("forced Hermes reaper spawn failure"));
     }
-    std::thread::Builder::new().name("hermes-command-reaper".into()).spawn(reaper).map(|_| ())
+    std::thread::Builder::new()
+        .name("hermes-command-reaper".into())
+        .spawn(move || reaper_state.reap())
+        .map(|_| ())
 }
 
 #[cfg(unix)]
@@ -895,14 +921,19 @@ fn run_hermes_command_with_timeout(
     let timed_out = status.is_none();
     if timed_out {
         let _ = child.kill();
-        // Reaping must not extend the command's absolute deadline. The
-        // process scope or Windows job has already issued exact termination;
-        // a detached reaper owns the blocking wait.
-        let _ = spawn_hermes_reaper(
-            child,
-            #[cfg(unix)]
-            child_exit.take(),
-        );
+        // Keep normal reaping detached so it does not extend the command's
+        // absolute deadline. The process scope or Windows job has already
+        // issued exact termination. If the OS cannot create that thread, the
+        // state below keeps ownership for a synchronous fallback.
+        #[cfg(unix)]
+        let reap_state = Arc::new(HermesReapState::new(child, child_exit.take()));
+        #[cfg(not(unix))]
+        let reap_state = Arc::new(HermesReapState::new(child));
+        if spawn_hermes_reaper(Arc::clone(&reap_state)).is_err() {
+            // Keep an owner in this scope when the OS cannot create the
+            // detached reaper. Child::drop does not wait on Unix.
+            reap_state.reap();
+        }
     }
     let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))?;
     let stderr = stderr.join().map_err(|_| anyhow::anyhow!("Hermes stderr reader panicked"))?;
@@ -2231,6 +2262,8 @@ mod tests {
 
         let pid = fs::read_to_string(pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
         let mut status = 0;
+        // SAFETY: `pid` was written by the direct child started above, and no
+        // other test thread can own or reap that child.
         let waited = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
         assert_eq!(
             waited, -1,
