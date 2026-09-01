@@ -95,6 +95,20 @@ mod unix {
         }
     }
 
+    // `ControlHandle::request` futures can be dropped by `tokio::select!`
+    // while they wait for a write acknowledgement or response. Retire the
+    // registration from `Drop`, rather than relying on a timeout or `end()`.
+    struct PendingRequestGuard {
+        shared: Arc<Shared>,
+        id: u64,
+    }
+
+    impl Drop for PendingRequestGuard {
+        fn drop(&mut self) {
+            self.shared.pending.lock().expect("control pending lock").remove(&self.id);
+        }
+    }
+
     pub struct UnixControl {
         shared: Arc<Shared>,
         writer_tx: Sender<OutboundLine>,
@@ -344,22 +358,20 @@ mod unix {
                     }
                     pending.insert(id, sender);
                 }
+                let _pending_guard = PendingRequestGuard { shared: Arc::clone(&self.shared), id };
                 let deadline = tokio::time::Instant::now() + Duration::from_millis(self.timeout_ms);
                 let (written, write_result) = oneshot::channel();
                 if !self.enqueue_line(id, &cmd, params, Some(written)) {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
                 let write_ok =
                     matches!(tokio::time::timeout_at(deadline, write_result).await, Ok(Ok(true)));
                 if !write_ok {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
                     return None;
                 }
                 if let Ok(Ok(value)) = tokio::time::timeout_at(deadline, receiver).await {
                     Some(value)
                 } else {
-                    self.shared.pending.lock().expect("control pending lock").remove(&id);
                     None
                 }
             })
