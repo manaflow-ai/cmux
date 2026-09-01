@@ -2,7 +2,6 @@
 import CmuxAuthRuntime
 import CmuxNextTransport
 import Foundation
-import IrohLib
 import Observation
 import OSLog
 import Security

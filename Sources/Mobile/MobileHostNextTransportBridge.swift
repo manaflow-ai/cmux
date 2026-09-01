@@ -83,6 +83,14 @@ enum MobileHostNextTransportBridge {
             },
             clock: CmxIrohSystemRelayClock(),
             sendTimeout: 3)
+        // Open the host-owned event stream as soon as the admitted bridge is
+        // assembled. The phone's optional-event negotiation waits for this
+        // host-opened stream before it can advertise `iroh_server_events_v1`;
+        // deferring the first open until after that advertisement would make
+        // both sides wait on one another.
+        let eventPreparationTask = Task {
+            try? await eventWriter.prepare()
+        }
         let artifactTransfers = MobileHostIrohArtifactTransferRegistry()
         let laneRouter = MobileHostIrohApplicationLaneRouter(
             session: routable,
@@ -135,7 +143,9 @@ enum MobileHostNextTransportBridge {
                     """
                     bridge: stopping application lanes conn=\(connID, privacy: .public) \
                     device=\(devicePrefix, privacy: .public)
-                    """)
+                """)
+                eventPreparationTask.cancel()
+                await eventWriter.close()
                 await laneRouter.stop()
                 await acceptor.finish()
             })

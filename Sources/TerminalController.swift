@@ -25,6 +25,11 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
+#if DEBUG
+import CmuxIrohTransport
+import CmuxNextTransport
+import CryptoKit
+#endif
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -11850,7 +11855,10 @@ class TerminalController {
     /// authenticated channel, replacing the dev-screen paste flow. Params
     /// carry the phone's next-transport identity; the grant binds to it.
     @MainActor
-    func v2MobileNextTransportPair(params: [String: Any]) -> V2CallResult {
+    func v2MobileNextTransportPair(
+        params: [String: Any],
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) -> V2CallResult {
         guard
             let deviceID = params["device_id"] as? String,
             let keyB64 = params["device_public_key"] as? String,
@@ -11860,6 +11868,21 @@ class TerminalController {
             return .err(
                 code: "invalid_params",
                 message: "device_id, device_public_key (base64), app_identity required",
+                data: nil)
+        }
+        guard Self.nextTransportPairRequesterIsBound(
+            deviceID: deviceID,
+            deviceKey: key,
+            appIdentity: appIdentity,
+            proofBase64: params["device_proof"] as? String,
+            executionContext: executionContext
+        ) else {
+            return .err(
+                code: "forbidden",
+                message: String(
+                    localized: "cli.nextTransport.commandFailed",
+                    defaultValue: "Next-transport command failed. Check Debug > Next Transport."
+                ),
                 data: nil)
         }
         let runtime = MobileHostService.shared.nextTransportRuntime
@@ -11897,6 +11920,58 @@ class TerminalController {
             "grant": grant,
         ])
     }
+
+    #if DEBUG
+    /// Verifies that a pair request names the already-authenticated caller.
+    /// Network sessions must either prove possession of the supplied private
+    /// key or match the key/device tuple authenticated by Iroh; the local
+    /// control socket remains an explicitly trusted composition-root path.
+    private nonisolated static func nextTransportPairRequesterIsBound(
+        deviceID: String,
+        deviceKey: Data,
+        appIdentity: String,
+        proofBase64: String?,
+        executionContext: MobileHostRPCExecutionContext?
+    ) -> Bool {
+        guard let executionContext else { return true }
+        // The network bootstrap is exclusively for the signed iOS next-
+        // transport client. Other app identities remain available only through
+        // the explicitly trusted local control-socket grant command.
+        guard appIdentity == "dev.cmux.next.ios" else { return false }
+        switch executionContext.authorization {
+        case .irohAdmission(let peer):
+            guard let endpoint = try? CmxIrohPeerIdentity(
+                endpointID: lowercaseHex(deviceKey)
+            ) else { return false }
+            return peer.deviceID == deviceID
+                && peer.endpointID == endpoint
+        case .stackBearer:
+            guard let proofBase64,
+                let proof = Data(base64Encoded: proofBase64),
+                let publicKey = try? Curve25519.Signing.PublicKey(
+                    rawRepresentation: deviceKey
+                )
+            else { return false }
+            let transcript = PairingGrant.requestProofTranscript(
+                deviceID: deviceID,
+                devicePublicKey: deviceKey,
+                appIdentity: appIdentity
+            )
+            return publicKey.isValidSignature(proof, for: transcript)
+        }
+    }
+
+    private nonisolated static func lowercaseHex(_ data: Data) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(data.count * 2)
+        for byte in data {
+            bytes.append(digits[Int(byte >> 4)])
+            bytes.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+    #endif
     #endif
 
     private nonisolated func readScreenText(_ args: String) -> String {
@@ -14994,7 +15069,10 @@ class TerminalController {
                 "methods": MobileHostService.irohReleaseGateRPCMethods,
             ])
         case "mobile.next_transport.pair":
-            result = v2MobileNextTransportPair(params: request.params)
+            result = v2MobileNextTransportPair(
+                params: request.params,
+                executionContext: executionContext
+            )
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)

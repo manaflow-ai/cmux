@@ -69,6 +69,25 @@ public struct PairingGrant: Sendable, Equatable {
         return transcript
     }
 
+    /// Domain-separated transcript a phone signs when requesting a bootstrap
+    /// grant over an already-authorized legacy channel. The proof binds all
+    /// caller-controlled identity fields, so the host cannot be tricked into
+    /// minting a grant for a different key than the requester owns.
+    public static func requestProofTranscript(
+        deviceID: String, devicePublicKey: Data, appIdentity: String
+    ) -> Data {
+        let fields = [
+            Data(deviceID.utf8), devicePublicKey, Data(appIdentity.utf8)
+        ]
+        var transcript = Data("cmux/peer/pair-request/v1".utf8)
+        for field in fields {
+            let length = UInt32(field.count).bigEndian
+            withUnsafeBytes(of: length) { transcript.append(contentsOf: $0) }
+            transcript.append(field)
+        }
+        return transcript
+    }
+
     public var transcriptData: Data {
         Self.transcript(
             accountID: accountID, deviceID: deviceID, devicePublicKey: devicePublicKey,

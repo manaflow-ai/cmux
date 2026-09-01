@@ -4380,6 +4380,9 @@ struct CMUXCLI {
                     bytes.count - offset
                 )
             }
+            if written < 0, errno == EINTR {
+                continue
+            }
             guard written > 0 else {
                 throw CLIError(
                     message: String(
@@ -4389,8 +4392,10 @@ struct CMUXCLI {
             }
             offset += written
         }
-        guard Darwin.fsync(descriptor) == 0, Darwin.close(descriptor) == 0 else {
-            descriptorOpen = false
+        let syncResult = Darwin.fsync(descriptor)
+        let closeResult = Darwin.close(descriptor)
+        descriptorOpen = false
+        guard syncResult == 0, closeResult == 0 else {
             throw CLIError(
                 message: String(
                     localized: "cli.nextTransport.outputWriteFailed",

@@ -488,12 +488,6 @@ final class NextTransportGraduationFacade {
     func probeBootstrap(
         client: MobileCoreRPCClient, macID: String, generation: UUID
     ) async {
-        probeGenerations[macID] = generation
-        defer {
-            if probeGenerations[macID] == generation {
-                probeGenerations.removeValue(forKey: macID)
-            }
-        }
         // Every healthy legacy connection refreshes the pair-RPC handle so
         // dial-hint refreshes can re-mint over a LIVE channel.
         pairClients[macID] = WeakPairClient(client: client)
@@ -516,6 +510,15 @@ final class NextTransportGraduationFacade {
                 \(reason, privacy: .public)
                 """)
             return
+        }
+        // Claim the generation only after the skip guards. A concurrent
+        // callback that finds an in-flight probe must not overwrite (and then
+        // remove) the active probe's fence.
+        probeGenerations[macID] = generation
+        defer {
+            if probeGenerations[macID] == generation {
+                probeGenerations.removeValue(forKey: macID)
+            }
         }
         bootstrapsInFlight.insert(macID)
         defer { bootstrapsInFlight.remove(macID) }
@@ -601,14 +604,22 @@ final class NextTransportGraduationFacade {
     #endif
     private nonisolated func mintBootstrap(
         client: MobileCoreRPCClient,
-        identity: (deviceID: String, publicKeyB64: String, appIdentity: String)
+        identity: PeerIdentity
     ) async throws -> (ticket: String, grant: String) {
+        let proof = try identity.sign(
+            PairingGrant.requestProofTranscript(
+                deviceID: identity.deviceID,
+                devicePublicKey: identity.publicKeyData,
+                appIdentity: identity.appIdentity
+            )
+        )
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.next_transport.pair",
             params: [
                 "device_id": identity.deviceID,
-                "device_public_key": identity.publicKeyB64,
+                "device_public_key": identity.publicKeyData.base64EncodedString(),
                 "app_identity": identity.appIdentity,
+                "device_proof": proof.base64EncodedString(),
             ])
         let responseData = try await client.sendRequest(request)
         // sendRequest returns the UNWRAPPED result payload (see
@@ -654,15 +665,8 @@ final class NextTransportGraduationFacade {
 
     /// The same persisted identity the dial client uses, so a grant minted
     /// through bootstrap works in both the facade and the dev screen.
-    private func bootstrapIdentity() async -> (
-        deviceID: String, publicKeyB64: String, appIdentity: String
-    ) {
-        let identity = await NextTransportDialClient.currentIdentityOffMain(defaults: defaults)
-        return (
-            identity.deviceID,
-            identity.publicKeyData.base64EncodedString(),
-            identity.appIdentity
-        )
+    private func bootstrapIdentity() async -> PeerIdentity {
+        await NextTransportDialClient.currentIdentityOffMain(defaults: defaults)
     }
 
     /// Probe-path store: persists the pair AND drops any stale client so
