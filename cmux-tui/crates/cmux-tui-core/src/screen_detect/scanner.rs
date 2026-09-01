@@ -106,7 +106,11 @@ pub(crate) fn scan(
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_public_id.as_str();
         let quiesced = tracker.observe_revision(terminal_id, revision, now);
-        tracker.should_lookup_foreground_agent(terminal_id, now);
+        let lookup_due =
+            tracker.should_lookup_foreground_agent(terminal_id, surface.process_id(), now);
+        if !lookup_due {
+            continue;
+        }
         let mut exited = false;
         let mut unknown = false;
         let mut identity_edge = false;
@@ -147,15 +151,19 @@ pub(crate) fn scan(
             if tracker.pending_emission(terminal_id).is_some() {
                 continue;
             }
-        } else if mux.agent_hook_pending_for_terminal(&terminal_public_id) {
+        } else if mux.agent_hook_pending_for_terminal(&terminal_public_id)
+            && tracker.pending_retry_due(terminal_id, now)
+        {
             // Actively retry the durable row. The registry row owns its
             // original idempotency key, so retries cannot duplicate events.
             let _ = mux.retry_pending_agent_hooks_for_terminal(&terminal_public_id);
             if mux.agent_hook_pending_for_terminal(&terminal_public_id) {
                 // A queued emission must be admitted before newer screen
                 // states, otherwise retry order can invert the roster.
+                tracker.defer_pending_retry(terminal_id, now);
                 continue;
             }
+            tracker.clear_pending_retry(terminal_id);
         }
         if unknown {
             // Keep the prior identity and roster state. The next scan can
