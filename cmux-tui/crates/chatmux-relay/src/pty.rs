@@ -2275,6 +2275,8 @@ mod tests {
         on_data: Option<DataSink>,
         on_exit: Option<ExitSink>,
         written: Vec<Vec<u8>>,
+        write_entered: Option<TestArc<Barrier>>,
+        write_release: Option<TestArc<Barrier>>,
         resized: Vec<(u16, u16)>,
         paused: bool,
         killed: bool,
@@ -2308,6 +2310,16 @@ mod tests {
 
     impl PtyControl for FakePty {
         fn write(&self, data: &[u8]) {
+            let (entered, release) = {
+                let state = self.state.lock().unwrap();
+                (state.write_entered.clone(), state.write_release.clone())
+            };
+            if let Some(entered) = entered {
+                entered.wait();
+            }
+            if let Some(release) = release {
+                release.wait();
+            }
             self.state.lock().unwrap().written.push(data.to_vec());
         }
         fn resize(&self, cols: u16, rows: u16) {
@@ -3209,5 +3221,185 @@ mod tests {
         let frame = harness.sent().pop().unwrap();
         assert_eq!(frame["type"], "pty_error");
         assert_eq!(frame["code"], "overflow");
+    }
+
+    fn blocking_terminal_context(
+        harness: &Harness,
+        entered: TestArc<Barrier>,
+        release: TestArc<Barrier>,
+    ) -> FrameContext {
+        let mut context = harness.context("supervised", harness.owner.clone());
+        let sent = TestArc::clone(&harness.sent);
+        context.send = TestArc::new(move |frame| {
+            if matches!(
+                frame.get("type").and_then(Value::as_str),
+                Some("pty_output" | "pty_exit" | "pty_error")
+            ) {
+                entered.wait();
+                release.wait();
+            }
+            sent.lock().expect("sent lock").push(frame);
+        });
+        context
+    }
+
+    #[tokio::test]
+    async fn exit_publication_retains_closing_id_until_frame_is_sent() {
+        let h = harness(None, None);
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let context =
+            blocking_terminal_context(&h, TestArc::clone(&entered), TestArc::clone(&release));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        let exit = thread::spawn(move || pty.exit(7));
+        entered.wait();
+
+        let replacement = h.context("supervised", h.owner.clone());
+        h.manager.handle_frame(&frame, &replacement).await;
+        assert!(!h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+
+        release.wait();
+        exit.join().expect("exit callback");
+        h.manager.handle_frame(&frame, &replacement).await;
+        assert!(h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+    }
+
+    #[tokio::test]
+    async fn overflow_error_publication_cannot_reach_a_same_id_replacement() {
+        let h = harness(None, None);
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let context =
+            blocking_terminal_context(&h, TestArc::clone(&entered), TestArc::clone(&release));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        h.buffered.store(OUTPUT_BUFFER_CAP + 1, Ordering::SeqCst);
+        let output = thread::spawn(move || pty.emit("overflow"));
+        entered.wait();
+
+        let replacement = h.context("supervised", h.owner.clone());
+        h.manager.handle_frame(&frame, &replacement).await;
+        assert!(!h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+
+        release.wait();
+        output.join().expect("output callback");
+        h.buffered.store(0, Ordering::SeqCst);
+        h.manager.handle_frame(&frame, &replacement).await;
+        assert!(h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+    }
+
+    #[tokio::test]
+    async fn direct_close_waits_for_an_in_flight_publication() {
+        let h = harness(None, None);
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        let context =
+            blocking_terminal_context(&h, TestArc::clone(&entered), TestArc::clone(&release));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &context).await;
+        let pty = h.spawned()[0].clone();
+        let output = thread::spawn(move || pty.emit("live"));
+        entered.wait();
+
+        let close_context = h.context("supervised", h.owner.clone());
+        let manager = h.manager.inner.clone();
+        let close = thread::spawn(move || manager.close_authorized("p1", &close_context));
+        assert!(!close.is_finished(), "close must wait for the publication gate");
+
+        release.wait();
+        output.join().expect("output callback");
+        close.join().expect("close callback");
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
+    async fn input_operation_waits_before_close_can_retire_its_generation() {
+        let h = harness(None, None);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
+        let pty = h.spawned()[0].clone();
+        let entered = TestArc::new(Barrier::new(2));
+        let release = TestArc::new(Barrier::new(2));
+        {
+            let mut state = pty.state.lock().unwrap();
+            state.write_entered = Some(TestArc::clone(&entered));
+            state.write_release = Some(TestArc::clone(&release));
+        }
+
+        let input = serde_json::json!({
+            "version": 4,
+            "type": "pty_input",
+            "ptyId": "p1",
+            "dataB64": b64("stale"),
+        });
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let input_context = h.context("supervised", h.owner.clone());
+        let runtime = tokio::runtime::Handle::current();
+        let input_task =
+            thread::spawn(move || runtime.block_on(manager.handle_frame(&input, &input_context)));
+        entered.wait();
+
+        let close_context = h.context("supervised", h.owner.clone());
+        let manager = PtyManager { inner: Arc::clone(&h.manager.inner) };
+        let close = thread::spawn(move || {
+            manager.inner.close_authorized("p1", &close_context);
+        });
+        assert!(!close.is_finished(), "close must wait for the in-flight control operation");
+
+        h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
+        assert!(!h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
+
+        release.wait();
+        input_task.join().expect("input operation");
+        close.join().expect("close operation");
+        h.manager.handle_frame(&frame, &h.context("supervised", h.owner.clone())).await;
+        assert!(h.sent().iter().any(|frame| {
+            frame["type"] == "pty_opened" && frame["ptyId"] == "p1" && frame["created"] == false
+        }));
     }
 }
