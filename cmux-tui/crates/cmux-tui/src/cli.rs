@@ -75,13 +75,21 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
     while index < args.len() {
         match args[index].as_str() {
             "--" => return false,
-            "--socket" | "--session" | "--machine" => index += 2,
+            "--socket" | "--session" | "--machine" => {
+                if !args.get(index + 1).is_some_and(|value| !value.starts_with("--")) {
+                    return false;
+                }
+                index += 2;
+            }
             "--json" | "--jsonl" | "--quiet" => index += 1,
             value
                 if value.starts_with("--socket=")
                     || value.starts_with("--session=")
                     || value.starts_with("--machine=") =>
             {
+                if value.split_once('=').is_some_and(|(_, value)| value.is_empty()) {
+                    return false;
+                }
                 index += 1;
             }
             value if value.starts_with('-') => return false,
