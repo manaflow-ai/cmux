@@ -536,7 +536,10 @@ impl PersistentSessionStateResetter {
             return Ok(reset);
         }
         let lease = if lock_session_dir_exists {
-            Some(SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?)
+            let lock_path = platform::normalize_filesystem_path(
+                session_dir.join(SESSION_WRITER_LOCK_FILE),
+            );
+            Some(SessionLease::acquire(&lock_path)?)
         } else {
             None
         };
@@ -2305,9 +2308,9 @@ impl WorkspaceRegistry {
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
-        // Keep the caller's root spelling for the root-level guard and identity
-        // files. Rust's Windows filesystem APIs add the verbatim prefix when
-        // needed; passing a manually prefixed root breaks long-path startup.
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        // Keep short roots in their existing spelling while giving all
+        // root-level files the same long-path handling as their descendants.
         let session_dir =
             platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
         // Normalize the complete database path. The state root can be below
@@ -2320,9 +2323,9 @@ impl WorkspaceRegistry {
         {
             return Err(error.into());
         }
-        let session_guard = acquire_session_guard(root, session_name)?;
-        let machine_id = load_or_create_machine_id(root)?;
-        let resource_effect_pepper = load_or_create_resource_effect_pepper(root)?;
+        let session_guard = acquire_session_guard(&root, session_name)?;
+        let machine_id = load_or_create_machine_id(&root)?;
+        let resource_effect_pepper = load_or_create_resource_effect_pepper(&root)?;
         fs::create_dir_all(&session_dir).with_context(|| {
             format!("create workspace state directory {}", session_dir.display())
         })?;
@@ -5083,7 +5086,7 @@ fn acquire_session_guard_from_private_dir(
 }
 
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
-    let lock_dir = root.join(SESSION_GUARD_DIR);
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     match fs::symlink_metadata(&lock_dir) {
         Ok(metadata) if metadata.file_type().is_dir() => {}
         Ok(_) => anyhow::bail!("session lock directory is not a directory: {}", lock_dir.display()),
@@ -5109,11 +5112,13 @@ fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
-    lock_dir.join(format!("{}.lock", session_storage_component(session_name)))
+    platform::normalize_filesystem_path(
+        lock_dir.join(format!("{}.lock", session_storage_component(session_name))),
+    )
 }
 
 fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
-    lock_dir.join(SESSION_GUARD_COORDINATOR_FILE)
+    platform::normalize_filesystem_path(lock_dir.join(SESSION_GUARD_COORDINATOR_FILE))
 }
 
 #[cfg(unix)]
@@ -5271,9 +5276,10 @@ fn prepare_terminal_host_root_for_reset(
 }
 
 fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<ResourceEffectPepper> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(root)?;
-    let lock_path = root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE);
+    let root = platform::normalize_filesystem_path(root.to_path_buf());
+    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(&root)?;
+    let lock_path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE));
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -5285,7 +5291,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
     FileExt::lock(&lock)
         .with_context(|| format!("lock resource receipt pepper {}", lock_path.display()))?;
 
-    let path = root.join(RESOURCE_EFFECT_PEPPER_FILE);
+    let path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE));
     let result = match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             anyhow::ensure!(
@@ -5316,7 +5322,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
                 .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
             file.sync_all()
                 .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            platform::sync_directory(root)
+            platform::sync_directory(&root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(pepper)
         }
@@ -5359,9 +5365,10 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
 }
 
 fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(root)?;
-    let lock_path = root.join(MACHINE_ID_LOCK_FILE);
+    let root = platform::normalize_filesystem_path(root.to_path_buf());
+    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(&root)?;
+    let lock_path = platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE));
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -5373,7 +5380,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
     FileExt::lock(&lock)
         .with_context(|| format!("lock machine identity {}", lock_path.display()))?;
 
-    let path = root.join(MACHINE_ID_FILE);
+    let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
     let result = match fs::read(&path) {
         Ok(bytes) => {
             platform::restrict_file(&path)?;
@@ -5396,7 +5403,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
                 .and_then(|()| file.write_all(b"\n"))
                 .with_context(|| format!("write machine identity {}", path.display()))?;
             file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            platform::sync_directory(root)
+            platform::sync_directory(&root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(id)
         }
@@ -5619,8 +5626,12 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{sequence:x}", std::process::id());
-                let registration_path = waiter_dir.join(format!("{token}.waiter"));
-                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let registration_path = platform::normalize_filesystem_path(
+                    waiter_dir.join(format!("{token}.waiter")),
+                );
+                let temporary_path = platform::normalize_filesystem_path(
+                    waiter_dir.join(format!(".{token}.tmp")),
+                );
                 let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
                 // SAFETY: fifo_path is a valid NUL-terminated path and mode
                 // only grants access to the current user.
@@ -5679,8 +5690,12 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
-                let registration_path = waiter_dir.join(format!("{token}.waiter"));
-                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let registration_path = platform::normalize_filesystem_path(
+                    waiter_dir.join(format!("{token}.waiter")),
+                );
+                let temporary_path = platform::normalize_filesystem_path(
+                    waiter_dir.join(format!(".{token}.tmp")),
+                );
                 let mut options = OpenOptions::new();
                 options.create_new(true).write(true);
                 #[cfg(unix)]
@@ -5799,7 +5814,9 @@ impl Drop for SessionCoordinatorWaiter {
 }
 
 fn session_guard_coordinator_waiter_dir(coordinator_path: &Path) -> PathBuf {
-    coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR)
+    platform::normalize_filesystem_path(
+        coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR),
+    )
 }
 
 fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<()> {

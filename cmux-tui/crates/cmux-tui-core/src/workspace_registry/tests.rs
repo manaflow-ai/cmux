@@ -5706,4 +5706,21 @@ fn long_database_descendant_is_normalized_even_when_root_is_short() {
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let normalized = crate::platform::normalize_filesystem_path(database);
     assert!(normalized.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let guard_dir = crate::platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
+    let guard_lock = session_guard_lock_path(&guard_dir, "session");
+    let coordinator = session_guard_coordinator_path(&guard_dir);
+    let waiter_dir = session_guard_coordinator_waiter_dir(&coordinator);
+    for path in [
+        guard_dir,
+        guard_lock,
+        coordinator,
+        waiter_dir,
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE)),
+    ] {
+        assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
+    }
 }
