@@ -844,11 +844,9 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
     private func scanLines(_ data: Data, onResizeDiag: @Sendable () -> Void) {
         lock.lock()
         pendingLine.append(data)
-        var lines: [Data] = []
-        while let newline = pendingLine.firstIndex(of: 0x0A) {
-            lines.append(Data(pendingLine[pendingLine.startIndex..<newline]))
-            pendingLine = Data(pendingLine[pendingLine.index(after: newline)...])
-        }
+        let split = splitTuiManualIOStderrLines(pendingLine)
+        let lines = split.completeLines
+        pendingLine = split.remainder
         // Bound the buffer against a relay that misbehaves and never prints
         // a newline; diag and exit lines are all short.
         if pendingLine.count > 64 * 1024 {
@@ -870,6 +868,20 @@ final class TuiManualIOStderrStream: @unchecked Sendable {
         lock.unlock()
         target?.readabilityHandler = nil
     }
+}
+
+/// Splits one accumulated stderr buffer in a single pass. Repeatedly
+/// searching and replacing a `Data` prefix copies the remaining suffix for
+/// every line, which makes a burst of short diagnostics quadratic.
+func splitTuiManualIOStderrLines(_ data: Data) -> (completeLines: [Data], remainder: Data) {
+    var completeLines: [Data] = []
+    var lineStart = data.startIndex
+    for index in data.indices where data[index] == 0x0A {
+        completeLines.append(Data(data[lineStart..<index]))
+        lineStart = data.index(after: index)
+    }
+    let remainder = lineStart == data.startIndex ? data : Data(data[lineStart...])
+    return (completeLines, remainder)
 }
 
 /// Lock-guarded stderr accumulator: the relay prints its machine-readable
