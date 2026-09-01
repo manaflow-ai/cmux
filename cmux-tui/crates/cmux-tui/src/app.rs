@@ -16863,9 +16863,8 @@ impl App {
         modifiers: KeyModifiers,
         now: Instant,
     ) -> bool {
-        let host_selection_modifier = |modifiers| {
-            modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT
-        };
+        let host_selection_modifier =
+            |modifiers| modifiers == KeyModifiers::NONE || modifiers == KeyModifiers::SHIFT;
         if !previous.repeatable
             || screen.is_none()
             || previous.surface != surface
@@ -27565,11 +27564,8 @@ mod tests {
             modifiers: KeyModifiers::SHIFT,
         };
         app.handle_mouse(shift_click).unwrap();
-        app.handle_mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
-            ..shift_click
-        })
-        .unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..shift_click })
+            .unwrap();
         let plain_click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             modifiers: KeyModifiers::NONE,
