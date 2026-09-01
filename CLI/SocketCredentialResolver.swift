@@ -27,7 +27,11 @@ enum SocketCredentialSource: Equatable {
 
 /// Resolves socket credentials in precedence order, only consulting deferred
 /// sources after the server requires authentication.
-final class SocketCredentialResolver {
+///
+/// `@unchecked Sendable` is safe for the CLI handoff: each resolver is used by
+/// one synchronous socket-auth flow, and the readiness task receives that same
+/// flow's resolver only after the owning CLI setup has finished using it.
+final class SocketCredentialResolver: @unchecked Sendable {
     typealias KeychainPasswordProvider = (_ services: [String]) -> String?
 
     private enum ResolutionState {
