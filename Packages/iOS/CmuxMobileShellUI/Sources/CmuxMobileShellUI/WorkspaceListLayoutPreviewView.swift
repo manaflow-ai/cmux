@@ -553,8 +553,13 @@ public struct WorkspaceListLayoutPreviewView: View {
         return (workspaces, groups)
     }
 
-    private var showNotificationBanner: Bool {
-        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
+    /// `"1"` = agent-input banner; `"reply"` = inline-reply lock-screen fixture.
+    private var notificationBannerMode: String? {
+        switch ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] {
+        case "1": "1"
+        case "reply": "reply"
+        default: nil
+        }
     }
 
     /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS=1` wraps the list in a tab
@@ -835,9 +840,10 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .task {
             // Fire a REAL local notification (not a drawn banner) so the system
-            // renders the genuine banner over this workspace list.
-            if showNotificationBanner {
-                notificationPresenter.fire()
+            // renders the genuine banner over this workspace list. Mode "reply"
+            // schedules the inline-reply fixture for the lock-screen shot.
+            if let mode = notificationBannerMode {
+                notificationPresenter.fire(mode: mode)
             }
 
             await model.runLiveUpdates()
