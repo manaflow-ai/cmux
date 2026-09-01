@@ -85,6 +85,10 @@ public actor IrxControlPlaneClient {
     private let journal: IrxJournal
     private let handlers: Handlers
     private let cursorCache: IrxDiskCache<IrxControlPlaneCursor>
+    /// JSONDecoder is mutable and therefore stays isolated to this actor.
+    /// Reusing the instance avoids rebuilding ISO-8601 formatters for every
+    /// heartbeat or directory frame without introducing shared state.
+    private let decoder: JSONDecoder
     private var loop: Task<Void, Never>?
     private var socket: URLSessionWebSocketTask?
     /// Generation of the one control-plane loop. A cancelled URLSession task
@@ -200,6 +204,7 @@ public actor IrxControlPlaneClient {
         self.tokenPair = tokenPair
         self.handlers = handlers
         self.journal = journal
+        decoder = Self.makeDecoder()
         cursorCache = IrxDiskCache(
             fileURL: configuration.cacheDirectory
                 .appendingPathComponent("control-plane-cursor.json")
@@ -317,7 +322,7 @@ public actor IrxControlPlaneClient {
 
     private func route(_ data: Data, generation: UInt64) async {
         guard generation == loopGeneration, !Task.isCancelled else { return }
-        guard let probe = try? Self.makeDecoder().decode(TypeProbe.self, from: data) else {
+        guard let probe = try? decoder.decode(TypeProbe.self, from: data) else {
             journal.record("control-plane", "frame-unparseable")
             return
         }
@@ -343,10 +348,10 @@ public actor IrxControlPlaneClient {
             case "pong":
                 journal.record("control-plane", "pong-received")
             case "hello_ack":
-                let ack = try Self.makeDecoder().decode(CTLHelloACK.self, from: data)
+                let ack = try decoder.decode(CTLHelloACK.self, from: data)
                 // List-auth additions (serverCapabilities, minimum version)
                 // are advisory; tolerate their absence and journal presence.
-                let overlay = try? Self.makeDecoder().decode(IrxCtlHelloAckOverlay.self, from: data)
+                let overlay = try? decoder.decode(IrxCtlHelloAckOverlay.self, from: data)
                 journal.record(
                     "control-plane", "hello-ack",
                     [
@@ -357,7 +362,7 @@ public actor IrxControlPlaneClient {
                     ]
                 )
             case "relay_passes":
-                let fact = try Self.makeDecoder().decode(CTLRelayPasses.self, from: data)
+                let fact = try decoder.decode(CTLRelayPasses.self, from: data)
                 guard fact.payload.endpointID == configuration.endpointIDHex else {
                     journal.record("control-plane", "passes-wrong-endpoint")
                     return
@@ -380,7 +385,7 @@ public actor IrxControlPlaneClient {
                     await acknowledge(rev: fact.rev)
                 }
             case "hint_update":
-                let fact = try Self.makeDecoder().decode(CTLHintUpdate.self, from: data)
+                let fact = try decoder.decode(CTLHintUpdate.self, from: data)
                 journal.record(
                     "control-plane", "hint-update",
                     [
@@ -402,7 +407,7 @@ public actor IrxControlPlaneClient {
                 // new servers parse. The generated strict type (which now
                 // REQUIRES the lease stamp) feeds the legacy handler
                 // best-effort only.
-                let listFact = try Self.makeDecoder().decode(IrxCtlDirectoryFact.self, from: data)
+                let listFact = try decoder.decode(IrxCtlDirectoryFact.self, from: data)
                 journal.record(
                     "control-plane", "directory",
                     [
@@ -412,7 +417,7 @@ public actor IrxControlPlaneClient {
                     ]
                 )
                 var applied = false
-                if let fact = try? Self.makeDecoder().decode(CTLDirectory.self, from: data) {
+                if let fact = try? decoder.decode(CTLDirectory.self, from: data) {
                     applied = await handlers.onDirectory(fact.payload)
                 } else {
                     applied = await handlers.onDirectory(
@@ -431,7 +436,7 @@ public actor IrxControlPlaneClient {
                 if applied { await acknowledge(rev: listFact.rev) }
             case "current":
                 // Explicit freshness re-stamp for the device-list lease.
-                let stamp = try Self.makeDecoder().decode(IrxCtlFreshnessStamp.self, from: data)
+                let stamp = try decoder.decode(IrxCtlFreshnessStamp.self, from: data)
                 journal.record(
                     "control-plane", "current",
                     [
@@ -443,7 +448,7 @@ public actor IrxControlPlaneClient {
                     await handlers.onFreshness?(stamp.rev, issuedAt)
                 }
             case "snapshot_complete":
-                let fact = try Self.makeDecoder().decode(CTLSnapshotComplete.self, from: data)
+                let fact = try decoder.decode(CTLSnapshotComplete.self, from: data)
                 cursorCache.save(IrxControlPlaneCursor(haveRev: fact.rev))
                 backoff = .seconds(1)
                 journal.record(
@@ -452,14 +457,14 @@ public actor IrxControlPlaneClient {
                 await handlers.onSnapshotComplete(fact.rev)
                 // The server may extend snapshot_complete with issuedAt as a
                 // lease re-stamp; handle it defensively alongside `current`.
-                if let stamp = try? Self.makeDecoder().decode(
+                if let stamp = try? decoder.decode(
                     IrxCtlFreshnessStamp.self, from: data),
                     let issuedAt = stamp.issuedAt
                 {
                     await handlers.onFreshness?(stamp.rev, issuedAt)
                 }
             case "error":
-                let fact = try Self.makeDecoder().decode(CTLError.self, from: data)
+                let fact = try decoder.decode(CTLError.self, from: data)
                 journal.record(
                     "control-plane", "server-error",
                     [

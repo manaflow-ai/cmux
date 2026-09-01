@@ -13,6 +13,11 @@ public import Foundation
 /// than the recorded receipt) marks the snapshot stale rather than reviving
 /// it, and staleness can only be repaired by a fresh server stamp.
 public actor IrxDeviceListStore {
+    /// Bound the server lease value before converting it into a Duration. The
+    /// deployed broker currently uses one day, and this cap keeps corrupted
+    /// persisted state from overflowing clock arithmetic on relaunch.
+    private static let maxPersistedTTLSeconds = 365 * 24 * 60 * 60
+
     /// Persisted lease: the snapshot minus the process-local monotonic anchor.
     struct PersistedSnapshot: Codable, Equatable, Sendable {
         var entries: [String: IrxDeviceListEntry]
@@ -80,6 +85,15 @@ public actor IrxDeviceListStore {
         guard let data,
             let persisted = try? JSONDecoder().decode(PersistedSnapshot.self, from: data)
         else { return nil }
+        guard persisted.ttlSeconds > 0,
+            persisted.ttlSeconds <= Self.maxPersistedTTLSeconds
+        else {
+            journal.record(
+                "device-list", "invalid-ttl",
+                ["ttl_seconds": String(persisted.ttlSeconds)]
+            )
+            return nil
+        }
         let now = wallNow()
         let anchor = monotonicNow()
         let elapsed = now.timeIntervalSince(persisted.receivedAtWall)
@@ -92,8 +106,10 @@ public actor IrxDeviceListStore {
                 "device-list", "wall-clock-rollback",
                 ["rev": String(persisted.rev)]
             )
+            // Exactly one TTL ago is already stale (`isFresh` uses `<`), so
+            // no `+ 1` is needed and this cannot overflow.
             receivedAtMonotonic = anchor.advanced(
-                by: .seconds(-(persisted.ttlSeconds + 1)))
+                by: .seconds(-persisted.ttlSeconds))
         } else {
             receivedAtMonotonic = anchor.advanced(by: .seconds(-elapsed))
         }
@@ -119,6 +135,15 @@ public actor IrxDeviceListStore {
 
     @discardableResult
     public func persist(_ snapshot: IrxDeviceListSnapshot) async -> Bool {
+        guard snapshot.ttlSeconds > 0,
+            snapshot.ttlSeconds <= Self.maxPersistedTTLSeconds
+        else {
+            journal.record(
+                "device-list", "invalid-ttl",
+                ["ttl_seconds": String(snapshot.ttlSeconds)]
+            )
+            return false
+        }
         let persisted = PersistedSnapshot(
             entries: snapshot.entries,
             rev: snapshot.rev,
