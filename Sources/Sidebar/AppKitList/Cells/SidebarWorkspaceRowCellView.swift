@@ -88,12 +88,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         pumpCancellables.removeAll()
         pumpWorkspace = workspace
         workspace.sidebarImmediateObservationPublisher
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
         workspace.sidebarObservationPublisher
+            .dropFirst()
             .debounce(for: .milliseconds(40), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.pumpRebuild?() }
