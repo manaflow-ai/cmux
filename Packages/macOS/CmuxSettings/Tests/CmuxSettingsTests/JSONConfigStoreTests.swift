@@ -58,6 +58,26 @@ struct JSONConfigStoreTests {
         #expect(snapshot.shellStartupCommand == "echo ready")
     }
 
+    @Test func malformedSnapshotNeverAuthorizesAnOverwritingWrite() async throws {
+        let (store, fileURL, _) = makeStore()
+        let original = Data(#"{"unrelated":{"value":42},"terminal":[}"#.utf8)
+        try original.write(to: fileURL)
+
+        // A read should fail closed for consumers, but must not mark the empty
+        // fallback as an authoritative store cache.
+        _ = await store.coherentSnapshot()
+
+        let key = JSONKey<String>(id: "terminal.shellStartup.command", defaultValue: "")
+        do {
+            try await store.set("echo unsafe", for: key)
+            Issue.record("A malformed config must reject writes instead of replacing the file")
+        } catch {
+            // The concrete parser error is intentionally opaque to callers;
+            // preserving the on-disk bytes is the behavior under test.
+        }
+        #expect(try Data(contentsOf: fileURL) == original)
+    }
+
     @Test func snapshotStreamPublishesOneCoherentRevision() async throws {
         let (store, fileURL, _) = makeStore()
         try Data("{}".utf8).write(to: fileURL)
