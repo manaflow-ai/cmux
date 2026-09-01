@@ -451,7 +451,7 @@ Custom sidebar commands:
 | Command | Contract |
 | --- | --- |
 | `sidebar validate [name]` | Validate all custom sidebars, or one named sidebar, under `~/.config/cmux/sidebars`. |
-| `sidebar render <name> --width <n> --height <n> --output <path>` | Mount the production custom-sidebar content view at a deterministic size and write a PNG smoke-test artifact; exits nonzero if evaluation, mounting, layout, or pixel generation fails. |
+| `sidebar render <name> --width <n> --height <n> --output <path>` | Mount the production custom-sidebar content view at a deterministic size and write a PNG smoke-test artifact; exits nonzero if evaluation, mounting, layout, pixel generation, or artifact writing fails. |
 | `sidebar reload [name]` | Validate all custom sidebars, then request a reload for every valid one. |
 | `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
 | `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
