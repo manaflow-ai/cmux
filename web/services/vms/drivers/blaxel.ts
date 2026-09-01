@@ -1,7 +1,6 @@
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
-  NotImplementedError,
   ProviderError,
   type AttachEndpoint,
   type AttachOptions,
@@ -18,6 +17,7 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
 } from "./types";
+import { VmOperationUnsupportedError } from "../errors";
 import { withVmSpan } from "../telemetry";
 import { shellQuote } from "./wsLease";
 import {
@@ -1103,12 +1103,12 @@ export class BlaxelProvider implements VMProvider {
     // 403 "Sandbox snapshot/fork feature is not enabled for this workspace" on the current
     // workspace tier (verified 2026-08-20). Wire this up once the feature is enabled; until
     // then durability comes from standby memory snapshots (automatic) and the sandbox TTL.
-    throw new NotImplementedError("blaxel", "snapshot");
+    throw new VmOperationUnsupportedError({ provider: this.id, operation: "snapshot" });
   }
 
   async restore(snapshotId: string): Promise<VMHandle> {
     void snapshotId;
-    throw new NotImplementedError("blaxel", "restore");
+    throw new VmOperationUnsupportedError({ provider: this.id, operation: "restore" });
   }
 
   async openSSH(vmId: string): Promise<SSHEndpoint> {

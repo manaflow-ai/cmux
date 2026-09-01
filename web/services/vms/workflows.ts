@@ -26,6 +26,7 @@ import {
   VmCreateInProgressError,
   VmFreeAccessExpiredError,
   VmNotFoundError,
+  VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
   isVmCreateCreditsInsufficientError,
@@ -705,10 +706,9 @@ export function snapshotVm(input: {
     const vm = yield* requireUserVm(input);
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmProviderOperationError({
+      : Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
-        cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
       })));
     yield* repo.recordUsageEvent({
       userId: vm.userId,

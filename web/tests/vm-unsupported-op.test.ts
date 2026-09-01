@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
 import { BlaxelRetryExhaustedError } from "../services/vms/drivers/blaxel";
-import { NotImplementedError } from "../services/vms/drivers/types";
-import { VmProviderOperationError } from "../services/vms/errors";
+import { BlaxelProvider } from "../services/vms/drivers/blaxel";
+import { VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
 import { isOperatorFaultVmError } from "../services/vms/observability";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import { vmRequestLocale } from "../services/vms/vmErrorMessages";
 import { locales } from "../i18n/routing";
 
-// Blaxel snapshot/restore throw NotImplementedError. Before this mapping they
+// Blaxel snapshot/restore throw VmOperationUnsupportedError. Before this mapping they
 // surfaced as 502 vm_cloud_service_unavailable retryable:true, telling users
 // to retry an operation the provider will never perform.
 describe("unsupported provider operations", () => {
-  test("driver NotImplementedError maps to an honest non-retryable 501", async () => {
+  test("the structured driver error maps to an honest non-retryable 501", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
       provider: "blaxel",
       operation: "snapshot",
-      cause: new NotImplementedError("blaxel", "snapshot"),
+      cause: new VmOperationUnsupportedError({ provider: "blaxel", operation: "snapshot" }),
     }));
     expect(response).not.toBeNull();
     expect(response!.status).toBe(501);
@@ -47,7 +47,7 @@ describe("unsupported provider operations", () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
       provider: "blaxel",
       operation: "restore",
-      cause: new NotImplementedError("blaxel", "restore"),
+      cause: new VmOperationUnsupportedError({ provider: "blaxel", operation: "restore" }),
     }));
     expect(response!.status).toBe(501);
     const payload = await response!.json() as { error: string; phase: string; message: string };
@@ -66,6 +66,20 @@ describe("unsupported provider operations", () => {
     const payload = await response!.json() as { error: string; retryable: boolean };
     expect(payload.error).toBe("vm_cloud_service_unavailable");
     expect(payload.retryable).toBe(true);
+  });
+
+  test("Blaxel throws the structured error for unsupported operations", async () => {
+    const provider = new BlaxelProvider();
+    await expect(provider.snapshot("vm-1")).rejects.toMatchObject({
+      _tag: "VmOperationUnsupportedError",
+      provider: "blaxel",
+      operation: "snapshot",
+    });
+    await expect(provider.restore("snapshot-1")).rejects.toMatchObject({
+      _tag: "VmOperationUnsupportedError",
+      provider: "blaxel",
+      operation: "restore",
+    });
   });
 
   test("transient provider failures keep the retryable 502 path", async () => {
@@ -111,7 +125,7 @@ describe("unsupported provider operations", () => {
       new VmProviderOperationError({
         provider: "blaxel",
         operation: "restore",
-        cause: new NotImplementedError("blaxel", "restore"),
+        cause: new VmOperationUnsupportedError({ provider: "blaxel", operation: "restore" }),
       }),
       { locale: "ja" },
     );

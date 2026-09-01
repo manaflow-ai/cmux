@@ -25,9 +25,11 @@ import {
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
   isVmNotFoundError,
+  isVmOperationUnsupportedError,
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
   vmWorkflowErrorCause,
+  type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
@@ -440,6 +442,15 @@ export async function vmWorkflowErrorResponse(
   options: { readonly locale?: Locale } = {},
 ): Promise<Response | null> {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
+  const operationUnsupported = isVmOperationUnsupportedError(workflowError)
+    ? workflowError
+    : isVmProviderOperationError(workflowError)
+      ? vmWorkflowErrorCause(workflowError.cause)
+      : null;
+  if (isVmOperationUnsupportedError(operationUnsupported)) {
+    return vmUnsupportedOperationResponse(operationUnsupported, options.locale ?? "en");
+  }
+
   if (isVmAccountDeletionInProgressError(workflowError)) {
     return vmErrorResponse({
       error: "account_deletion_in_progress",
@@ -511,33 +522,6 @@ export async function vmWorkflowErrorResponse(
           operation: workflowError.operation,
           retryable: false,
           providerCode: "provider_image_not_found",
-        },
-      });
-    }
-    if (providerOperationUnsupported(workflowError.cause)) {
-      // The provider cannot perform this operation at all (e.g. Blaxel has no
-      // snapshot/restore on the current workspace tier). Telling the caller
-      // "temporarily unavailable, retry" would be a lie, so this is an honest
-      // 501: not retryable, with guidance that does not suggest waiting.
-      const copy = await vmUnsupportedCopy(
-        phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
-        options.locale ?? "en",
-      );
-      return vmErrorResponse({
-        error: "vm_operation_unsupported",
-        status: 501,
-        message: copy.message,
-        reason: copy.reason,
-        action: copy.action,
-        phase,
-        retryable: false,
-        displayTitle: copy.title,
-        displayMessage: copy.message,
-        severity: "error",
-        details: {
-          operation: workflowError.operation,
-          retryable: false,
-          providerCode: "provider_operation_unsupported",
         },
       });
     }
@@ -616,22 +600,33 @@ export async function vmWorkflowErrorResponse(
   return null;
 }
 
-/**
- * Detect provider errors that represent a permanent capability limitation (a
- * driver NotImplementedError or the gateway's explicit refusal). A message
- * like "unsupported in the current state" stays retryable because it can
- * succeed after the provider state changes.
- */
-function providerOperationUnsupported(cause: unknown): boolean {
-  let current: unknown = cause;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    const record = current as { name?: unknown; message?: unknown; cause?: unknown };
-    if (record.name === "NotImplementedError") return true;
-    const message = typeof record.message === "string" ? record.message : "";
-    if (/not supported by this provider/i.test(message)) return true;
-    current = record.cause;
-  }
-  return false;
+async function vmUnsupportedOperationResponse(
+  error: VmOperationUnsupportedError,
+  locale: Locale,
+): Promise<Response> {
+  const phase = vmPhaseForOperation(error.operation);
+  const copy = await vmUnsupportedCopy(
+    phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
+    locale,
+  );
+  return vmErrorResponse({
+    error: "vm_operation_unsupported",
+    status: 501,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase,
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    severity: "error",
+    diagnostics: { provider: error.provider },
+    details: {
+      operation: error.operation,
+      retryable: false,
+      providerCode: "provider_operation_unsupported",
+    },
+  });
 }
 
 /** Identify a retry wrapper whose provider details must stay in operator logs. */

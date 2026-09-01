@@ -12,6 +12,15 @@ export class VmProviderOperationError extends Data.TaggedError("VmProviderOperat
   readonly cause: unknown;
 }> {}
 
+/**
+ * The provider deliberately does not implement this operation. Drivers throw
+ * this structured error so HTTP retry decisions never depend on provider text.
+ */
+export class VmOperationUnsupportedError extends Data.TaggedError("VmOperationUnsupportedError")<{
+  readonly provider: ProviderId;
+  readonly operation: string;
+}> {}
+
 export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
@@ -103,6 +112,7 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
+  | VmOperationUnsupportedError
   | VmNotFoundError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
@@ -181,6 +191,10 @@ export function isVmProviderOperationError(err: unknown): err is VmProviderOpera
   return (err as { _tag?: string } | null)?._tag === "VmProviderOperationError";
 }
 
+export function isVmOperationUnsupportedError(err: unknown): err is VmOperationUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmOperationUnsupportedError";
+}
+
 // Derived from the union so the two can never drift again: `satisfies
 // Record<VmWorkflowError["_tag"], true>` makes a missing tag a compile error
 // (VmSnapshotNotFoundError was once omitted here, turning restore-of-unknown-
@@ -189,6 +203,7 @@ export function isVmProviderOperationError(err: unknown): err is VmProviderOpera
 const vmWorkflowErrorTagRecord = {
   VmDatabaseError: true,
   VmProviderOperationError: true,
+  VmOperationUnsupportedError: true,
   VmNotFoundError: true,
   VmSnapshotNotFoundError: true,
   VmFreeAccessExpiredError: true,
