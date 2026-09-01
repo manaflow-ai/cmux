@@ -428,13 +428,22 @@ describe("billing email claim resolution", () => {
     const dependencies = {
       db: metadataDb() as never,
       stackApp: {
-        getUser: async () => ({
-          id: transfer.sourceStackUserId,
-          isAnonymous: true,
-          primaryEmail: null,
-          clientReadOnlyMetadata: {},
-          update: mock(async () => undefined),
-        }),
+        getUser: async (id: string) => id === transfer.targetStackUserId
+          ? {
+              id,
+              isAnonymous: false,
+              primaryEmail: transfer.email,
+              primaryEmailVerified: true,
+              clientReadOnlyMetadata: {},
+              update: mock(async () => undefined),
+            }
+          : {
+              id: transfer.sourceStackUserId,
+              isAnonymous: true,
+              primaryEmail: null,
+              clientReadOnlyMetadata: {},
+              update: mock(async () => undefined),
+            },
       } as never,
       ownershipRepository: { findClaims, transferClaim },
     };

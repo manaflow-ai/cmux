@@ -154,7 +154,8 @@
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
         "nosub": "No active Stripe subscription was found for this account.",
-        "error": "Billing could not be updated. Try again shortly."
+        "error": "Billing could not be updated. Try again shortly.",
+        "pastDue": "Your latest payment failed. Update your payment method to keep your plan active."
       },
       "free": {
         "name": "Free",
@@ -5021,6 +5022,16 @@
       "testflightLink": "Sign up for TestFlight: {url}",
       "testflightLinkLabel": "Sign up for TestFlight",
       "signoff": "Glad to have you here!\nThe cmux team"
+    },
+    "billingDunning": {
+      "subject": "Action needed: your cmux Pro payment failed",
+      "fallbackName": "there",
+      "greeting": "Hey {name},",
+      "body": "We could not process your latest cmux Pro payment.",
+      "action": "Update your payment method to keep your plan active.",
+      "portalLink": "Manage billing: {url}",
+      "portalLinkLabel": "Manage billing",
+      "signoff": "The cmux team"
     }
   },
   "tui": {

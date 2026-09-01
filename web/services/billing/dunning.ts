@@ -1,0 +1,388 @@
+import { eq, sql } from "drizzle-orm";
+import { Resend } from "resend";
+
+import { env } from "../../app/env";
+import { cloudDb } from "../../db/client";
+import { billingDunningDeliveries } from "../../db/schema";
+import { loadMessages } from "../../i18n/messages";
+import type { Locale } from "../../i18n/routing";
+
+export const DEFAULT_DUNNING_FROM_EMAIL = "pro@cmux.com";
+export const DUNNING_REPLY_TO_EMAIL = "pro@cmux.com";
+
+const DELIVERY_ATTEMPT_LEASE_MS = 2 * 60 * 1000;
+// Resend retains idempotency keys for 24 hours. Keep an ambiguous delivery
+// fenced for one hour less than that window, so a late webhook cannot create a
+// duplicate message after a provider timeout.
+const AMBIGUOUS_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+export type BillingDunningScope =
+  | { readonly scope: "user"; readonly stackUserId: string }
+  | { readonly scope: "team"; readonly stackTeamId: string };
+
+export type BillingDunningDeliveryInput = {
+  readonly invoiceId: string;
+  readonly email: string;
+  readonly scope: BillingDunningScope;
+};
+
+export type BillingDunningDeliveryResult =
+  | "sent"
+  | "already_sent"
+  | "delivery_in_progress"
+  | "delivery_abandoned";
+
+export type BillingDunningDeliveryStore = {
+  deliverOnce(
+    input: BillingDunningDeliveryInput,
+    deliver: () => Promise<void>,
+  ): Promise<BillingDunningDeliveryResult>;
+};
+
+export type BillingDunningEmailInput = {
+  readonly invoiceId: string;
+  readonly email: string | null | undefined;
+  readonly customerName?: string | null;
+  readonly portalUrl: string;
+  readonly scope: BillingDunningScope;
+  readonly locale?: Locale;
+};
+
+export type BillingDunningEmail = {
+  readonly from: string;
+  readonly to: string[];
+  readonly replyTo: string;
+  readonly subject: string;
+  readonly text: string;
+  readonly html: string;
+  readonly headers: Record<string, string>;
+};
+
+export type BillingDunningDependencies = {
+  readonly sendEmail?: (
+    payload: BillingDunningEmail,
+    options: { readonly idempotencyKey: string },
+  ) => Promise<{ readonly error: unknown | null }>;
+  readonly fromEmail?: () => string;
+  readonly deliveryStore?: BillingDunningDeliveryStore;
+};
+
+/** A provider response that proves Resend rejected the message. */
+export class BillingDunningProviderRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BillingDunningProviderRejectedError";
+  }
+}
+
+// Keep the complete Drizzle database type here. Picking only `transaction`
+// loses the schema generic on the transaction client and makes inserts infer
+// an empty value shape under TypeScript.
+type DeliveryDb = ReturnType<typeof cloudDb>;
+
+const defaultDependencies: Required<
+  Pick<BillingDunningDependencies, "sendEmail" | "fromEmail">
+> = {
+  sendEmail: async (payload, options) => {
+    const resend = new Resend(env.RESEND_API_KEY);
+    return resend.emails.send(payload, options);
+  },
+  fromEmail: () => env.CMUX_PRO_FROM_EMAIL ?? DEFAULT_DUNNING_FROM_EMAIL,
+};
+
+/**
+ * Send the payment-failure notice through the invoice-keyed durable ledger.
+ * The webhook can call this more than once; only the first committed delivery
+ * claim may call Resend.
+ */
+export async function sendBillingDunningEmail(
+  input: BillingDunningEmailInput,
+  dependencies: BillingDunningDependencies = {},
+): Promise<BillingDunningDeliveryResult | "no_customer_email"> {
+  const email = normalizeEmail(input.email);
+  if (!email) return "no_customer_email";
+  if (!input.invoiceId.trim()) {
+    throw new Error("Billing dunning delivery is missing an invoice id");
+  }
+
+  const deliveryStore =
+    dependencies.deliveryStore ?? makeBillingDunningDeliveryStore();
+  const sendEmail = dependencies.sendEmail ?? defaultDependencies.sendEmail;
+  const fromEmail = dependencies.fromEmail ?? defaultDependencies.fromEmail;
+  return deliveryStore.deliverOnce(
+    {
+      invoiceId: input.invoiceId,
+      email,
+      scope: input.scope,
+    },
+    async () => {
+      const payload = await buildBillingDunningEmail({
+        from: formatFromAddress(fromEmail()),
+        to: email,
+        customerName: input.customerName,
+        locale: input.locale ?? "en",
+        portalUrl: input.portalUrl,
+        invoiceId: input.invoiceId,
+      });
+      const { error } = await sendEmail(payload, {
+        idempotencyKey: `billing-dunning/${input.invoiceId}`,
+      });
+      if (error) {
+        throw new BillingDunningProviderRejectedError(
+          `cmux billing dunning email failed: ${errorMessage(error)}`,
+        );
+      }
+    },
+  );
+}
+
+/** Build the localized plain-text and HTML notice sent by Resend. */
+export async function buildBillingDunningEmail(input: {
+  readonly from: string;
+  readonly to: string;
+  readonly customerName?: string | null;
+  readonly locale: Locale;
+  readonly portalUrl: string;
+  readonly invoiceId: string;
+}): Promise<BillingDunningEmail> {
+  const catalog = await loadMessages(input.locale) as {
+    emails: { billingDunning: BillingDunningCopy };
+  };
+  const copy = catalog.emails.billingDunning;
+  const name = firstName(input.customerName) ?? copy.fallbackName;
+  const greeting = copy.greeting.replace("{name}", name);
+  const portalLink = copy.portalLink.replace("{url}", input.portalUrl);
+
+  return {
+    from: input.from,
+    to: [input.to],
+    replyTo: DUNNING_REPLY_TO_EMAIL,
+    subject: copy.subject,
+    text: [
+      greeting,
+      "",
+      copy.body,
+      "",
+      copy.action,
+      "",
+      portalLink,
+      "",
+      copy.signoff,
+    ].join("\n"),
+    html: [
+      `<p>${escapeHtml(greeting)}</p>`,
+      `<p>${escapeHtml(copy.body)}</p>`,
+      `<p>${escapeHtml(copy.action)}</p>`,
+      `<p><a href="${escapeHtml(input.portalUrl)}">${escapeHtml(copy.portalLinkLabel)}</a></p>`,
+      `<p>${escapeHtml(copy.signoff).replaceAll("\n", "<br>")}</p>`,
+    ].join(""),
+    headers: { "X-Entity-Ref-ID": `billing-dunning/${input.invoiceId}` },
+  };
+}
+
+/** Build the production store. Postgres is the cross-instance authority. */
+export function makeBillingDunningDeliveryStore(
+  db: DeliveryDb = cloudDb(),
+): BillingDunningDeliveryStore {
+  return {
+    deliverOnce: async (input, deliver) => {
+      const claimedAt = new Date();
+      const claim = await claimDelivery(db, input, claimedAt);
+      if (claim !== "claimed") return claim;
+
+      try {
+        // The provider call is outside the transaction. The committed lease
+        // fences concurrent workers while keeping a database connection free.
+        await deliver();
+      } catch (error) {
+        if (error instanceof BillingDunningProviderRejectedError) {
+          await releaseDeliveryAttempt(db, input, new Date());
+        }
+        throw error;
+      }
+      await markDeliverySent(db, input, new Date());
+      return "sent";
+    },
+  };
+}
+
+type StoredDunningDelivery = {
+  readonly email: string;
+  readonly scope: string;
+  readonly stackUserId: string | null;
+  readonly stackTeamId: string | null;
+  readonly deliveryStartedAt: Date | null;
+  readonly attemptLeaseExpiresAt: Date | null;
+  readonly sentAt: Date | null;
+};
+
+async function claimDelivery(
+  db: DeliveryDb,
+  input: BillingDunningDeliveryInput,
+  claimedAt: Date,
+): Promise<"claimed" | Exclude<BillingDunningDeliveryResult, "sent">> {
+  return await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${dunningLockKey(input.invoiceId)}, 0))`,
+    );
+    const [existing] = await tx
+      .select({
+        email: billingDunningDeliveries.email,
+        scope: billingDunningDeliveries.scope,
+        stackUserId: billingDunningDeliveries.stackUserId,
+        stackTeamId: billingDunningDeliveries.stackTeamId,
+        deliveryStartedAt: billingDunningDeliveries.deliveryStartedAt,
+        attemptLeaseExpiresAt: billingDunningDeliveries.attemptLeaseExpiresAt,
+        sentAt: billingDunningDeliveries.sentAt,
+      })
+      .from(billingDunningDeliveries)
+      .where(eq(billingDunningDeliveries.invoiceId, input.invoiceId))
+      .limit(1);
+
+    if (existing?.sentAt) return "already_sent";
+    if (existing && !sameDeliveryOwner(existing, input)) {
+      throw new Error("Billing dunning invoice ownership changed before delivery");
+    }
+    if (
+      existing?.deliveryStartedAt &&
+      claimedAt.getTime() - existing.deliveryStartedAt.getTime() >=
+        AMBIGUOUS_RETRY_WINDOW_MS
+    ) {
+      return "delivery_abandoned";
+    }
+    // A lease only blocks concurrent delivery until it expires. If a worker
+    // crashed after claiming the row, the next webhook may retry after the
+    // short lease; the deliveryStartedAt timestamp still fences retries for
+    // the longer provider idempotency window above.
+    if (existing?.attemptLeaseExpiresAt && existing.attemptLeaseExpiresAt > claimedAt) {
+      return "delivery_in_progress";
+    }
+
+    const attemptLeaseExpiresAt = new Date(
+      claimedAt.getTime() + DELIVERY_ATTEMPT_LEASE_MS,
+    );
+    if (!existing) {
+      await tx.insert(billingDunningDeliveries).values({
+        invoiceId: input.invoiceId,
+        email: input.email,
+        scope: input.scope.scope,
+        stackUserId: input.scope.scope === "user" ? input.scope.stackUserId : null,
+        stackTeamId: input.scope.scope === "team" ? input.scope.stackTeamId : null,
+        deliveryStartedAt: claimedAt,
+        attemptLeaseExpiresAt,
+        updatedAt: claimedAt,
+      });
+    } else {
+      await tx
+        .update(billingDunningDeliveries)
+        .set({
+          deliveryStartedAt: existing.deliveryStartedAt ?? claimedAt,
+          attemptLeaseExpiresAt,
+          updatedAt: claimedAt,
+        })
+        .where(eq(billingDunningDeliveries.invoiceId, input.invoiceId));
+    }
+    return "claimed";
+  });
+}
+
+async function releaseDeliveryAttempt(
+  db: DeliveryDb,
+  input: BillingDunningDeliveryInput,
+  releasedAt: Date,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${dunningLockKey(input.invoiceId)}, 0))`,
+    );
+    await tx
+      .update(billingDunningDeliveries)
+      .set({
+        deliveryStartedAt: null,
+        attemptLeaseExpiresAt: null,
+        updatedAt: releasedAt,
+      })
+      .where(eq(billingDunningDeliveries.invoiceId, input.invoiceId));
+  });
+}
+
+async function markDeliverySent(
+  db: DeliveryDb,
+  input: BillingDunningDeliveryInput,
+  sentAt: Date,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${dunningLockKey(input.invoiceId)}, 0))`,
+    );
+    await tx
+      .update(billingDunningDeliveries)
+      .set({
+        sentAt,
+        attemptLeaseExpiresAt: null,
+        updatedAt: sentAt,
+      })
+      .where(eq(billingDunningDeliveries.invoiceId, input.invoiceId));
+  });
+}
+
+function sameDeliveryOwner(
+  existing: StoredDunningDelivery,
+  input: BillingDunningDeliveryInput,
+): boolean {
+  return existing.email === input.email &&
+    existing.scope === input.scope.scope &&
+    (input.scope.scope === "user"
+      ? existing.stackUserId === input.scope.stackUserId && existing.stackTeamId === null
+      : existing.stackTeamId === input.scope.stackTeamId && existing.stackUserId === null);
+}
+
+function dunningLockKey(invoiceId: string): string {
+  return `billing-dunning:${invoiceId}`;
+}
+
+type BillingDunningCopy = {
+  readonly subject: string;
+  readonly fallbackName: string;
+  readonly greeting: string;
+  readonly body: string;
+  readonly action: string;
+  readonly portalLink: string;
+  readonly portalLinkLabel: string;
+  readonly signoff: string;
+};
+
+function normalizeEmail(email: string | null | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized && normalized.includes("@") ? normalized : null;
+}
+
+function firstName(name: string | null | undefined): string | null {
+  return name?.trim().split(/\s+/)[0] || null;
+}
+
+function formatFromAddress(email: string): string {
+  return `cmux Billing <${email}>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}

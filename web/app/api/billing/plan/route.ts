@@ -6,6 +6,7 @@ import {
   FREE_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
+  hasStripeCustomerForTeam,
   resolveProPlanStatus,
   type BillingManagementKind,
 } from "../../../../services/billing/pro";
@@ -100,5 +101,9 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
   if (stripeActive) {
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
   }
-  return { planId: FREE_PLAN_ID, billingManagement: "none" };
+  const hasCustomer = await hasStripeCustomerForTeam(team.id);
+  return {
+    planId: FREE_PLAN_ID,
+    billingManagement: hasCustomer ? "stripe" : "none",
+  };
 }

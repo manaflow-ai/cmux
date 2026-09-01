@@ -57,14 +57,16 @@ describe("billing dunning email", () => {
     ).resolves.toBe("already_sent");
 
     expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(sendEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: ["buyer@example.com"],
-        subject: expect.stringContaining("payment"),
-        text: expect.stringContaining("https://cmux.test/api/billing/portal"),
-      }),
-      { idempotencyKey: "billing-dunning/in_dunning_1" },
-    );
+    const [payload, options] = (sendEmail as unknown as {
+      mock: { calls: unknown[][] };
+    }).mock.calls[0] as [
+      { to: string[]; subject: string; text: string },
+      { idempotencyKey: string },
+    ];
+    expect(payload.to).toEqual(["buyer@example.com"]);
+    expect(payload.subject).toContain("payment");
+    expect(payload.text).toContain("https://cmux.test/api/billing/portal");
+    expect(options).toEqual({ idempotencyKey: "billing-dunning/in_dunning_1" });
   });
 
   test("does not attempt delivery without a customer email", async () => {

@@ -150,6 +150,12 @@ async function stripeProCheckout(
     if (status.isPro) {
       return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
     }
+    // Keep stale Upgrade links from opening a second subscription. A known
+    // Stripe customer must use the portal to update payment details or resume
+    // a lapsed subscription.
+    if (status.billingManagement === "stripe") {
+      return NextResponse.redirect(new URL("/api/billing/portal", request.url));
+    }
 
     const successUrl =
       `${request.nextUrl.origin}/api/billing/complete` +

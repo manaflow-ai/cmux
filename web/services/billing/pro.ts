@@ -6,10 +6,10 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
-import { inArray, eq, and, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
-import { stripeSubscriptions } from "../../db/schema";
+import { stripeCustomers, stripeSubscriptions } from "../../db/schema";
 import {
   getStackServerApp,
   isStackConfigured,
@@ -91,6 +91,7 @@ export type ProReconcileUser = ProMetadataCustomer & {
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
+export type StripeCustomerQuery = (stackUserId: string) => Promise<boolean>;
 export type FreshProMetadataUserMutation = <Result>(
   userId: string,
   operation: (
@@ -146,6 +147,7 @@ export async function resolveProPlanStatus(
   user: ProReconcileUser,
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    hasStripeCustomer?: StripeCustomerQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
   } = {},
 ): Promise<ProPlanStatus> {
@@ -155,6 +157,14 @@ export async function resolveProPlanStatus(
   const isPro = user.id
     ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
     : false;
+  // A lapsed customer still has invoices and payment methods in Stripe. Keep
+  // the portal available for that customer, without treating the customer row
+  // as an entitlement.
+  const hasStripeCustomer = isPro
+    ? true
+    : user.id
+      ? await (options.hasStripeCustomer ?? hasStripeCustomerForUser)(user.id)
+      : false;
   let metadataChanged = false;
 
   if (
@@ -172,7 +182,7 @@ export async function resolveProPlanStatus(
   return {
     planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
     isPro,
-    billingManagement: isPro ? "stripe" : "none",
+    billingManagement: isPro || hasStripeCustomer ? "stripe" : "none",
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
@@ -251,11 +261,48 @@ export async function hasActiveStripeProSubscription(
       .where(
         and(
           eq(stripeSubscriptions.stackUserId, stackUserId),
+          isNull(stripeSubscriptions.stackTeamId),
           eq(stripeSubscriptions.scope, "user"),
           eq(stripeSubscriptions.plan, PRO_PLAN_ID),
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
       )
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+/** Return whether a personal Stripe customer exists, even when its
+ * subscription is canceled or unpaid. */
+export async function hasStripeCustomerForUser(stackUserId: string): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.stackUserId, stackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+/** Return whether a billing team's Stripe customer exists. */
+export async function hasStripeCustomerForTeam(stackTeamId: string): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(eq(stripeCustomers.stackTeamId, stackTeamId))
       .limit(1);
     return rows.length > 0;
   } catch (error) {

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
@@ -99,7 +99,9 @@ export default async function DashboardBillingPage({
   const interval = proBillingInterval(
     Array.isArray(query?.interval) ? query.interval[0] : query?.interval,
   );
-  const isFreePlan = !status.isPro && !teamSubscription;
+  const isFreePlan = !status.isPro && !hasStripeCustomer && !teamSubscription;
+  const personalPaymentPastDue = subscription?.status === "past_due";
+  const teamPaymentPastDue = teamSubscription?.status === "past_due";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
@@ -118,10 +120,32 @@ export default async function DashboardBillingPage({
         </div>
       ) : null}
 
+      {personalPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
+      {teamPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal?scope=team" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
       {isFreePlan ? (
         <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} />
       ) : !status.isPro ? (
-        <FreePlan t={t} />
+        <FreePlan t={t} showBillingPortal={hasStripeCustomer} />
       ) : subscription ? (
         <StripePlan
           t={t}
@@ -130,7 +154,7 @@ export default async function DashboardBillingPage({
           canManageBilling={hasStripeCustomer}
         />
       ) : (
-        <FreePlan t={t} />
+        <FreePlan t={t} showBillingPortal={hasStripeCustomer} />
       )}
 
       {billingTeam && teamSubscription ? (
@@ -200,7 +224,12 @@ async function hasCustomerRow(stackUserId: string): Promise<boolean> {
   const rows = await cloudDb()
     .select({ id: stripeCustomers.id })
     .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackUserId, stackUserId))
+    .where(
+      and(
+        eq(stripeCustomers.stackUserId, stackUserId),
+        isNull(stripeCustomers.stackTeamId),
+      ),
+    )
     .limit(1);
   return rows.length > 0;
 }
@@ -214,17 +243,35 @@ async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+function FreePlan({
+  t,
+  showBillingPortal = false,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  showBillingPortal?: boolean;
+}) {
   return (
     <section className="border border-border p-3">
       <h2 className="text-sm font-medium">{t("free.name")}</h2>
       <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
-      <Link
-        href="/pricing"
-        className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-      >
-        {t("actions.viewPricing")}
-      </Link>
+      {showBillingPortal ? (
+        // The portal route creates a Stripe session and needs a full document
+        // navigation rather than a Next.js client transition.
+        // eslint-disable-next-line @next/next/no-html-link-for-pages
+        <a
+          href="/api/billing/portal"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.manageBilling")}
+        </a>
+      ) : (
+        <Link
+          href="/pricing"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.viewPricing")}
+        </Link>
+      )}
     </section>
   );
 }

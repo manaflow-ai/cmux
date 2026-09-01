@@ -22,6 +22,10 @@ import {
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
 import {
+  sendBillingDunningEmail as sendBillingDunningEmailDefault,
+  type BillingDunningEmailInput,
+} from "../../../../services/billing/dunning";
+import {
   revokeRouteTokensForTeam as revokeRouteTokensForTeamDefault,
   revokeRouteTokensForUser as revokeRouteTokensForUserDefault,
 } from "../../../../services/coderouter/repository";
@@ -43,6 +47,7 @@ type StripeWebhookDependencies = {
   recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
+  sendDunningEmail?: typeof sendBillingDunningEmailDefault;
   isPersonalWelcomeConfigured?: () => boolean;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
   revokeCoderouterTeamRouteTokens: typeof revokeRouteTokensForTeamDefault;
@@ -59,6 +64,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
+  sendDunningEmail: sendBillingDunningEmailDefault,
   isPersonalWelcomeConfigured,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
   revokeCoderouterTeamRouteTokens: revokeRouteTokensForTeamDefault,
@@ -121,7 +127,11 @@ export function makeStripeWebhookHandler(
       }
 
       try {
-        const { analytics, ...result } = await processStripeEvent(event, dependencies);
+        const { analytics, ...result } = await processStripeEvent(
+          event,
+          dependencies,
+          new URL(request.url).origin,
+        );
         await db
           .update(stripeWebhookEvents)
           .set({ processedAt: sql`now()`, error: null })
@@ -150,6 +160,7 @@ export function makeStripeWebhookHandler(
 async function processStripeEvent(
   event: Stripe.Event,
   dependencies: StripeWebhookDependencies,
+  requestOrigin = "https://cmux.com",
 ): Promise<{
   processed?: string;
   skipped?: string;
@@ -266,15 +277,21 @@ async function processStripeEvent(
         subscription,
         dependencies,
       );
-      return "skipped" in result
-        ? { skipped: "invoice_subscription_unmapped" }
-        : {
-            processed: event.type,
-            analytics: () => dependencies.captureStripeBillingEvent(
-              event,
-              analyticsSubject(result, result.isActive, subscription.status),
-            ),
-          };
+      if ("skipped" in result) return { skipped: "invoice_subscription_unmapped" };
+      if (event.type === "invoice.payment_failed") {
+        const sendDunningEmail =
+          dependencies.sendDunningEmail ?? sendBillingDunningEmailDefault;
+        await sendDunningEmail(
+          billingDunningInput(event.data.object, result, requestOrigin),
+        );
+      }
+      return {
+        processed: event.type,
+        analytics: () => dependencies.captureStripeBillingEvent(
+          event,
+          analyticsSubject(result, result.isActive, subscription.status),
+        ),
+      };
     }
     case "charge.refunded": {
       const charge = event.data.object as Stripe.Charge & {
@@ -395,6 +412,26 @@ function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
     | null
     | undefined;
   return stringId(parent?.subscription_details?.subscription);
+}
+
+function billingDunningInput(
+  invoice: Stripe.Invoice,
+  result:
+    | { readonly scope: "user"; readonly stackUserId: string; readonly isActive: boolean }
+    | { readonly scope: "team"; readonly stackTeamId: string; readonly isActive: boolean },
+  requestOrigin: string,
+): BillingDunningEmailInput {
+  const portalUrl = new URL("/api/billing/portal", requestOrigin);
+  if (result.scope === "team") portalUrl.searchParams.set("scope", "team");
+  return {
+    invoiceId: invoice.id,
+    email: invoice.customer_email,
+    customerName: invoice.customer_name,
+    portalUrl: portalUrl.toString(),
+    scope: result.scope === "user"
+      ? { scope: "user", stackUserId: result.stackUserId }
+      : { scope: "team", stackTeamId: result.stackTeamId },
+  };
 }
 
 function stringId(value: string | { id: string } | null | undefined): string | null {
