@@ -262,6 +262,43 @@ enum AuthEnvironment {
         #endif
     }
 
+    /// Base URL for the team device registry (`POST /api/devices` route
+    /// publication).
+    ///
+    /// The registry carries this Mac's Iroh route to phones, and dev iPhones
+    /// read it from the shared staging deployment (the device rig's default
+    /// origin), so a Debug Mac must publish there too. The tag rig BAKES a
+    /// localhost `CMUX_VM_API_BASE_URL` into every Debug bundle, so routing
+    /// this lane through `vmAPIBaseURL` publishes into a tag-local server no
+    /// phone ever reads, and a paired phone whose Mac changed endpoint
+    /// identity keeps dialing the dead endpoint forever. Mirrors
+    /// `pushAPIBaseURL`; Release keeps the production VM-API origin.
+    static var deviceRegistryAPIBaseURL: URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let overridden = environment["CMUX_DEVICE_REGISTRY_API_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        #if DEBUG
+        if let override = devOverride(key: "CMUX_DEVICE_REGISTRY_API_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return resolvedDeviceRegistryAPIBaseURL(isDebugBuild: true, vmAPIBaseURL: vmAPIBaseURL)
+        #else
+        return resolvedDeviceRegistryAPIBaseURL(isDebugBuild: false, vmAPIBaseURL: vmAPIBaseURL)
+        #endif
+    }
+
+    static func resolvedDeviceRegistryAPIBaseURL(
+        isDebugBuild: Bool,
+        vmAPIBaseURL: URL
+    ) -> URL {
+        isDebugBuild ? URL(string: "https://cmux-staging.vercel.app")! : vmAPIBaseURL
+    }
+
     /// Authenticated route broker shared by matching tagged Mac and iOS builds.
     ///
     /// General tagged APIs remain on their isolated localhost origin. Iroh uses
