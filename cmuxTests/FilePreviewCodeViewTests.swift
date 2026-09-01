@@ -163,6 +163,33 @@ struct FilePreviewCodeViewTests {
         #expect(gutter?.isOpaque == true)
     }
 
+    @Test("Tab width keeps TextKit stops aligned with indent guides")
+    func tabWidthUpdatesTextKitTabStops() throws {
+        let textView = SavingTextView.makeFilePreviewTextView()
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 240))
+        scrollView.documentView = textView
+        FilePreviewTextEditor<FilePreviewPanel>.installChrome(on: scrollView, textView: textView)
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyChromeSettings(
+            to: scrollView,
+            lineNumbers: true,
+            indentGuides: true,
+            currentLineHighlight: true,
+            tabWidth: 2
+        )
+
+        let font = try #require(textView.font)
+        let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
+        let expectedInterval = spaceWidth * 2
+        let typingStyle = try #require(
+            textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle
+        )
+        #expect(abs(typingStyle.defaultTabInterval - expectedInterval) < 0.01)
+        #expect(
+            abs((textView.defaultParagraphStyle?.defaultTabInterval ?? 0) - expectedInterval) < 0.01
+        )
+    }
+
     @Test("Gutter measures labels using the current editor font")
     func gutterMeasuresCurrentEditorFont() {
         let scrollView = NSScrollView()
@@ -224,7 +251,7 @@ struct FilePreviewCodeViewTests {
             force: true
         )
 
-        await styler.highlightTask?.value
+        await styler.activeTask?.value
         let colors = distinctForegroundColors(in: textView).count
         #expect(textView.string == json)
         #expect(colors >= 2)
@@ -264,7 +291,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.highlightTask?.value
+        await styler.activeTask?.value
 
         let flattened = NSFont.monospacedSystemFont(ofSize: 18, weight: .regular)
         if let storage = textView.textStorage, storage.length > 0 {
@@ -282,7 +309,7 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.highlightTask?.value
+        await styler.activeTask?.value
         let ns = textView.string as NSString
         let trueRange = ns.range(of: "true")
         #expect(trueRange.location != NSNotFound)
@@ -387,13 +414,23 @@ struct FilePreviewCodeViewTests {
             theme: .dark,
             force: true
         )
-        await styler.highlightTask?.value
+        await styler.activeTask?.value
         #expect(distinctForegroundColors(in: textView).count >= 2)
     }
 
     @Test("File editor runtime metadata mirrors the shared catalog")
-    func fileEditorMetadataMirrorsCatalog() {
-        let settings = FilePreviewEditorSettings(defaults: .standard)
+    func fileEditorMetadataMirrorsCatalog() throws {
+        let suiteName = "cmux-file-editor-settings-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(false, forKey: "fileEditor.syntaxHighlighting")
+        defaults.set(7, forKey: "fileEditor.tabWidth")
+        let settings = FilePreviewEditorSettings(defaults: defaults)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        #expect(!settings.isEnabled(
+            key: settings.catalog.syntaxHighlighting.userDefaultsKey,
+            default: settings.catalog.syntaxHighlighting.defaultValue
+        ))
+        #expect(settings.tabWidth == 7)
         #expect(settings.catalog.syntaxHighlighting.id == "fileEditor.syntaxHighlighting")
         #expect(settings.catalog.syntaxHighlighting.defaultValue == true)
         #expect(settings.catalog.lineNumbers.id == "fileEditor.lineNumbers")
@@ -404,7 +441,7 @@ struct FilePreviewCodeViewTests {
         #expect(settings.catalog.currentLineHighlight.defaultValue == true)
         #expect(settings.catalog.tabWidth.id == "fileEditor.tabWidth")
         #expect(settings.catalog.tabWidth.defaultValue == 4)
-        #expect(settings.catalog.tabWidthRange == 1...8)
+        #expect(settings.catalog.tabWidthRange == FileEditorCatalogSection.supportedTabWidthRange)
     }
 
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {

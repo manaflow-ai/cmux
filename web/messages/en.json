@@ -1997,7 +1997,7 @@
           "lineNumbers": "Show a line-number gutter in the built-in file editor.",
           "indentGuides": "Draw vertical indent guides in the built-in file editor.",
           "currentLineHighlight": "Highlight the caret's line when the selection is empty.",
-          "tabWidth": "Columns per tab stop for indent guides."
+          "tabWidth": "Width of a tab stop, in columns, for indentation and indent guides."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",

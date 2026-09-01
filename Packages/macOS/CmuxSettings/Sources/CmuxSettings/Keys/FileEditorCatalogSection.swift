@@ -8,7 +8,13 @@ import Foundation
 /// ``MarkdownCatalogSection``.
 public struct FileEditorCatalogSection: SettingCatalogSection {
     /// Inclusive tab-stop range accepted by the editor and JSON schema.
-    public var tabWidthRange: ClosedRange<Int> { 1...8 }
+    ///
+    /// Keep this as a package-level constant so AppKit, the settings UI, and
+    /// the JSON parser all consume the same bounds without repeating literals.
+    public static let supportedTabWidthRange: ClosedRange<Int> = 1...8
+
+    /// Inclusive tab-stop range accepted by the editor and JSON schema.
+    public var tabWidthRange: ClosedRange<Int> { Self.supportedTabWidthRange }
 
     /// Whether long lines soft-wrap at the editor's right edge.
     ///

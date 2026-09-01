@@ -67,7 +67,7 @@ final class FilePreviewEditorChromeOverlay: NSView {
         // newline with `extraLineFragmentRect`, not a glyph. Prefer that
         // explicit rect so wrapped lines use their real visual position.
         let isExtraLine = stringLength == 0
-            || (location == stringLength && nsString.character(at: stringLength - 1) == 10)
+            || (location == stringLength && Self.endsWithLineBreak(nsString))
         if isExtraLine {
             let extra = layoutManager.extraLineFragmentRect
             if Self.isUsableLineRect(extra) {
@@ -83,17 +83,24 @@ final class FilePreviewEditorChromeOverlay: NSView {
                 fillCurrentLineBand(atY: origin.y, height: fallbackHeight, in: textView)
             } else if glyphCount > 0 {
                 // If the extra-line metadata has not been populated yet, use
-                // the last realized fragment without forcing a large layout.
+                // the last realized fragment and only then ask TextKit to
+                // realize that single final fragment.
                 var lastRange = NSRange()
                 let lastFragment = layoutManager.lineFragmentRect(
                     forGlyphAt: glyphCount - 1,
                     effectiveRange: &lastRange,
                     withoutAdditionalLayout: true
                 )
-                if Self.isUsableLineRect(lastFragment) {
+                let fallbackFragment = Self.isUsableLineRect(lastFragment)
+                    ? lastFragment
+                    : layoutManager.lineFragmentRect(
+                        forGlyphAt: glyphCount - 1,
+                        effectiveRange: &lastRange
+                    )
+                if Self.isUsableLineRect(fallbackFragment) {
                     fillCurrentLineBand(
-                        atY: lastFragment.maxY + origin.y,
-                        height: max(lastFragment.height, fallbackHeight),
+                        atY: fallbackFragment.maxY + origin.y,
+                        height: max(fallbackFragment.height, fallbackHeight),
                         in: textView
                     )
                 }
@@ -114,13 +121,19 @@ final class FilePreviewEditorChromeOverlay: NSView {
             withoutAdditionalLayout: true
         )
         // `allowsNonContiguousLayout` can leave a caret's fragment unrealized.
-        // Do not synchronously lay out an unbounded line from inside draw;
-        // the next TextKit invalidation will repaint once it is realized.
-        guard Self.isUsableLineRect(fragment) else { return }
-        let y = fragment.minY + origin.y
+        // First query without additional layout; the fallback realizes only
+        // this caret's line so the band cannot disappear or be degenerate.
+        let realizedFragment = Self.isUsableLineRect(fragment)
+            ? fragment
+            : layoutManager.lineFragmentRect(
+                forGlyphAt: glyphIndex,
+                effectiveRange: &lineRange
+            )
+        guard Self.isUsableLineRect(realizedFragment) else { return }
+        let y = realizedFragment.minY + origin.y
         fillCurrentLineBand(
             atY: y,
-            height: max(fragment.height, fallbackHeight),
+            height: max(realizedFragment.height, fallbackHeight),
             in: textView
         )
     }
@@ -129,6 +142,12 @@ final class FilePreviewEditorChromeOverlay: NSView {
         rect.minX.isFinite && rect.minY.isFinite
             && rect.width.isFinite && rect.height.isFinite
             && rect.height > 0
+    }
+
+    private static func endsWithLineBreak(_ string: NSString) -> Bool {
+        guard string.length > 0 else { return false }
+        let last = string.character(at: string.length - 1)
+        return last == 0x0A || last == 0x0D || last == 0x2028 || last == 0x2029
     }
 
     private func fillCurrentLineBand(atY y: CGFloat, height: CGFloat, in textView: NSTextView) {
@@ -167,7 +186,7 @@ final class FilePreviewEditorChromeOverlay: NSView {
                 actualGlyphRange: nil
             )
             guard characterRange.location == 0
-                    || nsString.character(at: characterRange.location - 1) == 10 else {
+                    || Self.isLineBreak(nsString.character(at: characterRange.location - 1)) else {
                 return
             }
             let indentColumns = Self.leadingIndentColumns(
@@ -187,6 +206,10 @@ final class FilePreviewEditorChromeOverlay: NSView {
                 column += columns
             }
         }
+    }
+
+    private static func isLineBreak(_ unit: unichar) -> Bool {
+        unit == 0x0A || unit == 0x0D || unit == 0x2028 || unit == 0x2029
     }
 
     static func leadingIndentColumns(

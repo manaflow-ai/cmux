@@ -1160,7 +1160,7 @@
           "lineNumbers": "在內建檔案編輯器中顯示行號欄。",
           "indentGuides": "在內建檔案編輯器中繪製垂直縮排參考線。",
           "currentLineHighlight": "選取範圍為空時醒目提示插入點所在行。",
-          "tabWidth": "縮排參考線每個定位點的欄數。"
+          "tabWidth": "用於縮排與縮排參考線的定位點寬度（欄數）。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

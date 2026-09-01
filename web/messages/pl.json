@@ -1161,7 +1161,7 @@
           "lineNumbers": "Pokazuje rynienkę z numerami wierszy we wbudowanym edytorze plików.",
           "indentGuides": "Rysuje pionowe prowadnice wcięć we wbudowanym edytorze plików.",
           "currentLineHighlight": "Podświetla wiersz z karetką, gdy nic nie jest zaznaczone.",
-          "tabWidth": "Liczba kolumn na tabulację dla prowadnic wcięć."
+          "tabWidth": "Szerokość tabulatora w kolumnach dla wcięć i prowadnic wcięć."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

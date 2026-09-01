@@ -56,12 +56,19 @@ struct HighlightPolicyTests {
         #expect(policy.lineCount(in: "one\ntwo\nthree") == 3)
     }
 
-    @Test("Line counting scans UTF-8 bytes, not grapheme clusters")
+    @Test("Line counting ignores grapheme boundaries")
     func countsLinesOverMultiByteGraphemes() {
-        // Each 😀 is one grapheme cluster built from four UTF-8 bytes; the
-        // newline scan must not depend on grapheme decoding.
+        // Newline detection must not depend on grapheme decoding around the
+        // surrounding multi-code-unit emoji.
         let emojiLines = "😀\n😀\n😀"
         #expect(policy.lineCount(in: emojiLines) == 3)
         #expect(policy.shouldHighlight(content: emojiLines, language: "swift"))
+    }
+
+    @Test("Line counting treats Cocoa separators and CRLF correctly")
+    func countsCocoaLineSeparators() {
+        #expect(policy.lineCount(in: "one\rtwo") == 2)
+        #expect(policy.lineCount(in: "one\r\ntwo") == 2)
+        #expect(policy.lineCount(in: "one\u{2028}two\u{2029}three") == 3)
     }
 }

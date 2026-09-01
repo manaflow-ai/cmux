@@ -1160,7 +1160,7 @@
           "lineNumbers": "Vis en linjenummerkolonne i den indbyggede fileditor.",
           "indentGuides": "Tegn lodrette indrykningsguider i den indbyggede fileditor.",
           "currentLineHighlight": "Fremhæv indsætningspunktets linje, når intet er markeret.",
-          "tabWidth": "Kolonner pr. tabulatorstop til indrykningsguider."
+          "tabWidth": "Bredden på et tabulatorstop i kolonner til indrykning og indrykningsguider."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

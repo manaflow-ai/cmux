@@ -20,8 +20,29 @@ struct FilePreviewLineIndexStorage: Sendable {
         var block = [0]
         block.reserveCapacity(Self.blockCapacity)
         var offset = 0
+        var pendingCarriageReturn = false
         for unit in string.utf16 {
-            if unit == 10 {
+            if pendingCarriageReturn {
+                if unit == 10 {
+                    block.append(offset + 1)
+                    if block.count == Self.blockCapacity {
+                        appendBlock(block)
+                        block.removeAll(keepingCapacity: true)
+                    }
+                    pendingCarriageReturn = false
+                    offset += 1
+                    continue
+                }
+                block.append(offset)
+                if block.count == Self.blockCapacity {
+                    appendBlock(block)
+                    block.removeAll(keepingCapacity: true)
+                }
+                pendingCarriageReturn = false
+            }
+            if unit == 13 {
+                pendingCarriageReturn = true
+            } else if unit == 10 || unit == 0x2028 || unit == 0x2029 {
                 block.append(offset + 1)
                 if block.count == Self.blockCapacity {
                     appendBlock(block)
@@ -30,10 +51,49 @@ struct FilePreviewLineIndexStorage: Sendable {
             }
             offset += 1
         }
+        if pendingCarriageReturn {
+            block.append(offset)
+            if block.count == Self.blockCapacity {
+                appendBlock(block)
+                block.removeAll(keepingCapacity: true)
+            }
+        }
         if !block.isEmpty {
             appendBlock(block)
         }
         return offset
+    }
+
+    /// Enumerates UTF-16 starts after Cocoa line separators. A CRLF pair is
+    /// emitted once, at the boundary after both code units.
+    static func enumerateLineStarts(
+        in string: String,
+        offset: Int = 0,
+        _ body: (Int) -> Void
+    ) {
+        var position = offset
+        var pendingCarriageReturn = false
+        for unit in string.utf16 {
+            if pendingCarriageReturn {
+                if unit == 10 {
+                    body(position + 1)
+                    pendingCarriageReturn = false
+                    position += 1
+                    continue
+                }
+                body(position)
+                pendingCarriageReturn = false
+            }
+            if unit == 13 {
+                pendingCarriageReturn = true
+            } else if unit == 10 || unit == 0x2028 || unit == 0x2029 {
+                body(position + 1)
+            }
+            position += 1
+        }
+        if pendingCarriageReturn {
+            body(position)
+        }
     }
 
     var count: Int {

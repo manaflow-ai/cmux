@@ -159,7 +159,35 @@ struct FilePreviewLineIndexTests {
         #expect(index.lineNumber(containingUTF16Offset: 2) == 2)
     }
 
-    @Test("Dense sixteen-megabyte input stays queryable", .tags(.filePreviewLargeInput))
+    @Test("Recognizes Cocoa line separators and CRLF boundaries")
+    func cocoaLineSeparatorsRemainIndexed() {
+        let source = "one\r\ntwo\rthree\u{2028}four\u{2029}five"
+        var index = FilePreviewLineIndex(string: source)
+        #expect(index.lineStartOffsets == [0, 5, 9, 15, 20])
+
+        // Collapsing CRLF to LF shifts the untouched suffix lazily.
+        index.applyEdit(
+            atUTF16Location: 3,
+            replacingUTF16Length: 2,
+            replacement: "\n"
+        )
+        #expect(index.lineStartOffsets == [0, 4, 8, 14, 19])
+
+        // A standalone CR replacement remains a line break.
+        index = FilePreviewLineIndex(string: "a\nb")
+        index.applyEdit(
+            atUTF16Location: 1,
+            replacingUTF16Length: 1,
+            replacement: "\r"
+        )
+        #expect(index.lineStartOffsets == [0, 2])
+    }
+
+    @Test(
+        "Dense sixteen-megabyte input stays queryable",
+        .tags(.filePreviewLargeInput),
+        .timeLimit(.minutes(1))
+    )
     func denseSixteenMegabyteInputStaysQueryable() {
         // This is intentionally the File Preview maximum, not a toy fixture:
         // it proves the block index remains bounded for the largest valid

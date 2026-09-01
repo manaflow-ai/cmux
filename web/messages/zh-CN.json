@@ -1160,7 +1160,7 @@
           "lineNumbers": "在内置文件编辑器中显示行号槽。",
           "indentGuides": "在内置文件编辑器中绘制垂直缩进参考线。",
           "currentLineHighlight": "选区为空时高亮插入点所在行。",
-          "tabWidth": "缩进参考线每个制表位的列数。"
+          "tabWidth": "用于缩进和缩进参考线的制表位宽度（列数）。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

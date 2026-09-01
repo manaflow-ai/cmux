@@ -34,7 +34,10 @@ extension FilePreviewLineIndex {
         let suffixStart = max(prefixEnd, storage.lowerBound(end))
         let prefixLast = prefixEnd > 0 ? storage.value(at: prefixEnd - 1) : nil
         let boundaryWasLineStart = storage.value(at: suffixStart) == end
-        let replacementEndsInNewline = replacement.utf16.last == 10
+        let replacementEndsInLineBreak = replacement.utf16.last == 10
+            || replacement.utf16.last == 13
+            || replacement.utf16.last == 0x2028
+            || replacement.utf16.last == 0x2029
         let emptyReplacementKeepsBoundary = replacement.isEmpty
             && location > 0
             && prefixLast == location
@@ -47,7 +50,7 @@ extension FilePreviewLineIndex {
         // edit leaves the preceding newline intact). Otherwise the suffix
         // joins the replacement's final line and its old start is discarded.
         if boundaryWasLineStart,
-           !replacementEndsInNewline,
+           !replacementEndsInLineBreak,
            !emptyReplacementKeepsBoundary,
            prefixEnd < storage.count {
             storage.remove(range: prefixEnd..<(prefixEnd + 1))
@@ -68,12 +71,14 @@ extension FilePreviewLineIndex {
         }
 
         var insertedStarts: [Int] = []
-        var index = 0
-        for unit in replacement.utf16 {
-            if unit == 10 {
-                insertedStarts.append(location + index + 1)
+        let lineBreakCount = replacement.utf16.reduce(into: 0) { count, unit in
+            if unit == 10 || unit == 13 || unit == 0x2028 || unit == 0x2029 {
+                count += 1
             }
-            index += 1
+        }
+        insertedStarts.reserveCapacity(lineBreakCount + 1)
+        FilePreviewLineIndexStorage.enumerateLineStarts(in: replacement, offset: location) {
+            insertedStarts.append($0)
         }
 
         // If the replacement ends in a newline, its final start is the same

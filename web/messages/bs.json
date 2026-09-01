@@ -1160,7 +1160,7 @@
           "lineNumbers": "Prikaži žlijeb s brojevima redova u ugrađenom uređivaču datoteka.",
           "indentGuides": "Crtaj okomite vodiče uvlačenja u ugrađenom uređivaču datoteka.",
           "currentLineHighlight": "Istakni red s karetom kada ništa nije odabrano.",
-          "tabWidth": "Broj stupaca po tabu za vodiče uvlačenja."
+          "tabWidth": "Širina tabulatora u stupcima za uvlačenje i vodiče uvlačenja."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

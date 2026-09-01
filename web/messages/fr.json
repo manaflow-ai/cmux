@@ -1160,7 +1160,7 @@
           "lineNumbers": "Affiche une gouttière de numéros de ligne dans l’éditeur de fichiers intégré.",
           "indentGuides": "Trace des guides d’indentation verticaux dans l’éditeur de fichiers intégré.",
           "currentLineHighlight": "Met en surbrillance la ligne du curseur lorsqu’aucune sélection n’est active.",
-          "tabWidth": "Colonnes par tabulation pour les guides d’indentation."
+          "tabWidth": "Largeur d’une tabulation, en colonnes, pour l’indentation et les guides d’indentation."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

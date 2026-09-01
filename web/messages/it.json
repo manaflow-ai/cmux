@@ -1160,7 +1160,7 @@
           "lineNumbers": "Mostra una colonna con i numeri di riga nell’editor di file integrato.",
           "indentGuides": "Disegna guide verticali di indentazione nell’editor di file integrato.",
           "currentLineHighlight": "Evidenzia la riga del cursore quando non c’è una selezione.",
-          "tabWidth": "Colonne per tabulazione per le guide di indentazione."
+          "tabWidth": "Larghezza di una tabulazione, in colonne, per l'indentazione e le guide di indentazione."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

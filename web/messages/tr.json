@@ -1160,7 +1160,7 @@
           "lineNumbers": "Yerleşik dosya düzenleyicide satır numarası oluğunu gösterir.",
           "indentGuides": "Yerleşik dosya düzenleyicide dikey girinti kılavuzları çizer.",
           "currentLineHighlight": "Seçim yokken imlecin bulunduğu satırı vurgular.",
-          "tabWidth": "Girinti kılavuzları için sekme durağı başına sütun sayısı."
+          "tabWidth": "Girinti ve girinti kılavuzları için sekme durağının sütun cinsinden genişliği."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

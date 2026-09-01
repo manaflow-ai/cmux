@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Testing
 // Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
@@ -533,78 +534,6 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             withExtendedLifetime(store) {
                 XCTAssertTrue(defaults.bool(forKey: FilePreviewWordWrapSettings.key))
                 XCTAssertTrue(FilePreviewWordWrapSettings.isEnabled(defaults: defaults))
-            }
-        }
-    }
-
-    func testSettingsFileRejectsOutOfRangeFileEditorTabWidthWithoutDroppingSiblingSettings() throws {
-        let defaults = UserDefaults.standard
-
-        try preservingDefaults(keys: [
-            FilePreviewEditorSettings.syntaxHighlightingKey,
-            FilePreviewEditorSettings.lineNumbersKey,
-            FilePreviewEditorSettings.indentGuidesKey,
-            FilePreviewEditorSettings.currentLineHighlightKey,
-            FilePreviewEditorSettings.tabWidthKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey
-        ]) {
-            for key in [
-                FilePreviewEditorSettings.syntaxHighlightingKey,
-                FilePreviewEditorSettings.lineNumbersKey,
-                FilePreviewEditorSettings.indentGuidesKey,
-                FilePreviewEditorSettings.currentLineHighlightKey,
-                FilePreviewEditorSettings.tabWidthKey,
-                settingsFileBackupsDefaultsKey,
-                importedManagedDefaultsKey
-            ] {
-                defaults.removeObject(forKey: key)
-            }
-
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "fileEditor": {
-                    "syntaxHighlighting": false,
-                    "lineNumbers": false,
-                    "tabWidth": 99,
-                    "indentGuides": false,
-                    "currentLineHighlight": false
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            let store = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            withExtendedLifetime(store) {
-                XCTAssertEqual(
-                    defaults.object(forKey: FilePreviewEditorSettings.syntaxHighlightingKey) as? Bool,
-                    false
-                )
-                XCTAssertEqual(
-                    defaults.object(forKey: FilePreviewEditorSettings.lineNumbersKey) as? Bool,
-                    false
-                )
-                XCTAssertEqual(
-                    defaults.object(forKey: FilePreviewEditorSettings.indentGuidesKey) as? Bool,
-                    false
-                )
-                XCTAssertEqual(
-                    defaults.object(forKey: FilePreviewEditorSettings.currentLineHighlightKey) as? Bool,
-                    false
-                )
-                XCTAssertNil(defaults.object(forKey: FilePreviewEditorSettings.tabWidthKey))
             }
         }
     }
@@ -1512,6 +1441,85 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                     defaults.set(value, forKey: previous.key)
                 } else {
                     defaults.removeObject(forKey: previous.key)
+                }
+            }
+        }
+        try body()
+    }
+}
+
+@Suite("File editor settings file parsing", .serialized)
+struct FileEditorSettingsFileParsingTests {
+    @Test("Rejects an out-of-range tab width without dropping siblings")
+    func rejectsOutOfRangeTabWidthWithoutDroppingSiblingSettings() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            FilePreviewEditorSettings.syntaxHighlightingKey,
+            FilePreviewEditorSettings.lineNumbersKey,
+            FilePreviewEditorSettings.indentGuidesKey,
+            FilePreviewEditorSettings.currentLineHighlightKey,
+            FilePreviewEditorSettings.tabWidthKey,
+            "cmux.settingsFile.backups.v1",
+            "cmux.settingsFile.importedManagedDefaults.v1",
+        ]
+
+        try preservingDefaults(keys: keys, defaults: defaults) {
+            keys.forEach { defaults.removeObject(forKey: $0) }
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "fileEditor": {
+                "syntaxHighlighting": false,
+                "lineNumbers": false,
+                "tabWidth": 99,
+                "indentGuides": false,
+                "currentLineHighlight": false
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            withExtendedLifetime(store) {
+                #expect(defaults.object(forKey: FilePreviewEditorSettings.syntaxHighlightingKey) as? Bool == false)
+                #expect(defaults.object(forKey: FilePreviewEditorSettings.lineNumbersKey) as? Bool == false)
+                #expect(defaults.object(forKey: FilePreviewEditorSettings.indentGuidesKey) as? Bool == false)
+                #expect(defaults.object(forKey: FilePreviewEditorSettings.currentLineHighlightKey) as? Bool == false)
+                #expect(defaults.object(forKey: FilePreviewEditorSettings.tabWidthKey) == nil)
+            }
+        }
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-file-editor-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func preservingDefaults(
+        keys: [String],
+        defaults: UserDefaults,
+        _ body: () throws -> Void
+    ) rethrows {
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
+        let previous = keys.map { ($0, persisted[$0]) }
+        defer {
+            for (key, value) in previous {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
                 }
             }
         }

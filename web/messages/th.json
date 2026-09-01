@@ -1161,7 +1161,7 @@
           "lineNumbers": "แสดงแถบเลขบรรทัดในตัวแก้ไขไฟล์ในตัว",
           "indentGuides": "วาดเส้นนำการเยื้องแนวตั้งในตัวแก้ไขไฟล์ในตัว",
           "currentLineHighlight": "เน้นบรรทัดที่มีแคร์เรตเมื่อไม่ได้เลือกข้อความ",
-          "tabWidth": "จำนวนคอลัมน์ต่อแท็บสำหรับเส้นนำการเยื้อง"
+          "tabWidth": "ความกว้างของแท็บเป็นจำนวนคอลัมน์สำหรับการเยื้องและเส้นนำการเยื้อง"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

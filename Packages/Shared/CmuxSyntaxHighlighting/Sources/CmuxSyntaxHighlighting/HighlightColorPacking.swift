@@ -22,10 +22,12 @@ struct HighlightColorPacking: Sendable {
 
     func packedRGBKey(red: CGFloat, green: CGFloat, blue: CGFloat) -> UInt32 {
         func component(_ value: CGFloat) -> UInt32 {
-            guard value.isFinite else { return 0 }
-            let clamped = min(1, max(0, value))
-            let scaled = Int((clamped * 255.0).rounded())
-            return UInt32(min(255, max(0, scaled)))
+            // Clamp before multiplying/converting. A finite CGFloat can be
+            // larger than Int.max / 255, and converting that product to Int
+            // would trap even though the eventual channel should be 255.
+            if value.isNaN || value <= 0 { return 0 }
+            if value >= 1 { return 255 }
+            return UInt32((value * 255.0).rounded())
         }
 
         return (component(red) << 16) | (component(green) << 8) | component(blue)

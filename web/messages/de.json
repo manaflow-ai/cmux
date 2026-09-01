@@ -1160,7 +1160,7 @@
           "lineNumbers": "Zeigt eine Zeilennummernleiste im integrierten Dateieditor.",
           "indentGuides": "Zeichnet vertikale Einzugshilfslinien im integrierten Dateieditor.",
           "currentLineHighlight": "Hebt die Zeile der Einfügemarke hervor, wenn nichts ausgewählt ist.",
-          "tabWidth": "Spalten pro Tabstopp für Einzugshilfslinien."
+          "tabWidth": "Breite eines Tabstopps in Spalten für Einzüge und Einzugshilfslinien."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

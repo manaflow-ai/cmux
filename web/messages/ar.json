@@ -1160,7 +1160,7 @@
           "lineNumbers": "اعرض هامش أرقام الأسطر في محرر الملفات المدمج.",
           "indentGuides": "ارسم أدلة مسافة بادئة عمودية في محرر الملفات المدمج.",
           "currentLineHighlight": "ميّز سطر المؤشر عندما لا يوجد تحديد.",
-          "tabWidth": "عدد الأعمدة لكل علامة تبويب لأدلة المسافة البادئة."
+          "tabWidth": "عرض علامة التبويب بالأعمدة المستخدمة للمسافة البادئة وأدلة المسافة البادئة."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

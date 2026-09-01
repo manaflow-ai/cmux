@@ -1160,7 +1160,7 @@
           "lineNumbers": "내장 파일 편집기에 줄 번호 여백을 표시합니다.",
           "indentGuides": "내장 파일 편집기에 세로 들여쓰기 안내선을 그립니다.",
           "currentLineHighlight": "선택 영역이 비어 있을 때 캐럿이 있는 줄을 강조합니다.",
-          "tabWidth": "들여쓰기 안내선에 사용할 탭 정지당 열 수입니다."
+          "tabWidth": "들여쓰기와 들여쓰기 안내선에 사용할 탭 정지 너비(열 수)입니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

@@ -1160,7 +1160,7 @@
           "lineNumbers": "Muestra un margen con números de línea en el editor de archivos integrado.",
           "indentGuides": "Dibuja guías verticales de sangría en el editor de archivos integrado.",
           "currentLineHighlight": "Resalta la línea del cursor cuando no hay selección.",
-          "tabWidth": "Columnas por tabulación para las guías de sangría."
+          "tabWidth": "Ancho de un tabulador, en columnas, para la sangría y las guías de sangría."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

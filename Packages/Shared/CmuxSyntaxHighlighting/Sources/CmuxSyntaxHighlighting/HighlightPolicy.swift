@@ -17,14 +17,32 @@ public struct HighlightPolicy: Sendable {
     /// Creates a policy with the default ceilings.
     public init() {}
 
-    /// Counts lines as one plus the number of `\n` bytes.
+    /// Counts lines using Cocoa's line-separator rules. A CRLF pair counts as
+    /// one break; standalone CR, LF, and Unicode line/paragraph separators
+    /// each start the next line.
     ///
-    /// Scans UTF-8 code units, not `Character` grapheme clusters: a newline
-    /// is a single-byte ASCII `0x0A`, so grapheme decoding adds cost without
-    /// changing the count.
+    /// Scans UTF-16 code units, not `Character` grapheme clusters, so newline
+    /// detection remains linear without decoding unrelated grapheme clusters.
     public func lineCount(in content: String) -> Int {
         var lines = 1
-        for byte in content.utf8 where byte == 0x0A {
+        var pendingCarriageReturn = false
+        for unit in content.utf16 {
+            if pendingCarriageReturn {
+                if unit == 0x0A {
+                    lines += 1
+                    pendingCarriageReturn = false
+                    continue
+                }
+                lines += 1
+                pendingCarriageReturn = false
+            }
+            if unit == 0x0D {
+                pendingCarriageReturn = true
+            } else if unit == 0x0A || unit == 0x2028 || unit == 0x2029 {
+                lines += 1
+            }
+        }
+        if pendingCarriageReturn {
             lines += 1
         }
         return lines
@@ -35,14 +53,7 @@ public struct HighlightPolicy: Sendable {
         guard language != nil, !content.isEmpty else { return false }
         guard content.utf8.count <= Self.maximumHighlightedBytes else { return false }
 
-        var lines = 1
-        for byte in content.utf8 {
-            if byte == 0x0A {
-                lines += 1
-                guard lines <= Self.maximumHighlightedLines else { return false }
-            }
-        }
-        return true
+        return lineCount(in: content) <= Self.maximumHighlightedLines
     }
 
     /// Returns whether a buffer of `utf8Count` bytes and `lineCount` lines

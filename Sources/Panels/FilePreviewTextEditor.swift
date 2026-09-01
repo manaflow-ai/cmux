@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxSyntaxHighlighting
 import SwiftUI
 
@@ -35,16 +36,11 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     /// Absolute path used only to resolve a highlight.js language.
     var filePath: String = ""
 
-    @AppStorage(FilePreviewEditorSettings.syntaxHighlightingKey)
-    private var syntaxHighlighting = FilePreviewEditorSettings.syntaxHighlightingDefault
-    @AppStorage(FilePreviewEditorSettings.lineNumbersKey)
-    private var lineNumbers = FilePreviewEditorSettings.lineNumbersDefault
-    @AppStorage(FilePreviewEditorSettings.indentGuidesKey)
-    private var indentGuides = FilePreviewEditorSettings.indentGuidesDefault
-    @AppStorage(FilePreviewEditorSettings.currentLineHighlightKey)
-    private var currentLineHighlight = FilePreviewEditorSettings.currentLineHighlightDefault
-    @AppStorage(FilePreviewEditorSettings.tabWidthKey)
-    private var tabWidth = FilePreviewEditorSettings.tabWidthDefault
+    @LiveSetting(\.fileEditor.syntaxHighlighting) private var syntaxHighlighting
+    @LiveSetting(\.fileEditor.lineNumbers) private var lineNumbers
+    @LiveSetting(\.fileEditor.indentGuides) private var indentGuides
+    @LiveSetting(\.fileEditor.currentLineHighlight) private var currentLineHighlight
+    @LiveSetting(\.fileEditor.tabWidth) private var tabWidth
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -234,16 +230,16 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         currentLineHighlight: Bool,
         tabWidth: Int
     ) {
-        let editorSettings = FilePreviewEditorSettings(defaults: .standard)
         scrollView.hasVerticalRuler = lineNumbers
         scrollView.rulersVisible = lineNumbers
-        guard let textView = scrollView.documentView as? NSTextView,
-              let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) else { return }
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        let effectiveTabWidth = FileEditorCatalogSection.supportedTabWidthRange.contains(tabWidth)
+            ? tabWidth : FileEditorCatalogSection().tabWidth.defaultValue
+        textView.applyFilePreviewTabWidth(effectiveTabWidth)
+        guard let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) else { return }
         overlay.showsCurrentLine = currentLineHighlight
         overlay.showsIndentGuides = indentGuides
-        overlay.tabWidth = editorSettings.catalog.tabWidthRange.contains(tabWidth)
-            ? tabWidth
-            : editorSettings.catalog.tabWidth.defaultValue
+        overlay.tabWidth = effectiveTabWidth
         overlay.needsDisplay = true
     }
 
@@ -322,6 +318,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 
         func handlePreviewFontChange(in textView: NSTextView) {
             guard isHighlightingVisible else { return }
+            textView.applyFilePreviewTabWidth(editorSettings.tabWidth)
             scheduleHighlight(
                 for: textView,
                 enabled: editorSettings.isEnabled(
@@ -478,6 +475,8 @@ final class SavingTextView: NSTextView {
     /// `.font` across storage; without a forced restyle, keywords stay
     /// regular weight until the text or theme changes.
     var onPreviewFontDidChange: (() -> Void)?
+    var appliedFilePreviewTabWidth: Int?
+    var appliedFilePreviewTabStopInterval: CGFloat?
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?

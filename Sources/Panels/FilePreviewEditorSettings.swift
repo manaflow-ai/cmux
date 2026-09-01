@@ -38,7 +38,7 @@ struct FilePreviewEditorSettings {
     static let indentGuidesDefault = catalog.indentGuides.defaultValue
     static let currentLineHighlightDefault = catalog.currentLineHighlight.defaultValue
     static let tabWidthDefault = catalog.tabWidth.defaultValue
-    static let tabWidthRange = catalog.tabWidthRange
+    static let tabWidthRange = FileEditorCatalogSection.supportedTabWidthRange
 
     func isEnabled(
         key: String,

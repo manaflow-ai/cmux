@@ -581,7 +581,7 @@ public struct AppSection: View {
                         get: { fileEditorTabWidth.current },
                         set: { fileEditorTabWidth.set($0) }
                     ),
-                    in: catalog.fileEditor.tabWidthRange
+                    in: FileEditorCatalogSection.supportedTabWidthRange
                 ) {
                     Text("\(fileEditorTabWidth.current)")
                         .monospacedDigit()

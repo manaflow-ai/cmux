@@ -1160,7 +1160,7 @@
           "lineNumbers": "Mostra uma calha de números de linha no editor de arquivos integrado.",
           "indentGuides": "Desenha guias verticais de recuo no editor de arquivos integrado.",
           "currentLineHighlight": "Destaca a linha do cursor quando nada está selecionado.",
-          "tabWidth": "Colunas por tabulação para as guias de recuo."
+          "tabWidth": "Largura de uma tabulação, em colunas, para recuo e guias de recuo."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
