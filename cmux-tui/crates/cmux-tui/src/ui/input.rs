@@ -104,23 +104,37 @@ impl TextInput {
         }
     }
 
-    pub fn visible_text_and_cursor(&mut self, width: usize) -> (String, usize) {
+    pub fn visible_text_and_cursor(&self, width: usize) -> (String, usize) {
         if width == 0 {
             return (String::new(), 0);
         }
-        self.ensure_cursor_visible(width);
-        let cursor_col = self.display_width(self.scroll, self.cursor);
+        // Rendering must not mutate cursor state. Derive the effective viewport locally;
+        // input events still persist the viewport through `ensure_cursor_visible`.
+        let cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
+        let mut scroll = self.grapheme_boundary_at_or_after(self.scroll.min(cursor));
+        if cursor < scroll {
+            scroll = cursor;
+        }
+        while self.display_width(scroll, cursor) >= width {
+            let next = self.next_boundary(scroll);
+            if next <= scroll || next > cursor {
+                scroll = cursor;
+                break;
+            }
+            scroll = next;
+        }
+        let cursor_col = self.display_width(scroll, cursor);
         let mut used = 0;
-        let mut end = self.scroll;
-        for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
+        let mut end = scroll;
+        for (offset, grapheme) in self.buffer[scroll..].grapheme_indices(true) {
             let grapheme_width = UnicodeWidthStr::width(grapheme);
             if used + grapheme_width > width {
                 break;
             }
             used += grapheme_width;
-            end = self.scroll + offset + grapheme.len();
+            end = scroll + offset + grapheme.len();
         }
-        (self.buffer[self.scroll..end].to_string(), cursor_col.min(width - 1))
+        (self.buffer[scroll..end].to_string(), cursor_col.min(width - 1))
     }
 
     pub fn set_cursor_from_visible_column(&mut self, column: usize, width: usize) {
