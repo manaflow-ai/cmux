@@ -1,6 +1,10 @@
 import Image from "next/image";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
-import type { ChangelogVersion } from "@/app/lib/changelog";
+import {
+  localizedChangelogItem,
+  type ChangelogItemTranslations,
+  type ChangelogVersion,
+} from "@/app/lib/changelog";
 import { pngDimensions } from "./png-dimensions";
 import type { VersionMedia } from "./changelog-media";
 
@@ -17,6 +21,7 @@ export function ChangelogRelease({
   locale,
   media,
   sectionLabels,
+  itemTranslations,
   standaloneHeading,
   versionHref,
   standalone = false,
@@ -26,6 +31,7 @@ export function ChangelogRelease({
   locale: string;
   media?: VersionMedia;
   sectionLabels: ChangelogSectionLabels;
+  itemTranslations?: ChangelogItemTranslations;
   standaloneHeading?: string;
   versionHref?: string;
   standalone?: boolean;
@@ -187,7 +193,9 @@ export function ChangelogRelease({
                       color: "var(--muted)",
                     }}
                   >
-                    <InlineMarkdown text={item} />
+                    <InlineMarkdown
+                      text={localizedChangelogItem(item, itemTranslations)}
+                    />
                   </li>
                 ))}
               </ul>

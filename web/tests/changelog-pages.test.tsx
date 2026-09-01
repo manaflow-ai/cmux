@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createTranslator } from "use-intl/core";
 import {
   changelogPath,
+  localizedChangelogItem,
   changelogVersionDescription,
   changelogVersionPath,
   localizedChangelogPath,
@@ -71,6 +72,50 @@ Release intro.
     expect(html).toContain("追加");
     expect(html).toContain("cmux example");
   });
+
+  test(
+    "renders locale-specific copy for the socket password migration",
+    async () => {
+      const messages = (await import("../messages/ja.json")).default;
+      const canonicalItem =
+        "Generate a secure socket password once when an existing password-mode configuration has no password, so bundled CLI automation continues working after enforcement ([#8335](https://github.com/manaflow-ai/cmux/issues/8335))";
+      const translation =
+        messages.docs.changelog.items.socketPasswordMigration;
+      const release = parseChangelog(`
+## [0.64.22] - 2026-08-03
+
+### Fixed
+- ${canonicalItem}
+`)[0];
+
+      expect(
+        localizedChangelogItem(canonicalItem, {
+          socketPasswordMigration: translation,
+        }),
+      ).toBe(translation);
+
+      const html = renderToStaticMarkup(
+        <ChangelogRelease
+          release={release}
+          locale="ja"
+          sectionLabels={{
+            added: "追加",
+            changed: "変更",
+            fixed: "修正",
+            removed: "削除",
+            contributors: "コントリビューター",
+          }}
+          itemTranslations={{ socketPasswordMigration: translation }}
+          first
+        />,
+      );
+      expect(html).toContain("既存のパスワードモード設定");
+      expect(html).not.toContain("Generate a secure socket password");
+      expect(html).toContain(
+        'href="https://github.com/manaflow-ai/cmux/issues/8335"',
+      );
+    },
+  );
 
   test("refreshes and isolates injected changelog stores", () => {
     let fingerprint = "first";
@@ -202,6 +247,11 @@ Release intro.
   });
 
   test("provides changelog section labels for every supported locale", async () => {
+    const englishMessages = (await import("../messages/en.json"))
+      .default as Messages;
+    const englishItem =
+      englishMessages.docs.changelog.items.socketPasswordMigration;
+
     for (const locale of locales) {
       // The locale is dynamic so this test follows the routing registry.
       const messages = (
@@ -224,6 +274,13 @@ Release intro.
       for (const label of Object.values(labels)) {
         expect(label.trim().length).toBeGreaterThan(0);
       }
+      const localizedItem =
+        messages.docs.changelog.items.socketPasswordMigration;
+      expect(localizedItem).toContain(
+        "[#8335](https://github.com/manaflow-ai/cmux/issues/8335)",
+      );
+      expect(t("items.socketPasswordMigration")).toBe(localizedItem);
+      if (locale !== "en") expect(localizedItem).not.toBe(englishItem);
       expect(t("versionTitle", { version: "1.2.3" })).toContain("1.2.3");
       expect(t("releaseNavLabel", { version: "1.2.3" })).toContain("1.2.3");
     }

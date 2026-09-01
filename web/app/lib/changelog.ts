@@ -3,6 +3,18 @@ export interface ChangelogSection {
   items: string[];
 }
 
+export interface ChangelogItemTranslations {
+  socketPasswordMigration?: string;
+}
+
+const changelogItemTranslationMarkers: Record<
+  keyof ChangelogItemTranslations,
+  string
+> = {
+  socketPasswordMigration:
+    "https://github.com/manaflow-ai/cmux/issues/8335",
+};
+
 export interface ChangelogVersion {
   version: string;
   date: string;
@@ -137,6 +149,22 @@ export function localizedChangelogPath(
 ): string {
   const releasePath = version ? changelogVersionPath(version) : changelogPath;
   return locale === "en" ? releasePath : `/${locale}${releasePath}`;
+}
+
+/** Replaces a canonical changelog item with its locale-specific copy when available. */
+export function localizedChangelogItem(
+  item: string,
+  translations?: ChangelogItemTranslations,
+): string {
+  if (!translations) return item;
+
+  for (const [key, marker] of Object.entries(
+    changelogItemTranslationMarkers,
+  ) as [keyof ChangelogItemTranslations, string][]) {
+    const translation = translations[key];
+    if (translation && item.includes(marker)) return translation;
+  }
+  return item;
 }
 
 /** Builds a bounded English search summary from one release. */

@@ -6,7 +6,7 @@ public import Foundation
 /// password setting was absent. Once enforcement became active, those existing
 /// configurations could no longer authenticate the bundled CLI. This migration
 /// creates a credential in the canonical secure store exactly once when the
-/// persisted mode requires one and no credential is available.
+/// persisted mode requires one and no durable credential is available.
 ///
 /// The migration is synchronous and all side effects are injected, so the app
 /// composition root can run it before starting the listener and package tests
@@ -21,7 +21,8 @@ public struct SocketControlPasswordMigration {
     public enum Outcome: Equatable, Sendable {
         /// The persisted socket mode does not require a password.
         case notNeeded
-        /// A credential was already present and the migration was recorded.
+        /// A durable credential was already present and the migration was
+        /// recorded.
         case alreadyConfigured
         /// This migration version was already completed.
         case alreadyMigrated
@@ -40,6 +41,10 @@ public struct SocketControlPasswordMigration {
     /// The default generator uses the system random-number source and emits a
     /// base64url-safe value without whitespace, suitable for the line-oriented
     /// socket authentication protocol.
+    /// - Parameters:
+    ///   - defaults: The defaults store used to record migration completion.
+    ///   - passwordStore: The canonical durable password store.
+    ///   - generatePassword: An optional secure password generator.
     public init(
         defaults: UserDefaults = .standard,
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
@@ -56,6 +61,8 @@ public struct SocketControlPasswordMigration {
     /// A successful migration records its version before returning. Clearing the
     /// credential later is therefore respected rather than silently replaced on
     /// every subsequent launch.
+    /// - Parameter configuredMode: The persisted socket control mode being upgraded.
+    /// - Returns: The outcome of the migration attempt.
     @discardableResult
     public func migrateIfNeeded(configuredMode: SocketControlMode) -> Outcome {
         guard configuredMode == .password else {
@@ -65,9 +72,13 @@ public struct SocketControlPasswordMigration {
             return .alreadyMigrated
         }
 
-        if passwordStore.hasConfiguredPassword() {
-            defaults.set(Self.migrationVersion, forKey: Self.migrationDefaultsKey)
-            return .alreadyConfigured
+        do {
+            if try passwordStore.loadPassword() != nil {
+                defaults.set(Self.migrationVersion, forKey: Self.migrationDefaultsKey)
+                return .alreadyConfigured
+            }
+        } catch {
+            return .failed
         }
 
         let password = generatePassword().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,6 +95,7 @@ public struct SocketControlPasswordMigration {
         return .generated
     }
 
+    /// Generates a base64url-safe password with 256 bits of system randomness.
     private static func makeSecurePassword() -> String {
         var generator = SystemRandomNumberGenerator()
         var bytes = [UInt8](repeating: 0, count: 32)

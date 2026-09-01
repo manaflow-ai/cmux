@@ -110,6 +110,9 @@ export default async function ChangelogVersionPage({
     removed: t("sections.removed"),
     contributors: t("sections.contributors"),
   };
+  const itemTranslations = {
+    socketPasswordMigration: t("items.socketPasswordMigration"),
+  };
   const newerRelease = versions[releaseIndex - 1];
   const olderRelease = versions[releaseIndex + 1];
 
@@ -148,6 +151,7 @@ export default async function ChangelogVersionPage({
         locale={locale}
         media={media}
         sectionLabels={sectionLabels}
+        itemTranslations={itemTranslations}
         standaloneHeading={headline}
         standalone
       />
