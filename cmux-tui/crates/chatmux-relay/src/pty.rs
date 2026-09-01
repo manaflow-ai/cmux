@@ -1667,6 +1667,17 @@ impl Inner {
             return;
         }
         start();
+        // Replay/start callbacks are synchronous and may outlive the open
+        // deadline. Reconcile a timeout after they return so a canceled open
+        // cannot leave a quiet attachment running without an owner.
+        if cancellation.is_cancelled() {
+            if let Some(attachment) = self
+                .attachment(pty_id)
+                .filter(|attachment| Arc::ptr_eq(&attachment.publication_gate, &publication_gate))
+            {
+                self.retire_if_current(pty_id, &attachment);
+            }
+        }
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
