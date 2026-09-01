@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 
@@ -32,6 +33,14 @@ struct MobileWhatsNewPage: Identifiable {
     /// Remote announcements are visually marked to distinguish service news
     /// from binary release notes.
     let isAnnouncement: Bool
+    /// Build channels this catalog entry may render on
+    /// (``MobileBuildType/token`` values). `nil` (the norm) means the
+    /// ``MobileWhatsNewChannelPolicy`` default: team lanes only, never the
+    /// official App Store app. The remote list can override per entry
+    /// (`entryChannels`), so an entry can be opted into official without a
+    /// binary change. Only meaningful for binary catalog entries; resolved
+    /// announcements are channel-filtered before page construction.
+    var channels: [String]? = nil
 
     /// SwiftUI list identity, namespaced by kind so an announcement id can
     /// never collide with a binary entry id in a mixed list (the server
@@ -49,6 +58,13 @@ struct MobileWhatsNewPage: Identifiable {
 /// (`/api/whats-new` `visibleEntryIds`) both reference it, and the
 /// unseen computation orders pages by catalog index.
 enum MobileWhatsNewCatalog {
+    /// Filled in precisely at the accompanying Mac release cut; the What's
+    /// New compat notice interpolates it. ONE value to edit at cut time.
+    static let requiredMacVersionLabel = L10n.string(
+        "mobile.connectionsUpdate.macUpdate.requiredVersion",
+        defaultValue: "the latest cmux NIGHTLY or cmux RELEASE"
+    )
+
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     static var entries: [MobileWhatsNewPage] {
@@ -57,6 +73,22 @@ enum MobileWhatsNewCatalog {
 
     static func entry(withID id: String) -> MobileWhatsNewPage? {
         entries.first { $0.id == id }
+    }
+
+    /// The catalog restricted to entries this build's channel may show, per
+    /// their compiled-in channel declarations. This is the no-remote-list
+    /// baseline: never-fetched devices and centerless fallbacks (previews)
+    /// use it, so an official App Store build renders NO What's New surface
+    /// before its first fetch, while team builds keep the full catalog.
+    static func channelVisibleEntries(
+        buildType: MobileBuildType = .current()
+    ) -> [MobileWhatsNewPage] {
+        entries.filter { page in
+            MobileWhatsNewChannelPolicy.isVisible(
+                channelTokens: page.channels,
+                buildType: buildType
+            )
+        }
     }
 
     /// Catalog position (0 = newest). The unseen computation compares
@@ -122,8 +154,43 @@ enum MobileWhatsNewCatalog {
                         defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
                     )
                 ),
+                // Owner directive: this compat notice stays the LAST row so it
+                // reads as the prominent bottom section of the page.
+                .init(
+                    symbol: "exclamationmark.triangle.fill",
+                    title: L10n.string(
+                        "mobile.connectionsUpdate.macUpdate.title",
+                        defaultValue: "Action required: update your Mac"
+                    ),
+                    detail: macUpdateDetail()
+                ),
             ]),
             isAnnouncement: false
+        )
+    }
+
+    /// The compat-notice body, gated per distribution channel.
+    ///
+    /// Team builds include the BETA TestFlight rollback recipe. The public
+    /// App Store app has no older protocol version to revert to, so it gets
+    /// the update instruction only; App Review's Guideline 2.2 rejection also
+    /// bars beta-lane vocabulary from its UI.
+    static func macUpdateDetail(buildType: MobileBuildType = .current()) -> String {
+        guard buildType.usesInternalBuildVocabulary else {
+            return String(
+                format: L10n.string(
+                    "mobile.connectionsUpdate.macUpdate.detail.official",
+                    defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting."
+                ),
+                requiredMacVersionLabel
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.connectionsUpdate.macUpdate.detail",
+                defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+            ),
+            requiredMacVersionLabel
         )
     }
 }

@@ -14,7 +14,12 @@ import {
 } from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
-import { resolveProPlanStatus } from "../../../../services/billing/pro";
+import {
+  isStripePortalRecoverable,
+  resolveProPlanStatus,
+  stripeBillingStatusForTeam,
+  stripeBillingStatusForUser,
+} from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
@@ -142,8 +147,20 @@ async function stripeProCheckout(
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
+    // `or: "anonymous"` creates/returns the real Stack anonymous principal.
+    // Keep that id as the source of truth for Stripe and checkout analytics.
+    const stackUserId = checkoutPrincipalId(user.id, "user");
 
-    const status = await resolveProPlanStatus(user);
+    const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
+    const status = await resolveProPlanStatus(user, { stripeBillingStatus });
+    // Keep stale Upgrade links from opening a second subscription. Any
+    // currently active row (even behind a newer canceled one) means the portal
+    // is the right destination; the portal also recovers past-due/unpaid and
+    // cancel-at-period-end states, but it cannot start a new subscription
+    // after a terminal cancellation.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+      return NextResponse.redirect(new URL("/api/billing/portal", request.url));
+    }
     if (status.isPro) {
       return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
     }
@@ -154,7 +171,7 @@ async function stripeProCheckout(
     const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
     cancelUrl.searchParams.set("interval", interval);
     const metadata = {
-      stackUserId: user.id,
+      stackUserId,
       plan: "pro",
       app: "cmux",
       billingInterval: interval,
@@ -169,18 +186,25 @@ async function stripeProCheckout(
           quantity: 1,
         },
       ],
-      client_reference_id: user.id,
+      client_reference_id: stackUserId,
       metadata,
       subscription_data: { metadata },
-      customer_email: !user.isAnonymous && user.primaryEmail ? user.primaryEmail : undefined,
+      customer: stripeBillingStatus.customerId ?? undefined,
+      customer_email: stripeBillingStatus.customerId
+        ? undefined
+        : !user.isAnonymous && user.primaryEmail
+          ? user.primaryEmail
+          : undefined,
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
     });
-    if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    if (!usableCheckoutSession(session)) {
+      throw new Error("Stripe Checkout Session did not include an id and URL");
+    }
     deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
       sessionId: session.id,
-      subject: { scope: "user", stackUserId: user.id },
+      subject: { scope: "user", stackUserId },
       plan: "pro",
       billingInterval: interval,
     }));
@@ -209,12 +233,19 @@ async function stripeTeamCheckout(
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
+    const stackUserId = checkoutPrincipalId(user.id, "user");
     const team = await checkoutTeamCustomer(user);
-    const resolvedTeamId = team.id;
-    if (!resolvedTeamId) {
-      throw new Error("Stack team checkout customer is missing an id");
-    }
+    const resolvedTeamId = checkoutPrincipalId(team.id, "team");
     teamId = resolvedTeamId;
+
+    const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
+    // Same rule as personal checkout: an already-paying team manages billing
+    // in the portal; checkout would create a duplicate subscription.
+    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+      const portalURL = new URL("/api/billing/portal", request.url);
+      portalURL.searchParams.set("scope", "team");
+      return NextResponse.redirect(portalURL);
+    }
 
     const successUrl =
       `${request.nextUrl.origin}/api/billing/complete` +
@@ -229,7 +260,8 @@ async function stripeTeamCheckout(
       nativeCallbackScheme: callbackScheme,
     };
 
-    const customerId = await stripeCustomerForTeam(team, user.id);
+    const customerId =
+      stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
@@ -250,7 +282,9 @@ async function stripeTeamCheckout(
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
     });
-    if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    if (!usableCheckoutSession(session)) {
+      throw new Error("Stripe Checkout Session did not include an id and URL");
+    }
     deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
       sessionId: session.id,
       subject: { scope: "team", stackTeamId: resolvedTeamId },
@@ -272,6 +306,26 @@ async function stripeTeamCheckout(
 function accountDeletionCheckoutRedirect(request: NextRequest) {
   return NextResponse.redirect(
     new URL("/pricing?billing=account_deletion_in_progress", request.url),
+  );
+}
+
+function checkoutPrincipalId(value: unknown, kind: "user" | "team"): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Stack ${kind} checkout principal is missing an id`);
+  }
+  return value;
+}
+
+function usableCheckoutSession(
+  value: unknown,
+): value is { readonly id: string; readonly url: string } {
+  if (!value || typeof value !== "object") return false;
+  const session = value as { readonly id?: unknown; readonly url?: unknown };
+  return (
+    typeof session.id === "string" &&
+    session.id.trim().length > 0 &&
+    typeof session.url === "string" &&
+    session.url.trim().length > 0
   );
 }
 
