@@ -146067,13 +146067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't scan? Enter this Mac's Tailscale IP, MagicDNS name, or local-network address and port:"
+            "value": "Can't scan? Enter this Mac's Tailscale IP and port:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキャンできない場合は、この Mac の Tailscale IP、MagicDNS 名、またはローカルネットワークのアドレスとポートを入力してください："
+            "value": "スキャンできない場合は、この Mac の Tailscale IP アドレスとポートを入力してください："
           }
         }
       }

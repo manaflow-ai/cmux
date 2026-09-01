@@ -995,10 +995,35 @@ extension MobileShellComposite {
     ) async {
         let scope = await currentScopeSnapshot()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let inMemoryPairedMac = pairedMacs.first {
+            MacPairingKey($0) == MacPairingKey(
+                macDeviceID: device.deviceId,
+                instanceTag: instance.tag
+            )
+        }
+        let pairedMac: MobilePairedMac?
+        if let inMemoryPairedMac {
+            pairedMac = inMemoryPairedMac
+        } else if let pairedMacStore, let scope {
+            pairedMac = try? await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ).first {
+                MacPairingKey($0) == MacPairingKey(
+                    macDeviceID: device.deviceId,
+                    instanceTag: instance.tag
+                )
+            }
+        } else {
+            pairedMac = nil
+        }
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscaleRequirement: pairedMac.flatMap {
+                tailscaleRouteRequirement(for: $0)
+            },
             authorizer: tailscaleRouteAuthorizer
         )
         guard !candidateRoutes.isEmpty else {
@@ -1027,7 +1052,8 @@ extension MobileShellComposite {
             routes: candidateRoutes,
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
-            recordsPairingAttempt: true
+            recordsPairingAttempt: true,
+            knownPairing: pairedMac
         )).didConnect
         guard connectedRoute else {
             if previousActive != nil, connectionState != .connected {

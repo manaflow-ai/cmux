@@ -5,9 +5,10 @@ import Foundation
 import Observation
 
 /// Drives the Mac-side mobile connection page. Iroh is the normal account-backed
-/// path; when a user asks for a manual compatibility path, the model turns on
-/// the pairing host and mints a Tailscale QR. The displayed code never expires
-/// and is never regenerated on a timer; Refresh Code re-mints on demand.
+/// path. While this page is open, the model prepares the optional pairing host
+/// and Tailscale QR whenever a phone-reachable Tailscale route exists. The
+/// displayed code never expires and is never regenerated on a timer; Refresh
+/// Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``

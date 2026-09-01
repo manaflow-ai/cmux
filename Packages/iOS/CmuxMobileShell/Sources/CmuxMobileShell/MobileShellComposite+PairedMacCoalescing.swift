@@ -71,6 +71,7 @@ extension MobileShellComposite {
             let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback,
+                tailscaleRequirement: mac.tailscaleRouteRequirement,
                 authorizer: authorizer
             ) ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
@@ -135,12 +136,14 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool,
+        tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement? = nil,
         authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> String? {
         let reconnectRoutes = storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback,
+            tailscaleRequirement: tailscaleRequirement,
             authorizer: authorizer
         )
         guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
@@ -181,6 +184,7 @@ extension MobileShellComposite {
               let key = target.scopedDialEndpointKey(
                   supportedKinds: supportedKinds,
                   preferNonLoopback: preferNonLoopback,
+                  tailscaleRequirement: target.tailscaleRouteRequirement,
                   authorizer: authorizer
               ) else {
             return [macDeviceID]
@@ -189,6 +193,7 @@ extension MobileShellComposite {
             $0.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback,
+                tailscaleRequirement: $0.tailscaleRouteRequirement,
                 authorizer: authorizer
             ) == key
         }.map(\.macDeviceID)
@@ -221,6 +226,7 @@ extension MobileShellComposite {
             let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback,
+                tailscaleRequirement: mac.tailscaleRouteRequirement,
                 authorizer: authorizer
             ) ?? "device:\(mac.id)"
             groupKeyByPairingID[mac.id] = key
@@ -265,6 +271,7 @@ extension MobileShellComposite {
             if let dialEndpoint = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback,
+                tailscaleRequirement: mac.tailscaleRouteRequirement,
                 authorizer: authorizer
             ) {
                 if let first = firstCanonicalIDByDialEndpoint[dialEndpoint] {
@@ -317,6 +324,7 @@ private extension MobilePairedMac {
     func unscopedDialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool,
+        tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement? = nil,
         authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> String? {
         guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -327,13 +335,23 @@ private extension MobilePairedMac {
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback,
+            tailscaleRequirement: tailscaleRequirement ?? tailscaleRouteRequirement,
             authorizer: authorizer
         )
-        if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
+        // Presentation aliases may still group legacy rows that have only a
+        // raw Tailscale host and no local grant. This is a display key, never a
+        // dial plan; reconnect remains fail-closed through `storedReconnectRoutes`.
+        let aliasRoutes = reconnectRoutes.isEmpty
+            ? routes.filter { route in
+                (supportedKinds.isEmpty || supportedKinds.contains(route.kind))
+                    && (!preferNonLoopback || route.kind != .debugLoopback)
+            }
+            : reconnectRoutes
+        if case let .peer(identity, _)? = aliasRoutes.first?.endpoint {
             return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
         }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
-            reconnectRoutes,
+            aliasRoutes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
@@ -346,11 +364,13 @@ private extension MobilePairedMac {
     func scopedDialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool,
+        tailscaleRequirement: MobileTailscaleRouteAuthorizer.Requirement? = nil,
         authorizer: MobileTailscaleRouteAuthorizer = MobileTailscaleRouteAuthorizer()
     ) -> String? {
         guard let endpointKey = unscopedDialEndpointKey(
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback,
+            tailscaleRequirement: tailscaleRequirement,
             authorizer: authorizer
         ) else {
             return nil
@@ -392,5 +412,22 @@ private extension MobilePairedMac {
             return lastSeenAt > other.lastSeenAt
         }
         return macDeviceID < other.macDeviceID
+    }
+}
+
+private extension MobilePairedMac {
+    /// Reconnect capability for rows whose stored method explicitly pins them
+    /// to a user-authorized Tailscale destination. Pairing-created rows persist
+    /// this method, so static alias/coalescing helpers can honor the same grant
+    /// without consulting mutable shell state.
+    var tailscaleRouteRequirement: MobileTailscaleRouteAuthorizer.Requirement? {
+        guard connectionMethodRawValue == MobileConnectionMethod.tailscale.rawValue else {
+            return nil
+        }
+        return MobileTailscaleRouteAuthorizer.Requirement(
+            macDeviceID: macDeviceID,
+            grantRoutes: legacyTailscaleRoutes ?? [],
+            userGrantRoutes: userAuthorizedTailscaleRoutes ?? []
+        )
     }
 }

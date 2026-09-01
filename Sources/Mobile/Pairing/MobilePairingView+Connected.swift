@@ -76,9 +76,9 @@ struct MobileConnectionOverview: View {
                     .foregroundStyle(.green)
             }
 
-                Text(String(
-                    localized: "mobile.pairing.transport.iroh.detail",
-                    defaultValue: "iPhones signed in to your account find this Mac automatically over Iroh — end-to-end encrypted, direct when possible, through a cmux relay when not. No code needed."
+            Text(String(
+                localized: "mobile.pairing.transport.iroh.detail",
+                defaultValue: "iPhones signed in to your account find this Mac automatically over Iroh — end-to-end encrypted, direct when possible, through a cmux relay when not. No code needed."
             ))
             .cmuxFont(.callout)
             .foregroundStyle(.secondary)
