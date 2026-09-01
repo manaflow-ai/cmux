@@ -55,6 +55,20 @@ LOCK_HELD=0
 WORK=""
 XC_WORK=""
 
+# Publishing is a small transaction. Keep the old trees in sibling backup
+# directories until both new trees and the manifest are in place. The EXIT
+# trap uses these markers to restore the old trees when a move or an
+# interruption fails midway.
+PUBLISH_ACTIVE=0
+PUBLISH_OUT_BACKUP_DIR=""
+PUBLISH_XC_BACKUP_DIR=""
+PUBLISH_OUT_BACKUP=""
+PUBLISH_XC_BACKUP=""
+PUBLISH_OUT_OLD_ATTEMPTED=0
+PUBLISH_XC_OLD_ATTEMPTED=0
+PUBLISH_OUT_NEW_ATTEMPTED=0
+PUBLISH_XC_NEW_ATTEMPTED=0
+
 die() {
     echo "build-ish-ios: $*" >&2
     exit 1
@@ -122,6 +136,28 @@ sha256_file() {
     else
         die "missing shasum or sha256sum"
     fi
+}
+
+sha256_stream() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 | awk '{print tolower($1)}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum | awk '{print tolower($1)}'
+    else
+        die "missing shasum or sha256sum"
+    fi
+}
+
+shim_digest() {
+    local shim_source
+    local digest_lines=""
+    local shim_sources=("$SHIM"/*.c "$SHIM"/*.h)
+    for shim_source in "${shim_sources[@]}"; do
+        [[ -f "$shim_source" ]] || continue
+        digest_lines+="$(sha256_file "$shim_source")  $(basename "$shim_source")\n"
+    done
+    [[ -n "$digest_lines" ]] || die "no shim sources found in $SHIM"
+    printf '%b' "$digest_lines" | sha256_stream
 }
 
 validate_tree() {
@@ -285,8 +321,145 @@ acquire_lock() {
     LOCK_HELD=1
 }
 
+publish_path_exists() {
+    [[ -e "$1" || -L "$1" ]]
+}
+
+# Roll back a partially completed publish. The caller disables `errexit`, so
+# every move is checked explicitly. Backup directories are left in place when
+# a restore itself fails, giving the caller a recoverable copy of the prior
+# artifact instead of deleting it.
+rollback_publish() {
+    local rollback_failed=0
+    local quarantine=""
+
+    [[ "$PUBLISH_ACTIVE" == 1 ]] || return 0
+
+    # First move any newly published tree aside. This makes the old backup
+    # path available for an ordinary rename back to its original location.
+    if [[ "$PUBLISH_OUT_NEW_ATTEMPTED" == 1 ]] && publish_path_exists "$OUT"; then
+        if [[ -z "$PUBLISH_OUT_BACKUP_DIR" ]]; then
+            echo "build-ish-ios: rollback has no output backup directory" >&2
+            rollback_failed=1
+        else
+            quarantine="$PUBLISH_OUT_BACKUP_DIR/new"
+            if ! mv "$OUT" "$quarantine"; then
+                echo "build-ish-ios: rollback could not move new output aside: $OUT" >&2
+                rollback_failed=1
+            fi
+        fi
+    fi
+    if [[ "$PUBLISH_XC_NEW_ATTEMPTED" == 1 ]] && publish_path_exists "$ROOT/IshKernel.xcframework"; then
+        if [[ -z "$PUBLISH_XC_BACKUP_DIR" ]]; then
+            echo "build-ish-ios: rollback has no xcframework backup directory" >&2
+            rollback_failed=1
+        else
+            quarantine="$PUBLISH_XC_BACKUP_DIR/new"
+            if ! mv "$ROOT/IshKernel.xcframework" "$quarantine"; then
+                echo "build-ish-ios: rollback could not move new xcframework aside: $ROOT/IshKernel.xcframework" >&2
+                rollback_failed=1
+            fi
+        fi
+    fi
+
+    # Restore each old tree only when its backup rename succeeded. If the old
+    # rename failed, the original path is still the old tree and is left alone.
+    if [[ "$PUBLISH_OUT_OLD_ATTEMPTED" == 1 ]]; then
+        if publish_path_exists "$PUBLISH_OUT_BACKUP"; then
+            if publish_path_exists "$OUT"; then
+                echo "build-ish-ios: rollback output target is still occupied: $OUT" >&2
+                rollback_failed=1
+            elif ! mv "$PUBLISH_OUT_BACKUP" "$OUT"; then
+                echo "build-ish-ios: rollback could not restore output: $OUT" >&2
+                rollback_failed=1
+            fi
+        elif ! publish_path_exists "$OUT"; then
+            echo "build-ish-ios: rollback lost the previous output: $OUT" >&2
+            rollback_failed=1
+        fi
+    fi
+    if [[ "$PUBLISH_XC_OLD_ATTEMPTED" == 1 ]]; then
+        if publish_path_exists "$PUBLISH_XC_BACKUP"; then
+            if publish_path_exists "$ROOT/IshKernel.xcframework"; then
+                echo "build-ish-ios: rollback xcframework target is still occupied: $ROOT/IshKernel.xcframework" >&2
+                rollback_failed=1
+            elif ! mv "$PUBLISH_XC_BACKUP" "$ROOT/IshKernel.xcframework"; then
+                echo "build-ish-ios: rollback could not restore xcframework: $ROOT/IshKernel.xcframework" >&2
+                rollback_failed=1
+            fi
+        elif ! publish_path_exists "$ROOT/IshKernel.xcframework"; then
+            echo "build-ish-ios: rollback lost the previous xcframework: $ROOT/IshKernel.xcframework" >&2
+            rollback_failed=1
+        fi
+    fi
+
+    if [[ "$rollback_failed" == 0 ]]; then
+        if [[ -n "$PUBLISH_OUT_BACKUP_DIR" && -d "$PUBLISH_OUT_BACKUP_DIR" ]]; then
+            rm -rf "$PUBLISH_OUT_BACKUP_DIR"
+        fi
+        if [[ -n "$PUBLISH_XC_BACKUP_DIR" && -d "$PUBLISH_XC_BACKUP_DIR" ]]; then
+            rm -rf "$PUBLISH_XC_BACKUP_DIR"
+        fi
+        PUBLISH_ACTIVE=0
+        echo "build-ish-ios: restored previous artifacts after interrupted publish" >&2
+    else
+        echo "build-ish-ios: rollback incomplete; backup directories kept:" >&2
+        [[ -n "$PUBLISH_OUT_BACKUP_DIR" ]] && echo "  $PUBLISH_OUT_BACKUP_DIR" >&2
+        [[ -n "$PUBLISH_XC_BACKUP_DIR" ]] && echo "  $PUBLISH_XC_BACKUP_DIR" >&2
+    fi
+    return "$rollback_failed"
+}
+
+publish_outputs() {
+    # Each backup directory is created beside its target. This keeps every
+    # rename on the target filesystem, so a successful rename is atomic and
+    # cannot leave a half-copied directory.
+    PUBLISH_ACTIVE=1
+    PUBLISH_OUT_BACKUP_DIR="$(mktemp -d "$BUILD_ROOT/.ish-publish-out.XXXXXX")" \
+        || die "could not create an output backup directory"
+    PUBLISH_XC_BACKUP_DIR="$(mktemp -d "$ROOT/.ish-publish-xc.XXXXXX")" \
+        || die "could not create an xcframework backup directory"
+    PUBLISH_OUT_BACKUP="$PUBLISH_OUT_BACKUP_DIR/previous"
+    PUBLISH_XC_BACKUP="$PUBLISH_XC_BACKUP_DIR/previous"
+
+    if publish_path_exists "$OUT"; then
+        PUBLISH_OUT_OLD_ATTEMPTED=1
+        mv "$OUT" "$PUBLISH_OUT_BACKUP" \
+            || die "could not move the previous output aside: $OUT"
+    fi
+    if publish_path_exists "$ROOT/IshKernel.xcframework"; then
+        PUBLISH_XC_OLD_ATTEMPTED=1
+        mv "$ROOT/IshKernel.xcframework" "$PUBLISH_XC_BACKUP" \
+            || die "could not move the previous xcframework aside: $ROOT/IshKernel.xcframework"
+    fi
+
+    # The build lock protects this check from other invocations. Refuse an
+    # unexpected target rather than allowing `mv` to nest the new tree inside
+    # a directory created by another process.
+    if publish_path_exists "$OUT"; then
+        die "output publish target appeared unexpectedly: $OUT"
+    fi
+    PUBLISH_OUT_NEW_ATTEMPTED=1
+    mv "$WORK" "$OUT" || die "could not publish output: $OUT"
+    WORK=""
+
+    if publish_path_exists "$ROOT/IshKernel.xcframework"; then
+        die "xcframework publish target appeared unexpectedly: $ROOT/IshKernel.xcframework"
+    fi
+    PUBLISH_XC_NEW_ATTEMPTED=1
+    mv "$XC_TMP" "$ROOT/IshKernel.xcframework" \
+        || die "could not publish xcframework: $ROOT/IshKernel.xcframework"
+    XC_TMP=""
+}
+
 cleanup() {
-    local status=$?
+    local exit_status=$?
+    set +e
+    if [[ "$PUBLISH_ACTIVE" == 1 ]]; then
+        if ! rollback_publish; then
+            [[ "$exit_status" -eq 0 ]] && exit_status=1
+        fi
+    fi
     if [[ "$KEEP_BUILD" != 1 && -n "$WORK" && -d "$WORK" ]]; then
         rm -rf "$WORK"
     fi
@@ -298,7 +471,8 @@ cleanup() {
         rmdir "$LOCK_DIR" 2>/dev/null || true
         LOCK_HELD=0
     fi
-    exit "$status"
+    set -e
+    exit "$exit_status"
 }
 
 trap cleanup EXIT
@@ -330,6 +504,14 @@ fi
 # products, because its helper scripts inspect shared source state.
 acquire_lock
 install_rootfs
+
+# Capture the exact inputs before compiling. These values are embedded in each
+# framework so a stale local XCFramework cannot pass verification after the
+# vendored iSH or cmux shim changes.
+ISH_COMMIT="$(git -C "$ISH" rev-parse HEAD 2>/dev/null)" \
+    || die "cannot read vendor/ish revision"
+ROOTFS_DIGEST="$(sha256_file "$ROOTFS_DEST")"
+SHIM_DIGEST="$(shim_digest)"
 
 SLICES=(iphoneos)
 if [[ "$DEVICE_ONLY" != 1 ]]; then
@@ -568,6 +750,20 @@ for sdk in "${SLICES[@]}"; do
         '    <string>1</string>' \
         '</dict>' \
         '</plist>' >"$FRAMEWORK/Info.plist"
+    # Keep provenance inside the framework. xcodebuild preserves this file
+    # when it creates the XCFramework, so verification can reject an artifact
+    # built from an older iSH checkout or shim without trusting an ignored
+    # build directory.
+    printf '%s\n' \
+        '{' \
+        '    "format": "cmux-ish-provenance-v1",' \
+        "    \"ishCommit\": \"$ISH_COMMIT\"," \
+        "    \"rootfsSHA256\": \"$ROOTFS_DIGEST\"," \
+        "    \"shimSHA256\": \"$SHIM_DIGEST\"," \
+        "    \"deploymentTarget\": \"$DEPLOYMENT_TARGET\"," \
+        "    \"slice\": \"$sdk\"," \
+        '    "architecture": "arm64"' \
+        '}' >"$FRAMEWORK/cmux-ish-provenance.json"
 done
 
 XC_WORK="$(mktemp -d "$ROOT/.ish-xcframework.XXXXXX")"
@@ -593,6 +789,7 @@ for sdk in "${SLICES[@]}"; do
     [[ -f "$packaged_framework/IshKernel" ]] || die "xcframework is missing the $identifier binary"
     [[ -f "$packaged_framework/Headers/cmux_ish.h" ]] || die "xcframework is missing headers for $identifier"
     [[ -f "$packaged_framework/Modules/module.modulemap" ]] || die "xcframework is missing the module map for $identifier"
+    [[ -f "$packaged_framework/cmux-ish-provenance.json" ]] || die "xcframework is missing provenance for $identifier"
     # `xcodebuild -create-xcframework` rewrites the archive index with the
     # current clock, even when the input archive was built with `ranlib -D`.
     # Restore the reproducible index after packaging and before validation.
@@ -602,20 +799,10 @@ for sdk in "${SLICES[@]}"; do
 done
 
 # Publish only after every slice has passed validation. The lock prevents a
-# second build from observing a half-published directory, while keeping the
-# previous artifact available if compilation fails.
-rm -rf "$OUT"
-mv "$WORK" "$OUT"
-WORK=""
-rm -rf "$ROOT/IshKernel.xcframework"
-mv "$XC_TMP" "$ROOT/IshKernel.xcframework"
-if [[ "$KEEP_BUILD" != 1 ]]; then
-    # xcodebuild leaves create.log beside the output directory, so rmdir is
-    # not sufficient here. This path was created by mktemp above and is safe
-    # to remove as one exact temporary directory.
-    rm -rf "$XC_WORK"
-    XC_WORK=""
-fi
+# second build from observing a half-published directory. `publish_outputs`
+# first renames old trees into sibling backups, then atomically renames both
+# staged trees into place. The EXIT trap restores those backups on failure.
+publish_outputs
 
 # A stable, reviewable manifest makes binary provenance auditable without
 # putting generated libraries into Git. It intentionally contains no clock
@@ -631,6 +818,22 @@ printf '%s\n' \
     '  "architecture": "arm64",' \
     "  \"slices\": [$(printf '\"%s\",' "${SLICES[@]}" | sed 's/,$//')]" \
     '}' >"$OUT/manifest.json"
+
+# The manifest write is part of the publish transaction. Once it succeeds, the
+# new trees are complete and it is safe to discard the old backups.
+PUBLISH_ACTIVE=0
+if [[ "$KEEP_BUILD" != 1 && -n "$XC_WORK" && -d "$XC_WORK" ]]; then
+    rm -rf "$XC_WORK" || echo "build-ish-ios: warning: could not remove temporary directory $XC_WORK" >&2
+    XC_WORK=""
+fi
+if [[ -n "$PUBLISH_OUT_BACKUP_DIR" && -d "$PUBLISH_OUT_BACKUP_DIR" ]]; then
+    rm -rf "$PUBLISH_OUT_BACKUP_DIR" \
+        || echo "build-ish-ios: warning: could not remove old output backup $PUBLISH_OUT_BACKUP_DIR" >&2
+fi
+if [[ -n "$PUBLISH_XC_BACKUP_DIR" && -d "$PUBLISH_XC_BACKUP_DIR" ]]; then
+    rm -rf "$PUBLISH_XC_BACKUP_DIR" \
+        || echo "build-ish-ios: warning: could not remove old xcframework backup $PUBLISH_XC_BACKUP_DIR" >&2
+fi
 
 echo "Built $ROOT/IshKernel.xcframework (slices: ${SLICES[*]}, architecture: arm64)"
 echo "Rootfs source: $ROOTFS_URL"
