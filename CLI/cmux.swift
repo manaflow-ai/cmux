@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxAgentHooks
 import CmuxAgentJournal
 import CmuxFoundation
 import CmuxSettings

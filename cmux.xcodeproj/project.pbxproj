@@ -122,7 +122,6 @@
 		A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
-		D11305000000000000000003 /* AgentHookPromptDepthPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11305000000000000000004 /* AgentHookPromptDepthPolicy.swift */; };
 		A77A0010A1B2C3D4E5F60001 /* AgentJournalLazyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */; };
 		A77A0005A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A0006A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift */; };
 		A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */; };
@@ -555,6 +554,7 @@
 		79390001AA11BB22CC33DD01 /* ClaudeHookLiveDeliveryTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390002AA11BB22CC33DD02 /* ClaudeHookLiveDeliveryTargetTests.swift */; };
 		79390009AA11BB22CC33DD09 /* ClaudeHookLiveDeliveryTargetTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000AAA11BB22CC33DD0A /* ClaudeHookLiveDeliveryTargetTestSupport.swift */; };
 		79390011AA11BB22CC33DD11 /* ClaudeHookPIDAuthenticationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390012AA11BB22CC33DD12 /* ClaudeHookPIDAuthenticationTests.swift */; };
+		D11305000000000000000003 /* ClaudeHookSessionRecord+PromptLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11305000000000000000004 /* ClaudeHookSessionRecord+PromptLifecycle.swift */; };
 		89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */; };
 		89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */; };
 		A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */; };
@@ -657,6 +657,8 @@
 		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
 		C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */; };
 		C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */; };
+		D11305000000000000000007 /* CmuxAgentHooks in Frameworks */ = {isa = PBXBuildFile; productRef = D1130500000000000000000A /* CmuxAgentHooks */; };
+		D11305000000000000000008 /* CmuxAgentHooks in Frameworks */ = {isa = PBXBuildFile; productRef = D1130500000000000000000A /* CmuxAgentHooks */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -3190,7 +3192,6 @@
 		918100000000000000000100 /* AgentHookFailureStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookFailureStage.swift; sourceTree = "<group>"; };
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
-		D11305000000000000000004 /* AgentHookPromptDepthPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookPromptDepthPolicy.swift; sourceTree = "<group>"; };
 		A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLazyStore.swift; sourceTree = "<group>"; };
 		A77A0006A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenter.swift; sourceTree = "<group>"; };
 		A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLifecycleCenterTests.swift; sourceTree = "<group>"; };
@@ -3619,6 +3620,7 @@
 		79390002AA11BB22CC33DD02 /* ClaudeHookLiveDeliveryTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookLiveDeliveryTargetTests.swift; sourceTree = "<group>"; };
 		7939000AAA11BB22CC33DD0A /* ClaudeHookLiveDeliveryTargetTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookLiveDeliveryTargetTestSupport.swift; sourceTree = "<group>"; };
 		79390012AA11BB22CC33DD12 /* ClaudeHookPIDAuthenticationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookPIDAuthenticationTests.swift; sourceTree = "<group>"; };
+		D11305000000000000000004 /* ClaudeHookSessionRecord+PromptLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookSessionRecord+PromptLifecycle.swift"; sourceTree = "<group>"; };
 		89930005AABBCCDDEEFF0002 /* ClaudeHookSessionStore+SupersededCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookSessionStore+SupersededCleanup.swift"; sourceTree = "<group>"; };
 		89930004AABBCCDDEEFF0002 /* ClaudeHookSessionStoreFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSessionStoreFile.swift; sourceTree = "<group>"; };
 		A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSurfaceResolutionSwiftTests.swift; sourceTree = "<group>"; };
@@ -6041,6 +6043,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D11305000000000000000007 /* CmuxAgentHooks in Frameworks */,
 				A77A0004A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				C79470010000000000000005 /* CmuxControlSocket in Frameworks */,
@@ -6068,6 +6071,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			buildActionMask = 2147483647;
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
+				D11305000000000000000008 /* CmuxAgentHooks in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
 				A99940010000000000000001 /* CMUXAuthCore in Frameworks */,
 				A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */,
@@ -8246,7 +8250,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */,
 				8A87C45F990549A8A0A6EE01 /* AgentSurfaceResumeBindingClearOutcome.swift */,
 				B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */,
-				D11305000000000000000004 /* AgentHookPromptDepthPolicy.swift */,
+				D11305000000000000000004 /* ClaudeHookSessionRecord+PromptLifecycle.swift */,
 				89930003AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBinding.swift */,
 				89930009AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingProbe.swift */,
 				89930008AABBCCDDEEFF0002 /* CMUXCLI+AgentHookProcessBindingResult.swift */,
@@ -9204,6 +9208,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
+				D1130500000000000000000A /* CmuxAgentHooks */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
@@ -9272,6 +9277,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
+				D1130500000000000000000A /* CmuxAgentHooks */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
 				1A0B0C0D0E0F101112132112 /* CmuxIrxTransport */,
@@ -9350,6 +9356,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A77A0001A1B2C3D4E5F60001 /* XCLocalSwiftPackageReference "CmuxAgentJournal" */,
+				D11305000000000000000009 /* XCLocalSwiftPackageReference "CmuxAgentHooks" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				CC0033E15A1B2C3D4E5F0010 /* XCLocalSwiftPackageReference "CmuxDiffComments" */,
 				CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */,
@@ -11530,11 +11537,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				918100000000000000000101 /* AgentHookFailureStage.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
-				D11305000000000000000003 /* AgentHookPromptDepthPolicy.swift in Sources */,
 				C3744E030000000000000002 /* AgentPIDProcessIdentity.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
+				D11305000000000000000003 /* ClaudeHookSessionRecord+PromptLifecycle.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
@@ -12969,6 +12976,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxAgentJournal;
 		};
+		D11305000000000000000009 /* XCLocalSwiftPackageReference "CmuxAgentHooks" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxAgentHooks;
+		};
 		A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CMUXProjectModel;
@@ -13201,6 +13212,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = A77A0001A1B2C3D4E5F60001 /* XCLocalSwiftPackageReference "CmuxAgentJournal" */;
 			productName = CmuxAgentJournal;
+		};
+		D1130500000000000000000A /* CmuxAgentHooks */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D11305000000000000000009 /* XCLocalSwiftPackageReference "CmuxAgentHooks" */;
+			productName = CmuxAgentHooks;
 		};
 		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
 			isa = XCSwiftPackageProductDependency;
