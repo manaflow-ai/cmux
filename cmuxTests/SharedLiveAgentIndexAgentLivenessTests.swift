@@ -574,6 +574,13 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             )
         )
         #expect(
+            !CachedAgentProcessIdentityValidator.livePrimeAgentProcessExecutableMatches(
+                kind: .primeAgent,
+                liveExecutable: "/usr/bin/node",
+                arguments: ["/usr/bin/node", "/tmp/prime-agent/cli.js"]
+            )
+        )
+        #expect(
             validator.currentProcess(
                 CmuxTopProcessArguments(
                     arguments: ["/usr/bin/node", "/tmp/unrelated/cli.js"],

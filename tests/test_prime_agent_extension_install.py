@@ -272,6 +272,16 @@ await waitForLines(process.env.FAKE_PRIME_CMUX_ARGS_LOG, 3);
 // The old instance is already idle, so its reload shutdown must not enqueue a
 // second stop; the fresh instance must not invent a running state either.
 await handlers.get("session_shutdown")({ reason: "reload" }, rootCtx);
+// `--mode text` is interactive and must retain the root lifecycle bridge.
+const textHandlers = await loadExtension("3004");
+process.env.CMUX_SURFACE_ID = "prime-text-surface";
+process.argv = ["/usr/local/bin/prime-agent", "--mode", "text"];
+await textHandlers.get("session_start")({ reason: "startup" }, rootCtx);
+await textHandlers.get("before_agent_start")({ prompt: "text prompt" }, rootCtx);
+await textHandlers.get("agent_end")({ messages: [{ role: "assistant", content: "text answer" }] }, rootCtx);
+await waitForLines(process.env.FAKE_PRIME_CMUX_ARGS_LOG, 6);
+await textHandlers.get("session_shutdown")({ reason: "quit" }, rootCtx);
+process.env.CMUX_SURFACE_ID = "prime-lifecycle-surface";
 const reloadedHandlers = await loadExtension("3003");
 await reloadedHandlers.get("session_start")({ reason: "reload" }, rootCtx);
 
@@ -301,7 +311,7 @@ if (!delivered.every((line) => line === "hooks prime-agent session-start"
   || line === "hooks prime-agent stop")) {
   throw new Error(`unexpected Prime hook commands: ${delivered}`);
 }
-if (delivered.length !== 3) throw new Error(`child/headless/duplicate lifecycle leaked: ${delivered}`);
+if (delivered.length !== 6) throw new Error(`child/headless/duplicate lifecycle leaked: ${delivered}`);
 const payloads = fs.readFileSync(process.env.FAKE_PRIME_CMUX_STDIN_LOG, "utf8")
   .split("\n---\n").filter((chunk) => chunk.trim()).map((chunk) => JSON.parse(chunk));
 if (payloads.some((payload) => payload.session_id !== "prime-root-session")) {

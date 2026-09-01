@@ -67,6 +67,14 @@ struct AgentResumeArgvTests {
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: "prime-agent",
+                sessionId: "prime-session-id",
+                executablePath: nil,
+                arguments: ["prime-agent", "-r", sessionFile]
+            ) == ["prime-agent", "--resume", sessionFile]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "prime-agent",
                 sessionId: sessionFile,
                 executablePath: "/usr/bin/node",
                 arguments: ["/usr/bin/node", "--model", "prime-model"]
