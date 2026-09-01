@@ -257,7 +257,9 @@ final class TerminalMutationBus: @unchecked Sendable {
             pending.removeAll { entry in
                 entry.notificationCoalescingKey == coalescingKey
             }
-            rebuildPendingPerformReplaceIndices()
+            if pending.count != beforeCount {
+                rebuildPendingPerformReplaceIndices()
+            }
         }
         removedCount = beforeCount - pending.count
         nextSequence &+= 1
