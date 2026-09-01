@@ -183,7 +183,7 @@ nonisolated func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
     flags: NSEvent.ModifierFlags
 ) -> Bool {
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    terminalDeleteEquivalentShouldDispatch(
+    return terminalDeleteEquivalentShouldDispatch(
         keyCode: keyCode,
         firstResponderIsTerminal: firstResponderIsTerminal,
         firstResponderHasMarkedText: firstResponderHasMarkedText,
