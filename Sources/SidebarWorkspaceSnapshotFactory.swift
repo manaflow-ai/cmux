@@ -74,6 +74,14 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
+        let metadataEntries: [SidebarStatusEntry]
+        if detailVisibility.showsMetadata {
+            metadataEntries = workspace.sidebarStatusEntriesInDisplayOrder()
+        } else if let gapEntry = workspace.sidebarResumeBindingGapStatusEntry() {
+            metadataEntries = [gapEntry]
+        } else {
+            metadataEntries = []
+        }
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
             title: workspace.title,
@@ -89,9 +97,7 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata
-                ? workspace.sidebarStatusEntriesInDisplayOrder()
-                : [],
+            metadataEntries: metadataEntries,
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],

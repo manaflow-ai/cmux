@@ -101,4 +101,18 @@ struct AgentResumeLaunchGuardTests {
         #expect(launchGuard.claimResumeLaunch(kind: "codex", sessionId: "session-fresh") == true)
         #expect(launchGuard.claimedSessionKeys.count == 1)
     }
+
+    @Test("Pi UUID and session-file path share one launch claim")
+    func piSessionIdentityUsesOneClaimKey() {
+        let launchGuard = AgentResumeLaunchGuard()
+        let sessionID = "019fbf0f-7fcd-70aa-9388-f44c4e27fa0c"
+        let sessionPath =
+            "/Users/test/.pi/agent/sessions/project/2026-08-01T18-39-09-000Z_" +
+            "\(sessionID).jsonl"
+
+        #expect(launchGuard.claimResumeLaunch(kind: "pi", sessionId: sessionID))
+        #expect(!launchGuard.claimResumeLaunch(kind: "pi", sessionId: sessionPath))
+        launchGuard.releaseResumeLaunch(kind: "pi", sessionId: sessionPath)
+        #expect(launchGuard.claimResumeLaunch(kind: "pi", sessionId: sessionID))
+    }
 }

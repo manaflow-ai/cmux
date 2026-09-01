@@ -91,11 +91,19 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// App-owned owner generations used to fence concurrent resume-binding
+    /// publications. Tokens remain after a clear while the surface is alive.
+    @ObservationIgnored var surfaceResumeBindingGenerationsByPanelId: [UUID: UUID] = [:]
     /// In-memory compare-and-claim state held while a CLI restore hands the
     /// validated binding to its child process.
     @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
         UUID: (binding: SurfaceResumeBindingSnapshot, claimedAt: Date)
     ] = [:]
+    /// Panels with a live restorable agent whose binding could not be derived
+    /// while serializing the Dock session. Workspace Docks forward this to the
+    /// sidebar; global Docks expose it directly in their own panel view.
+    var unresolvedResumeBindingPanelIds: Set<UUID> = []
+
     @ObservationIgnored var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] = [:]
     @ObservationIgnored var deferredAgentResumeClaimsByPanelId: [UUID: (kind: String, sessionId: String)] = [:]
     @ObservationIgnored var deferredAgentResumeIndexTask: Task<Void, Never>?

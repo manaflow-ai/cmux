@@ -7,9 +7,15 @@ import CmuxSimulator
 import CoreFoundation
 import CryptoKit
 import Darwin
+import OSLog
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
+
+nonisolated private let resumeBindingDeliveryLogger = Logger(
+    subsystem: "com.cmuxterm.cli",
+    category: "ResumeBindingDelivery"
+)
 #if canImport(Security)
 import Security
 #endif
@@ -3006,7 +3012,7 @@ final class SocketClient {
     private static let maxSocketTimeoutSeconds: TimeInterval = 9_007_199_254_740_991
     private static let connectRetryDeadline: TimeInterval = 0.35
     private static let connectRetryIntervalMicros: useconds_t = 25_000
-    private static let responseTimeoutSeconds: TimeInterval = {
+    fileprivate static let responseTimeoutSeconds: TimeInterval = {
         let env = ProcessInfo.processInfo.environment
         if let raw = env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"],
            let seconds = Double(raw),
@@ -27430,6 +27436,25 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let rejectedRestoreLaunchEvidence =
+                isClaudeRestoreSessionStart(parsedInput) &&
+                !agentHookSessionHasDurableResumeEvidence(
+                    kind: "claude",
+                    launchCommand: launchCommand
+                )
+            let rejectedRestoreBindingReconciliation: RejectedClaudeRestoreBindingReconciliation?
+            if rejectedRestoreLaunchEvidence,
+               resolvedSurface.isAuthoritative,
+               !suppressVisibleMutations {
+                rejectedRestoreBindingReconciliation = reconcileRejectedClaudeRestoreBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    acceptedSessionId: acceptedSessionId
+                )
+            } else {
+                rejectedRestoreBindingReconciliation = nil
+            }
             publishAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
@@ -27439,7 +27464,18 @@ struct CMUXCLI {
                 sessionId: acceptedSessionId,
                 cwd: parsedInput.cwd,
                 launchCommand: launchCommand,
-                observedPermissionMode: observedHookPermissionMode
+                transcriptPath: parsedInput.transcriptPath,
+                observedPermissionMode: observedHookPermissionMode,
+                telemetry: telemetry,
+                preserveExistingBindingWhenUnavailable:
+                    rejectedRestoreBindingReconciliation?.preservesExistingBinding == true &&
+                    shouldApplyClaudeHookVisibleMutation(
+                        sessionStore: sessionStore,
+                        parsedInput: parsedInput,
+                        workspaceId: workspaceId,
+                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                        telemetry: telemetry
+                    )
             )
             emitAgentJournalEvent(
                 client: client,
@@ -28648,6 +28684,18 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func isClaudeRestoreSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        switch source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "startup", "resume":
+            return true
+        default:
+            return false
+        }
     }
 
     func socketPanelOption(_ surfaceId: String?) -> String {
@@ -31417,8 +31465,34 @@ struct CMUXCLI {
         observedPermissionMode: String? = nil,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
-        telemetry: CLISocketSentryTelemetry? = nil
+        telemetry: CLISocketSentryTelemetry? = nil,
+        preserveExistingBindingWhenUnavailable: Bool = false
     ) {
+        let shouldPreserveExistingBinding: Bool
+        if preserveExistingBindingWhenUnavailable, kind != "claude" {
+            switch existingAgentResumeBindingCheck(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: kind,
+                sessionId: sessionId
+            ) {
+            case .matches:
+                shouldPreserveExistingBinding = true
+            case .doesNotMatch:
+                resumeBindingDeliveryLogger.notice(
+                    "Skipping unavailable agent resume publication because the surface has a different owner kind=\(kind, privacy: .public)"
+                )
+                return
+            case .unavailable:
+                resumeBindingDeliveryLogger.notice(
+                    "Unable to verify existing agent resume binding; preserving it without mutation kind=\(kind, privacy: .public)"
+                )
+                return
+            }
+        } else {
+            shouldPreserveExistingBinding = preserveExistingBindingWhenUnavailable
+        }
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
             if let launchEnvironment = launchCommand?.environment {
@@ -31432,18 +31506,27 @@ struct CMUXCLI {
             case .exists:
                 break
             case .missing:
-                clearAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    sessionId: sessionId,
-                    responseTimeout: responseTimeout,
-                    deadline: deadline
-                )
+                if shouldPreserveExistingBinding {
+                    resumeBindingDeliveryLogger.notice(
+                        "Preserving existing Hermes resume binding because checkpoint is missing session=\(sessionId, privacy: .private(mask: .hash))"
+                    )
+                } else {
+                    _ = clearAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        sessionId: sessionId,
+                        responseTimeout: responseTimeout,
+                        deadline: deadline
+                    )
+                }
                 return
             case .unavailable:
                 // A temporary snapshot failure must not replace or clear a
                 // previously verified durable Hermes checkpoint.
+                resumeBindingDeliveryLogger.notice(
+                    "Preserving existing Hermes resume binding because checkpoint evidence is unavailable session=\(sessionId, privacy: .private(mask: .hash))"
+                )
                 return
             }
         }
@@ -31453,13 +31536,19 @@ struct CMUXCLI {
                 kind: kind,
                 launchCommand: launchCommand
             ) else {
-                logCodexResumeBindingRejection(
-                    reason: "launch-evidence-rejected",
-                    sessionId: sessionId,
-                    incoming: nil,
-                    existing: nil,
-                    telemetry: telemetry
-                )
+                if shouldPreserveExistingBinding {
+                    resumeBindingDeliveryLogger.notice(
+                        "Preserving existing Codex resume binding because launch evidence is unavailable session=\(sessionId, privacy: .private(mask: .hash))"
+                    )
+                } else {
+                    logCodexResumeBindingRejection(
+                        reason: "launch-evidence-rejected",
+                        sessionId: sessionId,
+                        incoming: nil,
+                        existing: nil,
+                        telemetry: telemetry
+                    )
+                }
                 return
             }
             switch codexResumeBindingVerification(
@@ -31487,14 +31576,20 @@ struct CMUXCLI {
                     existing: nil,
                     telemetry: telemetry
                 )
-                clearAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    sessionId: sessionId,
-                    responseTimeout: responseTimeout,
-                    deadline: deadline
-                )
+                if shouldPreserveExistingBinding {
+                    resumeBindingDeliveryLogger.notice(
+                        "Preserving existing Codex resume binding because rollout evidence is missing session=\(sessionId, privacy: .private(mask: .hash))"
+                    )
+                } else {
+                    _ = clearAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        sessionId: sessionId,
+                        responseTimeout: responseTimeout,
+                        deadline: deadline
+                    )
+                }
                 return
             case .unavailable:
                 logCodexResumeBindingRejection(
@@ -31507,14 +31602,20 @@ struct CMUXCLI {
                 return
             }
         } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            clearAgentSurfaceResumeBinding(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                sessionId: sessionId,
-                responseTimeout: responseTimeout,
-                deadline: deadline
-            )
+            if shouldPreserveExistingBinding {
+                resumeBindingDeliveryLogger.notice(
+                    "Preserving existing agent resume binding because launch evidence is unavailable kind=\(kind, privacy: .public)"
+                )
+            } else {
+                _ = clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    sessionId: sessionId,
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
+                )
+            }
             return
         }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
@@ -31532,7 +31633,11 @@ struct CMUXCLI {
             environment: resumeEnvironment,
             observedPermissionMode: observedPermissionMode
         ) else {
-            if kind == "codex" {
+            if shouldPreserveExistingBinding {
+                resumeBindingDeliveryLogger.notice(
+                    "Preserving existing agent resume binding because no command was derived kind=\(kind, privacy: .public)"
+                )
+            } else if kind == "codex" {
                 logCodexResumeBindingRejection(
                     reason: "resume-command-unavailable",
                     sessionId: sessionId,
@@ -31541,13 +31646,19 @@ struct CMUXCLI {
                     telemetry: telemetry
                 )
             } else {
-                clearAgentSurfaceResumeBinding(
+                let outcome = clearAgentSurfaceResumeBindingOutcome(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionId: sessionId,
-                    responseTimeout: responseTimeout
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
                 )
+                if outcome == .failed {
+                    resumeBindingDeliveryLogger.error(
+                        "Unable to clear agent resume binding with no derived command kind=\(kind, privacy: .public)"
+                    )
+                }
             }
             return
         }
@@ -31578,12 +31689,83 @@ struct CMUXCLI {
             // store mutation; no client-side get/set preflight can close that race.
             params["resume_evidence_provenance"] = codexEvidenceProvenance.logValue
         }
-        _ = try? client.sendV2(
-            method: "surface.resume.set",
-            params: params,
-            responseTimeout: responseTimeout,
-            deadline: deadline
-        )
+        // Keep preflight reconciliation and one retry inside a single operation budget.
+        let retryDeadline = deadline
+            ?? Date.now.addingTimeInterval(responseTimeout ?? SocketClient.responseTimeoutSeconds)
+        let retryPolicy = AgentSurfaceResumePublicationRetry()
+        let targetParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+        ]
+        let preflight: AgentSurfaceResumePublicationRetry.Preflight?
+        do {
+            let current = try client.sendV2(
+                method: "surface.resume.get",
+                params: targetParams,
+                responseTimeout: responseTimeout,
+                deadline: retryDeadline
+            )
+            preflight = retryPolicy.preflight(
+                desiredParams: params,
+                currentPayload: current
+            )
+        } catch {
+            // Without an app-owned baseline generation, one ordinary set is safe
+            // but no replay can distinguish an old binding from a newer writer.
+            preflight = nil
+            client.close()
+            try? client.connect(deadline: retryDeadline)
+        }
+
+        do {
+            _ = try client.sendV2(
+                method: "surface.resume.set",
+                params: preflight?.params ?? params,
+                responseTimeout: responseTimeout,
+                deadline: retryDeadline
+            )
+        } catch {
+            guard let preflight else {
+                resumeBindingDeliveryLogger.error(
+                    "Agent resume binding publish failed without retry generation kind=\(kind, privacy: .public)"
+                )
+                return
+            }
+            do {
+                client.close()
+                try client.connect(deadline: retryDeadline)
+                let current = try client.sendV2(
+                    method: "surface.resume.get",
+                    params: targetParams,
+                    responseTimeout: responseTimeout,
+                    deadline: retryDeadline
+                )
+                switch retryPolicy.decision(
+                    desiredParams: params,
+                    currentPayload: current,
+                    baselineGeneration: preflight.generation
+                ) {
+                case .alreadyApplied:
+                    return
+                case .superseded:
+                    resumeBindingDeliveryLogger.notice(
+                        "Skipping stale agent resume binding retry after binding changed kind=\(kind, privacy: .public)"
+                    )
+                    return
+                case .retry(let retryParams):
+                    _ = try client.sendV2(
+                        method: "surface.resume.set",
+                        params: retryParams,
+                        responseTimeout: responseTimeout,
+                        deadline: retryDeadline
+                    )
+                }
+            } catch {
+                resumeBindingDeliveryLogger.error(
+                    "Agent resume binding publish failed after retry kind=\(kind, privacy: .public)"
+                )
+            }
+        }
     }
 
     @discardableResult
@@ -33502,6 +33684,81 @@ export default CMUXSessionRestore;
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
+    /// Keeps an existing binding only for a session-start event that can still
+    /// belong to the persisted session generation. A new/cleared generic
+    /// session with an unavailable launch capture must not inherit the prior
+    /// session's binding and silently restore the wrong conversation.
+    private func shouldPreserveAgentHookResumeBinding(
+        input: ClaudeHookParsedInput,
+        mappedSession: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard let mappedSession,
+              let incomingSessionID = normalizedHookValue(input.sessionId),
+              incomingSessionID == mappedSession.sessionId else {
+            return false
+        }
+        let source = (input.object ?? input.rawObject).flatMap {
+            firstString(in: $0, keys: ["source"])
+        }?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch source {
+        case "clear", "new", "reset":
+            return false
+        case "startup", "resume", "restore":
+            return true
+        default:
+            // Generic agents do not all expose Claude's `source` field. A
+            // previously restorable record is the durable identity fallback.
+            return mappedSession.isRestorable == true
+        }
+    }
+
+    private enum ExistingAgentResumeBindingCheck {
+        case matches
+        case doesNotMatch
+        case unavailable
+    }
+
+    /// Verifies that an unavailable launch capture still refers to the binding
+    /// currently owned by this exact surface. A generic hook must never preserve
+    /// an unrelated binding merely because its session-store record is old.
+    private func existingAgentResumeBindingCheck(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String,
+        kind: String,
+        sessionId: String
+    ) -> ExistingAgentResumeBindingCheck {
+        do {
+            let payload = try client.sendV2(
+                method: "surface.resume.get",
+                params: [
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                ]
+            )
+            switch payload["resume_binding"] {
+            case .some(let rawBinding as [String: Any]):
+                switch AgentSurfaceResumeBindingOwnership(
+                    kind: kind,
+                    sessionId: sessionId
+                ).evaluate(rawBinding) {
+                case .matches:
+                    return .matches
+                case .doesNotMatch:
+                    return .doesNotMatch
+                case .unavailable:
+                    return .unavailable
+                }
+            case .some(let value) where value is NSNull:
+                return .doesNotMatch
+            default:
+                return .unavailable
+            }
+        } catch {
+            return .unavailable
+        }
+    }
+
     private func runGenericAgentHook(
         def: AgentHookDef,
         commandArgs: [String],
@@ -34884,7 +35141,11 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         launchCommand: resumeLaunchCommand,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                        telemetry: telemetry
+                        telemetry: telemetry,
+                        preserveExistingBindingWhenUnavailable: self.shouldPreserveAgentHookResumeBinding(
+                            input: input,
+                            mappedSession: mapped
+                        )
                     )
                 }
             }

@@ -4472,8 +4472,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             )
             hasher.combine(
-                existingWindowDock(forWindowId: route.windowId)?.sessionManualUnreadAutosaveFingerprint(
-                    notificationStore: notificationStore
+                existingWindowDock(forWindowId: route.windowId)?.sessionAutosaveFingerprint(
+                    notificationStore: notificationStore,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             )
             hasher.combine(route.sidebarSnapshot.isVisible)

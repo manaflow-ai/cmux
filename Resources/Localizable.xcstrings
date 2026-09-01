@@ -234944,6 +234944,35 @@
         }
       }
     },
+    "sidebar.resumeBinding.gap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld agent session will not be restored"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld agent sessions will not be restored"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のエージェントセッションは復元されません"
+          }
+        }
+      }
+    },
     "sidebar.remote.subtitleFallback": {
       "extractionState": "manual",
       "localizations": {

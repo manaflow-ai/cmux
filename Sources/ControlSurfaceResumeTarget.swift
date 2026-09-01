@@ -8,6 +8,13 @@ enum ControlSurfaceResumeTarget {
     case workspace(tabManager: TabManager, workspace: Workspace, surfaceID: UUID)
     case dock(tabManager: TabManager, dock: DockSplitStore, surfaceID: UUID)
 
+    /// Result of atomically checking a retry generation and applying its binding.
+    enum BindingSetResult: Equatable {
+        case applied
+        case rejected
+        case generationMismatch
+    }
+
     var tabManager: TabManager {
         switch self {
         case .workspace(let tabManager, _, _), .dock(let tabManager, _, _): tabManager
@@ -45,6 +52,31 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    /// The app-owned generation for this surface's current resume owner.
+    ///
+    /// The generation remains available after a clear while the surface is
+    /// alive, allowing a retry to fail closed against a newer empty owner.
+    var bindingGeneration: UUID? {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.surfaceResumeBindingGeneration(panelId: surfaceID)
+        case .dock(_, let dock, let surfaceID):
+            dock.surfaceResumeBindingGeneration(panelId: surfaceID)
+        }
+    }
+
+    /// Ensures a live surface has an owner generation before a socket command
+    /// performs a conditional read/modify/write.
+    @discardableResult
+    func ensureBindingGeneration() -> UUID? {
+        switch self {
+        case .workspace(_, let workspace, let surfaceID):
+            workspace.ensureSurfaceResumeBindingGeneration(panelId: surfaceID)
+        case .dock(_, let dock, let surfaceID):
+            dock.ensureSurfaceResumeBindingGeneration(panelId: surfaceID)
+        }
+    }
+
     var restorableAgent: SessionRestorableAgentSnapshot? {
         switch self {
         case .workspace(_, let workspace, let surfaceID):
@@ -64,13 +96,35 @@ enum ControlSurfaceResumeTarget {
     }
 
     @discardableResult
-    func setBinding(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+    func setBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        expectedBindingUpdatedAt: TimeInterval? = nil,
+        expectsMissingBinding: Bool = false,
+        expectedBindingGeneration: UUID? = nil
+    ) -> BindingSetResult {
+        let currentBinding = self.binding
+        if let expectedBindingGeneration {
+            guard bindingGeneration == expectedBindingGeneration else {
+                return .generationMismatch
+            }
+        } else if expectsMissingBinding {
+            guard currentBinding == nil else {
+                return .generationMismatch
+            }
+        } else if let expectedBindingUpdatedAt {
+            guard currentBinding?.updatedAt == expectedBindingUpdatedAt else {
+                return .generationMismatch
+            }
+        }
+
+        let didSet: Bool
         switch self {
         case .workspace(_, let workspace, let surfaceID):
-            workspace.setSurfaceResumeBinding(binding, panelId: surfaceID)
+            didSet = workspace.setSurfaceResumeBinding(binding, panelId: surfaceID)
         case .dock(_, let dock, let surfaceID):
-            dock.setSurfaceResumeBinding(binding, panelId: surfaceID)
+            didSet = dock.setSurfaceResumeBinding(binding, panelId: surfaceID)
         }
+        return didSet ? .applied : .rejected
     }
 
     /// Atomically claims the current binding generation for a CLI restore.
@@ -336,7 +390,8 @@ extension TerminalController {
             restoreRecord: cleared
                 ? nil
                 : controlSurfaceRestoreRecord(target: target, binding: binding),
-            resumeClaimed: claimSucceeded
+            resumeClaimed: claimSucceeded,
+            resumeBindingGeneration: target.bindingGeneration
         )
     }
 
@@ -378,7 +433,7 @@ extension TerminalController {
             compatibleAgent = nil
         }
         if let compatibleAgent {
-            let agent = compatibleAgent.snapshot
+            let agent = compatibleAgent.snapshot.retargetedForResumeBinding(binding)
             let launchCommand = binding?.launchCommand ?? agent.launchCommand
             let workingDirectory = compatibleAgent.restoredWorkingDirectory
                 ?? binding?.cwd
@@ -666,6 +721,7 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
+        target.ensureBindingGeneration()
         guard let locatedBinding = target.registeredBinding(binding, inputs: inputs) else {
             return .setFailed
         }
@@ -676,10 +732,26 @@ extension TerminalController {
         case let .resolved(binding):
             effectiveBinding = binding
         }
-        guard target.setBinding(effectiveBinding) else {
+        switch target.setBinding(
+            effectiveBinding,
+            expectedBindingUpdatedAt: inputs.expectedBindingUpdatedAt,
+            expectsMissingBinding: inputs.expectsMissingBinding,
+            expectedBindingGeneration: inputs.expectedBindingGeneration
+        ) {
+        case .generationMismatch:
+            return .setFailed
+        case .rejected:
             return .emptyResumeCommand
+        case .applied:
+            break
         }
-        return .result(surfaceResumeSnapshot(target: target, binding: effectiveBinding, cleared: false))
+        return .result(
+            surfaceResumeSnapshot(
+                target: target,
+                binding: target.binding ?? effectiveBinding,
+                cleared: false
+            )
+        )
     }
 
     func controlSurfaceResumeGet(
@@ -701,6 +773,7 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
+        target.ensureBindingGeneration()
         if let binding = target.binding,
            case .pendingSigningSecret = SurfaceResumeApprovalStore.applyingStoredApprovalLookup(to: binding) {
             return .approvalPending(message: surfaceResumeApprovalPendingMessage)
@@ -745,6 +818,7 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound
         }
+        target.ensureBindingGeneration()
         let bindingForClear = target.bindingForClear(
             expectedSource: expectedSource,
             agentSessionEnded: agentSessionEnded

@@ -135,15 +135,43 @@ struct DockPanelView: View {
         } else if let error = store.errorMessage {
             DockErrorView(message: error)
         } else {
-            DockSplitContentView(
-                store: store,
-                appearance: appearance,
-                appearanceRevision: appearanceRevision,
-                windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
-                unreadPanelIDs: unreadProjection.unreadPanelIDs
-            )
+            VStack(spacing: 0) {
+                if store.scope == .global,
+                   store.unresolvedResumeBindingGapCount > 0 {
+                    resumeBindingGapView(
+                        count: store.unresolvedResumeBindingGapCount
+                    )
+                }
+                DockSplitContentView(
+                    store: store,
+                    appearance: appearance,
+                    appearanceRevision: appearanceRevision,
+                    windowAppearance: windowAppearance,
+                    rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
+                    unreadPanelIDs: unreadProjection.unreadPanelIDs
+                )
+            }
         }
+    }
+
+    private func resumeBindingGapView(count: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(String.localizedStringWithFormat(
+                String(
+                    localized: "sidebar.resumeBinding.gap",
+                    defaultValue: "%lld agent sessions will not be restored"
+                ),
+                Int64(count)
+            ))
+            .lineLimit(2)
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.red)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.1))
     }
 }
 

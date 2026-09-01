@@ -106,8 +106,50 @@ extension DockSplitStore {
             restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
-        surfaceResumeBindingsByPanelId[panelId] = binding
+        installSurfaceResumeBinding(binding, panelId: panelId)
+        setResumeBindingGap(false, panelId: panelId)
         return true
+    }
+
+    /// Returns the current app-owned owner generation for a Dock surface.
+    func surfaceResumeBindingGeneration(panelId: UUID) -> UUID? {
+        surfaceResumeBindingGenerationsByPanelId[panelId]
+    }
+
+    /// Creates the initial empty-owner generation for a live Dock surface.
+    @discardableResult
+    func ensureSurfaceResumeBindingGeneration(panelId: UUID) -> UUID? {
+        guard panels[panelId] != nil else { return nil }
+        if let generation = surfaceResumeBindingGenerationsByPanelId[panelId] {
+            return generation
+        }
+        let generation = UUID()
+        surfaceResumeBindingGenerationsByPanelId[panelId] = generation
+        return generation
+    }
+
+    /// Installs a binding and advances its owner generation atomically.
+    func installSurfaceResumeBinding(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) {
+        let didChange = surfaceResumeBindingsByPanelId[panelId] != binding
+        surfaceResumeBindingsByPanelId[panelId] = binding
+        if didChange || surfaceResumeBindingGenerationsByPanelId[panelId] == nil {
+            surfaceResumeBindingGenerationsByPanelId[panelId] = UUID()
+        }
+    }
+
+    /// Removes a binding and advances the empty-owner generation.
+    @discardableResult
+    func removeStoredSurfaceResumeBinding(
+        panelId: UUID
+    ) -> SurfaceResumeBindingSnapshot? {
+        let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        if removed != nil || surfaceResumeBindingGenerationsByPanelId[panelId] != nil {
+            surfaceResumeBindingGenerationsByPanelId[panelId] = UUID()
+        }
+        return removed
     }
 
     /// Atomically claims the current binding generation for a CLI restore.
@@ -234,7 +276,7 @@ extension DockSplitStore {
             managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
             if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId],
                Self.dockResumeBindingsRepresentSameManagedSession(effectiveBinding, binding) {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                _ = removeStoredSurfaceResumeBinding(panelId: panelId)
             }
             if cachedTransferContainsManagedSession(
                 panelId: panelId,
@@ -249,6 +291,7 @@ extension DockSplitStore {
                 agentSessionEnded: agentSessionEnded
             )
             surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+            setResumeBindingGap(false, panelId: panelId)
             return true
         }
 
@@ -256,7 +299,7 @@ extension DockSplitStore {
               effectiveBinding == binding else {
             return false
         }
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        _ = removeStoredSurfaceResumeBinding(panelId: panelId)
         clearAgentRestoreStateOwned(
             by: binding,
             panelId: panelId,
@@ -264,11 +307,35 @@ extension DockSplitStore {
             agentSessionEnded: agentSessionEnded
         )
         surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+        setResumeBindingGap(false, panelId: panelId)
         return true
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         surfaceResumeBindingsByPanelId[panelId]
+    }
+
+    func setResumeBindingGap(_ hasGap: Bool, panelId: UUID) {
+        let didChange: Bool
+        if hasGap {
+            didChange = unresolvedResumeBindingPanelIds.insert(panelId).inserted
+        } else {
+            didChange = unresolvedResumeBindingPanelIds.remove(panelId) != nil
+        }
+        guard didChange else { return }
+        terminalFontSizeOwningWorkspace?.updateDockResumeBindingGaps(
+            unresolvedResumeBindingPanelIds
+        )
+    }
+
+    func clearAllResumeBindingGaps() {
+        guard !unresolvedResumeBindingPanelIds.isEmpty else { return }
+        unresolvedResumeBindingPanelIds.removeAll(keepingCapacity: false)
+        terminalFontSizeOwningWorkspace?.updateDockResumeBindingGaps([])
+    }
+
+    var unresolvedResumeBindingGapCount: Int {
+        unresolvedResumeBindingPanelIds.count
     }
 
     func managedAgentResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
@@ -341,9 +408,9 @@ extension DockSplitStore {
         clearRestoredAgentContinuationState(panelId: panelId)
     }
 
-    func persistentSSHResumeRegistration(
+    func persistentSSHResumeContext(
         panelId: UUID
-    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+    ) -> SurfaceResumeRemoteContext? {
         guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
               transfer.isRemoteTerminal,
               let sessionID = transfer.remotePTYSessionID?
@@ -357,16 +424,35 @@ extension DockSplitStore {
               configuration.transport == .ssh,
               configuration.preserveAfterTerminalExit,
               !configuration.skipDaemonBootstrap,
+              configuration.persistentDaemonSlot != nil else {
+            return nil
+        }
+        return SurfaceResumeRemoteContext(
+            workspaceID: sourceWorkspaceId,
+            surfaceID: panelId,
+            persistentPTYSessionID: sessionID
+        )
+    }
+
+    func persistentSSHResumeRegistration(
+        panelId: UUID
+    ) -> (context: SurfaceResumeRemoteContext, relayToken: String)? {
+        guard let transfer = detachedSurfaceTransfersByPanelId[panelId],
+              let context = persistentSSHResumeContext(panelId: panelId) else {
+            return nil
+        }
+        let sourceWorkspaceId = context.workspaceID
+        let sourceWorkspace = AppDelegate.shared?.workspaceFor(tabId: sourceWorkspaceId)
+        guard let configuration = transfer.remoteCleanupConfiguration ?? sourceWorkspace?.remoteConfiguration,
+              configuration.transport == .ssh,
+              configuration.preserveAfterTerminalExit,
+              !configuration.skipDaemonBootstrap,
               configuration.persistentDaemonSlot != nil,
               let relayToken = configuration.relayToken else {
             return nil
         }
         return (
-            SurfaceResumeRemoteContext(
-                workspaceID: sourceWorkspaceId,
-                surfaceID: panelId,
-                persistentPTYSessionID: sessionID
-            ),
+            context,
             relayToken
         )
     }

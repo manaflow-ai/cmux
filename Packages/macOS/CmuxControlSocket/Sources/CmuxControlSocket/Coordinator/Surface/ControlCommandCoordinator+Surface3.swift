@@ -71,6 +71,45 @@ extension ControlCommandCoordinator {
             }
             launchCommand = parsed
         }
+        let expectedBindingUpdatedAt: Double?
+        if params["_cmux_expected_binding_updated_at"] == nil {
+            expectedBindingUpdatedAt = nil
+        } else {
+            guard let value = double(params, "_cmux_expected_binding_updated_at"),
+                  value.isFinite else {
+                return surfaceResumeResult(.setFailed)
+            }
+            expectedBindingUpdatedAt = value
+        }
+        let expectsMissingBinding: Bool
+        switch params["_cmux_expect_missing_binding"] {
+        case nil:
+            expectsMissingBinding = false
+        case .some(.bool(let value)):
+            expectsMissingBinding = value
+        default:
+            return surfaceResumeResult(.setFailed)
+        }
+        guard expectedBindingUpdatedAt == nil || !expectsMissingBinding else {
+            return surfaceResumeResult(.setFailed)
+        }
+        let expectedBindingGeneration: UUID?
+        if params["_cmux_expected_binding_generation"] == nil {
+            expectedBindingGeneration = nil
+        } else {
+            guard let rawGeneration = optionalTrimmedRawString(
+                params,
+                "_cmux_expected_binding_generation"
+            ),
+            let generation = UUID(uuidString: rawGeneration) else {
+                return surfaceResumeResult(.setFailed)
+            }
+            expectedBindingGeneration = generation
+        }
+        guard expectedBindingGeneration == nil
+            || (expectedBindingUpdatedAt == nil && !expectsMissingBinding) else {
+            return surfaceResumeResult(.setFailed)
+        }
         let inputs = ControlSurfaceResumeSetInputs(
             name: optionalTrimmedRawString(params, "name"),
             kind: optionalTrimmedRawString(params, "kind"),
@@ -85,7 +124,10 @@ extension ControlCommandCoordinator {
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
             remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
-            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
+            resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance"),
+            expectedBindingUpdatedAt: expectedBindingUpdatedAt,
+            expectsMissingBinding: expectsMissingBinding,
+            expectedBindingGeneration: expectedBindingGeneration
         )
         return surfaceResumeResult(
             context?.controlSurfaceResumeSet(
@@ -214,6 +256,9 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
+                "resume_binding_generation": snapshot.resumeBindingGeneration.map {
+                    .string($0.uuidString)
+                } ?? .null,
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]
             if let resumeClaimed = snapshot.resumeClaimed {
