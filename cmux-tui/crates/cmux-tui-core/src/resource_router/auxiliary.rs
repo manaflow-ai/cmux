@@ -744,6 +744,55 @@ mod tests {
     }
 
     #[test]
+    fn agent_report_lookup_failures_do_not_leak_internal_details() {
+        let mux = Mux::new_for_test("aux-agent-error-privacy", SurfaceOptions::default());
+        crate::resource_router::handle_parsed_resource_request(
+            &mux,
+            request(
+                ResourceOperation::WorkspaceCreate,
+                Some("aux-agent-error-privacy-create"),
+                session_selectors(),
+                json!({"initial_content":"terminal"}),
+            ),
+        )
+        .unwrap();
+        let unknown_terminal_id = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff")
+            .unwrap();
+        let report_request = |key| {
+            request(
+                ResourceOperation::AgentReport,
+                Some(key),
+                session_selectors(),
+                json!({
+                    "terminal_id":unknown_terminal_id,
+                    "state":"working",
+                    "source":"socket",
+                    "source_session":"sdk-test",
+                }),
+            )
+        };
+        let response = super::super::handle_parsed_resource_request(
+            &mux,
+            report_request("aux-agent-error-privacy-unknown-terminal"),
+        )
+        .unwrap();
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "operation.failed");
+        assert_eq!(response["error"]["message"], "could not read agent state");
+        assert_eq!(
+            response["error"]["details"],
+            json!({
+                "operation":"agent.report",
+                "reason":"could not read agent state",
+            })
+        );
+        let encoded = response.to_string();
+        for detail in [unknown_terminal_id.as_str(), "revision", "database", "projection"] {
+            assert!(!encoded.contains(detail), "public error leaked {detail:?}: {encoded}");
+        }
+    }
+
+    #[test]
     fn filtered_agent_list_does_not_decode_unrelated_projections() {
         let mux = Mux::new_for_test("filtered-agent-list", SurfaceOptions::default());
         let requested = mux.new_workspace(Some("requested".into()), None).unwrap();
