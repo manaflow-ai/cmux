@@ -23,7 +23,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 try:
     from perf_target_scale_metrics import (
@@ -202,6 +202,67 @@ def _descendant_rows(root_pid: int) -> tuple[list[dict[str, Any]], int]:
     return descendants, sum(int(row["rss_bytes"]) for row in descendants)
 
 
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_pids(pids: Iterable[Any], timeout: float) -> set[int]:
+    pending: set[int] = set()
+    for value in pids:
+        pid = _parse_int(value)
+        if pid is not None and pid > 1:
+            pending.add(pid)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while pending:
+        pending = {pid for pid in pending if _pid_is_alive(pid)}
+        if not pending or time.monotonic() >= deadline:
+            break
+        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+    return pending
+
+
+def _terminate_pids(pids: Iterable[Any]) -> set[int]:
+    unique: set[int] = set()
+    for value in pids:
+        pid = _parse_int(value)
+        if pid is not None and pid > 1 and pid != os.getpid():
+            unique.add(pid)
+    if not unique:
+        return set()
+    for pid in unique:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+    pending = _wait_for_pids(unique, 5.0)
+    for pid in pending:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    return _wait_for_pids(pending, 2.0)
+
+
+def _socket_owner_pids(path: pathlib.Path) -> list[int]:
+    if not path.exists():
+        return []
+    output = _safe_text(["lsof", "-t", str(path)], timeout=10)
+    if not output:
+        return []
+    pids: set[int] = set()
+    for raw in output.splitlines():
+        pid = _parse_int(raw)
+        if pid is not None and pid > 1:
+            pids.add(pid)
+    return sorted(pids)
+
+
 def _read_surface_text(payload: Mapping[str, Any]) -> str:
     if isinstance(payload.get("text"), str):
         return str(payload["text"])
@@ -231,6 +292,7 @@ class TargetScaleRunner:
         self.cli_path = self.app_path / "Contents" / "Resources" / "bin" / "cmux"
         self.proc: subprocess.Popen[str] | None = None
         self.pid: int | None = None
+        self._created_workspace_id = ""
         self.collector_warnings: list[str] = []
 
     def default_app_path(self) -> pathlib.Path:
@@ -309,66 +371,52 @@ class TargetScaleRunner:
         process = self.proc
         self.proc = None
         self.pid = None
-        descendants: list[dict[str, Any]] = []
+        descendant_pids: list[int] = []
         if process is not None:
             try:
                 descendants, _ = _descendant_rows(int(process.pid))
+                descendant_pids = [
+                    child_pid
+                    for row in descendants
+                    if (child_pid := _parse_int(row.get("pid"))) is not None
+                ]
             except BenchmarkError:
-                descendants = []
+                descendant_pids = []
+        socket_pids = _socket_owner_pids(self.cmuxd_socket_path)
         if process is not None and process.poll() is None:
-            process.terminate()
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
             try:
                 process.wait(timeout=8)
             except subprocess.TimeoutExpired:
-                process.kill()
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    pass
-        # cmuxd is a tagged child but can outlive the app's normal termination
-        # path.  Kill only descendants of this run; never use an unscoped
-        # pkill that could touch the user's main cmux instance.
-        for row in descendants:
-            child_pid = _parse_int(row.get("pid"))
-            if child_pid is None or child_pid == os.getpid():
-                continue
-            try:
-                os.kill(child_pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                self.collector_warnings.append(f"could not stop tagged child PID {child_pid}")
+                    self.collector_warnings.append(f"tagged app PID {process.pid} did not exit after SIGKILL")
+        remaining = _terminate_pids([*descendant_pids, *socket_pids])
+        # A daemon can fork or reopen its socket while the app is shutting
+        # down.  Take one final owner snapshot before unlinking the path.
+        remaining.update(_terminate_pids(_socket_owner_pids(self.cmuxd_socket_path)))
+        for child_pid in sorted(remaining):
+            self.collector_warnings.append(f"tagged child PID {child_pid} remained after termination")
         self.socket_path.unlink(missing_ok=True)
         self.cmuxd_socket_path.unlink(missing_ok=True)
 
     def socket_owner_pid(self) -> int:
-        output = _text_value(["lsof", "-t", str(self.socket_path)], timeout=10)
-        candidates: list[int] = []
-        for raw in output.splitlines():
-            pid = _parse_int(raw)
-            if pid:
-                candidates.append(pid)
-        # Prefer the process whose command is the tagged app.  A short-lived
-        # bundled CLI can briefly appear in lsof while it performs the ping;
-        # charging that process would make every resource measurement invalid.
-        for pid in candidates:
-            command = _safe_text(["ps", "-p", str(pid), "-o", "command="], timeout=5) or ""
-            if "cmux DEV" in command and "/Contents/Resources/bin/cmux" not in command:
-                return pid
-        # The app's Popen PID is authoritative when it owns the socket.  Do
-        # this before accepting an arbitrary lsof candidate: cmuxd can also
-        # appear as a socket owner, and charging that helper would invalidate
-        # the app-only measurements.
-        if self.proc and self.proc.pid in candidates:
+        # The runner starts the executable directly with Popen, so its PID is
+        # authoritative once the ping over the tag-specific socket succeeds.
+        # Never substitute an arbitrary `lsof` owner: the CLI and cmuxd helper
+        # can transiently have the same socket open and would corrupt the
+        # app-only measurement.
+        if self.proc is not None and self.proc.pid and self.proc.poll() is None:
             return int(self.proc.pid)
-        for pid in candidates:
-            if self.proc is None or pid != self.proc.pid:
-                return pid
-        # In most tagged runs lsof reports the app itself.  Accept the child
-        # Popen PID as a fallback when launchd briefly owns the socket.
-        if self.proc and self.proc.pid:
-            return int(self.proc.pid)
-        raise BenchmarkError(f"could not resolve app PID from {self.socket_path}")
+        raise BenchmarkError(f"could not resolve live app PID for {self.socket_path}")
 
     def run_cli(self, arguments: Sequence[str], *, timeout: float = 120.0) -> str:
         completed = _run([str(self.cli_path), *arguments], env=self.cli_environment(), timeout=timeout)
@@ -439,6 +487,7 @@ class TargetScaleRunner:
 
     def _create_fixture(self, live: int) -> tuple[str, list[dict[str, Any]]]:
         visible = min(VISIBLE_SURFACE_LIMIT, live)
+        self._created_workspace_id = ""
         old_workspaces = self._workspace_ids()
         payload = self.rpc(
             "workspace.create",
@@ -452,6 +501,7 @@ class TargetScaleRunner:
         workspace_id = _workspace_id_from_create_payload(payload)
         if not workspace_id:
             raise BenchmarkError(f"workspace.create did not return workspace_id: {payload!r}")
+        self._created_workspace_id = workspace_id
         for old in old_workspaces:
             if old != workspace_id:
                 try:
@@ -637,10 +687,16 @@ class TargetScaleRunner:
 
     def run_size(self, live: int) -> dict[str, Any]:
         workspace_id = ""
+        self._created_workspace_id = ""
         try:
             workspace_id, panes = self._create_fixture(live)
             effective_scrollback = self._seed_scrollback(workspace_id, panes, int(self.args.scrollback_bytes))
             runtime_stats = self._runtime_terminal_stats(workspace_id)
+            runtime_ready = _parse_int(runtime_stats.get("runtime_ready_count"))
+            if runtime_ready != live:
+                raise BenchmarkError(
+                    f"runtime surfaces are not ready: ready={runtime_ready!r}/{live}"
+                )
             self._assert_visibility(workspace_id, live)
             self._settle()
             first = self._capture_snapshot()
@@ -670,11 +726,13 @@ class TargetScaleRunner:
                 },
             }
         finally:
-            if workspace_id:
+            cleanup_workspace_id = workspace_id or self._created_workspace_id
+            if cleanup_workspace_id:
                 try:
-                    self.rpc("workspace.close", {"workspace_id": workspace_id}, timeout=60)
+                    self.rpc("workspace.close", {"workspace_id": cleanup_workspace_id}, timeout=60)
                 except BenchmarkError as exc:
-                    self.collector_warnings.append(f"fixture cleanup failed for {workspace_id}: {exc}")
+                    self.collector_warnings.append(f"fixture cleanup failed for {cleanup_workspace_id}: {exc}")
+            self._created_workspace_id = ""
 
     def run(self) -> list[dict[str, Any]]:
         runs: list[dict[str, Any]] = []

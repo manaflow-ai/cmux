@@ -23,6 +23,7 @@ SCHEMA_VERSION = 1
 FIXTURE_SIZES = (1, 10, 100, 200)
 VISIBLE_SURFACE_LIMIT = 5
 MIN_CPU_SECONDS = 30.0
+MIN_CPU_SAMPLES = 3
 
 
 def parse_size(value: str | int | float | None) -> int | None:
@@ -62,7 +63,7 @@ _LABELS = {
     ),
     "phys_footprint_peak": (
         r"peak\s+physical\s+footprint|physical\s+footprint\s*(?:\(\s*peak\s*\)|peak)|"
-        r"peak[_ ]phys(?:ical)?[_ ]footprint|phys[_ ]footprint[_ ]peak"
+        r"peak[_ ]phys(?:ical)?[_ ]footprint|phys[_ ]footprint[_ ]peak|physicalFootprintPeak"
     ),
     "dirty_graphics": r"dirty\s+graphics|dirtyGraphics|graphics\s+footprint|\(\s*graphics\s*\)",
     "iosurface": r"io\s*surface|iosurface|ioSurface",
@@ -149,7 +150,7 @@ def parse_footprint_output(text: str) -> dict[str, int | None]:
     # cases; this fallback also handles a value before a trailing unit.
     compact_patterns = {
         "phys_footprint_bytes": r"phys[_ ]footprint\s*[:=]\s*" + _SIZE_TOKEN,
-        "phys_footprint_peak_bytes": r"phys[_ ]footprint(?:[_ ]peak|\s+peak|\s*\(\s*peak\s*\))\s*[:=]\s*" + _SIZE_TOKEN,
+        "phys_footprint_peak_bytes": r"(?:phys[_ ]footprint(?:[_ ]peak|\s+peak|\s*\(\s*peak\s*\))|physicalFootprintPeak)\s*[:=]\s*" + _SIZE_TOKEN,
         "dirty_graphics_bytes": r"dirty[_ ]graphics\s*[:=]\s*" + _SIZE_TOKEN,
         "iosurface_bytes": r"io\s*surface\s*[:=]\s*" + _SIZE_TOKEN,
         "ioaccelerator_bytes": r"io\s*accelerator\s*[:=]\s*" + _SIZE_TOKEN,
@@ -350,6 +351,7 @@ class BudgetConfig:
                 "idle_one_core_percent": self.idle_cpu_percent,
                 "hidden_slope_percent_per_terminal": self.hidden_cpu_slope_percent,
                 "minimum_sample_seconds": MIN_CPU_SECONDS,
+                "minimum_samples": MIN_CPU_SAMPLES,
             },
             "soak": {"max_ratio": self.soak_ratio},
             "threads": {
@@ -418,6 +420,17 @@ def _snapshot_value(snapshot: Mapping[str, Any], key: str) -> Any:
     return snapshot.get("metrics", {}).get(key) if isinstance(snapshot.get("metrics"), Mapping) else None
 
 
+def _cpu_measurement_is_usable(cpu: Mapping[str, Any]) -> bool:
+    duration = _number(cpu.get("duration_seconds"))
+    sample_count = _number(cpu.get("sample_count"))
+    return (
+        duration is not None
+        and duration >= MIN_CPU_SECONDS
+        and sample_count is not None
+        and sample_count >= MIN_CPU_SAMPLES
+    )
+
+
 def _failure(code: str, message: str, **details: Any) -> dict[str, Any]:
     return {"code": code, "message": message, **details}
 
@@ -456,15 +469,21 @@ def evaluate_run(run: Mapping[str, Any], budgets: BudgetConfig = DEFAULT_BUDGETS
 
     cpu = run.get("cpu") if isinstance(run.get("cpu"), Mapping) else {}
     duration = _number(cpu.get("duration_seconds"))
-    mean_cpu = _number(cpu.get("mean_one_core_percent"))
+    sample_count = _number(cpu.get("sample_count"))
     if duration is None:
         failures.append(_failure("cpu_unavailable", "CPU sample duration is missing"))
     elif duration < MIN_CPU_SECONDS:
         failures.append(_failure("cpu_duration", f"CPU sample lasted {duration:.2f}s; at least {MIN_CPU_SECONDS:.0f}s is required", observed_seconds=duration, minimum_seconds=MIN_CPU_SECONDS))
-    if mean_cpu is None:
-        failures.append(_failure("cpu_unavailable", "CPU sample has no one-core mean"))
-    elif mean_cpu > budgets.idle_cpu_percent:
-        failures.append(_failure("idle_cpu", "settled idle CPU exceeds the one-core budget", observed_percent=mean_cpu, budget_percent=budgets.idle_cpu_percent, live_terminals=live, visible_terminals=visible))
+    if sample_count is None:
+        failures.append(_failure("cpu_samples", "CPU sample count is missing"))
+    elif sample_count < MIN_CPU_SAMPLES:
+        failures.append(_failure("cpu_samples", f"CPU sample has only {sample_count:.0f} numeric observations; at least {MIN_CPU_SAMPLES} are required", observed_samples=sample_count, minimum_samples=MIN_CPU_SAMPLES))
+    if _cpu_measurement_is_usable(cpu):
+        mean_cpu = _number(cpu.get("mean_one_core_percent"))
+        if mean_cpu is None:
+            failures.append(_failure("cpu_unavailable", "CPU sample has no one-core mean"))
+        elif mean_cpu > budgets.idle_cpu_percent:
+            failures.append(_failure("idle_cpu", "settled idle CPU exceeds the one-core budget", observed_percent=mean_cpu, budget_percent=budgets.idle_cpu_percent, live_terminals=live, visible_terminals=visible))
 
     threads = run.get("threads") if isinstance(run.get("threads"), Mapping) else {}
     total_threads = _number(threads.get("total"))
@@ -510,7 +529,7 @@ def evaluate_series(runs: Sequence[Mapping[str, Any]], budgets: BudgetConfig = D
         post = run.get("post_cycle_settled") or run.get("post_cycle") or {}
         gpu = retained_gpu_bytes(post) if isinstance(post, Mapping) else None
         cpu = run.get("cpu") if isinstance(run.get("cpu"), Mapping) else {}
-        mean_cpu = _number(cpu.get("mean_one_core_percent"))
+        mean_cpu = _number(cpu.get("mean_one_core_percent")) if _cpu_measurement_is_usable(cpu) else None
         threads = run.get("threads") if isinstance(run.get("threads"), Mapping) else {}
         total_threads = _number(threads.get("total"))
         points.append((live, hidden, gpu, mean_cpu, total_threads))
@@ -571,6 +590,7 @@ def make_artifact(
             "visible_surface_limit": VISIBLE_SURFACE_LIMIT,
             "reveal_hide_cycles": int(reveal_hide_cycles),
             "minimum_cpu_seconds": MIN_CPU_SECONDS,
+            "minimum_cpu_samples": MIN_CPU_SAMPLES,
             "idle_pty": True,
             "child_workload_charged_to_app": False,
         },

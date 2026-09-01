@@ -18,8 +18,9 @@ started.
 After the seed settles, the collector records a first settled sample, reveals
 and hides every hidden surface for 20 cycles, settles again, and records the
 post-cycle sample.  CPU is sampled with `ps` for at least 30 seconds after the
-second settle.  The app PID is resolved from the tag-specific debug socket, so
-an unrelated cmux instance cannot be charged to the run.
+second settle, and a measurement is usable only when it contains at least
+three numeric samples.  The app PID is resolved from the tag-specific debug
+socket, so an unrelated cmux instance cannot be charged to the run.
 
 Run locally (after building a tagged app) with:
 
@@ -47,7 +48,8 @@ effective scrollback bytes.  Each size records:
 * Dirty Graphics, IOSurface, and IOAccelerator separately, plus a conservative
   retained-GPU total;
 * mean/p95/max CPU as a percentage of one core, whole-machine-normalized CPU,
-  sample count, duration, and logical-core count;
+  sample count, duration, and logical-core count (fewer than three numeric
+  samples is reported as unavailable);
 * total threads and stable role buckets (`main`, `display_link`, `renderer`,
   `pty_io`, `dispatch`, `io`, and `other`);
 * first-settled and post-cycle snapshots; and
