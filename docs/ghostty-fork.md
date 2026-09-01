@@ -63,8 +63,8 @@ at `3fbdd078d`.
   - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
 - Artifact:
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fd13a3fc20f8aab4136437b5693e2e447b86eafc-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `4b0ad8668eb50b57a36868c693ab80d5a75e9b0c4900e97f8f95150e0c7d9a35`
-    is pinned in `scripts/ghosttykit-checksums.txt`.
+  - Historical artifact SHA-256: `4b0ad8668eb50b57a36868c693ab80d5a75e9b0c4900e97f8f95150e0c7d9a35`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
 
 ### Incremental embedded configuration propagation
 
@@ -94,8 +94,8 @@ at `3fbdd078d`.
     archives.
 - Artifact:
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-64b5767a64acac59dad75d9de606e2e06d118e3e-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `88d0c1af6eaed2db05f327c935ad9c4da4d5cf46b8404f8fd2e14b939a258359`
-    is pinned in `scripts/ghosttykit-checksums.txt`.
+  - Historical artifact SHA-256: `88d0c1af6eaed2db05f327c935ad9c4da4d5cf46b8404f8fd2e14b939a258359`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 

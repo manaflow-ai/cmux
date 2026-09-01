@@ -33,7 +33,7 @@ extension AppDelegate {
                 .terminalSurface
         )
 
-        func visit(_ manager: TabManager?) {
+        func visitTabManager(_ manager: TabManager?) {
             guard let manager else { return }
             let managerIdentity = ObjectIdentifier(manager)
             guard seenManagers.insert(managerIdentity).inserted,
@@ -53,9 +53,29 @@ extension AppDelegate {
             }
         }
 
-        visit(tabManager)
+        func visitDock(_ dock: DockSplitStore?) {
+            guard let dock, dock.isVisibleInUI else { return }
+            if let focusedPanelID = dock.focusedPanelId,
+               dock.panelIsActiveInVisibleDockPane(focusedPanelID),
+               let terminal = dock.panels[focusedPanelID] as? TerminalPanel {
+                append(terminal.surface)
+            }
+            for panel in dock.panels.values {
+                guard let terminal = panel as? TerminalPanel,
+                      dock.panelIsSelectedInVisibleDockPane(terminal.id) else {
+                    continue
+                }
+                append(terminal.surface)
+            }
+        }
+
+        visitTabManager(tabManager)
+        if let tabManager {
+            visitDock(existingWindowDock(for: tabManager))
+        }
         for context in mainWindowContexts.values {
-            visit(context.tabManager)
+            visitTabManager(context.tabManager)
+            visitDock(context.existingWindowDock())
         }
         return result
     }

@@ -46,6 +46,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     private var sourceIsExhausted = false
     private var isDrainScheduled = false
     private var drainGeneration: UInt64 = 0
+    private var workGeneration: UInt64 = 0
 
     /// Whether a snapshot still owns pending or scheduled surface work.
     public var hasPendingWork: Bool {
@@ -111,7 +112,10 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         abandon: @escaping Abandon = { _, _, _ in },
         completion: @escaping Completion = {}
     ) {
+        workGeneration &+= 1
+        let replacementGeneration = workGeneration
         abandonPendingRetriesBeforeReplacement()
+        guard workGeneration == replacementGeneration else { return }
         self.snapshot = snapshot
         self.prioritizedIDs = prioritizedIDs
         prioritizedIndex = 0
@@ -136,6 +140,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     /// waiting for obsolete offscreen work.
     public func cancelPendingWork() {
         guard snapshot != nil else { return }
+        workGeneration &+= 1
         abandonPendingRetriesBeforeReplacement()
         drainGeneration &+= 1
         isDrainScheduled = false
@@ -144,6 +149,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
     private func drainImmediatePriority() {
         guard let snapshot, let apply else { return }
+        let generation = workGeneration
         var visits = 0
         while prioritizedIndex < prioritizedIDs.count,
               visits < maximumVisitsPerDrain {
@@ -152,6 +158,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
             visits += 1
             guard visitedIDs.insert(id).inserted else { continue }
             attempt(id, snapshot: snapshot, apply: apply)
+            guard workGeneration == generation else { return }
         }
     }
 
@@ -160,10 +167,13 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
               retryIndex < retryIDs.count else {
             return
         }
+        let generation = workGeneration
+        let pendingRetryIDs = Array(retryIDs[retryIndex...])
         var abandonedIDs: Set<ID> = []
-        for id in retryIDs[retryIndex...]
+        for id in pendingRetryIDs
         where abandonedIDs.insert(id).inserted {
             abandon(id, snapshot, .pendingWorkReplaced)
+            guard workGeneration == generation else { return }
         }
     }
 
@@ -184,6 +194,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     private func drain() {
         isDrainScheduled = false
         guard let snapshot, let apply else { return }
+        let generation = workGeneration
 
         var visits = 0
         let retryEndIndex = retryIDs.count
@@ -194,20 +205,7 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
                 visits += 1
                 guard visitedIDs.insert(id).inserted else { continue }
                 attempt(id, snapshot: snapshot, apply: apply)
-                continue
-            }
-
-            if !sourceIsExhausted {
-                switch nextID?() ?? .exhausted {
-                case .id(let id):
-                    visits += 1
-                    guard visitedIDs.insert(id).inserted else { continue }
-                    attempt(id, snapshot: snapshot, apply: apply)
-                case .skipped:
-                    visits += 1
-                case .exhausted:
-                    sourceIsExhausted = true
-                }
+                guard workGeneration == generation else { return }
                 continue
             }
 
@@ -216,6 +214,24 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
                 retryIndex += 1
                 visits += 1
                 attempt(id, snapshot: snapshot, apply: apply)
+                guard workGeneration == generation else { return }
+                continue
+            }
+
+            if !sourceIsExhausted {
+                let nextResult = nextID?() ?? .exhausted
+                guard workGeneration == generation else { return }
+                switch nextResult {
+                case .id(let id):
+                    visits += 1
+                    guard visitedIDs.insert(id).inserted else { continue }
+                    attempt(id, snapshot: snapshot, apply: apply)
+                    guard workGeneration == generation else { return }
+                case .skipped:
+                    visits += 1
+                case .exhausted:
+                    sourceIsExhausted = true
+                }
                 continue
             }
 
@@ -236,15 +252,19 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         snapshot: Snapshot,
         apply: Apply
     ) {
+        let generation = workGeneration
         let attemptCount = (attemptCounts[id] ?? 0) + 1
         attemptCounts[id] = attemptCount
-        switch apply(id, snapshot) {
+        let result = apply(id, snapshot)
+        guard workGeneration == generation else { return }
+        switch result {
         case .complete:
             attemptCounts.removeValue(forKey: id)
         case .retry where attemptCount < maximumAttemptsPerID:
             retryIDs.append(id)
         case .retry:
             abandon?(id, snapshot, .retryLimitReached)
+            guard workGeneration == generation else { return }
             attemptCounts.removeValue(forKey: id)
         }
     }

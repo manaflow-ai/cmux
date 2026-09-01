@@ -1922,14 +1922,11 @@ class GhosttyApp {
     private func enqueueConfigurationReload(
         _ request: TerminalPendingConfigurationReload
     ) -> Bool {
-        let hadActiveReload =
-            configurationReloadCoordinator.isReloadActive
         let result =
             configurationReloadCoordinator.enqueue(request)
-        if hadActiveReload,
-           terminalConfigurationApplyScheduler.hasPendingWork {
-            terminalConfigurationApplyScheduler.cancelPendingWork()
-        }
+        // Let an already-committed fanout finish before the queued replacement
+        // starts. Canceling it here would strand offscreen surfaces on the old
+        // native configuration if the replacement later fails to commit.
         if result.needsFontWorkBarrier {
             schedulePendingConfigurationReload()
         }
@@ -2220,6 +2217,11 @@ class GhosttyApp {
             nextContentIdentity == nil
             || nextContentIdentity
                 != appliedConfigurationContentIdentity
+        // Keep the bounded traversal for an unchanged serialized config: a
+        // surface may have been replaced, detached, or left with an exhausted
+        // font reconciliation attempt by an earlier transaction. Re-running
+        // the lifecycle-bound apply is the recovery path; skipping it would
+        // leave those surfaces permanently stale.
 
         configurationReloadCoordinator.beginReconciliation()
         if configurationChanged {

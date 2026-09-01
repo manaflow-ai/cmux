@@ -12,6 +12,9 @@ final class TerminalConfigurationReloadCoordinator {
     private var pendingRequest:
         TerminalPendingConfigurationReload?
     private let maximumOutstandingCompletionCount: Int
+    // Keep one slot available for a latency-sensitive commit acknowledgement;
+    // post-fanout callbacks are optional and may be rejected at the boundary.
+    private let reservedCommitCompletionCapacity: Int
     private var outstandingCompletionCount = 0
     private var activeCompletionCount = 0
 
@@ -24,6 +27,8 @@ final class TerminalConfigurationReloadCoordinator {
         )
         self.maximumOutstandingCompletionCount =
             maximumOutstandingCompletionCount
+        self.reservedCommitCompletionCapacity =
+            maximumOutstandingCompletionCount > 0 ? 1 : 0
     }
 
     var isReloadActive: Bool {
@@ -48,21 +53,29 @@ final class TerminalConfigurationReloadCoordinator {
             maximumOutstandingCompletionCount
                 - outstandingCompletionCount
         )
-        let retainedCompletionCount = min(
-            requestedCompletionCount,
-            availableCompletionCount
-        )
         // Commit acknowledgements are the latency-sensitive socket path, so
-        // retain them before optional post-fanout callbacks when capacity is
-        // exhausted. Both kinds still count against one bounded lifetime.
+        // retain them before optional post-fanout callbacks. Keep one slot
+        // reserved even when earlier requests filled the budget with only
+        // post-fanout callbacks, so a later commit acknowledgement is never
+        // silently dropped.
         let retainedCommitCompletionCount = min(
             request.commitCompletions.count,
-            retainedCompletionCount
+            availableCompletionCount
+        )
+        let availableForFinalCompletions = max(
+            0,
+            availableCompletionCount
+                - retainedCommitCompletionCount
+                - (request.commitCompletions.isEmpty
+                    ? reservedCommitCompletionCapacity
+                    : 0)
         )
         let retainedFinalCompletionCount = min(
             request.completions.count,
-            retainedCompletionCount - retainedCommitCompletionCount
+            availableForFinalCompletions
         )
+        let retainedCompletionCount =
+            retainedCommitCompletionCount + retainedFinalCompletionCount
         request.commitCompletions = Array(
             request.commitCompletions.prefix(
                 retainedCommitCompletionCount
