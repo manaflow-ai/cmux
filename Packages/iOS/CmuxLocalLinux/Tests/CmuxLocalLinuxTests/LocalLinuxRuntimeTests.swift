@@ -205,6 +205,57 @@ struct LocalLinuxRuntimeTests {
         #expect(await hangupIterator.next() == nil)
     }
 
+    @Test("beginClose is an idempotent asynchronous hangup fence")
+    func beginCloseIsIdempotent() async throws {
+        let fixture = try RuntimeFixture()
+        defer { fixture.remove() }
+        try fixture.seedValidRootfs()
+
+        let hangupCount = LocalLinuxHangupCounter()
+        let bridge = LocalLinuxTestKernelBridge(
+            boot: { _, _ in },
+            openSession: { _, _, _, _, _ in
+                LocalLinuxTestKernelSession(
+                    processID: 43,
+                    hangup: {
+                        hangupCount.increment()
+                    }
+                )
+            }
+        )
+        let runtime = LocalLinuxRuntime(
+            kernel: bridge,
+            fileSystem: LocalLinuxFileSystemClient(),
+            rootURL: fixture.rootURL,
+            rootfsArchiveURL: nil
+        )
+        try await runtime.bootIfNeeded()
+
+        let session = try await runtime.openSession(
+            command: ["/bin/sh"],
+            environment: [],
+            columns: 80,
+            rows: 24
+        )
+
+        // A synchronous owner can claim a fence without blocking. An actor
+        // close racing that claim must await the same one-shot kernel call.
+        let fence = session.beginClose()
+        let concurrentClose = Task {
+            await session.hangup()
+        }
+        await fence.value
+        await concurrentClose.value
+        #expect(await session.isEnded)
+        #expect(hangupCount.value == 1)
+
+        // Repeated closes remain harmless after the fence has completed.
+        let repeatedFence = session.beginClose()
+        await repeatedFence.value
+        await session.close()
+        #expect(hangupCount.value == 1)
+    }
+
     @Test("natural kernel termination finishes output and closes the session")
     func naturalTerminationFinishesSession() async throws {
         let fixture = try RuntimeFixture()
@@ -293,6 +344,9 @@ struct LocalLinuxRuntimeTests {
         let chunkByteLimit = 64 * 1024
         let bufferedChunkCapacity = 64
         let hangupCount = LocalLinuxHangupCounter()
+        let hangupEvents = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         let bridge = LocalLinuxTestKernelBridge(
             boot: { _, _ in },
             openSessionWithTermination: { _, _, _, _, output, _ in
@@ -309,6 +363,7 @@ struct LocalLinuxRuntimeTests {
                     processID: 8,
                     hangup: {
                         hangupCount.increment()
+                        hangupEvents.continuation.yield(())
                     }
                 )
             }
@@ -332,7 +387,11 @@ struct LocalLinuxRuntimeTests {
         #expect(await session.isEnded)
         // Overflow requests teardown while the bridge is still opening. The
         // hangup must be observed before this test starts draining the stream.
-        #expect(await Self.waitUntil { hangupCount.value == 1 })
+        // Await the event instead of polling scheduler turns, because the C
+        // hangup runs on a detached worker by design.
+        var hangupIterator = hangupEvents.stream.makeAsyncIterator()
+        #expect(await hangupIterator.next() != nil)
+        #expect(hangupCount.value == 1)
 
         var iterator = session.output.makeAsyncIterator()
         var chunks: [Data] = []

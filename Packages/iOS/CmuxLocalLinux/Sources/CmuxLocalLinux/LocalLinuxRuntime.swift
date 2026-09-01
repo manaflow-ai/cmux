@@ -479,7 +479,10 @@ public nonisolated struct LocalLinuxTestKernelSession: LocalLinuxKernelSession, 
 /// Construct one instance at the app composition root and inject it into the
 /// feature that owns local terminals. The iSH kernel itself is process-global,
 /// so creating more than one runtime for the same process is unsupported by
-/// the underlying C bridge even though this type has no global singleton.
+/// the underlying C bridge even though this type has no global singleton. The
+/// runtime serializes boot state, but it does not own controller-level session
+/// replacement fences; a composition root should therefore share one
+/// controller for a runtime instead of racing independent controllers.
 public actor LocalLinuxRuntime {
     /// Default command used for a newly opened local terminal.
     public nonisolated static let defaultCommand = ["/bin/login", "-f", "root"]
@@ -732,7 +735,7 @@ public actor LocalLinuxRuntime {
                 inputReadiness: inputReadiness,
                 hangupGate: hangupGate
             )
-            ingress.attach(hangup: { hangupGate.close() })
+            ingress.attach(hangup: { _ = hangupGate.beginClose() })
             // Cancellation can arrive in the tiny window between the first
             // check and actor construction. Close the fully initialized actor
             // as well, so no successful handle escapes a cancelled request.
@@ -1003,45 +1006,47 @@ private nonisolated final class LocalLinuxSessionLifecycle: Sendable {
     }
 }
 
-/// Serializes and completes the one synchronous kernel-hangup operation for a
-/// session. An ingress overflow may start deferred teardown while a controller
-/// is fencing the same session. Waiting callers must not clear ownership until
-/// that first operation has returned.
+/// Serializes the one synchronous kernel-hangup operation for a session.
+///
+/// The iSH bridge has a synchronous C teardown call, but callers must not
+/// block an actor (especially `MainActor`) while it runs. The gate starts that
+/// call in one detached task and stores the task as the completion token. Every
+/// caller receives the same token, so concurrent natural-exit, overflow, and
+/// explicit-close paths perform one C call and can await its completion without
+/// a condition variable or a blocked thread.
 private nonisolated final class LocalLinuxSessionHangupGate: @unchecked Sendable {
     private struct State: Sendable {
-        var started = false
-        var completed = false
+        var closeTask: Task<Void, Never>?
     }
 
     private let kernelSession: any LocalLinuxKernelSession
     private let state = OSAllocatedUnfairLock(initialState: State())
-    private let completion = NSCondition()
 
     init(kernelSession: any LocalLinuxKernelSession) {
         self.kernelSession = kernelSession
     }
 
-    func close() {
-        let shouldClose = state.withLock { state -> Bool in
-            guard !state.started else { return false }
-            state.started = true
-            return true
-        }
+    /// Starts teardown at most once and returns its non-cancellable completion
+    /// token. The C call runs off the caller's executor.
+    @discardableResult
+    func beginClose() -> Task<Void, Never> {
+        state.withLock { state in
+            if let closeTask = state.closeTask {
+                return closeTask
+            }
 
-        if shouldClose {
-            kernelSession.hangup()
-            state.withLock { $0.completed = true }
-            completion.lock()
-            completion.broadcast()
-            completion.unlock()
-            return
+            let kernelSession = self.kernelSession
+            let closeTask = Task.detached(priority: .utility) {
+                kernelSession.hangup()
+            }
+            state.closeTask = closeTask
+            return closeTask
         }
+    }
 
-        completion.lock()
-        while !state.withLock({ $0.completed }) {
-            completion.wait()
-        }
-        completion.unlock()
+    /// Awaits the shared teardown operation without blocking an executor.
+    func close() async {
+        await beginClose().value
     }
 }
 
@@ -1173,8 +1178,8 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         finish(needsHangup: false, deferHangup: false)
     }
 
-    /// Marks explicit teardown and requests a synchronous hangup from a safe
-    /// actor or worker thread.
+    /// Marks explicit teardown and starts the detached hangup operation from a
+    /// safe actor or worker thread. The call itself does not block.
     func finishExplicitly() {
         let result = state.withLock { state -> (shouldFinish: Bool, hangup: (@Sendable () -> Void)?) in
             state.needsHangup = true
@@ -1193,7 +1198,7 @@ private nonisolated final class LocalLinuxOutputIngress: Sendable {
         }
         // Claim the operation before finishing the stream. AsyncStream may
         // invoke onTermination synchronously; claiming first prevents that
-        // callback from replacing the synchronous fence with a detached task.
+        // callback from replacing the detached close request with another one.
         result.hangup?()
     }
 
@@ -1436,11 +1441,11 @@ public actor LocalLinuxSession {
     /// Hangs up the pty, quiesces C callbacks, and finishes ``output``.
     public func hangup() async {
         guard !closed else {
-            // A previous caller may still be completing the synchronous C
-            // fence on another thread. Preserve the method's completion
-            // guarantee for repeated closes.
+            // A previous caller may still be completing the C fence on a
+            // detached worker. Preserve the completion guarantee for repeated
+            // closes without blocking this actor.
             ingress.requestHangupNow()
-            hangupGate.close()
+            await hangupGate.close()
             return
         }
         closed = true
@@ -1449,24 +1454,23 @@ public actor LocalLinuxSession {
         ingress.requestHangupNow()
         // Wait even when an earlier overflow path already claimed the
         // deferred teardown closure.
-        hangupGate.close()
+        await hangupGate.close()
     }
 
-    /// Closes the underlying pty without an actor hop.
+    /// Starts closing the underlying pty without an actor hop.
     ///
-    /// App sign-out has a synchronous local-resource fence: authentication
-    /// must not clear its token store while an iSH callback can still reach
-    /// the old session. The C bridge's hangup is synchronous and idempotent,
-    /// so this method finishes the Swift streams and waits for that bridge
-    /// teardown before returning. Actor-isolated operations remain safe: they
-    /// observe the shared lifecycle end marker and fail with ``closed``.
-    public nonisolated func closeSynchronously() {
+    /// The returned task is a completion fence. Callers that run on an actor
+    /// should retain and await it before opening a replacement pty. This
+    /// method is intentionally nonblocking, so a synchronous UI teardown can
+    /// publish its state change without waiting on the C bridge.
+    @discardableResult
+    public nonisolated func beginClose() -> Task<Void, Never> {
         inputReadiness.finish()
         ingress.finishExplicitly()
         // `finishExplicitly()` may find a deferred overflow hangup already in
-        // flight. The gate waits for that operation, so callers can safely
-        // release the session before opening a replacement pty.
-        hangupGate.close()
+        // flight. The gate returns its shared task, so callers can safely
+        // retain a completion fence without blocking the releasing thread.
+        return hangupGate.beginClose()
     }
 
     /// Wakes a legacy input worker that uses the session as its fallback
@@ -1481,12 +1485,13 @@ public actor LocalLinuxSession {
     }
 
     deinit {
-        // The bridge contract makes hangup synchronous and idempotent. This
-        // closes sessions dropped without consuming their output stream. Run
-        // the C call off the deinit thread because that thread can be an iSH
-        // output callback, and the C contract forbids callback re-entry.
+        // The bridge contract makes hangup synchronous and idempotent. Start
+        // cleanup for sessions dropped without consuming their output stream.
+        // Both the ingress callback and the gate use detached work, so the C
+        // call cannot re-enter an iSH callback's releasing thread.
         inputReadiness.finish()
         ingress.finishExplicitlyDeferred()
+        _ = hangupGate.beginClose()
     }
 }
 
