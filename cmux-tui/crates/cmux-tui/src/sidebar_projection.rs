@@ -1,4 +1,9 @@
 //! Pure projection of mux resources into configurable native sidebar trees.
+//!
+//! The agent-priority buckets and row projection are adapted from herdr's
+//! `src/app/agent_view.rs` at commit
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0). They are modified
+//! by manaflow for cmux's configurable resource tree and journal-backed rows.
 
 use std::collections::{HashMap, HashSet};
 
