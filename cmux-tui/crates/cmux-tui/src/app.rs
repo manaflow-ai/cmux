@@ -27466,6 +27466,45 @@ mod tests {
     }
 
     #[test]
+    fn single_click_drag_into_padding_does_not_seed_a_double_click() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("single-click-padding-drag-repeat-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x - 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: content.x - 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+
+        assert!(
+            app.selection.is_none(),
+            "a padding drag must prevent the next click from becoming a double click"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn triple_click_drag_extends_to_a_blank_line() {
         let (mut app, mux, surface, content) =
             selection_fixture("triple-click-blank-line-drag-test", b"alpha\n\nbeta");
