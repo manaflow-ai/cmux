@@ -394,12 +394,16 @@ struct FilePreviewCodeViewTests {
     @Test("File editor runtime metadata mirrors the shared catalog")
     func fileEditorMetadataMirrorsCatalog() {
         let settings = FilePreviewEditorSettings(defaults: .standard)
-        let catalog = FileEditorCatalogSection()
-        #expect(settings.catalog.syntaxHighlighting == catalog.syntaxHighlighting)
-        #expect(settings.catalog.lineNumbers == catalog.lineNumbers)
-        #expect(settings.catalog.indentGuides == catalog.indentGuides)
-        #expect(settings.catalog.currentLineHighlight == catalog.currentLineHighlight)
-        #expect(settings.catalog.tabWidth == catalog.tabWidth)
+        #expect(settings.catalog.syntaxHighlighting.id == "fileEditor.syntaxHighlighting")
+        #expect(settings.catalog.syntaxHighlighting.defaultValue == true)
+        #expect(settings.catalog.lineNumbers.id == "fileEditor.lineNumbers")
+        #expect(settings.catalog.lineNumbers.defaultValue == true)
+        #expect(settings.catalog.indentGuides.id == "fileEditor.indentGuides")
+        #expect(settings.catalog.indentGuides.defaultValue == true)
+        #expect(settings.catalog.currentLineHighlight.id == "fileEditor.currentLineHighlight")
+        #expect(settings.catalog.currentLineHighlight.defaultValue == true)
+        #expect(settings.catalog.tabWidth.id == "fileEditor.tabWidth")
+        #expect(settings.catalog.tabWidth.defaultValue == 4)
         #expect(settings.catalog.tabWidthRange == 1...8)
     }
 

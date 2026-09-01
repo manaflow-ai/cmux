@@ -588,10 +588,22 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             withExtendedLifetime(store) {
-                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.syntaxHighlightingKey))
-                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.lineNumbersKey))
-                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.indentGuidesKey))
-                XCTAssertFalse(defaults.bool(forKey: FilePreviewEditorSettings.currentLineHighlightKey))
+                XCTAssertEqual(
+                    defaults.object(forKey: FilePreviewEditorSettings.syntaxHighlightingKey) as? Bool,
+                    false
+                )
+                XCTAssertEqual(
+                    defaults.object(forKey: FilePreviewEditorSettings.lineNumbersKey) as? Bool,
+                    false
+                )
+                XCTAssertEqual(
+                    defaults.object(forKey: FilePreviewEditorSettings.indentGuidesKey) as? Bool,
+                    false
+                )
+                XCTAssertEqual(
+                    defaults.object(forKey: FilePreviewEditorSettings.currentLineHighlightKey) as? Bool,
+                    false
+                )
                 XCTAssertNil(defaults.object(forKey: FilePreviewEditorSettings.tabWidthKey))
             }
         }
