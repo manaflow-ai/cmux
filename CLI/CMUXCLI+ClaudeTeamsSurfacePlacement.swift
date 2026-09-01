@@ -41,7 +41,8 @@ extension CMUXCLI {
             executablePath: executablePath,
             arguments: sourceArguments
         )
-        guard case .resolved(let routedArguments) = resolution,
+        guard case .resolved(let resolvedArguments) = resolution,
+              let routedArguments = resolvedArguments,
               !routedArguments.isEmpty else {
             return invocation
         }
