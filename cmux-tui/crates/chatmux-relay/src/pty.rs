@@ -1597,11 +1597,14 @@ impl Inner {
             let removed = {
                 let _state = self.tunnel_state.lock().expect("tunnel state lock");
                 let mut attachments = self.attachments.lock().expect("attach lock");
-                if let Some(current) = attachments.get(&pty_id) {
+                let same = attachments.get(&pty_id).is_some_and(|current| {
+                    Arc::ptr_eq(&current.publication_gate, &publication_gate)
+                });
+                if same && let Some(current) = attachments.get(&pty_id) {
                     Self::revoke_publication(current);
                     current.closing.store(true, Ordering::Release);
                 }
-                attachments.remove(&pty_id)
+                same.then(|| attachments.remove(&pty_id)).flatten()
             };
             if let Some(removed) = removed {
                 self.retire_attachment(removed);
