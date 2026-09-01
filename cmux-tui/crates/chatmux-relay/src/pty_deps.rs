@@ -14,6 +14,7 @@ use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -27,7 +28,7 @@ use sha2::{Digest, Sha256};
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
 use crate::pty::{
     CmuxTui, DataSink, EnsureDaemon, ExitSink, PtyControl, PtyDeps, PtyHandle, PtyOutput,
-    SpawnSpec, session_name_ok,
+    ResolvedCwd, SpawnSpec, session_name_ok,
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
@@ -572,7 +573,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let reader = File::from(pair.try_clone_reader_descriptor()?);
     let mut command = cmux_pty::PtyCommand::new(spec.file.clone());
     command.args(spec.args.clone());
-    command.cwd(&spec.cwd);
+    command.cwd_descriptor(spec.cwd.directory.try_clone()?);
     command.env_clear();
     for (key, value) in &spec.env {
         command.env(key, value);
@@ -657,7 +658,7 @@ fn pump_pty(
 fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     let output = ThreadOutput::new();
     let mut command = std::process::Command::new(&spec.file);
-    command.args(&spec.args).current_dir(&spec.cwd).env_clear();
+    command.args(&spec.args).env_clear();
     for (key, value) in &spec.env {
         command.env(key, value);
     }
@@ -665,6 +666,24 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     command.stdin(std::process::Stdio::piped());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
+    let directory = match spec.cwd.directory.try_clone() {
+        Ok(directory) => directory,
+        Err(error) => {
+            output.push_exit(1);
+            return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
+        }
+    };
+    // Keep cwd pinned to the validated directory descriptor. The descriptor
+    // is captured by the child-side pre_exec hook, after which path rebinding
+    // cannot redirect this process.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fchdir(directory.as_raw_fd()) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let banner = format!(
         "[cmux-relay] PTY allocation failed ({reason}); running {} without a TTY.\r\n",
         Path::new(&spec.file)
@@ -872,7 +891,7 @@ impl PtyDeps for RealPtyDeps {
         cmux_tui: &CmuxTui,
         session: &str,
         socket_dir: &Path,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
     ) -> Result<EnsureDaemon, String> {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -913,7 +932,7 @@ impl PtyDeps for RealPtyDeps {
             socket_path.to_string_lossy().into_owned(),
         ]);
         let mut command = tokio::process::Command::new(&cmux_tui.file);
-        command.args(&args).current_dir(cwd).env_clear();
+        command.args(&args).env_clear();
         for (key, value) in env {
             command.env(key, value);
         }
@@ -921,6 +940,21 @@ impl PtyDeps for RealPtyDeps {
         command.stdout(std::process::Stdio::null());
         command.stderr(std::process::Stdio::null());
         command.process_group(0);
+        let directory = cwd
+            .directory
+            .try_clone()
+            .map_err(|error| format!("cwd descriptor clone failed: {error}"))?;
+        // Tokio exposes the underlying std::process::Command for Unix
+        // pre_exec setup. fchdir runs in the child after fork and pins the
+        // daemon to the validated directory descriptor.
+        unsafe {
+            command.as_std_mut().pre_exec(move || {
+                if libc::fchdir(directory.as_raw_fd()) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
         let child =
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
 

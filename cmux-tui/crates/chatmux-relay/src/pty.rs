@@ -20,6 +20,8 @@
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
 use std::collections::{HashMap, VecDeque};
+#[cfg(unix)]
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -86,14 +88,23 @@ pub fn surface_ref_ok(value: &str) -> bool {
         && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
 }
 
+/// A cwd validated against the relay root policy and pinned to its directory
+/// descriptor on Unix. Child processes use the descriptor, not the pathname,
+/// so a same-uid rename or symlink swap cannot redirect the cwd after checks.
+#[derive(Clone)]
+pub struct ResolvedCwd {
+    pub path: PathBuf,
+    #[cfg(unix)]
+    pub directory: Arc<File>,
+}
+
 /// Resolve a PTY working directory and enforce every configured root list.
-/// Canonicalization closes symlink escapes before the path reaches spawn.
 fn scoped_cwd(
     requested: Option<&str>,
     home: &Path,
     local_roots: Option<&[String]>,
     server_roots: Option<&[String]>,
-) -> Result<PathBuf, String> {
+) -> Result<ResolvedCwd, String> {
     // Keep PTY paths on the same wire policy as file actions. The relay sends
     // this error to the peer, so the validator only returns policy text and
     // filesystem failures below are deliberately redacted.
@@ -164,7 +175,26 @@ fn scoped_cwd(
     if !canonical.is_dir() {
         return Err("cwd is not a directory".to_owned());
     }
-    Ok(canonical)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        let expected =
+            std::fs::metadata(&canonical).map_err(|_| "cwd is not accessible".to_owned())?;
+        let directory = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&canonical)
+            .map_err(|_| "cwd is not accessible".to_owned())?;
+        let observed = directory.metadata().map_err(|_| "cwd is not accessible".to_owned())?;
+        if expected.dev() != observed.dev() || expected.ino() != observed.ino() {
+            return Err("cwd changed while resolving".to_owned());
+        }
+        Ok(ResolvedCwd { path: canonical, directory: Arc::new(directory) })
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(ResolvedCwd { path: canonical })
+    }
 }
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
@@ -226,7 +256,7 @@ pub struct SpawnSpec {
     pub args: Vec<String>,
     pub cols: u16,
     pub rows: u16,
-    pub cwd: PathBuf,
+    pub cwd: ResolvedCwd,
     pub env: HashMap<String, String>,
     pub cancellation: CancellationToken,
 }
@@ -252,7 +282,7 @@ pub trait PtyDeps: Send + Sync {
         cmux_tui: &CmuxTui,
         session: &str,
         socket_dir: &Path,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
     ) -> Result<EnsureDaemon, String>;
     async fn connect_control(&self, socket_path: &Path) -> Result<Arc<dyn ControlHandle>, String>;
@@ -977,7 +1007,7 @@ impl Inner {
         session: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1078,7 +1108,7 @@ impl Inner {
                 args,
                 cols,
                 rows,
-                cwd: cwd.to_path_buf(),
+                cwd: cwd.clone(),
                 env: env.clone(),
                 cancellation: context.cancellation.clone(),
             })
@@ -1104,7 +1134,7 @@ impl Inner {
         session: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1162,7 +1192,7 @@ impl Inner {
                         args: Vec::new(),
                         cols,
                         rows,
-                        cwd: cwd.to_path_buf(),
+                        cwd: cwd.clone(),
                         env: env.clone(),
                         cancellation: context.cancellation.clone(),
                     })
@@ -1655,7 +1685,7 @@ impl Inner {
         surface_ref: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1995,6 +2025,8 @@ mod tests {
     use super::*;
     use crate::control::{CloseHandler, EventHandler};
     use std::future::Future;
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
@@ -2117,7 +2149,7 @@ mod tests {
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState::default())),
                 spawn_file: spec.file.clone(),
-                spawn_cwd: spec.cwd.clone(),
+                spawn_cwd: spec.cwd.path.clone(),
                 spawn_term: spec.env.get("TERM").cloned().unwrap_or_default(),
             };
             self.recorded.lock().unwrap().spawned.push(pty.clone());
@@ -2133,7 +2165,7 @@ mod tests {
             _cmux_tui: &CmuxTui,
             session: &str,
             socket_dir: &Path,
-            _cwd: &Path,
+            _cwd: &ResolvedCwd,
             _env: &HashMap<String, String>,
         ) -> Result<EnsureDaemon, String> {
             self.recorded
@@ -2830,11 +2862,11 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         let home = root.path.to_string_lossy().into_owned();
         assert_eq!(
-            scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap(),
+            scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
-            scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap(),
+            scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap().path,
             std::fs::canonicalize(nested).unwrap()
         );
     }
@@ -2847,11 +2879,11 @@ mod tests {
             "cwd must be absolute or home-relative"
         );
         assert_eq!(
-            scoped_cwd(None, &root.path, None, None).unwrap(),
+            scoped_cwd(None, &root.path, None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
-            scoped_cwd(Some(""), &root.path, None, None).unwrap(),
+            scoped_cwd(Some(""), &root.path, None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
     }
