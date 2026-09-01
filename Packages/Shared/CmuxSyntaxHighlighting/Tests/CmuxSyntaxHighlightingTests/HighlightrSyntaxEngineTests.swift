@@ -39,8 +39,11 @@ struct HighlightrSyntaxEngineTests {
         var colors: Set<String> = []
         let full = NSRange(location: 0, length: value.length)
         value.enumerateAttribute(.foregroundColor, in: full, options: []) { attribute, _, _ in
-            guard let attribute else { return }
-            colors.insert(String(describing: attribute))
+            guard let attribute,
+                  let hex = HighlightColorRemapper(theme: .dark).hexKey(from: attribute) else {
+                return
+            }
+            colors.insert(hex)
         }
         return colors
     }

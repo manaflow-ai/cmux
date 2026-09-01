@@ -12,10 +12,6 @@ struct FilePreviewLineIndexStorage: Sendable {
     private var root: Int?
     private var priorityState: UInt64 = 0x9E3779B97F4A7C15
 
-    init(values: [Int]) {
-        append(values: values)
-    }
-
     init() {}
 
     /// Adds line starts from a UTF-16 string without creating a second full
@@ -123,16 +119,6 @@ struct FilePreviewLineIndexStorage: Sendable {
             start = end
         }
         root = merge(merge(prefix, inserted), suffix)
-    }
-
-    private mutating func append(values: [Int]) {
-        guard !values.isEmpty else { return }
-        var start = 0
-        while start < values.count {
-            let end = min(values.count, start + Self.blockCapacity)
-            appendBlock(Array(values[start..<end]))
-            start = end
-        }
     }
 
     private mutating func appendBlock(_ offsets: [Int]) {

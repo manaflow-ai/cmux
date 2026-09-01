@@ -23,7 +23,8 @@ struct HighlightColorPacking: Sendable {
     func packedRGBKey(red: CGFloat, green: CGFloat, blue: CGFloat) -> UInt32 {
         func component(_ value: CGFloat) -> UInt32 {
             guard value.isFinite else { return 0 }
-            let scaled = Int((value * 255.0).rounded())
+            let clamped = min(1, max(0, value))
+            let scaled = Int((clamped * 255.0).rounded())
             return UInt32(min(255, max(0, scaled)))
         }
 

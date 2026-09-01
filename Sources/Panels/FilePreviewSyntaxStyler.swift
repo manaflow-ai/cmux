@@ -71,6 +71,10 @@ final class FilePreviewSyntaxStyler {
         // the ceilings resumes highlighting.
         if stylingParametersMatch, !lastAppliedHighlighted {
             if !enabled || !policy.shouldHighlight(content: textView.string, language: language) {
+                // A prior under-ceiling request may still be in flight. It
+                // must not apply its result after this over-ceiling edit.
+                highlightTask?.cancel()
+                highlightGeneration &+= 1
                 lastHighlightedContentRevision = contentRevision
                 return
             }

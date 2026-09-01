@@ -37,6 +37,12 @@ struct HighlightPolicyTests {
         )
     }
 
+    @Test("Rejects nonpositive precomputed line counts")
+    func rejectsNonpositiveLineCounts() {
+        #expect(!policy.shouldHighlight(utf8Count: 8, lineCount: 0, language: "swift"))
+        #expect(!policy.shouldHighlight(utf8Count: 8, lineCount: -1, language: "swift"))
+    }
+
     @Test("Content path rejects excessive lines")
     func contentPathRejectsExcessiveLines() {
         let content = String(repeating: "line\n", count: HighlightPolicy.maximumHighlightedLines)

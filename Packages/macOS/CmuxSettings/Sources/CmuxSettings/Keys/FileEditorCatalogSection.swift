@@ -7,6 +7,9 @@ import Foundation
 /// is distinct from the rendered markdown viewer, whose settings live in
 /// ``MarkdownCatalogSection``.
 public struct FileEditorCatalogSection: SettingCatalogSection {
+    /// Inclusive tab-stop range accepted by the editor and JSON schema.
+    public var tabWidthRange: ClosedRange<Int> { 1...8 }
+
     /// Whether long lines soft-wrap at the editor's right edge.
     ///
     /// `false` (the default) preserves the established behavior: lines extend

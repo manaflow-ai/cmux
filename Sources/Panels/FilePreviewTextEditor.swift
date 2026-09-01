@@ -93,6 +93,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             currentLineHighlight: currentLineHighlight,
             tabWidth: tabWidth
         )
+        Self.refreshChrome(on: scrollView, textView: textView)
         if isVisibleInUI {
             context.coordinator.scheduleHighlight(
                 for: textView,
@@ -105,7 +106,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.panel = panel
+        let panelIdentity = ObjectIdentifier(panel)
+        let panelChanged = context.coordinator.panelIdentity != panelIdentity
         context.coordinator.filePath = filePath
         let becameVisible = isVisibleInUI && !context.coordinator.isHighlightingVisible
         context.coordinator.isHighlightingVisible = isVisibleInUI
@@ -118,6 +120,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             gutterBackgroundColor: gutterBackgroundColor
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
+        context.coordinator.panel = panel
+        context.coordinator.panelIdentity = panelIdentity
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
@@ -130,9 +134,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             tabWidth: tabWidth
         )
 
-        let contentChanged = panel.textContentRevision == 0
+        let contentChanged = panelChanged || (panel.textContentRevision == 0
             ? textView.string != panel.textContent
-            : context.coordinator.lastAppliedContentRevision != panel.textContentRevision
+            : context.coordinator.lastAppliedContentRevision != panel.textContentRevision)
         if contentChanged {
             let selectedRanges = textView.selectedRanges
             let visibleOrigin = scrollView.contentView.bounds.origin
@@ -260,6 +264,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
+        private var panelIdentity: ObjectIdentifier
         var filePath: String
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
@@ -273,6 +278,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             editorSettings: FilePreviewEditorSettings
         ) {
             self.panel = panel
+            self.panelIdentity = ObjectIdentifier(panel)
             self.filePath = filePath
             self.editorSettings = editorSettings
         }

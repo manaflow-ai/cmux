@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Persistent File Preview code-view chrome settings.
@@ -16,18 +17,18 @@ struct FilePreviewEditorSettings {
         self.defaults = defaults
     }
 
-    static let syntaxHighlightingKey = "fileEditor.syntaxHighlighting"
-    static let lineNumbersKey = "fileEditor.lineNumbers"
-    static let indentGuidesKey = "fileEditor.indentGuides"
-    static let currentLineHighlightKey = "fileEditor.currentLineHighlight"
-    static let tabWidthKey = "fileEditor.tabWidth"
+    static let syntaxHighlightingKey = FileEditorCatalogSection().syntaxHighlighting.userDefaultsKey
+    static let lineNumbersKey = FileEditorCatalogSection().lineNumbers.userDefaultsKey
+    static let indentGuidesKey = FileEditorCatalogSection().indentGuides.userDefaultsKey
+    static let currentLineHighlightKey = FileEditorCatalogSection().currentLineHighlight.userDefaultsKey
+    static let tabWidthKey = FileEditorCatalogSection().tabWidth.userDefaultsKey
 
-    static let syntaxHighlightingDefault = true
-    static let lineNumbersDefault = true
-    static let indentGuidesDefault = true
-    static let currentLineHighlightDefault = true
-    static let tabWidthDefault = 4
-    static let tabWidthRange = 1...8
+    static let syntaxHighlightingDefault = FileEditorCatalogSection().syntaxHighlighting.defaultValue
+    static let lineNumbersDefault = FileEditorCatalogSection().lineNumbers.defaultValue
+    static let indentGuidesDefault = FileEditorCatalogSection().indentGuides.defaultValue
+    static let currentLineHighlightDefault = FileEditorCatalogSection().currentLineHighlight.defaultValue
+    static let tabWidthDefault = FileEditorCatalogSection().tabWidth.defaultValue
+    static let tabWidthRange = FileEditorCatalogSection().tabWidthRange
 
     func isEnabled(
         key: String,

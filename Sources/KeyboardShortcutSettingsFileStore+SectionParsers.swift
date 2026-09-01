@@ -42,11 +42,11 @@ extension CmuxSettingsFileStore {
             snapshot: &snapshot
         )
         if let value = jsonInt(section["tabWidth"]) {
-            let clamped = min(
-                max(value, FilePreviewEditorSettings.tabWidthRange.lowerBound),
-                FilePreviewEditorSettings.tabWidthRange.upperBound
-            )
-            snapshot.managedUserDefaults[FilePreviewEditorSettings.tabWidthKey] = .int(clamped)
+            guard FilePreviewEditorSettings.tabWidthRange.contains(value) else {
+                logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[FilePreviewEditorSettings.tabWidthKey] = .int(value)
         } else if section.keys.contains("tabWidth") {
             logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)
         }

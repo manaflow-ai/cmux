@@ -59,7 +59,7 @@ public struct HighlightPolicy: Sendable {
         // kb:ceiling: maximumHighlightedBytes
         guard utf8Count <= Self.maximumHighlightedBytes else { return false }
         // kb:ceiling: maximumHighlightedLines
-        guard lineCount <= Self.maximumHighlightedLines else { return false }
+        guard lineCount > 0, lineCount <= Self.maximumHighlightedLines else { return false }
         return true
     }
 }

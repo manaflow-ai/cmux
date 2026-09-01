@@ -184,6 +184,8 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         let currentLine = selected.length == 0
             ? lineIndex.lineNumber(containingUTF16Offset: selected.location)
             : nil
+        let lineCount = lineIndex.lineCount
+        var drewTrailingLine = false
 
         layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, fragmentGlyphRange, _ in
             let characterRange = layoutManager.characterRange(
@@ -196,26 +198,102 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             guard self.lineIndex.offset(forLine: lineNumber) == characterRange.location else {
                 return
             }
-            let documentPoint = NSPoint(
-                x: 0,
-                y: usedRect.minY + textView.textContainerOrigin.y
+            self.drawLineNumber(
+                lineNumber,
+                atTextViewY: usedRect.minY + textView.textContainerOrigin.y,
+                height: usedRect.height,
+                in: textView,
+                font: font,
+                paragraphStyle: paragraphStyle,
+                currentLine: currentLine
             )
-            let rulerPoint = self.convert(documentPoint, from: textView)
-            let labelRect = NSRect(
-                x: 4,
-                y: rulerPoint.y,
-                width: max(0, self.ruleThickness - 10),
-                height: max(usedRect.height, font.capHeight + 4)
-            )
-            let color = currentLine == lineNumber
-                ? self.tokenTheme.gutterCurrentLineColor
-                : self.tokenTheme.gutterDefaultColor
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: color,
-                .paragraphStyle: paragraphStyle
-            ]
-            NSString(string: String(lineNumber)).draw(in: labelRect, withAttributes: attributes)
+            drewTrailingLine = drewTrailingLine || lineNumber == lineCount
         }
+
+        let string = textView.string as NSString
+        if layoutManager.numberOfGlyphs == 0, string.length == 0 {
+            // An empty document has a valid logical line but no glyph fragment
+            // for TextKit to enumerate. Paint its first line directly without
+            // asking `lineFragmentRect` for an invalid glyph.
+            self.drawLineNumber(
+                1,
+                atTextViewY: textView.textContainerOrigin.y,
+                height: textView.font?.boundingRectForFont.height ?? 16,
+                in: textView,
+                font: font,
+                paragraphStyle: paragraphStyle,
+                currentLine: currentLine
+            )
+        } else if !drewTrailingLine,
+                  string.length > 0,
+                  string.character(at: string.length - 1) == 10,
+                  layoutManager.numberOfGlyphs > 0 {
+            // The final empty line after a newline has no glyph of its own.
+            // Anchor it one line height below the last real glyph fragment.
+            var lastRange = NSRange()
+            let lastGlyph = layoutManager.numberOfGlyphs - 1
+            let lastFragment = layoutManager.lineFragmentRect(
+                forGlyphAt: lastGlyph,
+                effectiveRange: &lastRange,
+                withoutAdditionalLayout: true
+            )
+            let fallbackHeight = textView.font?.boundingRectForFont.height ?? 16
+            let height = max(lastFragment.height, fallbackHeight)
+            let y: CGFloat
+            if lastFragment.height > 0, lastFragment.maxY.isFinite {
+                y = lastFragment.maxY + textView.textContainerOrigin.y
+            } else {
+                // Non-contiguous layout may not have a real rect yet. Use the
+                // indexed logical line count as a bounded geometry fallback.
+                y = textView.textContainerOrigin.y
+                    + CGFloat(max(0, lineCount - 1)) * fallbackHeight
+            }
+            let visibleRect = textView.visibleRect
+            let trailingRect = NSRect(
+                x: visibleRect.minX,
+                y: y,
+                width: max(1, visibleRect.width),
+                height: height
+            )
+            if NSIntersectsRect(trailingRect, textView.visibleRect) {
+                self.drawLineNumber(
+                    lineCount,
+                    atTextViewY: y,
+                    height: height,
+                    in: textView,
+                    font: font,
+                    paragraphStyle: paragraphStyle,
+                    currentLine: currentLine
+                )
+            }
+        }
+    }
+
+    private func drawLineNumber(
+        _ lineNumber: Int,
+        atTextViewY y: CGFloat,
+        height: CGFloat,
+        in textView: NSTextView,
+        font: NSFont,
+        paragraphStyle: NSParagraphStyle,
+        currentLine: Int?
+    ) {
+        let documentPoint = NSPoint(x: 0, y: y)
+        let rulerPoint = convert(documentPoint, from: textView)
+        let labelRect = NSRect(
+            x: 4,
+            y: rulerPoint.y,
+            width: max(0, ruleThickness - 10),
+            height: max(height, font.capHeight + 4)
+        )
+        let color = currentLine == lineNumber
+            ? tokenTheme.gutterCurrentLineColor
+            : tokenTheme.gutterDefaultColor
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraphStyle
+        ]
+        NSString(string: String(lineNumber)).draw(in: labelRect, withAttributes: attributes)
     }
 }

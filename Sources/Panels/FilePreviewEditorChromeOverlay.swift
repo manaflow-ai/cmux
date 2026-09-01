@@ -65,25 +65,53 @@ final class FilePreviewEditorChromeOverlay: NSView {
         // argument to `lineFragmentRect(forGlyphAt:)`. Use the final real
         // character for that case so a trailing empty line can be painted one
         // fragment below it.
-        guard glyphCount > 0, stringLength > 0 else { return }
+        if stringLength == 0 {
+            fillCurrentLineBand(
+                atY: textView.textContainerOrigin.y,
+                height: textView.font?.boundingRectForFont.height ?? 16,
+                in: textView
+            )
+            return
+        }
+        guard glyphCount > 0 else { return }
         let characterIndex = location >= stringLength ? stringLength - 1 : location
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndex)
         guard glyphIndex >= 0, glyphIndex < glyphCount else { return }
         var lineRange = NSRange()
-        let fragment = layoutManager.lineFragmentRect(
+        var fragment = layoutManager.lineFragmentRect(
             forGlyphAt: glyphIndex,
             effectiveRange: &lineRange,
             withoutAdditionalLayout: true
         )
+        if fragment.height <= 0 || !fragment.minY.isFinite {
+            // Non-contiguous layout may not have realized this caret's
+            // fragment yet. Ask TextKit to lay out this one valid glyph before
+            // giving up; never call the API with the EOF insertion index.
+            fragment = layoutManager.lineFragmentRect(
+                forGlyphAt: glyphIndex,
+                effectiveRange: &lineRange,
+                withoutAdditionalLayout: false
+            )
+        }
+        guard fragment.height > 0, fragment.minY.isFinite else { return }
         let isTrailingEmptyLine = location == stringLength
             && stringLength > 0
             && (textView.string as NSString).character(at: stringLength - 1) == 10
         let origin = textView.textContainerOrigin
+        let y = fragment.minY + origin.y + (isTrailingEmptyLine ? fragment.height : 0)
+        fillCurrentLineBand(
+            atY: y,
+            height: max(fragment.height, textView.font?.boundingRectForFont.height ?? 16),
+            in: textView
+        )
+    }
+
+    private func fillCurrentLineBand(atY y: CGFloat, height: CGFloat, in textView: NSTextView) {
         let band = NSRect(
             x: 0,
-            y: fragment.minY + origin.y + (isTrailingEmptyLine ? fragment.height : 0),
+            y: y,
             width: max(bounds.width, textView.bounds.width),
-            height: max(fragment.height, textView.font?.boundingRectForFont.height ?? 16)
+            height: max(height, 1)
         )
         currentLineColor.setFill()
         band.fill()

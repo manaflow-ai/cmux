@@ -157,6 +157,9 @@ struct FilePreviewLineIndexTests {
 
     @Test("Dense sixteen-megabyte input stays queryable")
     func denseSixteenMegabyteInputStaysQueryable() {
+        // This is intentionally the File Preview maximum, not a toy fixture:
+        // it proves the block index remains bounded for the largest valid
+        // dense document. The suite is serialized to contain its peak memory.
         let source = String(repeating: "\n", count: 16 * 1024 * 1024)
         let index = FilePreviewLineIndex(string: source)
         #expect(index.loadedUTF16Length == source.utf16.count)

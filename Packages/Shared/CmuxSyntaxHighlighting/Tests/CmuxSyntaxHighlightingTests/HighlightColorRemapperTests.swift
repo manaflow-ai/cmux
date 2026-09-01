@@ -8,9 +8,9 @@ import AppKit
 
 @Suite("Highlight color remapper")
 struct HighlightColorRemapperTests {
+#if canImport(AppKit)
     @Test("Xcode-dark magenta becomes cmux product blue")
     func remapsXcodeDarkKeyword() throws {
-#if canImport(AppKit)
         let source = NSMutableAttributedString(string: "func")
         let xcodeKeyword = NSColor(
             red: 252.0 / 255.0,
@@ -32,14 +32,10 @@ struct HighlightColorRemapperTests {
         )
         let hex = try #require(HighlightColorRemapper(theme: .dark).hexKey(from: color as Any))
         #expect(hex == "0091FF")
-#else
-        Issue.record("Remapper tests require AppKit")
-#endif
     }
 
     @Test("Xcode light keyword becomes readable product blue")
     func remapsXcodeLightKeyword() throws {
-#if canImport(AppKit)
         let source = NSMutableAttributedString(string: "func")
         let xcodeKeyword = NSColor(
             red: 170.0 / 255.0,
@@ -61,10 +57,8 @@ struct HighlightColorRemapperTests {
         )
         let hex = try #require(HighlightColorRemapper(theme: .light).hexKey(from: color as Any))
         #expect(hex == "006DC1")
-#else
-        Issue.record("Remapper tests require AppKit")
-#endif
     }
+#endif
 
     @Test("Hex keys retain rounding compatibility")
     func hexKeysRoundLikeThePublicFormatter() {
@@ -82,11 +76,18 @@ struct HighlightColorRemapperTests {
                 blue: 0
             ) == "00FF00"
         )
+        #expect(
+            HighlightColorRemapper(theme: .dark).hexKey(
+                red: CGFloat.greatestFiniteMagnitude,
+                green: 0,
+                blue: .nan
+            ) == "FF0000"
+        )
     }
 
+#if canImport(AppKit)
     @Test("Explicit source maps retain public hex-key compatibility")
     func explicitSourceMapRemapsMatchingColor() throws {
-#if canImport(AppKit)
         let source = NSMutableAttributedString(string: "token")
         source.addAttribute(
             .foregroundColor,
@@ -106,14 +107,10 @@ struct HighlightColorRemapperTests {
         let remapped = remapper.remap(source)
         let color = remapped.attribute(.foregroundColor, at: 0, effectiveRange: nil)
         #expect(remapper.hexKey(from: color as Any) == "0091FF")
-#else
-        Issue.record("Remapper tests require AppKit")
-#endif
     }
 
     @Test("Source-map lookup retains uppercase hex-key matching")
     func sourceMapLookupRemainsCaseSensitive() throws {
-#if canImport(AppKit)
         let source = NSMutableAttributedString(string: "token")
         source.addAttribute(
             .foregroundColor,
@@ -133,10 +130,8 @@ struct HighlightColorRemapperTests {
         let remapped = remapper.remap(source)
         let color = remapped.attribute(.foregroundColor, at: 0, effectiveRange: nil)
         #expect(remapper.hexKey(from: color as Any) == "FC5FA3")
-#else
-        Issue.record("Remapper tests require AppKit")
-#endif
     }
+#endif
 
     @Test("Engine JSON tokens use the cmux palette, not Xcode pink")
     func enginePaintsBrandColors() async throws {
