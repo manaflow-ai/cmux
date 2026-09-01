@@ -41,11 +41,15 @@ final class AgentApprovalNotificationCoordinator {
 
     private struct PaneState {
         var workspaceID: UUID
-        var candidates: [UInt64: Candidate] = [:]
+        // Key by the logical approval id so duplicate hook deliveries replace
+        // one record instead of growing an unbounded sequence-keyed bag.
+        var candidates: [String: Candidate] = [:]
         var scheduledID: UUID?
         var scheduledAt: TimeInterval?
         var cancelScheduled: Cancellation?
         var deliveredCorrelationKey: String?
+        var cancelEpisodeExpiry: Cancellation?
+        var episodeID: UUID?
     }
 
     private struct ResolutionKey: Hashable {
@@ -55,11 +59,16 @@ final class AgentApprovalNotificationCoordinator {
 
     private let settleDelay: TimeInterval
     private let tombstoneLifetime: TimeInterval
+    private let episodeLifetime: TimeInterval
     private let now: @MainActor () -> TimeInterval
     private let schedule: Scheduler
     private let dispatchScheduledAction: ScheduledActionDispatcher
     private let deliver: @MainActor (Delivery) -> Void
     private let clear: @MainActor (Clear) -> Void
+    private static let maxCandidatesPerPane = 64
+    private static let maxTombstonesPerKind = 1_024
+    nonisolated static let defaultEpisodeLifetime: TimeInterval = 10 * 60
+    nonisolated static let approvalCorrelationPrefix = "agent-approval:"
     private var panes: [UUID: PaneState] = [:]
     private var exactResolutionTombstones: [ResolutionKey: TimeInterval] = [:]
     private var scopeResolutionTombstones: [ResolutionKey: TimeInterval] = [:]
@@ -68,6 +77,7 @@ final class AgentApprovalNotificationCoordinator {
     init(
         settleDelay: TimeInterval = 0.1,
         tombstoneLifetime: TimeInterval = 1,
+        episodeLifetime: TimeInterval = AgentApprovalNotificationCoordinator.defaultEpisodeLifetime,
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         schedule: @escaping Scheduler = AgentApprovalNotificationCoordinator.scheduleOnMainActor(delay:action:),
         dispatchScheduledAction: @escaping ScheduledActionDispatcher,
@@ -76,6 +86,7 @@ final class AgentApprovalNotificationCoordinator {
     ) {
         self.settleDelay = settleDelay.isFinite ? max(0, settleDelay) : 0.1
         self.tombstoneLifetime = tombstoneLifetime.isFinite ? max(0, tombstoneLifetime) : 1
+        self.episodeLifetime = episodeLifetime.isFinite ? max(0, episodeLifetime) : .infinity
         self.now = now
         self.schedule = schedule
         self.dispatchScheduledAction = dispatchScheduledAction
@@ -110,7 +121,31 @@ final class AgentApprovalNotificationCoordinator {
         )
         var state = panes[surfaceID] ?? PaneState(workspaceID: workspaceID)
         state.workspaceID = workspaceID
-        state.candidates[candidate.sequence] = candidate
+        if let existing = state.candidates[approvalID.rawValue] {
+            // Preserve the original deadline/order for a duplicate signal;
+            // only the latest display text may have changed.
+            state.candidates[approvalID.rawValue] = Candidate(
+                workspaceID: candidate.workspaceID,
+                title: candidate.title,
+                subtitle: candidate.subtitle,
+                body: candidate.body,
+                approvalID: candidate.approvalID,
+                readyAt: min(existing.readyAt, candidate.readyAt),
+                sequence: existing.sequence
+            )
+        } else {
+            state.candidates[approvalID.rawValue] = candidate
+        }
+        if state.candidates.count > Self.maxCandidatesPerPane {
+            let overflow = state.candidates.count - Self.maxCandidatesPerPane
+            let staleIDs = state.candidates.values
+                .sorted { $0.sequence < $1.sequence }
+                .prefix(overflow)
+                .map { $0.approvalID.rawValue }
+            for staleID in staleIDs {
+                state.candidates.removeValue(forKey: staleID)
+            }
+        }
         panes[surfaceID] = state
 
         // Once a pane has one visible approval notification, additional
@@ -126,10 +161,7 @@ final class AgentApprovalNotificationCoordinator {
             ResolutionKey(surfaceID: surfaceID, value: approvalID.rawValue)
         ] = timestamp + tombstoneLifetime
         guard var state = panes[surfaceID],
-              state.candidates.values.contains(where: { $0.approvalID == approvalID }) else { return }
-        // One correlation id names one logical request; duplicate hook
-        // deliveries must not keep its pane notification alive.
-        state.candidates = state.candidates.filter { $0.value.approvalID != approvalID }
+              state.candidates.removeValue(forKey: approvalID.rawValue) != nil else { return }
         finishResolution(surfaceID: surfaceID, state: &state, timestamp: timestamp)
     }
 
@@ -149,6 +181,7 @@ final class AgentApprovalNotificationCoordinator {
     func cancel(surfaceID: UUID, clearDelivered: Bool = true) {
         guard let state = panes.removeValue(forKey: surfaceID) else { return }
         state.cancelScheduled?()
+        state.cancelEpisodeExpiry?()
         if clearDelivered, let correlationKey = state.deliveredCorrelationKey {
             clear(Clear(
                 workspaceID: state.workspaceID,
@@ -182,6 +215,44 @@ final class AgentApprovalNotificationCoordinator {
         }
     }
 
+    /// Keep a live approval episode attached to the surface's current owner.
+    /// Candidates already carry their enqueue-time owner, so update them as a
+    /// unit; otherwise a later resolution would clear the source workspace
+    /// after the pane moved.
+    func rebind(surfaceID: UUID, toWorkspaceID workspaceID: UUID) {
+        guard var state = panes[surfaceID], state.workspaceID != workspaceID else { return }
+        state.workspaceID = workspaceID
+        state.candidates = state.candidates.mapValues { candidate in
+            Candidate(
+                workspaceID: workspaceID,
+                title: candidate.title,
+                subtitle: candidate.subtitle,
+                body: candidate.body,
+                approvalID: candidate.approvalID,
+                readyAt: candidate.readyAt,
+                sequence: candidate.sequence
+            )
+        }
+        panes[surfaceID] = state
+    }
+
+    /// Removes a delivered approval episode after the user (or another
+    /// notification path) dismissed its banner. This intentionally does not
+    /// emit a second clear: the store has already removed the row. Pending
+    /// candidates are discarded too, so a late staged hook cannot resurrect a
+    /// banner the user explicitly dismissed.
+    @discardableResult
+    func dismissDelivered(correlationKey: String) -> UUID? {
+        guard let match = panes.first(where: { $0.value.deliveredCorrelationKey == correlationKey }) else {
+            return nil
+        }
+        let surfaceID = match.key
+        let state = panes.removeValue(forKey: surfaceID)
+        state?.cancelScheduled?()
+        state?.cancelEpisodeExpiry?()
+        return surfaceID
+    }
+
     private func finishResolution(
         surfaceID: UUID,
         state: inout PaneState,
@@ -189,6 +260,7 @@ final class AgentApprovalNotificationCoordinator {
     ) {
         guard !state.candidates.isEmpty else {
             state.cancelScheduled?()
+            state.cancelEpisodeExpiry?()
             panes.removeValue(forKey: surfaceID)
             if let correlationKey = state.deliveredCorrelationKey {
                 clear(Clear(
@@ -268,9 +340,26 @@ final class AgentApprovalNotificationCoordinator {
             return
         }
 
-        let correlationKey = "agent-approval:\(UUID().uuidString)"
+        let correlationKey = Self.approvalCorrelationPrefix + UUID().uuidString
         state.workspaceID = candidate.workspaceID
         state.deliveredCorrelationKey = correlationKey
+        state.cancelEpisodeExpiry?()
+        let episodeID = UUID()
+        state.episodeID = episodeID
+        let expiryCancellation: Cancellation?
+        if episodeLifetime.isFinite {
+            expiryCancellation = schedule(episodeLifetime) { [weak self] in
+                guard let self else { return }
+                self.dispatchScheduledAction { [weak self] in
+                    self?.expireEpisode(surfaceID: surfaceID, correlationKey: correlationKey, episodeID: episodeID)
+                }
+            }
+        } else {
+            expiryCancellation = nil
+        }
+        // Store the cancellation only if this delivery is still current.
+        // `deliver` may synchronously enqueue a clear on another lane.
+        state.cancelEpisodeExpiry = expiryCancellation
         panes[surfaceID] = state
         deliver(Delivery(
             workspaceID: candidate.workspaceID,
@@ -285,25 +374,65 @@ final class AgentApprovalNotificationCoordinator {
     private func pruneTombstones(at timestamp: TimeInterval) {
         exactResolutionTombstones = exactResolutionTombstones.filter { $0.value > timestamp }
         scopeResolutionTombstones = scopeResolutionTombstones.filter { $0.value > timestamp }
+        if exactResolutionTombstones.count > Self.maxTombstonesPerKind {
+            exactResolutionTombstones = Dictionary(
+                uniqueKeysWithValues: exactResolutionTombstones
+                    .sorted { $0.value > $1.value }
+                    .prefix(Self.maxTombstonesPerKind)
+                    .map { ($0.key, $0.value) }
+            )
+        }
+        if scopeResolutionTombstones.count > Self.maxTombstonesPerKind {
+            scopeResolutionTombstones = Dictionary(
+                uniqueKeysWithValues: scopeResolutionTombstones
+                    .sorted { $0.value > $1.value }
+                    .prefix(Self.maxTombstonesPerKind)
+                    .map { ($0.key, $0.value) }
+            )
+        }
+    }
+
+    private func expireEpisode(
+        surfaceID: UUID,
+        correlationKey: String,
+        episodeID: UUID
+    ) {
+        guard var state = panes[surfaceID],
+              state.deliveredCorrelationKey == correlationKey,
+              state.episodeID == episodeID else { return }
+        state.cancelEpisodeExpiry = nil
+        state.episodeID = nil
+        state.cancelScheduled?()
+        panes.removeValue(forKey: surfaceID)
+        clear(Clear(
+            workspaceID: state.workspaceID,
+            surfaceID: surfaceID,
+            correlationKey: correlationKey
+        ))
+    }
+
+    nonisolated static func isApprovalCorrelationKey(_ value: String?) -> Bool {
+        value?.hasPrefix(approvalCorrelationPrefix) == true
     }
 
     private static func scheduleOnMainActor(
         delay: TimeInterval,
         action: @escaping Action
     ) -> Cancellation {
-        let maximumDelay = TimeInterval(Int64.max / 1_000_000_000)
-        let boundedDelay = delay.isFinite ? min(max(0, delay), maximumDelay) : 0
-        // This cancellable deadline is the intended settle behavior, and tests
-        // replace the scheduler rather than sleeping for synchronization.
-        let task = Task { @MainActor in
-            do {
-                try await Task<Never, Never>.sleep(for: .seconds(boundedDelay))
-            } catch {
-                return
+        let boundedDelay = delay.isFinite ? max(0, delay) : 0
+        // This is a genuine one-shot presentation deadline, not a polling
+        // sleep. A main-run-loop timer keeps cancellation explicit and lets the
+        // coordinator remain entirely on MainActor; tests inject a virtual
+        // scheduler instead of waiting on wall-clock time.
+        let timer = Timer(timeInterval: boundedDelay, repeats: false) { _ in
+            // The timer is registered on `RunLoop.main`, so its callback is
+            // guaranteed to execute on MainActor. Tell Swift's isolation
+            // checker about that Foundation callback boundary synchronously.
+            MainActor.assumeIsolated {
+                action()
             }
-            guard !Task.isCancelled else { return }
-            action()
         }
-        return { task.cancel() }
+        RunLoop.main.add(timer, forMode: .common)
+        return { timer.invalidate() }
     }
 }

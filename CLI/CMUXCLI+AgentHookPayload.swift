@@ -348,46 +348,34 @@ extension CMUXCLI {
         maxBytes: UInt64
     ) -> [String]? {
         let expandedPath = NSString(string: path).expandingTildeInPath
+        // `FileHandle(forReadingFrom:)` follows FIFOs/devices. A hook path is
+        // expected to be a transcript regular file; reject special files
+        // before opening so a malicious/stale path cannot block the hook.
+        var metadata = stat()
+        guard stat(expandedPath, &metadata) == 0,
+              (metadata.st_mode & S_IFMT) == S_IFREG else {
+            return nil
+        }
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
             return nil
         }
         defer { try? handle.close() }
 
-        func isASCIIWhitespace(_ byte: UInt8) -> Bool {
-            byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x20
-        }
-
-        func hasCompleteLineAfterLeadingBoundary(_ data: Data, readStart: UInt64) -> Bool {
-            guard readStart > 0 else { return true }
-            guard let newline = data.firstIndex(of: 0x0A) else { return false }
-            return data[data.index(after: newline)...].contains { !isASCIIWhitespace($0) }
-        }
-
         let size: UInt64
         do {
             size = try handle.seekToEnd()
-            var readStart = size > maxBytes ? size - maxBytes : 0
+            let readStart = size > maxBytes ? size - maxBytes : 0
             try handle.seek(toOffset: readStart)
-            guard var data = try handle.readToEnd(), !data.isEmpty else {
+            // Read exactly the bounded window. `readToEnd()` can observe bytes
+            // appended after `seekToEnd()` and silently exceed the rollout
+            // budget on a busy Codex transcript.
+            let initialReadLength = Int(min(maxBytes, UInt64(Int.max)))
+            guard var data = try handle.read(upToCount: initialReadLength), !data.isEmpty else {
                 return nil
             }
-            let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
-
-            while !hasCompleteLineAfterLeadingBoundary(data, readStart: readStart), readStart > 0 {
-                let currentWindowBytes = size - readStart
-                guard currentWindowBytes < maxWindowBytes else { break }
-                let remainingWindowBytes = maxWindowBytes - currentWindowBytes
-                let expansionBytes = min(readStart, maxBytes, remainingWindowBytes)
-                guard expansionBytes > 0 else { break }
-
-                readStart -= expansionBytes
-                try handle.seek(toOffset: readStart)
-                guard let expandedData = try handle.readToEnd(), !expandedData.isEmpty else {
-                    return nil
-                }
-                data = expandedData
-            }
-
+            // Keep the hook read strictly bounded. If the window begins in the
+            // middle of a very long line, dropping that partial line is safer
+            // than expanding into an unbounded transcript prefix.
             if readStart > 0, let newline = data.firstIndex(of: 0x0A) {
                 data.removeSubrange(data.startIndex...newline)
             }

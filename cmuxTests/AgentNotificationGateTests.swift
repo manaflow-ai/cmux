@@ -511,6 +511,7 @@ import Testing
 
         lazy var coordinator = AgentApprovalNotificationCoordinator(
             settleDelay: 0.1,
+            episodeLifetime: .infinity,
             now: { [scheduler] in scheduler.now },
             schedule: scheduler.schedule(delay:action:),
             dispatchScheduledAction: { [weak self] action in

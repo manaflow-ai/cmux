@@ -260,12 +260,13 @@ extension CMUXCLI {
     }
 
     /// Removes obsolete regular files only when their names prove cmux ownership.
-    /// Live Codex sessions may still hold paths from another tagged build, and
-    /// concurrent launches can briefly overlap script generation, so collection
-    /// waits until no Codex process is running and leaves recent files alone.
+    /// This is deliberately filesystem-only: it runs during persistent-hook
+    /// reconciliation or an explicit install, never on the common one-shot
+    /// wrapper path. A generous age window protects a live Codex session that
+    /// still references an older immutable script without consulting the host's
+    /// process table (`ps`/`pgrep`/`lsof`), which can add noticeable launch lag.
     static func garbageCollectCodexHookScripts(retaining filenames: Set<String>) {
-        guard !hasRunningCodexProcess(),
-              let directory = codexHookScriptsDirectory(),
+        guard let directory = codexHookScriptsDirectory(),
               let contents = try? FileManager.default.contentsOfDirectory(
                   at: directory,
                   includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
@@ -274,8 +275,9 @@ extension CMUXCLI {
             return
         }
 
-        let newestRemovableDate = Date().addingTimeInterval(-60)
-        for url in contents where !filenames.contains(url.lastPathComponent) {
+        let newestRemovableDate = Date().addingTimeInterval(-24 * 60 * 60)
+        let removableCandidates = contents.compactMap { url -> URL? in
+            guard !filenames.contains(url.lastPathComponent) else { return nil }
             let values = try? url.resourceValues(forKeys: [
                 .contentModificationDateKey,
                 .isRegularFileKey,
@@ -284,25 +286,17 @@ extension CMUXCLI {
                   values?.isRegularFile == true,
                   let modificationDate = values?.contentModificationDate,
                   modificationDate < newestRemovableDate else {
-                continue
+                return nil
             }
-            try? FileManager.default.removeItem(at: url)
+            return url
         }
-    }
-
-    /// Conservatively detects sessions that may still reference an older hook generation.
-    private static func hasRunningCodexProcess() -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        process.arguments = ["-x", "codex"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            return true
+        // Keep cleanup bounded if a damaged or very old installation has
+        // accumulated an unexpectedly large number of generated files. Leaving
+        // them for a later explicit install is safer than turning reconciliation
+        // into a long synchronous deletion pass.
+        guard removableCandidates.count <= 256 else { return }
+        for url in removableCandidates {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

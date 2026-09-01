@@ -271,6 +271,10 @@ struct FeedEventClassificationTests {
 
     private static let workspaceUUID = "11111111-2222-3333-4444-555555555555"
     private static let surfaceUUID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+    private static let approvalIdentity = CodexApprovalNotificationIdentity(
+        scope: "111111111111111111111111",
+        approvalID: "111111111111111111111111.aaaaaaaaaaaaaaaaaaaaaaaa"
+    )
 
     private func attentionCommand(
         _ source: String,
@@ -298,8 +302,8 @@ struct FeedEventClassificationTests {
     /// is what silently regresses https://github.com/manaflow-ai/cmux/issues/9592.
     @Test func codexPermissionRequestBuildsGatedNotifyCommand() {
         #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "shell")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0"
+            attentionCommand("codex", "PermissionRequest", tool: "shell", approvalIdentity: Self.approvalIdentity)
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0;a=\(Self.approvalIdentity.approvalID)"
         )
     }
 
@@ -307,8 +311,8 @@ struct FeedEventClassificationTests {
     /// needed" string rather than an empty interpolation.
     @Test func codexPermissionRequestWithoutToolNameFallsBackToApprovalNeeded() {
         #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|Approval needed|c=needs-permission;p=0"
+            attentionCommand("codex", "PermissionRequest", tool: "", approvalIdentity: Self.approvalIdentity)
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|Approval needed|c=needs-permission;p=0;a=\(Self.approvalIdentity.approvalID)"
         )
     }
 
@@ -317,12 +321,12 @@ struct FeedEventClassificationTests {
     /// so both must be neutralized.
     @Test func attentionCommandSanitizesPipeAndNewlineInToolName() {
         #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "a|b")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a¦b needs approval|c=needs-permission;p=0"
+            attentionCommand("codex", "PermissionRequest", tool: "a|b", approvalIdentity: Self.approvalIdentity)
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a¦b needs approval|c=needs-permission;p=0;a=\(Self.approvalIdentity.approvalID)"
         )
         #expect(
-            attentionCommand("codex", "PermissionRequest", tool: "a\nb")
-                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a b needs approval|c=needs-permission;p=0"
+            attentionCommand("codex", "PermissionRequest", tool: "a\nb", approvalIdentity: Self.approvalIdentity)
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a b needs approval|c=needs-permission;p=0;a=\(Self.approvalIdentity.approvalID)"
         )
     }
 
@@ -330,9 +334,14 @@ struct FeedEventClassificationTests {
     /// `clear_notifications` line.
     @Test func codexToolCompletionBuildsPaneScopedClearCommand() {
         #expect(
-            attentionCommand("codex", "PostToolUse", tool: "shell")
-                == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID)"
+            attentionCommand("codex", "PostToolUse", tool: "shell", approvalIdentity: Self.approvalIdentity)
+                == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID) --approval-id=\(Self.approvalIdentity.approvalID)"
         )
+    }
+
+    @Test func nativeApprovalAttentionRequiresCorrelationIdentity() {
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", approvalIdentity: nil) == nil)
+        #expect(attentionCommand("codex", "PostToolUse", tool: "shell", approvalIdentity: nil) == nil)
     }
 
     @Test func codexRequestAndCompletionBuildCorrelatedSettleCommands() throws {
@@ -404,10 +413,35 @@ struct FeedEventClassificationTests {
             "turn_id": "turn-current",
             "tool_name": "shell",
         ]
+        #expect(CodexApprovalNotificationIdentity.makeScope(
+            rawObject: rawObject,
+            fallbackSessionID: nil
+        ) != nil)
         #expect(CodexApprovalNotificationIdentity.make(rawObject: rawObject, fallbackSessionID: nil) == nil)
         var unsupported = rawObject
         unsupported["tool_input"] = Date()
         #expect(CodexApprovalNotificationIdentity.make(rawObject: unsupported, fallbackSessionID: nil) == nil)
+    }
+
+    @Test func codexApprovalIdentityBoundsNestedEnvelopeTraversal() {
+        var deeplyWrapped: [String: Any] = ["tool_input": ["command": "git status"]]
+        for _ in 0..<8 {
+            deeplyWrapped = ["notification": deeplyWrapped]
+        }
+        let rawObject: [String: Any] = [
+            "session_id": "codex-session",
+            "turn_id": "turn-current",
+            "tool_name": "shell",
+            "notification": deeplyWrapped,
+        ]
+
+        // The supported envelope depth is intentionally finite. A payload
+        // buried beyond it must fail closed instead of recursively walking an
+        // attacker-controlled object graph.
+        #expect(CodexApprovalNotificationIdentity.make(
+            rawObject: deeplyWrapped,
+            fallbackSessionID: nil
+        ) == nil)
     }
 
     @Test func codexAutoReviewFailsClosedWithoutReadableRolloutTail() {
@@ -418,6 +452,21 @@ struct FeedEventClassificationTests {
         })
         #expect(!policy.isAutoReviewed(rawObject: rawObject, transcriptPath: "/missing") { _, _ in nil })
         #expect(!policy.isAutoReviewed(rawObject: rawObject, transcriptPath: "/empty") { _, _ in [] })
+    }
+
+    @Test func codexUserReviewSkipsRolloutRead() {
+        let policy = CodexApprovalNotificationPolicy()
+        var readCount = 0
+        let isAutoReviewed = policy.isAutoReviewed(
+            rawObject: ["approvals_reviewer": "user"],
+            transcriptPath: "/should-not-be-opened"
+        ) { _, _ in
+            readCount += 1
+            return [#"{"type":"turn_context","payload":{"approvals_reviewer":"auto_review"}}"#]
+        }
+
+        #expect(!isAutoReviewed)
+        #expect(readCount == 0)
     }
 
     @Test func codexReviewerDoesNotLeakFromAnOlderKnownTurn() {
@@ -480,7 +529,8 @@ struct FeedEventClassificationTests {
             "PermissionRequest",
             tool: "shell",
             workspaceId: Self.workspaceUUID.lowercased(),
-            surfaceId: Self.surfaceUUID.lowercased()
+            surfaceId: Self.surfaceUUID.lowercased(),
+            approvalIdentity: Self.approvalIdentity
         )
         #expect(command?.contains("notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) ") == true)
     }

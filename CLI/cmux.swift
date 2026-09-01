@@ -444,7 +444,11 @@ final class ClaudeHookSessionStore {
     func lookup(sessionId: String, deadline: Date? = nil) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
-        return try withLockedState(deadline: deadline, persist: false) { state in
+        // Feed fallback lookups run for every native Codex approval event.
+        // They never mutate state, so use a shared lock and avoid the full
+        // JSON encode/atomic replace that `withLockedState` performs after
+        // every read. This keeps hook bursts from turning into disk I/O.
+        return try withSharedState { state in
             state.sessions[normalized]
         }
     }
@@ -2568,7 +2572,27 @@ final class ClaudeHookSessionStore {
         )
     }
 
+    private func withSharedState<T>(_ body: (ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+        let lockPath = statePath + ".lock"
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if flock(fd, LOCK_SH) != 0 {
+            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+        // Preserve expiry semantics without encoding and replacing the state
+        // file for a read-only lookup.
+        var state = try loadUnlocked()
+        pruneExpired(&state)
+        return try body(state)
+    }
+
     private func loadUnlocked(deadline: Date? = nil) throws -> ClaudeHookSessionStoreFile {
+
         guard fileManager.fileExists(atPath: statePath) else {
             return ClaudeHookSessionStoreFile()
         }
@@ -33025,6 +33049,42 @@ export default CMUXSessionRestore;
         })
     }
 
+    /// Repairs an opted-in persistent Codex channel before wrapper launch.
+    func reconcileCodexPersistentHooksForWrapper() -> Bool {
+        guard let def = Self.agentDef(named: "codex") else { return false }
+        let hooksURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(def.configFile, isDirectory: false)
+        let hooksBeforeReconciliation = Self.codexHookFileFingerprint(at: hooksURL)
+        try? installAgentHooks(def, automaticReconciliation: true)
+
+        guard let data = try? Data(contentsOf: hooksURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any] else {
+            return false
+        }
+        if hooksBeforeReconciliation != Self.codexHookFileFingerprint(at: hooksURL) {
+            Self.garbageCollectCodexHookScripts(
+                retaining: Self.currentCodexWrapperHookScriptFilenames(for: def)
+                    .union(Self.installedCodexHookScriptFilenames(for: def))
+            )
+        }
+        return hooks.values.contains {
+            Self.jsonHookValueContainsCmuxOwnedCommand($0, for: def)
+        }
+    }
+
+    /// A tiny metadata fingerprint avoids rereading a potentially large user
+    /// hooks file merely to decide whether reconciliation wrote it.
+    private static func codexHookFileFingerprint(at url: URL) -> String? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+            return nil
+        }
+        let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        let modification = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return "\(inode):\(size):\(modification)"
+    }
+
     private func pruneLegacyGrokHookFileIfNeeded(
         def: AgentHookDef,
         configDir: String,
@@ -33659,9 +33719,18 @@ export default CMUXSessionRestore;
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
-        let rawInput = rawInputOverride
-            ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
-            ?? ""
+        let rawInputData: Data = if let rawInputOverride {
+            Data(rawInputOverride.utf8)
+        } else if def.name == "codex" {
+            // Codex hooks are invoked synchronously by the agent. Keep a
+            // malformed/model-controlled stdin payload from holding the hook
+            // (and its socket) indefinitely or allocating unbounded memory.
+            Self.readBoundedFeedHookStdin(maxBytes: Self.genericCodexHookMaxStdinBytes)
+                ?? Data()
+        } else {
+            FileHandle.standardInput.readDataToEndOfFile()
+        }
+        let rawInput = String(data: rawInputData, encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
 
         let store = ClaudeHookSessionStore(
@@ -35434,16 +35503,6 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            if def.name == "codex",
-               let approvalIdentity = CodexApprovalNotificationIdentity.make(
-                   rawObject: input.rawObject ?? input.object,
-                   fallbackSessionID: sessionId
-               ) {
-                _ = try? sendV1Command(
-                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --approval-scope=\(approvalIdentity.scope)",
-                    client: client
-                )
-            }
             if def.name == "omp", let mapped {
                 clearSupersededAgentHookSessions(
                     [],
@@ -35706,6 +35765,21 @@ export default CMUXSessionRestore;
                 detail: stopHadFailure ? body : nil,
                 responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
             )
+
+            // Scope-clearing is intentionally after the freshness checks above.
+            // A delayed Stop from an older turn must not tombstone a newer
+            // approval before we know this stop still owns the pane.
+            if def.name == "codex",
+               !suppressVisibleMutations,
+               let approvalScope = CodexApprovalNotificationIdentity.makeScope(
+                   rawObject: input.rawObject ?? input.object,
+                   fallbackSessionID: input.sessionId
+               ) {
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --approval-scope=\(approvalScope)",
+                    client: client
+                )
+            }
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 _ = try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
@@ -36197,6 +36271,12 @@ export default CMUXSessionRestore;
                 return
             }
 
+            let approvalIdentity = def.name == "codex" && summary.notifyCategory == .needsPermission
+                ? CodexApprovalNotificationIdentity.make(
+                    rawObject: input.rawObject ?? input.object,
+                    fallbackSessionID: input.sessionId
+                )
+                : nil
             if def.name == "codex", summary.notifyCategory == .needsPermission {
                 let isAutoReviewed = CodexApprovalNotificationPolicy().isAutoReviewed(
                     rawObject: input.rawObject ?? input.object ?? [:],
@@ -36209,6 +36289,24 @@ export default CMUXSessionRestore;
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.notification.skip agent=codex session=\(agentHookDebugShort(sessionId)) reason=autoReview",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    sendAgentFeedTelemetryUnlessSuppressed(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                    print("{}")
+                    return
+                }
+                // A permission banner without a stable turn/tool identity can
+                // never be resolved safely. Fail closed rather than emit an
+                // ordinary notification that the correlation lane cannot own.
+                guard approvalIdentity != nil else {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.notification.skip agent=codex session=\(agentHookDebugShort(sessionId)) reason=missingApprovalIdentity",
                         socketPath: client.socketPath,
                         env: env
                     )
@@ -36374,13 +36472,10 @@ export default CMUXSessionRestore;
                 category: summary.notifyCategory,
                 body: summary.body
             )
-            let approvalIdentity = def.name == "codex" && summary.notifyCategory == .needsPermission
-                ? CodexApprovalNotificationIdentity.make(
-                    rawObject: input.rawObject ?? input.object,
-                    fallbackSessionID: sessionId
-                )
-                : nil
+            let shouldRouteThroughApprovalCoordinator = def.name == "codex"
+                && summary.notifyCategory == .needsPermission
             if (!summary.body.isEmpty || approvalIdentity != nil)
+                && (!shouldRouteThroughApprovalCoordinator || approvalIdentity != nil)
                 && (approvalIdentity != nil || shouldSendNotification(fingerprint: notificationFingerprint)) {
                 // One ancestry walk per delivered notification, feeding the
                 // notify payload's subagent tag below.
@@ -36641,13 +36736,19 @@ export default CMUXSessionRestore;
             if def.name == "codex", subcommand == "post-tool-use",
                let approvalIdentity = CodexApprovalNotificationIdentity.make(
                    rawObject: input.rawObject ?? input.object,
-                   fallbackSessionID: sessionId
+                   fallbackSessionID: input.sessionId
                ) {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
                 if let target = resolveAgentHookTarget(mapped: mapped) {
-                    _ = try? sendV1Command(
-                        "clear_notifications --tab=\(target.workspaceId)\(socketPanelOption(target.surfaceId)) --approval-id=\(approvalIdentity.approvalID)",
-                        client: client
+                    // This wrapper path runs in a detached fire-and-forget
+                    // worker. Never let a stalled daemon hold one worker for
+                    // the SocketClient's 15-second default; Codex can emit a
+                    // completion for every tool and otherwise accumulate
+                    // blocked child processes. The synchronous feed lane has
+                    // its own longer acknowledgement budget.
+                    _ = try? client.send(
+                        command: "clear_notifications --tab=\(target.workspaceId)\(socketPanelOption(target.surfaceId)) --approval-id=\(approvalIdentity.approvalID)",
+                        responseTimeout: Self.codexApprovalResolutionResponseTimeoutSeconds
                     )
                 }
             }
@@ -36683,6 +36784,11 @@ export default CMUXSessionRestore;
     /// delivery (connect, authentication, live-target resolution, and the
     /// acknowledged send) before the feed hook gives up and returns.
     static let feedAttentionAcknowledgeTimeoutSeconds: TimeInterval = 2
+
+    /// Short response budget for correlated clears emitted by Codex's detached
+    /// wrapper worker. This path is best-effort and must not accumulate one
+    /// blocked process per completed tool while the app socket is unhealthy.
+    static let codexApprovalResolutionResponseTimeoutSeconds: TimeInterval = 0.5
 
     /// Portion of the attention deadline reserved for the essential
     /// notify/clear send. The optional live-target probe may never consume
@@ -39205,10 +39311,19 @@ export default CMUXSessionRestore;
                 return
             }
         }
-        let approvalIdentity = source == "codex"
+        // Identity derivation canonicalizes the tool input and computes two
+        // SHA-256 digests.  Most feed events are ordinary telemetry and can
+        // never touch the native approval banner, so avoid that work unless
+        // this event actually raises or resolves one.
+        let needsApprovalCorrelation = source == "codex"
+            && (classification.notifiesNativeApprovalPrompt
+                || classification.clearsNativeApprovalPrompt)
+        let approvalIdentity = needsApprovalCorrelation
             ? CodexApprovalNotificationIdentity.make(
                 rawObject: stdinObj,
-                fallbackSessionID: sessionId
+                // Never use the synthetic Feed fallback (which is derived
+                // from PID/pane context) as an approval identity.
+                fallbackSessionID: rawSessionId
             )
             : nil
         let codexApprovalIsAutoReviewed = source == "codex"
@@ -39473,24 +39588,30 @@ export default CMUXSessionRestore;
     }
 
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+    /// Generic Codex hooks also read model-controlled JSON from stdin, but
+    /// unlike the Feed path they historically used read-to-EOF. Keep the
+    /// synchronous hook bounded to the same one-megabyte safety envelope.
+    private static let genericCodexHookMaxStdinBytes = 1 * 1024 * 1024
     private static let piFeedHookMaxStdinBytes = 128 * 1024
 
     private static func readBoundedFeedHookStdin(
         maxBytes: Int,
         handle: FileHandle = .standardInput
     ) -> Data? {
+        guard maxBytes > 0 else { return Data() }
         var data = Data()
-        while data.count <= maxBytes {
-            let remainingBytes = maxBytes + 1 - data.count
+        while data.count < maxBytes {
+            let remainingBytes = maxBytes - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else { return data }
             data.append(chunk)
         }
-        guard data.count <= maxBytes else {
-            while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
-            return nil
-        }
+        // Stop as soon as the bounded window is full. Do not perform a probe
+        // read for a possible extra byte: a producer may keep stdin open while
+        // waiting for its hook consumer, and that probe would reintroduce a
+        // hang at exactly the limit. A payload that fills the window is parsed
+        // as usual; truncated/oversized JSON fails closed at the parser.
         return data
     }
 

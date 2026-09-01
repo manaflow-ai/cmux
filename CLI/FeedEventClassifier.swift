@@ -462,9 +462,18 @@ struct FeedEventClassifier {
               let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceUUID = UUID(uuidString: surfaceRaw)
         else { return nil }
+        // A hook payload is bounded, but a single tool-name field could still
+        // consume nearly the entire budget and force large socket/UI copies.
+        // Keep attention lines small and predictable on the synchronous path.
+        guard !classification.notifiesNativeApprovalPrompt || approvalIdentity != nil else {
+            return nil
+        }
         if classification.clearsNativeApprovalPrompt {
-            let correlationOption = approvalIdentity.map { " --approval-id=\($0.approvalID)" } ?? ""
-            return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString)\(correlationOption)"
+            // Never fall back to a pane-wide or turn-wide clear. A delayed or
+            // malformed completion must not erase a newer approval; the
+            // generic Stop hook owns the explicit turn-scope fallback.
+            guard let approvalIdentity else { return nil }
+            return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString) --approval-id=\(approvalIdentity.approvalID)"
         }
         let subtitle = String(
             localized: "agent.generic.notification.subtitle.permission",
@@ -509,7 +518,8 @@ struct FeedEventClassifier {
     /// tool names are payload-controlled input, so normalize them the same
     /// way `notificationPayload` sanitizes its fields.
     private static func attentionNotificationField(_ value: String) -> String {
-        value
+        let bounded = String(value.prefix(240))
+        return bounded
             .components(separatedBy: .newlines)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)

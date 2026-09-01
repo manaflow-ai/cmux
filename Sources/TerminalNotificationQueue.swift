@@ -8,6 +8,23 @@ fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
     let surfaceId: UUID?
 }
 
+fileprivate struct QueuedAgentApprovalStage {
+    let workspaceID: UUID
+    let surfaceID: UUID
+    let title: String
+    let subtitle: String
+    let body: String
+    let approvalID: AgentApprovalCorrelationID
+}
+
+fileprivate struct AgentApprovalMutationToken {
+    let global: UInt64
+    let workspace: UInt64
+    let surface: UInt64
+    let workspaceID: UUID?
+    let surfaceID: UUID?
+}
+
 fileprivate struct QueuedTerminalNotification: Sendable {
     let key: QueuedTerminalNotificationKey
     let title: String
@@ -26,6 +43,9 @@ fileprivate enum TerminalSocketMutation {
     case clearNotificationsForSurface(UUID, UUID, through: UInt64)
     case clearNotificationsForCorrelation(UUID, UUID, String, through: UInt64)
     case clearNotificationCorrelation(QueuedTerminalNotificationKey, String)
+    case stageAgentApproval(QueuedAgentApprovalStage, AgentApprovalMutationToken)
+    case resolveAgentApproval(UUID, AgentApprovalCorrelationID, AgentApprovalMutationToken)
+    case resolveAgentApprovalScope(UUID, AgentApprovalCorrelationID.Scope, AgentApprovalMutationToken)
     case perform(@MainActor () -> Void)
 }
 
@@ -68,6 +88,15 @@ final class TerminalMutationBus: @unchecked Sendable {
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
+    private var approvalGlobalGeneration: UInt64 = 0
+    private var approvalWorkspaceGenerations: [UUID: UInt64] = [:]
+    private var approvalSurfaceGenerations: [UUID: UInt64] = [:]
+    private var approvalWorkspaceBySurface: [UUID: UUID] = [:]
+    // Hook traffic can outlive the workspaces/surfaces that produced it. Keep
+    // generation fencing bounded even if a long-running process churns through
+    // thousands of UUIDs. When the cap is reached, a global epoch bump safely
+    // invalidates every outstanding token before the old key tables are reset.
+    private let maxApprovalGenerationEntries = 4_096
     private let maxMutationsPerDrain = 16
 #if DEBUG
     private var drainsSuspendedForTesting = false
@@ -125,6 +154,81 @@ final class TerminalMutationBus: @unchecked Sendable {
         ), coalesces: coalesces)
     }
 
+    /// User-facing removal paths must also retire the in-memory approval
+    /// episode. Otherwise a later queued stage can recreate a banner that was
+    /// already dismissed from the notification store.
+    @MainActor
+    func dismissAgentApproval(
+        correlationKey: String,
+        workspaceID: UUID? = nil,
+        surfaceID: UUID? = nil
+    ) {
+        guard AgentApprovalNotificationCoordinator.isApprovalCorrelationKey(correlationKey) else { return }
+        let dismissedSurfaceID = agentApprovalNotifications.dismissDelivered(correlationKey: correlationKey)
+        let resolvedSurfaceID = surfaceID ?? dismissedSurfaceID
+        lock.lock()
+        ensureApprovalGenerationCapacityLocked(workspaceID: workspaceID, surfaceID: resolvedSurfaceID)
+        let resolvedWorkspaceID = workspaceID ?? resolvedSurfaceID.flatMap { approvalWorkspaceBySurface[$0] }
+        if let resolvedWorkspaceID {
+            approvalWorkspaceGenerations[resolvedWorkspaceID, default: 0] &+= 1
+        }
+        if let resolvedSurfaceID {
+            approvalSurfaceGenerations[resolvedSurfaceID, default: 0] &+= 1
+            approvalWorkspaceBySurface.removeValue(forKey: resolvedSurfaceID)
+        }
+        lock.unlock()
+    }
+
+    @MainActor
+    func cancelAgentApproval(surfaceID: UUID) {
+        agentApprovalNotifications.cancel(surfaceID: surfaceID, clearDelivered: false)
+        invalidateApprovalGenerations(global: false, workspaceID: nil, surfaceID: surfaceID)
+    }
+
+    @MainActor
+    func cancelAgentApprovals(workspaceID: UUID) {
+        agentApprovalNotifications.cancel(workspaceID: workspaceID, clearDelivered: false)
+        lock.lock()
+        ensureApprovalGenerationCapacityLocked(workspaceID: workspaceID, surfaceID: nil)
+        approvalWorkspaceGenerations[workspaceID, default: 0] &+= 1
+        let surfaceIDs = approvalWorkspaceBySurface.compactMap { surfaceID, ownerID in
+            ownerID == workspaceID ? surfaceID : nil
+        }
+        for surfaceID in surfaceIDs {
+            approvalSurfaceGenerations[surfaceID, default: 0] &+= 1
+            approvalWorkspaceBySurface.removeValue(forKey: surfaceID)
+        }
+        lock.unlock()
+    }
+
+    /// Rebind an approval episode when its terminal surface moves between
+    /// workspaces. The move fences queued mutations captured under the old
+    /// owner and updates the coordinator's eventual clear target.
+    @MainActor
+    func rebindAgentApproval(
+        surfaceID: UUID,
+        fromWorkspaceID: UUID,
+        toWorkspaceID: UUID
+    ) {
+        guard fromWorkspaceID != toWorkspaceID else { return }
+        agentApprovalNotifications.rebind(
+            surfaceID: surfaceID,
+            toWorkspaceID: toWorkspaceID
+        )
+        lock.lock()
+        ensureApprovalGenerationCapacityLocked(
+            workspaceID: toWorkspaceID,
+            surfaceID: surfaceID
+        )
+        if let previousWorkspaceID = approvalWorkspaceBySurface[surfaceID],
+           previousWorkspaceID != toWorkspaceID {
+            approvalWorkspaceGenerations[previousWorkspaceID, default: 0] &+= 1
+            approvalSurfaceGenerations[surfaceID, default: 0] &+= 1
+        }
+        approvalWorkspaceBySurface[surfaceID] = toWorkspaceID
+        lock.unlock()
+    }
+
     nonisolated func enqueueAgentApprovalNotification(
         tabId: UUID,
         surfaceId: UUID,
@@ -133,49 +237,58 @@ final class TerminalMutationBus: @unchecked Sendable {
         body: String,
         approvalID: AgentApprovalCorrelationID
     ) {
-        enqueueBarrierMutation(.perform { [weak self] in
-            self?.agentApprovalNotifications.stage(
-                workspaceID: tabId,
-                surfaceID: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body,
-                approvalID: approvalID
-            )
-        })
+        lock.lock()
+        ensureApprovalGenerationCapacityLocked(workspaceID: tabId, surfaceID: surfaceId)
+        // A surface move (or a recycled surface identity) must fence stages
+        // captured under its previous workspace, even before the next hook
+        // arrives with the new workspace id.
+        if let previousWorkspaceID = approvalWorkspaceBySurface[surfaceId],
+           previousWorkspaceID != tabId {
+            approvalSurfaceGenerations[surfaceId, default: 0] &+= 1
+            approvalWorkspaceGenerations[previousWorkspaceID, default: 0] &+= 1
+        }
+        approvalWorkspaceBySurface[surfaceId] = tabId
+        let token = approvalMutationToken(workspaceID: tabId, surfaceID: surfaceId)
+        lock.unlock()
+        enqueueApprovalMutation(.stageAgentApproval(QueuedAgentApprovalStage(
+            workspaceID: tabId,
+            surfaceID: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            approvalID: approvalID
+        ), token))
     }
 
     nonisolated func enqueueAgentApprovalResolution(
         surfaceId: UUID,
         approvalID: AgentApprovalCorrelationID
     ) {
-        enqueueBarrierMutation(.perform { [weak self] in
-            self?.agentApprovalNotifications.resolve(
-                surfaceID: surfaceId,
-                approvalID: approvalID
-            )
-        })
+        lock.lock()
+        let token = approvalMutationToken(workspaceID: nil, surfaceID: surfaceId)
+        lock.unlock()
+        enqueueApprovalMutation(.resolveAgentApproval(surfaceId, approvalID, token))
     }
 
     nonisolated func enqueueAgentApprovalResolution(
         surfaceId: UUID,
         approvalScope: AgentApprovalCorrelationID.Scope
     ) {
-        enqueueBarrierMutation(.perform { [weak self] in
-            self?.agentApprovalNotifications.resolve(
-                surfaceID: surfaceId,
-                approvalScope: approvalScope
-            )
-        })
+        lock.lock()
+        let token = approvalMutationToken(workspaceID: nil, surfaceID: surfaceId)
+        lock.unlock()
+        enqueueApprovalMutation(.resolveAgentApprovalScope(surfaceId, approvalScope, token))
     }
 
     nonisolated func enqueueClearAllNotifications() {
+        invalidateApprovalGenerations(global: true, workspaceID: nil, surfaceID: nil)
         enqueueClear({ .clearAllNotifications(through: $0) }) { _ in true }
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
         // Surface-addressed entries may have moved since enqueue. Keep them
         // ahead of the barrier so delivery can resolve their live owner first.
+        invalidateApprovalGenerations(global: false, workspaceID: tabId, surfaceID: nil)
         enqueueClear({ .clearNotificationsForTab(tabId, through: $0) }) { notification in
             notification.key.tabId == tabId && notification.key.surfaceId == nil
         }
@@ -183,6 +296,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
         // Canonical surface identity: a stale-keyed entry would retarget here at drain.
+        invalidateApprovalGenerations(global: false, workspaceID: tabId, surfaceID: surfaceId)
         enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { notification in
             notification.key.surfaceId == surfaceId
         }
@@ -210,6 +324,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         surfaceId: UUID,
         correlationKey: String
     ) {
+        invalidateApprovalGenerations(global: false, workspaceID: tabId, surfaceID: surfaceId)
         enqueueBarrierMutation(.clearNotificationCorrelation(
             QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             correlationKey
@@ -258,6 +373,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     nonisolated func discardPendingNotifications() {
         discardPendingNotifications(advanceGeneration: true) { _, _ in true }
+        invalidateApprovalGenerations(global: true, workspaceID: nil, surfaceID: nil)
     }
 
     /// Direct store clears bypass the socket mutation cases, so cancel their
@@ -269,6 +385,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func discardPendingNotifications(forTabId tabId: UUID) {
+        invalidateApprovalGenerations(global: false, workspaceID: tabId, surfaceID: nil)
         discardPendingNotifications { notification, _ in
             notification.key.tabId == tabId
         }
@@ -278,6 +395,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     /// `rebindSurfaceNotifications`, where a surface-wide discard could drop a
     /// newer entry legitimately queued under the destination key mid-move.
     nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
+        invalidateApprovalGenerations(global: false, workspaceID: tabId, surfaceID: surfaceId)
         discardPendingNotifications { notification, _ in
             notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
         }
@@ -288,6 +406,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     /// surface's live owner (#7939), so a clear that matched only the claimed
     /// key would let a stale-keyed entry resurrect the notification at drain.
     nonisolated func discardPendingNotifications(forSurfaceId surfaceId: UUID) {
+        invalidateApprovalGenerations(global: false, workspaceID: nil, surfaceID: surfaceId)
         discardPendingNotifications { notification, _ in
             notification.key.surfaceId == surfaceId
         }
@@ -300,12 +419,14 @@ final class TerminalMutationBus: @unchecked Sendable {
         if let surfaceId {
             agentApprovalNotifications.cancel(surfaceID: surfaceId, clearDelivered: false)
             discardPendingNotifications(forSurfaceId: surfaceId)
+            invalidateApprovalGenerations(global: false, workspaceID: nil, surfaceID: surfaceId)
         } else {
             cancelAgentApprovalNotifications(
                 forLiveTabId: tabId,
                 clearDelivered: false
             )
             discardPendingNotificationsResolvingLiveOwner(forTabId: tabId)
+            invalidateApprovalGenerations(global: false, workspaceID: tabId, surfaceID: nil)
         }
     }
 
@@ -449,6 +570,129 @@ final class TerminalMutationBus: @unchecked Sendable {
 
         guard shouldScheduleDrain else { return }
         scheduleDrain()
+    }
+
+    private nonisolated func approvalMutationToken(
+        workspaceID: UUID?,
+        surfaceID: UUID?
+    ) -> AgentApprovalMutationToken {
+        let resolvedWorkspaceID = workspaceID ?? surfaceID.flatMap { approvalWorkspaceBySurface[$0] }
+        return AgentApprovalMutationToken(
+            global: approvalGlobalGeneration,
+            workspace: resolvedWorkspaceID.map { approvalWorkspaceGenerations[$0] ?? 0 } ?? 0,
+            surface: surfaceID.map { approvalSurfaceGenerations[$0] ?? 0 } ?? 0,
+            workspaceID: resolvedWorkspaceID,
+            surfaceID: surfaceID
+        )
+    }
+
+    /// Must be called with `lock` held. A global reset is preferable to
+    /// evicting individual UUID generations: evicting one key could make an
+    /// old token look current again when its generation falls back to zero.
+    private func ensureApprovalGenerationCapacityLocked(
+        workspaceID: UUID?,
+        surfaceID: UUID?
+    ) {
+        var projected = approvalWorkspaceGenerations.count
+            + approvalSurfaceGenerations.count
+            + approvalWorkspaceBySurface.count
+        if let workspaceID, approvalWorkspaceGenerations[workspaceID] == nil {
+            projected += 1
+        }
+        if let surfaceID {
+            if approvalSurfaceGenerations[surfaceID] == nil { projected += 1 }
+            if approvalWorkspaceBySurface[surfaceID] == nil { projected += 1 }
+        }
+        guard projected <= maxApprovalGenerationEntries else {
+            approvalGlobalGeneration &+= 1
+            approvalWorkspaceGenerations.removeAll(keepingCapacity: true)
+            approvalSurfaceGenerations.removeAll(keepingCapacity: true)
+            approvalWorkspaceBySurface.removeAll(keepingCapacity: true)
+            return
+        }
+    }
+
+    private nonisolated func invalidateApprovalGenerations(
+        global: Bool,
+        workspaceID: UUID?,
+        surfaceID: UUID?
+    ) {
+        lock.lock()
+        ensureApprovalGenerationCapacityLocked(workspaceID: workspaceID, surfaceID: surfaceID)
+        if global { approvalGlobalGeneration &+= 1 }
+        if let workspaceID {
+            approvalWorkspaceGenerations[workspaceID, default: 0] &+= 1
+        }
+        if let surfaceID {
+            approvalSurfaceGenerations[surfaceID, default: 0] &+= 1
+            approvalWorkspaceBySurface.removeValue(forKey: surfaceID)
+        }
+        lock.unlock()
+    }
+
+    /// Approval stages/resolutions are keyed mutations. Coalesce duplicate
+    /// entries while the main actor is busy so a hook burst cannot turn the
+    /// pending array into an unbounded backlog.
+    private nonisolated func enqueueApprovalMutation(_ mutation: TerminalSocketMutation) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        switch mutation {
+        case .stageAgentApproval(let stage, _):
+            pending.removeAll { entry in
+                guard case .stageAgentApproval(let existing, _) = entry.mutation else { return false }
+                return existing.surfaceID == stage.surfaceID
+                    && existing.approvalID == stage.approvalID
+            }
+        case .resolveAgentApproval(let surfaceID, let approvalID, _):
+            pending.removeAll { entry in
+                guard case .resolveAgentApproval(let existingSurfaceID, let existingID, _) = entry.mutation else { return false }
+                return existingSurfaceID == surfaceID && existingID == approvalID
+            }
+        case .resolveAgentApprovalScope(let surfaceID, let scope, _):
+            pending.removeAll { entry in
+                guard case .resolveAgentApprovalScope(let existingSurfaceID, let existingScope, _) = entry.mutation else { return false }
+                return existingSurfaceID == surfaceID && existingScope == scope
+            }
+        default:
+            break
+        }
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: mutation,
+            notificationGeneration: nil,
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain { drainScheduled = true }
+        lock.unlock()
+        if shouldScheduleDrain { scheduleDrain() }
+    }
+
+    private nonisolated func approvalTokenIsCurrent(
+        _ token: AgentApprovalMutationToken,
+        workspaceID: UUID?,
+        surfaceID: UUID?
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard token.global == approvalGlobalGeneration else { return false }
+        guard token.workspaceID == workspaceID || workspaceID == nil else { return false }
+        guard token.surfaceID == surfaceID || surfaceID == nil else { return false }
+        if let tokenWorkspaceID = token.workspaceID,
+           token.workspace != (approvalWorkspaceGenerations[tokenWorkspaceID] ?? 0) {
+            return false
+        }
+        if let tokenSurfaceID = token.surfaceID,
+           token.surface != (approvalSurfaceGenerations[tokenSurfaceID] ?? 0) {
+            return false
+        }
+        if let tokenSurfaceID = token.surfaceID,
+           approvalWorkspaceBySurface[tokenSurfaceID] != token.workspaceID {
+            return false
+        }
+        return true
     }
 
     /// Last-write-wins `enqueueMainActorMutation`: drops any still-pending
@@ -610,7 +854,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                     "notification.queue.perform seq=\(entry.sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
                 )
 #endif
-                TerminalNotificationStore.shared.deliverQueuedNotification(
+                let delivered = TerminalNotificationStore.shared.deliverQueuedNotification(
                     claimedTabId: notification.key.tabId,
                     surfaceId: notification.key.surfaceId,
                     title: notification.title,
@@ -622,6 +866,18 @@ final class TerminalMutationBus: @unchecked Sendable {
                     notificationGeneration: entry.notificationGeneration ?? 0,
                     soundContext: notification.soundContext
                 )
+                // Retire an approval only after the replacement was accepted
+                // by the live-owner resolver. A closed/moved pane must not
+                // erase a still-valid approval episode as a side effect of a
+                // notification that was dropped.
+                if delivered,
+                   !AgentApprovalNotificationCoordinator.isApprovalCorrelationKey(notification.correlationKey) {
+                    if let surfaceID = notification.key.surfaceId {
+                        cancelAgentApproval(surfaceID: surfaceID)
+                    } else {
+                        cancelAgentApprovals(workspaceID: notification.key.tabId)
+                    }
+                }
             case .clearAllNotifications(let boundary):
                 agentApprovalNotifications.cancelAll(clearDelivered: false)
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false, throughNotificationGeneration: boundary)
@@ -656,10 +912,31 @@ final class TerminalMutationBus: @unchecked Sendable {
                     claimedTabId: key.tabId,
                     surfaceId: key.surfaceId
                 )?.tabId ?? key.tabId
+                // Correlation clears can originate outside the coordinator's
+                // own resolve callback. Retire any matching episode before
+                // removing the persisted row so a late stage cannot recreate
+                // the banner.
+                _ = agentApprovalNotifications.dismissDelivered(correlationKey: correlationKey)
                 TerminalNotificationStore.shared.clearNotifications(
                     forTabId: tabId,
                     correlationKey: correlationKey
                 )
+            case .stageAgentApproval(let stage, let token):
+                guard approvalTokenIsCurrent(token, workspaceID: stage.workspaceID, surfaceID: stage.surfaceID) else { continue }
+                agentApprovalNotifications.stage(
+                    workspaceID: stage.workspaceID,
+                    surfaceID: stage.surfaceID,
+                    title: stage.title,
+                    subtitle: stage.subtitle,
+                    body: stage.body,
+                    approvalID: stage.approvalID
+                )
+            case .resolveAgentApproval(let surfaceID, let approvalID, let token):
+                guard approvalTokenIsCurrent(token, workspaceID: nil, surfaceID: surfaceID) else { continue }
+                agentApprovalNotifications.resolve(surfaceID: surfaceID, approvalID: approvalID)
+            case .resolveAgentApprovalScope(let surfaceID, let approvalScope, let token):
+                guard approvalTokenIsCurrent(token, workspaceID: nil, surfaceID: surfaceID) else { continue }
+                agentApprovalNotifications.resolve(surfaceID: surfaceID, approvalScope: approvalScope)
             case .perform(let mutation):
                 mutation()
             }

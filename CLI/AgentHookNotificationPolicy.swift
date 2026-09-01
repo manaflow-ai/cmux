@@ -139,38 +139,168 @@ enum AgentHookNotifyCategory: String {
 /// opaque identity from the stable session/turn/tool/input tuple that the
 /// request and completion share.
 struct CodexApprovalNotificationIdentity: Equatable, Sendable {
+    /// Keep model-controlled input from turning approval correlation into an
+    /// unbounded serialization/hash operation on the hook's synchronous path.
+    /// Inputs larger than this are not safely correlatable and fail closed.
+    private static let maxCanonicalToolInputBytes = 64 * 1024
+    private static let maxIdentityComponentBytes = 1024
+    // Hook envelopes are allowed a few wrapper layers (for example an
+    // app-server `notification` containing `params` and `toolCall`). Keep
+    // the recursive fallback bounded so hostile JSON cannot turn identity
+    // derivation into an unbounded tree walk.
+    private static let maxWrapperDepth = 4
+
     let scope: String
     let approvalID: String
+
+    /// Derives the session/turn scope even when a lifecycle payload has no
+    /// tool input (for example Codex's `Stop` hook). Scope clears are safe for
+    /// that payload shape; a request-level id still requires deterministic
+    /// tool input below.
+    static func makeScope(
+        rawObject: [String: Any]?,
+        fallbackSessionID: String?
+    ) -> String? {
+        guard let seed = scopeSeed(
+            rawObject: rawObject ?? [:],
+            fallbackSessionID: fallbackSessionID
+        ) else { return nil }
+        return digestPrefix(seed)
+    }
 
     static func make(
         rawObject: [String: Any]?,
         fallbackSessionID: String?
     ) -> Self? {
         let object = rawObject ?? [:]
-        guard let sessionID = firstNonemptyString(
+        guard let scopeSeed = scopeSeed(
+            rawObject: object,
+            fallbackSessionID: fallbackSessionID
+        ) else { return nil }
+        guard firstNonemptyStringDeep(in: object, keys: ["turn_id", "turnId"]) != nil else {
+            return nil
+        }
+        let toolCall = firstNestedObject(in: object, keys: ["toolCall", "tool_call"])
+        guard let toolName = (
+            firstNonemptyStringDeep(in: object, keys: ["tool_name", "toolName"])
+                ?? toolCall.flatMap { firstNonemptyString(in: $0, keys: ["name", "tool_name", "toolName"]) }
+        ) else {
+            return nil
+        }
+        // Explicit provider ids are authoritative when present. In
+        // particular, do not let a canonical input value silently override a
+        // `call_id`/`tool_call_id` supplied by the provider: those ids are the
+        // only stable discriminator when two calls have identical arguments.
+        let explicitCallID = firstNonemptyStringDeep(
             in: object,
+            keys: [
+                "approval_id", "approvalId", "tool_call_id", "toolCallId",
+                "call_id", "callId",
+            ]
+        ) ?? toolCall.flatMap {
+            firstNonemptyString(
+                in: $0,
+                keys: ["approval_id", "approvalId", "tool_call_id", "toolCallId", "call_id", "callId"]
+            )
+        }
+        let toolInput = firstNestedValue(in: object, keys: ["tool_input", "toolInput"])
+            ?? toolCall?["args"]
+        // Prefer an explicit provider call id, then the canonical request
+        // tuple. Codex versions in the wild add `tool_use_id` only to
+        // PostToolUse; it is deliberately not used here because a
+        // completion-only id would make the request and completion diverge.
+        let canonicalToolInput = toolInput.flatMap(canonicalJSON)
+        guard explicitCallID != nil || canonicalToolInput != nil else { return nil }
+        let scope = digestPrefix(scopeSeed)
+        let requestSeed: String
+        if let explicitCallID {
+            requestSeed = "\(scopeSeed)\ncall=\(explicitCallID)\ntool=\(toolName)"
+        } else {
+            requestSeed = "\(scopeSeed)\ntool=\(toolName)\ninput=\(canonicalToolInput!)"
+        }
+        let request = digestPrefix(requestSeed)
+        return Self(scope: scope, approvalID: "\(scope).\(request)")
+    }
+
+    private static func scopeSeed(
+        rawObject: [String: Any],
+        fallbackSessionID: String?
+    ) -> String? {
+        guard let sessionID = firstNonemptyStringDeep(
+            in: rawObject,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? normalized(fallbackSessionID) else { return nil }
-        let turnID = firstNonemptyString(in: object, keys: ["turn_id", "turnId"]) ?? ""
-        let toolCall = object["toolCall"] as? [String: Any]
-        let toolName = firstNonemptyString(in: object, keys: ["tool_name", "toolName"])
-            ?? toolCall.flatMap { firstNonemptyString(in: $0, keys: ["name"]) }
-            ?? ""
-        let toolInput = object["tool_input"]
-            ?? object["toolInput"]
-            ?? toolCall?["args"]
-        guard let canonicalToolInput = canonicalJSON(toolInput) else { return nil }
-        let scopeSeed = "session=\(sessionID)\nturn=\(turnID)"
-        let scope = digestPrefix(scopeSeed)
-        let request = digestPrefix(
-            "\(scopeSeed)\ntool=\(toolName)\ninput=\(canonicalToolInput)"
-        )
-        return Self(scope: scope, approvalID: "\(scope).\(request)")
+        guard let turnID = firstNonemptyStringDeep(in: rawObject, keys: ["turn_id", "turnId"]) else {
+            return nil
+        }
+        return "session=\(sessionID)\nturn=\(turnID)"
+    }
+
+    /// Searches only the wrapper containers used by supported Codex hook
+    /// producers. Keeping this bounded avoids recursively walking arbitrary
+    /// model-controlled JSON while still handling app-server envelopes.
+    private static func firstNonemptyStringDeep(
+        in object: [String: Any],
+        keys: [String],
+        depth: Int = 0
+    ) -> String? {
+        guard depth <= maxWrapperDepth else { return nil }
+        if let direct = firstNonemptyString(in: object, keys: keys) {
+            return direct
+        }
+        for containerKey in ["notification", "data", "context", "extra", "params", "toolCall", "tool_call", "tool_input", "toolInput"] {
+            guard let nested = object[containerKey] as? [String: Any] else { continue }
+            if let value = firstNonemptyStringDeep(in: nested, keys: keys, depth: depth + 1) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func firstNestedObject(
+        in object: [String: Any],
+        keys: [String],
+        depth: Int = 0
+    ) -> [String: Any]? {
+        guard depth <= maxWrapperDepth else { return nil }
+        for key in keys {
+            if let nested = object[key] as? [String: Any] {
+                return nested
+            }
+        }
+        for containerKey in ["notification", "data", "context", "extra", "params"] {
+            guard let nested = object[containerKey] as? [String: Any] else { continue }
+            if let result = firstNestedObject(in: nested, keys: keys, depth: depth + 1) {
+                return result
+            }
+        }
+        return nil
+    }
+
+    private static func firstNestedValue(
+        in object: [String: Any],
+        keys: [String],
+        depth: Int = 0
+    ) -> Any? {
+        guard depth <= maxWrapperDepth else { return nil }
+        for key in keys {
+            if let value = object[key] {
+                return value
+            }
+        }
+        for containerKey in ["notification", "data", "context", "extra", "params"] {
+            guard let nested = object[containerKey] as? [String: Any] else { continue }
+            if let value = firstNestedValue(in: nested, keys: keys, depth: depth + 1) {
+                return value
+            }
+        }
+        return nil
     }
 
     private static func normalized(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else { return nil }
+              !value.isEmpty,
+              value.utf8.count <= maxIdentityComponentBytes else { return nil }
         return value
     }
 
@@ -191,6 +321,7 @@ struct CodexApprovalNotificationIdentity: Equatable, Sendable {
         let wrapped: [String: Any] = ["value": value]
         guard JSONSerialization.isValidJSONObject(wrapped),
               let data = try? JSONSerialization.data(withJSONObject: wrapped, options: [.sortedKeys]),
+              data.count <= maxCanonicalToolInputBytes,
               let string = String(data: data, encoding: .utf8) else {
             return nil
         }
@@ -227,6 +358,14 @@ struct CodexApprovalNotificationPolicy: Sendable {
         transcriptPath: String?,
         readRolloutLines: (_ path: String, _ maxBytes: UInt64) -> [String]?
     ) -> Bool {
+        // An explicit user reviewer is authoritative and can never result in
+        // auto-review.  Resolve that cheap in-memory case before opening and
+        // parsing the rollout tail.  Keep the auto-review side fail-closed:
+        // it still requires a readable transcript as proof of the effective
+        // turn context.
+        if reviewRoute(rawObject: rawObject, rolloutLines: []) == .user {
+            return false
+        }
         guard let transcriptPath = transcriptPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !transcriptPath.isEmpty,
               let rolloutLines = readRolloutLines(transcriptPath, Self.rolloutTailBytes),
