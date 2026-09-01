@@ -36,6 +36,7 @@ final class SurfaceSelectionChangeEventPublisher {
             self.owner = owner
         }
 
+        @MainActor
         func cancel() {
             eventsTask?.cancel()
             debounceTask?.cancel()
@@ -46,6 +47,15 @@ final class SurfaceSelectionChangeEventPublisher {
             if let observer = owner as? SurfaceSelectionNativeObserver {
                 observer.stop()
             }
+        }
+
+        /// Cancels asynchronous work without touching actor-isolated native
+        /// observer state. Publisher deinitialization is nonisolated under
+        /// Swift 6, so it can still release task handles safely here; normal
+        /// lifecycle teardown uses ``cancel()`` on the main actor.
+        nonisolated func cancelTasks() {
+            eventsTask?.cancel()
+            debounceTask?.cancel()
         }
     }
 
@@ -261,6 +271,6 @@ final class SurfaceSelectionChangeEventPublisher {
     }
 
     deinit {
-        entries.values.forEach { $0.cancel() }
+        entries.values.forEach { $0.cancelTasks() }
     }
 }
