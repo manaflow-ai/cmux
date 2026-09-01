@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -1557,11 +1557,85 @@ pub enum PipeIoEvent {
     StdinClosed,
 }
 
+impl PipeIoEvent {
+    /// Bytes retained by the relay data queue. Lifecycle signals use a
+    /// separate reserved channel and retain no terminal payload.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Replay { bytes } | Self::Output(bytes) => bytes.len(),
+            Self::SurfaceExited | Self::TransportLost | Self::ProtocolError | Self::StdinClosed => 0,
+        }
+    }
+}
+
+/// A byte budget shared by one pipe relay. A bounded event count alone is not
+/// a memory bound because one replay event can be many megabytes.
+pub(crate) struct PipeIoByteBudget {
+    retained: AtomicUsize,
+    limit: usize,
+}
+
+impl PipeIoByteBudget {
+    pub(crate) fn new(limit: usize) -> Self {
+        Self { retained: AtomicUsize::new(0), limit: limit.max(1) }
+    }
+
+    pub(crate) fn try_reserve(&self, bytes: usize) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut current = self.retained.load(Ordering::Acquire);
+        loop {
+            let Some(next) = current.checked_add(bytes) else { return false };
+            if next > self.limit {
+                return false;
+            }
+            match self.retained.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    pub(crate) fn release(&self, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        let mut current = self.retained.load(Ordering::Acquire);
+        loop {
+            let next = current.saturating_sub(bytes);
+            match self.retained.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+}
+
 struct PipeIoTap {
     surface: SurfaceId,
     sender: EventSender<PipeIoEvent>,
     lifecycle_sender: EventSender<PipeIoEvent>,
+    byte_budget: Arc<PipeIoByteBudget>,
     token: Arc<u8>,
+}
+
+/// Result of registering a renderer-less pipe attachment. This path does not
+/// allocate a local VT mirror. The embedder owns terminal parsing.
+pub(crate) enum PipeIoSurfaceAttach {
+    Attached,
+    Retired,
+    Deferred,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -2249,6 +2323,11 @@ impl RemoteSession {
     }
 
     fn handle_line(self: &Arc<Self>, value: Value) {
+        // A reader can have one buffered event after local shutdown. It must
+        // not mutate a replacement relay or recreate a mirror after teardown.
+        if self.shutdown.load(Ordering::Acquire) {
+            return;
+        }
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
         let event = value.get("event").and_then(Value::as_str);
         if event.is_some_and(|event| !self.accepts_event_in_surface_scope(event, &value)) {
@@ -2269,12 +2348,17 @@ impl RemoteSession {
                 let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
-                self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() });
+                // A raw pipe relay owns VT parsing. Do not feed its bytes to a
+                // second local mirror, which can fail independently and turn
+                // a healthy stream into a false terminal-ended state.
+                if self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() }) {
+                    return;
+                }
+                let colors = value.get("colors").and_then(parse_terminal_colors);
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
                     return;
@@ -2337,9 +2421,11 @@ impl RemoteSession {
                 let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
-                self.pipe_io_forward(id, || PipeIoEvent::Output(bytes.clone()));
+                if self.pipe_io_forward(id, || PipeIoEvent::Output(bytes.clone())) {
+                    return;
+                }
+                let colors = value.get("colors").and_then(parse_terminal_colors);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.scan_cursor_provenance(&bytes);
                     let mut term = surface.term.lock().unwrap();
@@ -2373,6 +2459,21 @@ impl RemoteSession {
                     }
                     None => None,
                 };
+                self.log_frame(
+                    id,
+                    format_args!(
+                        "resized cols={cols} rows={rows} bytes={}",
+                        replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
+                    ),
+                );
+                let pipe_io_owned = if let Some(replay) = replay.as_ref() {
+                    self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() })
+                } else {
+                    self.pipe_io_owns_surface(id)
+                };
+                if pipe_io_owned {
+                    return;
+                }
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
                     return;
@@ -2382,16 +2483,6 @@ impl RemoteSession {
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
-                self.log_frame(
-                    id,
-                    format_args!(
-                        "resized cols={cols} rows={rows} bytes={}",
-                        replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
-                    ),
-                );
-                if let Some(replay) = replay.as_ref() {
-                    self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() });
-                }
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     if surface
                         .apply_stream_resize_with_colors(
@@ -2419,6 +2510,9 @@ impl RemoteSession {
             }
             Some("colors-changed") => {
                 let Some(id) = surface_id() else { return };
+                if self.pipe_io_owns_surface(id) {
+                    return;
+                }
                 let Some(colors) = parse_terminal_colors(&value) else { return };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let mut term = surface.term.lock().unwrap();
@@ -3083,12 +3177,18 @@ impl RemoteSession {
         surface: SurfaceId,
         sender: EventSender<PipeIoEvent>,
         lifecycle_sender: EventSender<PipeIoEvent>,
+        byte_budget: Arc<PipeIoByteBudget>,
     ) -> Arc<u8> {
         // A non-zero-sized allocation gives each tap a stable identity. A
         // zero-sized Arc token could share the allocator's dangling pointer.
         let token = Arc::new(0u8);
-        *self.pipe_io_tap.lock().unwrap() =
-            Some(PipeIoTap { surface, sender, lifecycle_sender, token: token.clone() });
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap {
+            surface,
+            sender,
+            lifecycle_sender,
+            byte_budget,
+            token: token.clone(),
+        });
         token
     }
 
@@ -3128,38 +3228,32 @@ impl RemoteSession {
         }
     }
 
-    /// Removes a scoped pipe-IO tap when its relay has finished. A relay is
-    /// one-shot, so leaving its sender installed would let a later unrelated
-    /// surface event fill a dead queue and disconnect an otherwise healthy
-    /// session.
-    pub fn clear_pipe_io_tap(&self, surface: SurfaceId) {
-        let mut tap = self.pipe_io_tap.lock().unwrap();
-        if tap.as_ref().is_some_and(|current| current.surface == surface) {
-            *tap = None;
-        }
-    }
-
     /// Forwards one tap event, treating a full or dropped queue as a lost
     /// transport: the relay's reader stalled, and silently dropping bytes
     /// would corrupt the embedder's terminal state (bounded-backpressure
     /// policy; never wedge the session reader thread).
-    fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) {
+    fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
         use crossbeam_channel::TrySendError;
         let event = event();
         if matches!(&event, PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost) {
-            self.signal_pipe_io_event(Some(surface), None, event);
-            return;
+            return self.signal_pipe_io_event(Some(surface), None, event);
         }
-        let stalled_token = {
+        let (stalled_token, owned) = {
             let tap = self.pipe_io_tap.lock().unwrap();
-            let Some(tap) = tap.as_ref() else { return };
+            let Some(tap) = tap.as_ref() else { return false };
             if tap.surface != surface {
-                return;
+                return false;
             }
-            match tap.sender.try_send(event) {
-                Ok(()) => None,
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                    Some(tap.token.clone())
+            let retained_bytes = event.retained_bytes();
+            if !tap.byte_budget.try_reserve(retained_bytes) {
+                (Some(tap.token.clone()), true)
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => (None, true),
+                    Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                        tap.byte_budget.release(retained_bytes);
+                        (Some(tap.token.clone()), true)
+                    }
                 }
             }
         };
@@ -3171,6 +3265,7 @@ impl RemoteSession {
                 self.disconnect_transport();
             }
         }
+        owned
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -3404,6 +3499,112 @@ impl RemoteSession {
             !recovery.stopped
                 && recovery.retry_after.is_some_and(|retry_after| Instant::now() >= retry_after)
         })
+    }
+
+    /// Register a renderer-less byte attachment. The normal surface attach
+    /// creates a local VT mirror. A pipe relay must leave VT parsing to its
+    /// embedder, so this method only registers the server stream and lease.
+    pub(crate) fn try_attach_pipe_io(
+        &self,
+        id: SurfaceId,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PipeIoSurfaceAttach> {
+        if self.retired_surfaces.lock().unwrap().contains(&id) {
+            return Ok(PipeIoSurfaceAttach::Retired);
+        }
+        if !self.can_attach_after_overflow(id) {
+            return Ok(PipeIoSurfaceAttach::Deferred);
+        }
+
+        let initial_size = size
+            .map(|(cols, rows)| (cols.max(1), rows.max(1)))
+            .filter(|_| self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY));
+        let mut request = json!({"cmd": "attach-surface", "surface": id, "mode": "bytes"});
+        if let Some((cols, rows)) = initial_size {
+            request["cols"] = json!(cols);
+            request["rows"] = json!(rows);
+        }
+        let response = match self.request_with_deadline(request, RequestDeadline::Attach) {
+            Ok(response) => response,
+            Err(error) => {
+                if error
+                    .downcast_ref::<RemoteRequestError>()
+                    .is_some_and(RemoteRequestError::is_timeout)
+                {
+                    // The server registers an attachment before its response
+                    // is queued. Closing this connection is the protocol
+                    // cancellation that releases that server-side stream.
+                    self.disconnect_transport();
+                }
+                return Err(error);
+            }
+        };
+
+        let attachment_lease = if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+            let Some(lease) = response.get("lease").and_then(Value::as_str) else {
+                self.disconnect_transport();
+                anyhow::bail!(
+                    "server advertised {VIEW_ATTACHMENT_LEASE_CAPABILITY} but pipe-IO attach returned no lease"
+                );
+            };
+            Some(lease.to_string())
+        } else {
+            None
+        };
+
+        // A surface can exit while the attach response is in flight. Do not
+        // expose a stream for an already-retired terminal.
+        if self.retired_surfaces.lock().unwrap().contains(&id) {
+            self.disconnect_transport();
+            return Ok(PipeIoSurfaceAttach::Retired);
+        }
+        if let Some(lease) = attachment_lease {
+            self.surface_leases.lock().unwrap().insert(id, lease);
+        }
+        if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
+            recovery.attached_at = Some(Instant::now());
+            recovery.retry_after = None;
+        }
+        Ok(PipeIoSurfaceAttach::Attached)
+    }
+
+    /// Resize a renderer-less attachment. With lease support, the lease is
+    /// part of the request so another attachment cannot resize this view by
+    /// accident. The server reports passive or superseded samples honestly.
+    pub(crate) fn resize_pipe_io(
+        &self,
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<bool> {
+        let desired = (cols.max(1), rows.max(1));
+        let request = if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+            let Some(lease) = self.attachment_lease(surface) else {
+                anyhow::bail!("pipe-IO attachment lease is no longer active");
+            };
+            json!({
+                "cmd": "resize-attached-view",
+                "surface": surface,
+                "lease": lease,
+                "cols": desired.0,
+                "rows": desired.1,
+            })
+        } else {
+            json!({
+                "cmd": "resize-surface",
+                "surface": surface,
+                "cols": desired.0,
+                "rows": desired.1,
+            })
+        };
+        let response = self.request(request)?;
+        match response.get("outcome").and_then(Value::as_str) {
+            Some("superseded") | Some("passive") => Ok(false),
+            Some("applied") | None => {
+                Ok(response.get("accepted").and_then(Value::as_bool).unwrap_or(true))
+            }
+            Some(other) => anyhow::bail!("unknown pipe-IO resize outcome {other}"),
+        }
     }
 
     /// Mirror for a surface, attaching on first use. Servers advertising
@@ -6536,7 +6737,12 @@ mod tests {
         }));
         let (sender, receiver) = crossbeam_channel::bounded(1);
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
-        let _token = session.install_pipe_io_tap(7, sender, lifecycle_sender);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
 
         session.pipe_io_forward(7, || PipeIoEvent::Output(b"first".to_vec()));
         // The byte queue is full. The second event must force a transport
@@ -6560,11 +6766,21 @@ mod tests {
         }));
         let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
         let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
-        let first_token = session.install_pipe_io_tap(7, first_sender, first_lifecycle_sender);
+        let first_token = session.install_pipe_io_tap(
+            7,
+            first_sender,
+            first_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
 
         let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
         let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
-        let second_token = session.install_pipe_io_tap(7, second_sender, second_lifecycle_sender);
+        let second_token = session.install_pipe_io_tap(
+            7,
+            second_sender,
+            second_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
 
         session.clear_pipe_io_tap(&first_token);
         session.pipe_io_forward(7, || PipeIoEvent::Output(b"replacement".to_vec()));

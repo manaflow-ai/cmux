@@ -1686,9 +1686,7 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
     if args.pipe_io {
         let surface = surface_only.expect("--pipe-io is validated to carry --terminal");
         let terminal = terminal.as_ref().expect("--pipe-io is validated to carry --terminal");
-        let session = Session::Remote(remote.clone());
         let reason = match pipe_io::run(
-            &session,
             &remote,
             &socket_path,
             terminal,
