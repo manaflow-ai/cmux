@@ -114,6 +114,65 @@ enum Handoff {
     TimedOut,
 }
 
+/// Own a spawned helper until its lifecycle has been handed to the reaper.
+/// `std::process::Child` does not terminate or reap itself when dropped.
+struct DetachedChildGuard(Option<std::process::Child>);
+
+impl DetachedChildGuard {
+    fn new(child: std::process::Child) -> Self {
+        Self(Some(child))
+    }
+
+    fn child_mut(&mut self) -> &mut std::process::Child {
+        self.0.as_mut().expect("detached child guard is occupied")
+    }
+
+    fn take(&mut self) -> std::process::Child {
+        self.0.take().expect("detached child guard is occupied")
+    }
+}
+
+impl Drop for DetachedChildGuard {
+    fn drop(&mut self) {
+        let Some(mut child) = self.0.take() else {
+            return;
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// Reap the helper after the provider-facing handoff. The helper normally
+/// exits after its four-second socket deadline. If it does not, terminate it
+/// after that same bounded grace period so repeated hooks cannot accumulate
+/// children or blocked stdout reader threads.
+fn reap_detached_child(mut child: std::process::Child, reader: std::thread::JoinHandle<()>) {
+    let deadline = Instant::now() + SOCKET_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+        }
+    }
+    let _ = reader.join();
+}
+
+fn handoff_child_to_reaper(child: std::process::Child, reader: std::thread::JoinHandle<()>) {
+    let guard = DetachedChildGuard::new(child);
+    let _ = std::thread::Builder::new().name("cmux-tui-hook-reaper".to_owned()).spawn(move || {
+        let mut guard = guard;
+        let child = guard.take();
+        reap_detached_child(child, reader);
+    });
+}
+
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
     if source == "codex" && native_event == "SessionEnd" {
         CODEX_SESSION_END_HANDOFF_WAIT
@@ -585,16 +644,19 @@ mod detach {
                 Ok(())
             });
         }
-        let mut child = command.spawn().context("spawn detached hook child")?;
-        let mut stdin = child.stdin.take().context("detached hook child has no stdin")?;
+        let mut child =
+            super::DetachedChildGuard::new(command.spawn().context("spawn detached hook child")?);
+        let mut stdin =
+            child.child_mut().stdin.take().context("detached hook child has no stdin")?;
         stdin.write_all(request_id.as_bytes())?;
         stdin.write_all(b"\n")?;
         stdin.write_all(encoded)?;
         stdin.flush()?;
         drop(stdin);
-        let mut stdout = child.stdout.take().context("detached hook child has no stdout")?;
+        let mut stdout =
+            child.child_mut().stdout.take().context("detached hook child has no stdout")?;
         let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
+        let reader = std::thread::spawn(move || {
             let mut byte = [0_u8; 1];
             let outcome = match stdout.read(&mut byte) {
                 Ok(1) => Handoff::Sent,
@@ -602,7 +664,9 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
-        Ok(receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut))
+        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        super::handoff_child_to_reaper(child.take(), reader);
+        Ok(outcome)
     }
 }
 
@@ -632,17 +696,21 @@ mod detach {
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut child = Command::new(exe)
-            .arg(DETACHED_MODE_ARG)
-            .env("CMUX_TUI_SOCKET", socket)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-            .spawn()
-            .context("spawn detached hook child")?;
-        let mut stdin = child.stdin.take().context("detached hook child has no stdin")?;
-        let mut stdout = child.stdout.take().context("detached hook child has no stdout")?;
+        let mut child = super::DetachedChildGuard::new(
+            Command::new(exe)
+                .arg(DETACHED_MODE_ARG)
+                .env("CMUX_TUI_SOCKET", socket)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+                .spawn()
+                .context("spawn detached hook child")?,
+        );
+        let mut stdin =
+            child.child_mut().stdin.take().context("detached hook child has no stdin")?;
+        let mut stdout =
+            child.child_mut().stdout.take().context("detached hook child has no stdout")?;
         stdin.write_all(request_id.as_bytes())?;
         stdin.write_all(b"\n")?;
         stdin.write_all(encoded)?;
@@ -651,7 +719,7 @@ mod detach {
         // Pipe reads have no timeout on Windows; a reader thread plus a
         // bounded channel wait gives the same absolute deadline as poll(2).
         let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
+        let reader = std::thread::spawn(move || {
             let mut byte = [0_u8; 1];
             let outcome = match stdout.read(&mut byte) {
                 Ok(1) => Handoff::Sent,
@@ -659,7 +727,9 @@ mod detach {
             };
             let _ = sender.send(outcome);
         });
-        Ok(receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut))
+        let outcome = receiver.recv_timeout(handoff_wait).unwrap_or(Handoff::TimedOut);
+        super::handoff_child_to_reaper(child.take(), reader);
+        Ok(outcome)
     }
 }
 
