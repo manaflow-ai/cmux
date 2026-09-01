@@ -948,7 +948,7 @@ fn run_hermes_command_with_timeout(
         // Keep normal reaping detached so it does not extend the command's
         // absolute deadline. The process scope or Windows job has already
         // issued exact termination. If the OS cannot create that thread, the
-        // state below keeps ownership for a synchronous fallback.
+        // state below keeps ownership for a nonblocking fallback handoff.
         #[cfg(unix)]
         let reap_state = Arc::new(HermesReapState::new(child, child_exit.take()));
         #[cfg(not(unix))]

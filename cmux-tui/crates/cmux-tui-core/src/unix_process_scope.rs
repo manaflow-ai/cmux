@@ -242,7 +242,7 @@ impl UnixChildExitSignal {
         self.send_action(UnixChildExitAction::Reap);
         // Dropping the join handle intentionally detaches the observer. The
         // process remains waitable until that observer consumes its status.
-        self.observer.take();
+        drop(self.observer.take());
     }
 }
 
