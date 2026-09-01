@@ -20853,14 +20853,17 @@ impl App {
                     terminal_admission,
                 )
             }
-            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => self
-                .handle_horizontal_scroll_with_admission(
+            MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
+                // Scrolling is a distinct gesture and ends click-repeat state.
+                self.reset_selection_click_sequence();
+                self.handle_horizontal_scroll_with_admission(
                     mouse.column,
                     mouse.row,
                     matches!(mouse.kind, MouseEventKind::ScrollRight),
                     mouse.modifiers,
                     terminal_admission,
-                ),
+                )
+            }
         }
     }
 
@@ -23866,10 +23869,6 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        // Scrolling is a distinct gesture and ends click-repeat state. Plain
-        // pointer motion is routed to handle_hover_with_admission and keeps
-        // the sequence alive until the next press.
-        self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
