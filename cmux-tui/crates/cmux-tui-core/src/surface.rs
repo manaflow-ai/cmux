@@ -2583,6 +2583,7 @@ impl Surface {
                 let _ = child.kill();
                 let _ = child.wait();
             }
+            close_local_terminal_master_after_exit(&surface);
             return Err(error.into());
         }
 
