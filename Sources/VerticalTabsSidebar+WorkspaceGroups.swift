@@ -32,10 +32,6 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
-        let liveGroupContext: () -> (TabManager, UUID)? = { [weak tabManager, groupId = group.id] in
-            guard let tabManager, let anchorId = tabManager.workspaceGroupAnchor(for: groupId)?.id else { return nil }
-            return (tabManager, anchorId)
-        }
         // The AppKit controller applies the current unread snapshot after row
         // construction, keeping this root projection outside Observation.
         let unreadSnapshot = SidebarUnreadSnapshot()
@@ -107,110 +103,13 @@ extension VerticalTabsSidebar {
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             colorSchemeIsDark: renderContext.environment.colorScheme == .dark
         )
-        let actions = SidebarGroupHeaderRowActions(
-            onToggleCollapsed: { [weak tabManager, groupId = group.id] in
-                tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
-            },
-            onFocusAnchor: { [weak tabManager, groupId = group.id, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
-                guard let tabManager else { return }
-                Self.focusWorkspaceGroupAnchor(
-                    groupId: groupId,
-                    modifiers: modifiers,
-                    tabManager: tabManager,
-                    selectedTabIds: selectedTabIds,
-                    lastSidebarSelectionIndex: lastSidebarSelectionIndex
-                )
-            },
-            onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
-                guard let tabManager else { return }
-                let resolved = placement
-                    ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
-                _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
-            },
-            onRunResolvedItem: { [weak tabManager, groupId = group.id] item in
-                guard let tabManager else { return }
-                SidebarWorkspaceGroupContextMenuRunner.run(
-                    item: item,
-                    tabManager: tabManager,
-                    groupId: groupId
-                )
-            },
-            onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
-                guard let tabManager else { return }
-                presentSidebarWorkspaceGroupRenamePrompt(
-                    tabManager: tabManager,
-                    groupId: groupId,
-                    currentName: currentName
-                )
-            },
-            onTogglePinned: { [weak tabManager, groupId = group.id] in
-                tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
-            },
-            onMarkRead: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(),
-                      let notificationStore,
-                      notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else { return }
-                notificationStore.markRead(forTabId: anchorId)
-            },
-            onMarkUnread: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(),
-                      let notificationStore,
-                      notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else { return }
-                notificationStore.markUnread(forTabId: anchorId)
-            },
-            onClearLatestNotifications: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(),
-                      let notificationStore,
-                      notificationStore.latestNotification(forTabId: anchorId) != nil else { return }
-                notificationStore.clearLatestNotification(forTabId: anchorId)
-            },
-            onMarkAllRead: { [liveGroupContext, weak notificationStore, groupId = group.id] in
-                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
-                // Resolve members live at action time: closures are excluded
-                // from model equality, so a captured ID list could go stale
-                // across a same-count membership swap.
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
-                // Only touch members that are actually unread, so we never run
-                // notification teardown on already-read workspaces.
-                for id in ids where notificationStore.canMarkWorkspaceRead(forTabIds: [id]) {
-                    notificationStore.markRead(forTabId: id)
-                }
-            },
-            onMarkAllUnread: { [liveGroupContext, weak notificationStore, groupId = group.id] in
-                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
-                // Only mark members that are not already unread. Calling
-                // markUnread on an already-unread member would set its manual
-                // unread flag, which a later notification dismissal cannot
-                // clear, leaving the workspace stuck unread.
-                for id in ids where notificationStore.canMarkWorkspaceUnread(forTabIds: [id]) {
-                    notificationStore.markUnread(forTabId: id)
-                }
-            },
-            onUngroup: { [weak tabManager, groupId = group.id] in
-                tabManager?.ungroupWorkspaceGroup(groupId: groupId)
-            },
-            onDelete: { [weak tabManager, groupId = group.id] in
-                guard let tabManager,
-                      let confirmation = tabManager.workspaceGrouping.deletionConfirmation(
-                        groupId: groupId,
-                        fallbackGroupName: group.name,
-                        fallbackAnchorWorkspaceId: group.anchorWorkspaceId
-                      ) else { return }
-                if confirmation.containedWorkspaceCount > 0 {
-                    guard confirmDeleteWorkspaceGroup(
-                        groupName: confirmation.groupName,
-                        memberCount: confirmation.containedWorkspaceCount
-                    ) else { return }
-                }
-                tabManager.workspaceGrouping.deleteWorkspaceGroup(confirmed: confirmation)
-            },
-            onEditConfig: {
-                SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
-            },
-            onOpenDocs: {
-                SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
-            }
+        let actions = makeWorkspaceGroupHeaderActions(
+            groupId: group.id,
+            fallbackGroupName: group.name,
+            fallbackAnchorWorkspaceId: group.anchorWorkspaceId,
+            placement: newWorkspacePlacement,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         )
         return SidebarWorkspaceTableRowConfiguration(
             groupHeaderModel: model,
@@ -366,10 +265,6 @@ extension VerticalTabsSidebar {
         snapshot: SidebarWorkspaceGroupRowSnapshot
     ) -> SidebarWorkspaceGroupRowView {
         let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let liveGroupContext: () -> (TabManager, UUID)? = { [weak tabManager, groupId = snapshot.groupId] in
-            guard let tabManager, let anchorId = tabManager.workspaceGroupAnchor(for: groupId)?.id else { return nil }
-            return (tabManager, anchorId)
-        }
         let onDragStart: () -> NSItemProvider = { [weak tabManager, groupId = snapshot.groupId] in
             guard let tabManager,
                   let anchorId = tabManager.workspaceGroupAnchor(for: groupId)?.id else {
@@ -381,6 +276,14 @@ extension VerticalTabsSidebar {
             dragState.beginDragging(tabId: anchorId)
             return SidebarTabDragPayload(tabId: anchorId).provider()
         }
+        let actions = makeWorkspaceGroupHeaderActions(
+            groupId: snapshot.groupId,
+            fallbackGroupName: snapshot.name,
+            fallbackAnchorWorkspaceId: snapshot.anchorWorkspaceId,
+            placement: snapshot.newWorkspacePlacement,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+        )
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
@@ -414,109 +317,7 @@ extension VerticalTabsSidebar {
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
             onDragStart: onDragStart,
-            onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
-                tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
-            },
-            onFocusAnchor: { [weak tabManager, groupId = snapshot.groupId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
-                guard let tabManager else { return }
-                Self.focusWorkspaceGroupAnchor(
-                    groupId: groupId,
-                    modifiers: modifiers,
-                    tabManager: tabManager,
-                    selectedTabIds: selectedTabIds,
-                    lastSidebarSelectionIndex: lastSidebarSelectionIndex
-                )
-            },
-            onTapPlus: { [weak tabManager, groupId = snapshot.groupId, placement = snapshot.newWorkspacePlacement] in
-                guard let tabManager else { return }
-                let resolved = placement
-                    ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
-                _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
-            },
-            onRunResolvedItem: { [weak tabManager, groupId = snapshot.groupId] item in
-                guard let tabManager else { return }
-                SidebarWorkspaceGroupContextMenuRunner.run(
-                    item: item,
-                    tabManager: tabManager,
-                    groupId: groupId
-                )
-            },
-            onRename: { [weak tabManager, groupId = snapshot.groupId, currentName = snapshot.name] in
-                guard let tabManager else { return }
-                presentSidebarWorkspaceGroupRenamePrompt(
-                    tabManager: tabManager,
-                    groupId: groupId,
-                    currentName: currentName
-                )
-            },
-            onTogglePinned: { [weak tabManager, groupId = snapshot.groupId] in
-                tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
-            },
-            onMarkRead: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(),
-                      let notificationStore,
-                      notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else { return }
-                notificationStore.markRead(forTabId: anchorId)
-            },
-            onMarkUnread: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(),
-                      let notificationStore,
-                      notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else { return }
-                notificationStore.markUnread(forTabId: anchorId)
-            },
-            onClearLatestNotifications: { [liveGroupContext, weak notificationStore] in
-                guard let (_, anchorId) = liveGroupContext(),
-                      let notificationStore,
-                      notificationStore.latestNotification(forTabId: anchorId) != nil else { return }
-                notificationStore.clearLatestNotification(forTabId: anchorId)
-            },
-            onMarkAllRead: { [liveGroupContext, weak notificationStore, groupId = snapshot.groupId] in
-                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
-                // Resolve members live at action time: the header is .equatable()
-                // and closures are excluded from ==, so a captured ID list could
-                // go stale across a same-count membership swap.
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
-                // Only touch members that are actually unread, so we never run
-                // notification teardown on already-read workspaces.
-                for id in ids where notificationStore.canMarkWorkspaceRead(forTabIds: [id]) {
-                    notificationStore.markRead(forTabId: id)
-                }
-            },
-            onMarkAllUnread: { [liveGroupContext, weak notificationStore, groupId = snapshot.groupId] in
-                guard let (tabManager, anchorId) = liveGroupContext(), let notificationStore else { return }
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
-                // Only mark members that are not already unread. Calling
-                // markUnread on an already-unread member would set its manual
-                // unread flag, which a later notification dismissal cannot
-                // clear, leaving the workspace stuck unread.
-                for id in ids where notificationStore.canMarkWorkspaceUnread(forTabIds: [id]) {
-                    notificationStore.markUnread(forTabId: id)
-                }
-            },
-            onUngroup: { [weak tabManager, groupId = snapshot.groupId] in
-                tabManager?.ungroupWorkspaceGroup(groupId: groupId)
-            },
-            onDelete: { [weak tabManager, groupId = snapshot.groupId, fallbackName = snapshot.name, fallbackAnchorId = snapshot.anchorWorkspaceId] in
-                guard let tabManager,
-                      let confirmation = tabManager.workspaceGrouping.deletionConfirmation(
-                        groupId: groupId,
-                        fallbackGroupName: fallbackName,
-                        fallbackAnchorWorkspaceId: fallbackAnchorId
-                      ) else { return }
-                if confirmation.containedWorkspaceCount > 0 {
-                    guard confirmDeleteWorkspaceGroup(
-                        groupName: confirmation.groupName,
-                        memberCount: confirmation.containedWorkspaceCount
-                    ) else { return }
-                }
-                tabManager.workspaceGrouping.deleteWorkspaceGroup(confirmed: confirmation)
-            },
-            onEditConfig: {
-                SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
-            },
-            onOpenDocs: {
-                SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
-            },
+            actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}
         )
@@ -526,11 +327,155 @@ extension VerticalTabsSidebar {
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
-                pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
+            onPointerFrameChange: { [pointerInteractionMonitor] frame in
+                pointerInteractionMonitor.updateGroupFrame(frame, for: rowId)
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in
                 pointerInteractionMonitor.removeFrame(for: rowId)
+            }
+        )
+    }
+
+    /// Builds the one live action bundle shared by the SwiftUI and AppKit
+    /// group-header renderers. The stable group id is captured; mutable anchor
+    /// and member ids are resolved only when an action is invoked.
+    @MainActor
+    private func makeWorkspaceGroupHeaderActions(
+        groupId: UUID,
+        fallbackGroupName: String,
+        fallbackAnchorWorkspaceId: UUID,
+        placement: WorkspaceGroupNewPlacement?,
+        selectedTabIds: Binding<Set<UUID>>,
+        lastSidebarSelectionIndex: Binding<Int?>
+    ) -> SidebarGroupHeaderRowActions {
+        let tabManager = self.tabManager
+        let notificationStore = self.notificationStore
+        let resolveLiveAnchor: () -> (TabManager, UUID)? = { [weak tabManager] in
+            guard let tabManager,
+                  let anchorId = tabManager.workspaceGroupAnchor(for: groupId)?.id else {
+                return nil
+            }
+            return (tabManager, anchorId)
+        }
+        let resolvePlacement: () -> WorkspaceGroupNewPlacement = {
+            placement
+                ?? UserDefaultsSettingsClient(defaults: .standard)
+                    .value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
+        }
+
+        return SidebarGroupHeaderRowActions(
+            onToggleCollapsed: { [weak tabManager] in
+                tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
+            },
+            onFocusAnchor: { [weak tabManager] modifiers in
+                guard let tabManager else { return }
+                Self.focusWorkspaceGroupAnchor(
+                    groupId: groupId,
+                    modifiers: modifiers,
+                    tabManager: tabManager,
+                    selectedTabIds: selectedTabIds,
+                    lastSidebarSelectionIndex: lastSidebarSelectionIndex
+                )
+            },
+            onTapPlus: { [weak tabManager] in
+                guard let tabManager else { return }
+                _ = tabManager.createWorkspaceInGroup(
+                    groupId: groupId,
+                    placement: resolvePlacement()
+                )
+            },
+            onRunResolvedItem: { [weak tabManager] item in
+                guard let tabManager else { return }
+                SidebarWorkspaceGroupContextMenuRunner.run(
+                    item: item,
+                    tabManager: tabManager,
+                    groupId: groupId
+                )
+            },
+            onRename: { [weak tabManager] in
+                guard let tabManager else { return }
+                let currentName = tabManager.workspaceGroups
+                    .first(where: { $0.id == groupId })?.name ?? fallbackGroupName
+                presentSidebarWorkspaceGroupRenamePrompt(
+                    tabManager: tabManager,
+                    groupId: groupId,
+                    currentName: currentName
+                )
+            },
+            onTogglePinned: { [weak tabManager] in
+                tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
+            },
+            onMarkRead: { [resolveLiveAnchor, weak notificationStore] in
+                guard let (_, anchorId) = resolveLiveAnchor(),
+                      let notificationStore,
+                      notificationStore.canMarkWorkspaceRead(forTabIds: [anchorId]) else {
+                    return
+                }
+                notificationStore.markRead(forTabId: anchorId)
+            },
+            onMarkUnread: { [resolveLiveAnchor, weak notificationStore] in
+                guard let (_, anchorId) = resolveLiveAnchor(),
+                      let notificationStore,
+                      notificationStore.canMarkWorkspaceUnread(forTabIds: [anchorId]) else {
+                    return
+                }
+                notificationStore.markUnread(forTabId: anchorId)
+            },
+            onClearLatestNotifications: { [resolveLiveAnchor, weak notificationStore] in
+                guard let (_, anchorId) = resolveLiveAnchor(),
+                      let notificationStore,
+                      notificationStore.latestNotification(forTabId: anchorId) != nil else {
+                    return
+                }
+                notificationStore.clearLatestNotification(forTabId: anchorId)
+            },
+            onMarkAllRead: { [resolveLiveAnchor, weak notificationStore] in
+                guard let (tabManager, anchorId) = resolveLiveAnchor(),
+                      let notificationStore else { return }
+                let ids = tabManager.tabs.compactMap { tab in
+                    tab.groupId == groupId && tab.id != anchorId ? tab.id : nil
+                }
+                for id in ids where notificationStore.canMarkWorkspaceRead(forTabIds: [id]) {
+                    notificationStore.markRead(forTabId: id)
+                }
+            },
+            onMarkAllUnread: { [resolveLiveAnchor, weak notificationStore] in
+                guard let (tabManager, anchorId) = resolveLiveAnchor(),
+                      let notificationStore else { return }
+                let ids = tabManager.tabs.compactMap { tab in
+                    tab.groupId == groupId && tab.id != anchorId ? tab.id : nil
+                }
+                for id in ids where notificationStore.canMarkWorkspaceUnread(forTabIds: [id]) {
+                    notificationStore.markUnread(forTabId: id)
+                }
+            },
+            onUngroup: { [weak tabManager] in
+                tabManager?.ungroupWorkspaceGroup(groupId: groupId)
+            },
+            onDelete: { [weak tabManager] in
+                guard let tabManager,
+                      let confirmation = tabManager.workspaceGrouping.deletionConfirmation(
+                          groupId: groupId,
+                          fallbackGroupName: fallbackGroupName,
+                          fallbackAnchorWorkspaceId: fallbackAnchorWorkspaceId
+                      ) else {
+                    return
+                }
+                if confirmation.containedWorkspaceCount > 0 {
+                    guard confirmDeleteWorkspaceGroup(
+                        groupName: confirmation.groupName,
+                        memberCount: confirmation.containedWorkspaceCount
+                    ) else {
+                        return
+                    }
+                }
+                tabManager.workspaceGrouping.deleteWorkspaceGroup(confirmed: confirmation)
+            },
+            onEditConfig: {
+                SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
+            },
+            onOpenDocs: {
+                SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
     }
