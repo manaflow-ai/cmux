@@ -21,19 +21,28 @@ extension MobileShellComposite {
     // MARK: Activation
 
     /// Re-evaluates demonstration-content activation against the signed-in
-    /// account's server flag. Called on every shell auth sync, so the mode
-    /// follows sign-in, session restore, and account switches.
-    func refreshDemonstrationContentActivation() {
+    /// account's server flag. Called on every shell auth sync AND at the top
+    /// of every paired-Mac list load: the flag can arrive through session
+    /// revalidation after the last auth sync (a cached identity card
+    /// predating the flag decodes as not-flagged), and the store decorator
+    /// reads it lazily, so any load that can reveal the demo row must seed
+    /// with it.
+    /// - Parameter reloadPairedMacs: Whether an activation edge should also
+    ///   re-run the paired-Mac list load. `false` when the caller IS that
+    ///   load, which will pick the row up itself in the same pass.
+    func refreshDemonstrationContentActivation(reloadPairedMacs: Bool = true) {
         let enabled = isSignedIn
             && identityProvider?.demonstrationContentEnabled == true
         if enabled {
-            activateDemonstrationContent()
+            activateDemonstrationContent(reloadPairedMacs: reloadPairedMacs)
         } else {
-            deactivateDemonstrationContent(reloadPairedMacs: isSignedIn)
+            deactivateDemonstrationContent(
+                reloadPairedMacs: reloadPairedMacs && isSignedIn
+            )
         }
     }
 
-    private func activateDemonstrationContent() {
+    private func activateDemonstrationContent(reloadPairedMacs: Bool) {
         if demoContentSession == nil {
             let session = MobileDemoContentSession(now: runtime?.now() ?? Date())
             demoContentSession = session
@@ -45,7 +54,9 @@ extension MobileShellComposite {
                 hasKnownPairedMac = true
             }
             // Reveal the demo row through the ordinary store load path.
-            Task { await self.loadPairedMacs() }
+            if reloadPairedMacs {
+                Task { await self.loadPairedMacs() }
+            }
         }
         seedDemonstrationState()
     }

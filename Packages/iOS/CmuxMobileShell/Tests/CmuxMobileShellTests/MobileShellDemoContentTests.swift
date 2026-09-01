@@ -179,6 +179,38 @@ import Testing
         #expect(store.hasKnownPairedMac)
     }
 
+    /// Sign-in kicks off stored-Mac reconnect and secondary-aggregation
+    /// churn: full reconcile passes prune retained per-Mac state and re-run
+    /// list loads. The demo seeds must survive every pass (the demo row is
+    /// visible through the store decorator, so pruning must retain its
+    /// aggregate state), and repeated loads must stay idempotent — exactly
+    /// one demo row, three workspaces, no feed duplication.
+    @Test func seedsSurviveReconnectAndAggregationChurn() async {
+        let (store, _) = makeStore(demonstrationContentEnabled: true)
+        store.signIn()
+        #expect(!store.notificationFeedItems.isEmpty)
+        let seededFeedCount = store.notificationFeedItems.count
+
+        // A full secondary reconcile pass (what presence heartbeats and
+        // reconnect edges run after sign-in), then further list loads.
+        await store.refreshSecondaryMacWorkspaces()
+        await store.loadPairedMacs()
+        await store.loadPairedMacs()
+
+        let demoRows = store.workspaces.filter {
+            $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+        }
+        #expect(demoRows.count == 3)
+        #expect(demoRows.allSatisfy { $0.macConnectionStatus == .connected })
+        #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(store.notificationFeedItems.count == seededFeedCount)
+        #expect(
+            store.pairedMacs.filter {
+                $0.macDeviceID == MobileDemoContentCatalog.macDeviceID
+            }.count == 1
+        )
+    }
+
     @Test func unflaggedAccountSeesNothing() async {
         let (store, _) = makeStore(demonstrationContentEnabled: false)
 
