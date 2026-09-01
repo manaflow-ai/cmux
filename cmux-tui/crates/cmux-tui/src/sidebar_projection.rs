@@ -77,6 +77,21 @@ struct AgentOrderCacheKey {
 
 impl AgentOrderCache {
     fn ordered_surfaces(&mut self, tree: &TreeView, agents: &[AgentInfo]) -> &[SurfaceId] {
+        let revisions_match = self.key.as_ref().is_some_and(|key| {
+            key.tree_workspace_revision == tree.workspace_revision
+                && key.tree_pane_revision == tree.pane_revision
+                && key.agents.len() == agents.len()
+                && key.agents.iter().zip(agents).all(
+                    |(&(surface, attention, updated_at_ms), agent)| {
+                        (surface, attention, updated_at_ms)
+                            == (agent.surface, agent_attention(&agent.state), agent.updated_at_ms)
+                    },
+                )
+        });
+        if revisions_match {
+            return &self.order;
+        }
+
         let tree_surfaces = tree
             .workspaces
             .iter()
@@ -85,40 +100,36 @@ impl AgentOrderCache {
             .flat_map(|pane| pane.tabs.iter())
             .map(|tab| tab.surface)
             .collect::<Vec<_>>();
-        let key = AgentOrderCacheKey {
+        let agent_metadata = agents
+            .iter()
+            .map(|agent| (agent.surface, agent_attention(&agent.state), agent.updated_at_ms))
+            .collect::<Vec<_>>();
+        let agent_keys = agents
+            .iter()
+            .map(|agent| {
+                (
+                    agent.surface,
+                    (u8::MAX - agent_attention(&agent.state), u64::MAX - agent.updated_at_ms),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let mut indexed = tree_surfaces
+            .iter()
+            .enumerate()
+            .filter_map(|(index, surface)| {
+                agent_keys
+                    .get(surface)
+                    .map(|&(attention, recency)| (attention, recency, index, *surface))
+            })
+            .collect::<Vec<_>>();
+        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| (attention, recency, index));
+        self.order = indexed.into_iter().map(|(_, _, _, surface)| surface).collect();
+        self.key = Some(AgentOrderCacheKey {
             tree_workspace_revision: tree.workspace_revision,
             tree_pane_revision: tree.pane_revision,
-            tree_surfaces: tree_surfaces.clone(),
-            agents: agents
-                .iter()
-                .map(|agent| (agent.surface, agent_attention(&agent.state), agent.updated_at_ms))
-                .collect(),
-        };
-        if self.key.as_ref() != Some(&key) {
-            let agent_keys = agents
-                .iter()
-                .map(|agent| {
-                    (
-                        agent.surface,
-                        (u8::MAX - agent_attention(&agent.state), u64::MAX - agent.updated_at_ms),
-                    )
-                })
-                .collect::<HashMap<_, _>>();
-            let mut indexed = tree_surfaces
-                .iter()
-                .enumerate()
-                .filter_map(|(index, surface)| {
-                    agent_keys
-                        .get(surface)
-                        .map(|&(attention, recency)| (attention, recency, index, *surface))
-                })
-                .collect::<Vec<_>>();
-            indexed.sort_unstable_by_key(|&(attention, recency, index, _)| {
-                (attention, recency, index)
-            });
-            self.order = indexed.into_iter().map(|(_, _, _, surface)| surface).collect();
-            self.key = Some(key);
-        }
+            tree_surfaces,
+            agents: agent_metadata,
+        });
         &self.order
     }
 }
@@ -168,7 +179,11 @@ pub(crate) fn rows_cached(
     let mut rows = Vec::with_capacity(tree.workspaces.len());
     let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
         agents.iter().map(|agent| (agent.surface, agent)).collect();
-    let agent_order = order_cache.ordered_surfaces(tree, agents);
+    let agent_order = if spec.levels.contains(&SidebarResourceKind::Agents) {
+        order_cache.ordered_surfaces(tree, agents)
+    } else {
+        &[]
+    };
     append_level(
         &mut rows,
         &spec.levels,
