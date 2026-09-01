@@ -164,6 +164,18 @@ fn wait_until_ready(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wait_deadline_is_checked_before_attempt() {
+        let now = Instant::now();
+        assert!(!deadline_allows_attempt(now, now));
+        assert!(deadline_allows_attempt(now + Duration::from_millis(1), now));
+    }
+}
+
 fn attempt(
     socket: &Path,
     expected_session: Option<&str>,
