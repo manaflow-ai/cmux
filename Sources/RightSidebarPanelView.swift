@@ -32,7 +32,7 @@ enum FileExplorerRootSyncPolicy {
         switch registry.descriptor(for: mode)?.behavior {
         case .fileExplorerOutline, .fileExplorerSearch:
             return true
-        case .sessionIndex, .feed, .dock, .sourceControl, .host, .none, nil:
+        case .some(.sessionIndex), .some(.feed), .some(.dock), .some(.sourceControl), .some(.host), .some(.none), nil:
             return false
         }
     }
@@ -122,7 +122,7 @@ struct RightSidebarPanelView: View {
         // the same value to its availability closure.
         _ = CmuxFeatureFlags.shared.isCloudVMUIEnabled
         _ = customSidebarsEnabled
-        fileExplorerState.panelRegistry.availableModes()
+        return fileExplorerState.panelRegistry.availableModes()
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
