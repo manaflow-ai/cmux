@@ -127702,6 +127702,108 @@
         }
       }
     },
+    "machines.requiresPro.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account\u2019s plan doesn\u2019t include Cloud machine access. Upgrade to create and reconnect machines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントのプランでは Cloud マシンを利用できません。アップグレードするとマシンの作成と再接続ができます。"
+          }
+        }
+      }
+    },
+    "machines.requiresPro.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines need cmux Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンには cmux Pro が必要です"
+          }
+        }
+      }
+    },
+    "machines.requiresPro.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro にアップグレード"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.signInAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out & Sign In Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトして再サインイン"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service no longer accepts this Mac\u2019s saved session. Sign out and sign back in to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスがこの Mac に保存されたセッションを受け付けなくなりました。サインアウトして再度サインインすると再接続できます。"
+          }
+        }
+      }
+    },
+    "machines.sessionRejected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in needs a refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再サインインが必要です"
+          }
+        }
+      }
+    },
     "machines.unavailable.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -242858,6 +242960,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud VMを利用するにはサインインが必要です。`cmux auth login`を実行してから再試行してください。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.sessionRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud サービスがこのセッションを拒否しました。`cmux auth logout` を実行してから `cmux auth login` を実行し、再試行してください。"
           }
         }
       }

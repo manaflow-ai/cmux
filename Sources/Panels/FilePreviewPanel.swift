@@ -509,7 +509,7 @@ final class FilePreviewDragRegistry {
 }
 
 @MainActor
-final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPasteboardWriting {
+final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     private struct MirrorTabItem: Codable {
         let id: UUID
         let title: String
@@ -534,19 +534,71 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
     private let filePath: String
     private let displayTitle: String
     private let tabDragTransferRegistry: TabDragTransferRegistry?
+    private let dragID: UUID
+    // AppKit asks for this writer before it delivers the table/outline
+    // `willBeginAt` callback. Retain the native source graph through that
+    // provisional interval so a SwiftUI reconstruction cannot drop the only
+    // delegate that receives `endedAt`.
+    private var nativeSourceView: NSView?
+    private var nativeSourceOwner: AnyObject?
+    let provisionalToken: ProvisionalDragWriterOwnership.Token?
     private var transferData: Data?
     private var bonsplitRegistration: TabDragTransferRegistration?
-    private var didMirrorTransferDataToDragPasteboard = false
+    private var didRegisterNativeDrag = false
+    private var onNativeDragOwnershipPrepared:
+        (@MainActor (FilePreviewDragPasteboardWriter, FilePreviewNativeDragOwnership) -> Void)?
 
     init(
         filePath: String,
         displayTitle: String,
-        tabDragTransferRegistry: TabDragTransferRegistry? = nil
+        tabDragTransferRegistry: TabDragTransferRegistry? = nil,
+        nativeSourceView: NSView? = nil,
+        nativeSourceOwner: AnyObject? = nil,
+        provisionalToken: ProvisionalDragWriterOwnership.Token? = nil
     ) {
         self.filePath = filePath
         self.displayTitle = displayTitle
         self.tabDragTransferRegistry = tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
+        self.dragID = UUID()
+        self.nativeSourceView = nativeSourceView
+        self.nativeSourceOwner = nativeSourceOwner
+        self.provisionalToken = provisionalToken
         super.init()
+        materializePayload()
+    }
+
+    @available(*, unavailable)
+    required init(
+        pasteboardPropertyList _: Any,
+        ofType _: NSPasteboard.PasteboardType
+    ) {
+        fatalError("init(pasteboardPropertyList:ofType:) is not supported")
+    }
+
+    /// Releases the retained source graph once the native session reaches its
+    /// terminal boundary; the pasteboard item itself may remain cached by macOS.
+    func releaseSourceGraph() {
+        nativeSourceView = nil
+        nativeSourceOwner = nil
+    }
+
+    /// The exact table or outline that requested this writer.
+    var sourceViewForDrag: NSView? { nativeSourceView }
+
+    /// Installs the pending-owner hook used when AppKit consumes this writer
+    /// before promotion.
+    func setNativeDragOwnershipHandler(
+        _ handler: @escaping @MainActor (
+            FilePreviewDragPasteboardWriter,
+            FilePreviewNativeDragOwnership
+        ) -> Void
+    ) {
+        onNativeDragOwnershipPrepared = handler
+    }
+
+    /// Removes the pending-owner hook after promotion or revocation.
+    func clearNativeDragOwnershipHandler() {
+        onNativeDragOwnershipPrepared = nil
     }
 
     static func dragID(from transferData: Data) -> UUID? {
@@ -566,6 +618,50 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         return AppDelegate.shared?.liveTabDragCapabilityResolver
             .resolve(from: pasteboard)?
             .tab.id.uuid
+    }
+
+    /// Captures this writer's exact native cleanup identity after AppKit has
+    /// selected it for a session. Registry entries are created when AppKit
+    /// consumes the writer or at this promotion boundary, never in the
+    /// initializer.
+    func nativeDragOwnership() -> FilePreviewNativeDragOwnership? {
+        let data = transferDataForDrag()
+        guard let resolvedDragID = Self.dragID(from: data) else { return nil }
+        if !didRegisterNativeDrag {
+            _ = FilePreviewDragRegistry.shared.register(
+                FilePreviewDragEntry(filePath: filePath, displayTitle: displayTitle),
+                id: resolvedDragID
+            )
+            didRegisterNativeDrag = true
+        }
+        if bonsplitRegistration == nil {
+            bonsplitRegistration = tabDragTransferRegistry?.register(
+                TabDragTransfer(
+                    tab: Bonsplit.Tab(
+                        id: TabID(uuid: resolvedDragID),
+                        title: displayTitle,
+                        icon: FilePreviewKindResolver.initialTabIconName(
+                            for: URL(fileURLWithPath: filePath)
+                        ),
+                        kind: "filePreview"
+                    ),
+                    sourcePaneId: PaneID()
+                )
+            )
+        }
+        // Keep the concrete item in sync with the lease. AppKit may retain and
+        // read an NSPasteboardItem directly after this promotion, bypassing
+        // the explicit session-pasteboard materialization below.
+        materializeBonsplitCapability()
+        let ownership = FilePreviewNativeDragOwnership(
+            dragID: resolvedDragID,
+            filePreviewData: data,
+            fileURL: URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString,
+            transferRegistration: bonsplitRegistration,
+            transferRegistry: tabDragTransferRegistry
+        )
+        onNativeDragOwnershipPrepared?(self, ownership)
+        return ownership
     }
 
     /// Resolves a file-preview payload through the process-local preview
@@ -729,15 +825,12 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             return transferData
         }
 
-        let dragId = FilePreviewDragRegistry.shared.register(
-            FilePreviewDragEntry(filePath: filePath, displayTitle: displayTitle)
-        )
         let icon = FilePreviewKindResolver.initialTabIconName(
             for: URL(fileURLWithPath: filePath)
         )
         let transfer = MirrorTabTransferData(
             tab: MirrorTabItem(
-                id: dragId,
+                id: dragID,
                 title: displayTitle,
                 hasCustomTitle: false,
                 icon: icon,
@@ -752,57 +845,45 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
         )
         let data = (try? JSONEncoder().encode(transfer)) ?? Data()
-        bonsplitRegistration = tabDragTransferRegistry?.register(
-            TabDragTransfer(
-                tab: Bonsplit.Tab(
-                    id: TabID(uuid: dragId),
-                    title: displayTitle,
-                    icon: icon,
-                    kind: "filePreview"
-                ),
-                sourcePaneId: PaneID()
-            )
-        )
         transferData = data
         return data
     }
 
-    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        let data = transferDataForDrag()
-        mirrorTransferDataToDragPasteboard(data)
-        var types: [NSPasteboard.PasteboardType] = [
+    override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+        _ = pasteboard
+        // This is a read-only capability query. Registration happens only
+        // when the owner promotes a writer at willBeginAt; after promotion the
+        // leased Bonsplit representation is exposed on this same item too.
+        var types = [
             DragOverlayRoutingPolicy.filePreviewTransferType,
             .fileURL
         ]
-        if bonsplitRegistration != nil {
-            types.insert(Self.bonsplitTransferType, at: 1)
+        if bonsplitRegistration?.pasteboardItem.string(forType: Self.bonsplitTransferType) != nil {
+            types.append(Self.bonsplitTransferType)
         }
         return types
     }
 
-    func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == Self.bonsplitTransferType {
-            let data = transferDataForDrag()
-            mirrorTransferDataToDragPasteboard(data)
-            return bonsplitRegistration?.pasteboardItem.string(forType: Self.bonsplitTransferType)
-        }
+    override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
         if type == DragOverlayRoutingPolicy.filePreviewTransferType {
-            let data = transferDataForDrag()
-            mirrorTransferDataToDragPasteboard(data)
-            return data
+            return transferDataForDrag()
         }
         if type == .fileURL {
             let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
             return fileURL.absoluteString
         }
+        if type == Self.bonsplitTransferType {
+            return bonsplitRegistration?.pasteboardItem.string(forType: type)
+        }
         return nil
     }
 
-    private func mirrorTransferDataToDragPasteboard(_ transferData: Data) {
-        guard !didMirrorTransferDataToDragPasteboard else { return }
-        didMirrorTransferDataToDragPasteboard = true
+    /// Publishes the promoted writer's registered representations to the
+    /// exact native session pasteboard after willBeginAt.
+    func materializeRegisteredPayload(to pasteboard: NSPasteboard) {
+        _ = nativeDragOwnership()
+        let transferData = transferDataForDrag()
         let fileURLString = URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
-        let pasteboard = NSPasteboard(name: .drag)
         var types = [DragOverlayRoutingPolicy.filePreviewTransferType, .fileURL]
         if bonsplitRegistration != nil {
             types.append(Self.bonsplitTransferType)
@@ -811,6 +892,26 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         bonsplitRegistration?.write(to: pasteboard)
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         pasteboard.setString(fileURLString, forType: .fileURL)
+    }
+
+    /// Stores every representation on the concrete item before AppKit binds it
+    /// to a drag pasteboard. This is required because AppKit may retain and
+    /// read an ``NSPasteboardItem`` directly without invoking the writer hooks.
+    private func materializePayload() {
+        let data = transferDataForDrag()
+        _ = setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        _ = setString(
+            URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString,
+            forType: .fileURL
+        )
+    }
+
+    /// Mirrors a promoted Bonsplit lease onto this concrete pasteboard item.
+    private func materializeBonsplitCapability() {
+        guard let capability = bonsplitRegistration?.pasteboardItem.string(
+            forType: Self.bonsplitTransferType
+        ) else { return }
+        _ = setString(capability, forType: Self.bonsplitTransferType)
     }
 }
 

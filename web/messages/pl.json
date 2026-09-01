@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operacja Cloud VM jest niedostępna",
+      "reason": "Ten typ maszyny nie udostępnia tej operacji.",
+      "message": {
+        "snapshot": "Ta Cloud VM nie obsługuje zapisanego stanu VM.",
+        "restore": "Ten typ Cloud VM nie obsługuje przywracania zapisanego stanu VM.",
+        "fork": "Ta Cloud VM nie obsługuje kopiowania do nowej VM.",
+        "default": "Ta Cloud VM nie obsługuje żądanej operacji."
+      },
+      "action": {
+        "snapshot": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
+        "restore": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
+        "fork": "Nie ponawiaj próby. Utwórz nową VM za pomocą `cmux vm new`.",
+        "default": "Nie ponawiaj próby. Uruchom `cmux vm ls` lub skontaktuj się z pomocą, jeśli uważasz, że to błąd."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Jeśli znaleźliśmy konto, sprawdź e-mail, aby poznać kolejne kroki"
   },

@@ -2266,6 +2266,24 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Resolves a group's current anchor, including any member promoted after a close.
+    func workspaceGroupAnchor(for groupId: UUID) -> Workspace? {
+        guard let anchorId = workspaceGroups.first(where: { $0.id == groupId })?.anchorWorkspaceId else {
+            return nil
+        }
+        return tabs.first { $0.id == anchorId }
+    }
+
+    /// Selects a group's current anchor; unlike the plus action, it never creates a workspace.
+    @discardableResult
+    func selectWorkspaceGroupAnchor(for groupId: UUID) -> Workspace? {
+        guard let anchor = workspaceGroupAnchor(for: groupId) else {
+            return nil
+        }
+        selectWorkspace(anchor)
+        return anchor
+    }
+
     func addWorkspaceToGroup(
         workspaceId: UUID,
         groupId: UUID,

@@ -1,4 +1,22 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operacija Cloud VM-a nije dostupna",
+      "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
+      "message": {
+        "snapshot": "Ovaj Cloud VM ne podržava sačuvano stanje VM-a.",
+        "restore": "Ova vrsta Cloud VM-a ne podržava vraćanje sačuvanog stanja VM-a.",
+        "fork": "Ovaj Cloud VM ne podržava kopiranje u novi VM.",
+        "default": "Ovaj Cloud VM ne podržava traženu operaciju."
+      },
+      "action": {
+        "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
+        "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
+        "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
+      }
+    }
+  },
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },
