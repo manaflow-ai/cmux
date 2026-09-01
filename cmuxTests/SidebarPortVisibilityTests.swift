@@ -1,3 +1,4 @@
+import Combine
 import CmuxSettings
 import Foundation
 import Testing
@@ -27,7 +28,14 @@ struct SidebarPortVisibilityTests {
 
         #expect(workspace.surfaceListeningPorts[panelID] == panelPorts)
         #expect(workspace.agentListeningPorts == agentPorts)
-        #expect(workspace.listeningPorts == [3_000, 49_151])
+        #expect(workspace.listeningPorts == [3_000, 49_151, 49_152, 63_315, 65_535])
+
+        let snapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: workspace.id,
+            unreadCount: 0
+        )
+        #expect(snapshot.listeningPorts == [3_000, 49_151])
     }
 
     @Test("Settings notification republishes every raw observation for an empty override")
@@ -43,7 +51,13 @@ struct SidebarPortVisibilityTests {
         workspace.surfaceListeningPorts[panelID] = [3_000, 49_152, 65_535]
         workspace.recomputeListeningPorts()
 
-        #expect(workspace.listeningPorts == [3_000])
+        #expect(workspace.listeningPorts == [3_000, 49_152, 65_535])
+        let initialSnapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: workspace.id,
+            unreadCount: 0
+        )
+        #expect(initialSnapshot.listeningPorts == [3_000])
 
         settings.set([], for: catalog.sidebar.ignoredPorts)
         NotificationCenter.default.post(
@@ -58,7 +72,39 @@ struct SidebarPortVisibilityTests {
             unreadCount: 0
         )
         let surface = try #require(snapshot.surfaces.first { $0.panelId == panelID })
+        #expect(snapshot.listeningPorts == [3_000, 49_152, 65_535])
         #expect(surface.listeningPorts == [3_000, 49_152, 65_535])
+    }
+
+    @Test("Remote port snapshots publish one batched surface update")
+    func remotePortSnapshotsPublishOneBatchedSurfaceUpdate() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspace = Workspace(settings: UserDefaultsSettingsClient(defaults: defaults))
+        let firstPanelID = UUID()
+        let secondPanelID = UUID()
+        var surfacePublications = 0
+        let cancellable = workspace.$surfaceListeningPorts
+            .dropFirst()
+            .sink { _ in surfacePublications += 1 }
+
+        workspace.applyRemoteDetectedSurfacePortsSnapshot(
+            detectedByPanel: [
+                firstPanelID: [3_000, 49_152],
+                secondPanelID: [49_151, 65_535],
+            ],
+            detected: [3_000, 49_151, 49_152, 65_535],
+            forwarded: [],
+            conflicts: [],
+            target: "test-host"
+        )
+
+        #expect(surfacePublications == 1)
+        #expect(workspace.surfaceListeningPorts[firstPanelID] == [3_000, 49_152])
+        #expect(workspace.surfaceListeningPorts[secondPanelID] == [49_151, 65_535])
+        #expect(workspace.sidebarVisiblePorts(for: firstPanelID) == [3_000])
+        #expect(workspace.sidebarVisiblePorts(for: secondPanelID) == [49_151])
+        withExtendedLifetime(cancellable) {}
     }
 
     @Test("Custom-sidebar surface snapshots apply the policy without discarding observations")
