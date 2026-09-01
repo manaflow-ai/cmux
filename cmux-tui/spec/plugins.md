@@ -258,6 +258,8 @@ explicit local override directory. `cmux-agent-screen-detection update` is
 the only network update path. The scanner never performs implicit network I/O,
 so startup does not depend on a catalog, DNS, or a remote service. Update
 failures are recorded per agent and never replace a valid cached manifest.
+The reference loader also caps an active set at 256 manifests, a source
+directory at 512 entries, and each manifest at 256 KiB before parsing.
 
 The herdr source and Apache-2.0 license attribution are listed in
 `cmux-tui/ATTRIBUTIONS.md` and the plugin package `ATTRIBUTIONS.md`. The

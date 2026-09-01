@@ -63,6 +63,11 @@ transport is Unix-only, and its native process backends cover macOS and Linux.
 A Windows publication needs a Windows-capable SDK transport and process
 backend. Do not list Windows in `cmux-plugin.toml` until those pieces exist.
 
+Manifest loading is bounded before parsing: a set can contain at most 256
+active manifests, a cache or override directory can contain at most 512
+entries, and each manifest is limited to 256 KiB. Rule and matcher limits are
+also enforced by the manifest validator.
+
 The plugin manager stages the artifact and selected configuration with a local
 rollback guard. They are separate filesystem transactions, so a power loss
 between the two writes can leave a mismatched old/new pair. Startup validation

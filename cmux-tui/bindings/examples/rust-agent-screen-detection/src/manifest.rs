@@ -171,6 +171,10 @@ const MAX_TOTAL_GATES: usize = 512;
 const MAX_MATCHERS_PER_GATE: usize = 32;
 const MAX_TOTAL_MATCHERS: usize = 1024;
 const MAX_MATCHER_CHARS: usize = 512;
+// Keep user-provided catalogs and directories bounded before TOML parsing or
+// regex compilation can allocate for every entry.
+const MAX_MANIFESTS: usize = 256;
+const MAX_MANIFEST_DIRECTORY_ENTRIES: usize = 512;
 const TOP_NON_EMPTY_LINES_ENGINE_VERSION: u32 = 3;
 
 /// Detection states a manifest rule can assign to a screen snapshot.
@@ -729,6 +733,12 @@ impl ManifestSet {
     }
 
     pub fn from_sources(sources: &[(&str, &str)]) -> Result<Self, String> {
+        if sources.len() > MAX_MANIFESTS {
+            return Err(format!(
+                "manifest set contains {} sources, max is {MAX_MANIFESTS}",
+                sources.len()
+            ));
+        }
         let mut set = Self { manifests: Vec::with_capacity(sources.len()) };
         for (label, content) in sources {
             let compiled = compile_manifest_source_with_source(content, ManifestSource::Bundled)
@@ -789,9 +799,17 @@ impl ManifestSet {
                 return Err(format!("read manifest directory {}: {error}", directory.display()));
             }
         };
-        let mut paths = entries
-            .map(|entry| entry.map(|entry| entry.path()).map_err(|error| error.to_string()))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut paths = Vec::new();
+        for entry in entries {
+            if paths.len() >= MAX_MANIFEST_DIRECTORY_ENTRIES {
+                return Err(format!(
+                    "manifest directory contains more than {MAX_MANIFEST_DIRECTORY_ENTRIES} entries"
+                ));
+            }
+            paths.push(
+                entry.map(|entry| entry.path()).map_err(|error| error.to_string())?,
+            );
+        }
         paths.sort();
         for path in paths {
             if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
@@ -892,6 +910,12 @@ impl ManifestSet {
                     candidate.id()
                 ));
             }
+        }
+        if self.manifests.len() >= MAX_MANIFESTS {
+            return Err(format!(
+                "manifest set contains {} manifests, max is {MAX_MANIFESTS}",
+                self.manifests.len() + 1
+            ));
         }
         self.manifests.push(compiled);
         Ok(())
