@@ -3602,7 +3602,9 @@ def _is_private_ipv4(text: str) -> bool:
     return False
 
 
-def detect_fixed_port_bind(line: str) -> bool:
+def detect_fixed_port_bind(line: str, executable_line: Optional[str] = None) -> bool:
+    if executable_line is not None and not _BIND_VERB.search(executable_line):
+        return False
     if not _BIND_VERB.search(line):
         return False
     for match in _HOST_PORT_TUPLE.finditer(line):
@@ -3815,13 +3817,13 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         line_no = i + 1
         snippet = raw_lines[i].strip()
 
-        if detect_assert_on_duration(code):
+        if detect_assert_on_duration(executable_lines[i]):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
         if line_no in live_network_lines:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
-        if detect_fixed_port_bind(code):
+        if detect_fixed_port_bind(code, executable_lines[i]):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
-        if detect_sleep_then_assert(code_lines, i, suffix):
+        if detect_sleep_then_assert(executable_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
 
     return findings
