@@ -664,6 +664,59 @@ def legacy_v2_base?(base_workflow_digest:, base_script_digest:)
     base_script_digest == LEGACY_CLA_RERUN_DIGEST
 end
 
+def run_action_transition_regression_matrix!
+  legacy_workflow_digest = LEGACY_CLA_WORKFLOW_DIGEST
+  legacy_script_digest = LEGACY_CLA_RERUN_DIGEST
+  unrelated_workflow_digest = "0" * 64
+  unrelated_script_digest = "1" * 64
+  final = CLA_ACTION_FINAL
+  cases = [
+    ["fc608 legacy no-op", CLA_ACTION_LEGACY_REFS.fetch(0), CLA_ACTION_LEGACY_REFS.fetch(0), false,
+     legacy_workflow_digest, legacy_script_digest, true],
+    ["b4d3 legacy no-op", CLA_ACTION_LEGACY_REFS.fetch(1), CLA_ACTION_LEGACY_REFS.fetch(1), false,
+     legacy_workflow_digest, legacy_script_digest, true],
+    ["fc608 to final", CLA_ACTION_LEGACY_REFS.fetch(0), final, true,
+     legacy_workflow_digest, legacy_script_digest, true],
+    ["b4d3 to final", CLA_ACTION_LEGACY_REFS.fetch(1), final, true,
+     legacy_workflow_digest, legacy_script_digest, true],
+    ["final policy update", final, final, true, unrelated_workflow_digest, unrelated_script_digest, true],
+    ["final no-op", final, final, false, unrelated_workflow_digest, unrelated_script_digest, true],
+    ["legacy downgrade", CLA_ACTION_LEGACY_REFS.fetch(0), CLA_ACTION_LEGACY_REFS.fetch(1), true,
+     legacy_workflow_digest, legacy_script_digest, false],
+    ["legacy changed old pin", CLA_ACTION_LEGACY_REFS.fetch(0), CLA_ACTION_LEGACY_REFS.fetch(0), true,
+     legacy_workflow_digest, legacy_script_digest, false],
+    ["final downgrade", final, CLA_ACTION_LEGACY_REFS.fetch(0), true,
+     unrelated_workflow_digest, unrelated_script_digest, false],
+    ["unknown base", "manaflow-ai/cla-github-action@#{'a' * 40}", final, true,
+     unrelated_workflow_digest, unrelated_script_digest, false],
+    ["unknown candidate", final, "manaflow-ai/cla-github-action@#{'b' * 40}", true,
+     unrelated_workflow_digest, unrelated_script_digest, false],
+    ["legacy wrong workflow digest", CLA_ACTION_LEGACY_REFS.fetch(0), final, true,
+     unrelated_workflow_digest, legacy_script_digest, false],
+    ["legacy wrong helper digest", CLA_ACTION_LEGACY_REFS.fetch(0), final, true,
+     legacy_workflow_digest, unrelated_script_digest, false]
+  ]
+
+  failures = []
+  cases.each do |name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, expected|
+    actual = begin
+      assert_cla_action_transition!(
+        base_ref: base_ref,
+        candidate_ref: candidate_ref,
+        base_workflow_digest: workflow_digest,
+        base_script_digest: script_digest,
+        policy_changed: policy_changed
+      )
+      true
+    rescue PolicyError
+      false
+    end
+    failures << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
+  end
+  fail!("CLA action transition regression matrix failed: #{failures.join('; ')}") unless failures.empty?
+  puts "PASS: CLA action transition regression matrix (#{cases.length} cases)"
+end
+
 def guard_script_digest(raw)
   normalized = raw.sub(
     /EXPECTED_GUARD_SCRIPT_DIGEST = "[0-9a-f]{64}"/,
@@ -2227,6 +2280,7 @@ end
 begin
   run_yaml_regression_matrix!
   run_guard_contract_regression_matrix!
+  run_action_transition_regression_matrix!
   run_trusted_cla_regression_matrix!
   run_environment_regression_matrix!
   run_runner_regression_matrix!
