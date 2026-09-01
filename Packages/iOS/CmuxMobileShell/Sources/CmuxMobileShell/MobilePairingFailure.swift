@@ -372,17 +372,21 @@ extension MobilePairingFailureCategory {
             // lane vocabulary, so there is no separate official variant.
             if isNightlyChannel {
                 guard let macVersion else {
-                    return L10n.string(
-                        "mobile.pairing.macVersionTooOld.nightlyUnknown",
-                        defaultValue: "This version of the app needs a newer cmux Nightly on this Mac."
+                    return String(
+                        format: L10n.string(
+                            "mobile.pairing.macVersionTooOld.nightlyUnknownFormat",
+                            defaultValue: "This version of the app needs a newer cmux Nightly on this Mac (%1$@ or later)."
+                        ),
+                        requiredVersion
                     )
                 }
                 return String(
                     format: L10n.string(
                         "mobile.pairing.macVersionTooOld.nightlyFormat",
-                        defaultValue: "This Mac is running cmux %1$@, but this version of the app needs a newer cmux Nightly."
+                        defaultValue: "This Mac is running cmux %1$@, but this version of the app needs a newer cmux Nightly (%2$@ or later)."
                     ),
-                    macVersion
+                    macVersion,
+                    requiredVersion
                 )
             }
             guard let macVersion else {

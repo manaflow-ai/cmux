@@ -108,12 +108,11 @@ struct OnboardingConnectionView: View {
                     requiredMacVersion
                 )
             }
+            // Versionless fallback (below-tier app versions, previews): no
+            // stale hardcoded floor; the policy-driven branch above names one.
             return L10n.string(
                 "mobile.onboarding.connect.tailscaleBody",
-                defaultValue: """
-                Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. \
-                On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once.
-                """
+                defaultValue: "Install Tailscale on both devices and join the same network, then scan the pairing code once."
             )
         }
         if let requiredMacVersion {

@@ -500,7 +500,7 @@ public struct CMUXMobileRootScene: View {
         #else
         resolvedPersonalIrohForget = personalIrohForget
         #endif
-        return CMUXMobileShellStore(
+        let store = CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
             connectionMethodStore: connectionMethodStore,
@@ -529,5 +529,14 @@ public struct CMUXMobileRootScene: View {
             browserStreamEvents: browserStreamEvents,
             simulatorStreamStore: simulatorStreamStore
         )
+        #if os(iOS)
+        // Install the cached (or baked) Mac minimum-version list before the
+        // store is handed to any view, so the first stored-Mac reconnect can
+        // never race the root view's async policy push and admit a Mac under
+        // a stale floor. The root view still refreshes from the network and
+        // pushes updates.
+        store.macCompatPolicy = macCompatCenter.policy
+        #endif
+        return store
     }
 }

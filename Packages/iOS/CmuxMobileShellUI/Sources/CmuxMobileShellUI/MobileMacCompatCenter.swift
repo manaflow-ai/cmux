@@ -40,7 +40,7 @@ public final class MobileMacCompatCenter {
             requestURL = nil
         }
         self.defaults = defaults
-        self.loader = loader ?? Self.urlSessionLoader
+        self.loader = loader ?? mobileRemoteJSONLoader
         let scheme = requestURL?.scheme?.lowercased() ?? "none"
         let host = requestURL?.host?.lowercased() ?? "none"
         let port = requestURL?.port.map(String.init) ?? "default"
@@ -74,19 +74,5 @@ public final class MobileMacCompatCenter {
         }
     }
 
-    private static let urlSessionLoader: Loader = { url in
-        var request = URLRequest(
-            url: url,
-            cachePolicy: .reloadRevalidatingCacheData,
-            timeoutInterval: 10
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return data
-    }
 }
 #endif

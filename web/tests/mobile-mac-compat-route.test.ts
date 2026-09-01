@@ -170,6 +170,16 @@ describe("mobile-mac-compat route", () => {
     );
   });
 
+  test("rejects a four-component version the client cannot parse", () => {
+    const list: MobileMacCompatList = {
+      ...base,
+      entries: [{ minIOSVersion: "1.0.0.1", stableMinVersion: "0.64.23" }],
+    };
+    expect(() => validateList(list)).toThrow(
+      "entries[0].minIOSVersion must be a dotted numeric version, got 1.0.0.1",
+    );
+  });
+
   test("accepts a bounded tier range and a pinpoint range", () => {
     const list: MobileMacCompatList = {
       ...base,

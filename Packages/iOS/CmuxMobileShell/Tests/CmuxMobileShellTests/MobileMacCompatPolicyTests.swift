@@ -337,7 +337,7 @@ import Testing
         #expect(category.message.contains("0.64.23"))
     }
 
-    @Test func versionTooOldCopyOnNightlyChannelAsksForNewerNightly() {
+    @Test func versionTooOldCopyOnNightlyChannelNamesBothBuilds() {
         let category = MobilePairingFailureCategory.macAppVersionTooOld(
             macVersion: "0.64.22-nightly.99",
             requiredVersion: "0.64.22-nightly.100",
@@ -345,6 +345,13 @@ import Testing
         )
         #expect(category.message.contains("Nightly"))
         #expect(category.message.contains("0.64.22-nightly.99"))
+        #expect(category.message.contains("0.64.22-nightly.100"))
+        let unknown = MobilePairingFailureCategory.macAppVersionTooOld(
+            macVersion: nil,
+            requiredVersion: "0.64.22-nightly.100",
+            isNightlyChannel: true
+        )
+        #expect(unknown.message.contains("0.64.22-nightly.100"))
     }
 
     @Test func versionGateRPCCodeFallsBackToGenericUpdateCategory() {

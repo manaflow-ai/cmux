@@ -226,6 +226,13 @@ extension MobileMacCompatPolicy {
     /// payload this build cannot FULLY parse: dropping unparseable entries
     /// could silently weaken the constraint, so the caller keeps the previous
     /// policy instead.
+    ///
+    /// An EMPTY entries list decodes successfully to a zero-tier policy and
+    /// deliberately lifts every constraint: it is the remote kill switch.
+    /// An app version the server does not cover must get NO Mac version
+    /// limit — accidentally blocking every Mac is the failure mode this
+    /// product explicitly chose to avoid, so retraction is expressed by
+    /// serving no tiers, not by hiding the endpoint.
     public static func decode(_ data: Data) -> MobileMacCompatPolicy? {
         guard let payload = try? JSONDecoder().decode(RemoteList.self, from: data) else {
             return nil

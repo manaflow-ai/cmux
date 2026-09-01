@@ -2853,9 +2853,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return
             }
-            let category = resolvingMacVersionGateViolation(
-                MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
-            )
+            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
             applyPairingFailure(category, phase: "connect")
             if sameRouteProbeClient.map({ remoteClient === $0 }) == true {
                 return
@@ -11219,6 +11217,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``connectionState``/``macConnectionStatus`` teardown stays at the call
     /// sites because some paths (auth re-auth) also flip ``connectionRequiresReauth``.
     private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+        // Every failure path funnels through this sink, so the version-gate
+        // stash is resolved here: any route rejected for a too-old Mac this
+        // attempt upgrades the surfaced category to the exact versions,
+        // regardless of which connect entrypoint (manual, QR, stored
+        // reconnect) applied the failure.
+        let category = resolvingMacVersionGateViolation(category)
         // `.cancelled` (the only empty-message category) must be handled by
         // `catch is CancellationError` branches before classification.
         assert(!category.message.isEmpty, "applyPairingFailure must not receive .cancelled")
