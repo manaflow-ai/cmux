@@ -881,7 +881,9 @@ func TestTmuxShowBuffer(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	store.Buffers["default"] = "hello world"
-	saveTmuxCompatStore(store)
+	if err := saveTmuxCompatStore(store); err != nil {
+		t.Fatalf("save: %v", err)
+	}
 
 	output := captureStdout(t, func() {
 		tmuxShowBuffer(nil)

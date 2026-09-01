@@ -1214,6 +1214,15 @@ func tmuxCompatStoreURL() string {
 	return filepath.Join(home, ".cmuxterm", "tmux-compat-store.json")
 }
 
+func ensureTmuxCompatStoreDirectory() error {
+	directory := filepath.Dir(tmuxCompatStoreURL())
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return err
+	}
+	// Tighten directories created by older versions (or a permissive umask).
+	return os.Chmod(directory, 0700)
+}
+
 func emptyTmuxCompatStore() tmuxCompatStore {
 	return tmuxCompatStore{
 		Buffers:             make(map[string]string),
@@ -1271,7 +1280,7 @@ func withLockedTmuxCompatStore(mutate func(*tmuxCompatStore) error) error {
 
 func withLockedTmuxCompatStoreIfChanged(mutate func(*tmuxCompatStore) (bool, error)) error {
 	path := tmuxCompatStoreURL()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := ensureTmuxCompatStoreDirectory(); err != nil {
 		return err
 	}
 	lockFile, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
@@ -1300,7 +1309,7 @@ func withLockedTmuxCompatStoreIfChanged(mutate func(*tmuxCompatStore) (bool, err
 
 func saveTmuxCompatStoreUnlocked(store tmuxCompatStore) error {
 	path := tmuxCompatStoreURL()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := ensureTmuxCompatStoreDirectory(); err != nil {
 		return err
 	}
 	data, err := json.Marshal(store)
@@ -1318,7 +1327,7 @@ func saveTmuxCompatStoreUnlocked(store tmuxCompatStore) error {
 			_ = os.Remove(tmpPath)
 		}
 	}()
-	if err := tmp.Chmod(0644); err != nil {
+	if err := tmp.Chmod(0600); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -1631,6 +1640,15 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		}
 	}
 
+	// Validate the store before creating a pane. A malformed or unreadable
+	// store must not turn a successful surface.split into a reported failure
+	// after the pane has already been created.
+	if err := withLockedTmuxCompatStoreIfChanged(func(*tmuxCompatStore) (bool, error) {
+		return false, nil
+	}); err != nil {
+		return fmt.Errorf("validate tmux compatibility store: %w", err)
+	}
+
 	focusNewPane := !p.hasFlag("-d")
 	created, err := rc.call("surface.split", map[string]any{
 		"workspace_id": targetWs,
@@ -1662,7 +1680,13 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		}
 		return nil
 	}); err != nil {
-		return err
+		if _, rollbackErr := rc.call("surface.close", map[string]any{
+			"workspace_id": targetWs,
+			"surface_id":   surfaceId,
+		}); rollbackErr != nil {
+			return fmt.Errorf("persist tmux compatibility layout: %w (rollback failed: %v)", err, rollbackErr)
+		}
+		return fmt.Errorf("persist tmux compatibility layout: %w", err)
 	}
 
 	// Equalize vertical splits

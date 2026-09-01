@@ -64,9 +64,45 @@ extension CMUXCLI {
     func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
         let url = tmuxCompatStoreURL()
         let parent = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+        try ensureTmuxCompatStoreDirectory(at: parent)
         let data = try JSONEncoder().encode(store)
-        try data.write(to: url, options: .atomic)
+        let tempURL = parent.appendingPathComponent(".tmux-compat-store-\(UUID().uuidString).tmp")
+        let fileManager = FileManager.default
+        guard fileManager.createFile(
+            atPath: tempURL.path,
+            contents: data,
+            attributes: [.posixPermissions: 0o600]
+        ) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: tempURL.path])
+        }
+        var didReplace = false
+        defer {
+            if !didReplace {
+                try? fileManager.removeItem(at: tempURL)
+            }
+        }
+        // Keep the replacement owner-only even when the process umask is lax.
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempURL.path)
+        let renameResult = tempURL.path.withCString { source in
+            url.path.withCString { destination in
+                Darwin.rename(source, destination)
+            }
+        }
+        guard renameResult == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        didReplace = true
+    }
+
+    private func ensureTmuxCompatStoreDirectory(at parent: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        // Also tighten an existing directory created by an older CLI.
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
     }
 
     /// Serializes cross-process mutations of a tmux compatibility store.
@@ -76,7 +112,7 @@ extension CMUXCLI {
     /// atomically replaced by its writer.
     func withTmuxCompatStoreFileLock<T>(at storeURL: URL, _ body: () throws -> T) throws -> T {
         let parent = storeURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+        try ensureTmuxCompatStoreDirectory(at: parent)
 
         let lockURL = URL(fileURLWithPath: storeURL.path + ".lock")
         let descriptor = open(
@@ -88,6 +124,9 @@ extension CMUXCLI {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         defer { Darwin.close(descriptor) }
+        guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
 
         while flock(descriptor, LOCK_EX) != 0 {
             if errno == EINTR {

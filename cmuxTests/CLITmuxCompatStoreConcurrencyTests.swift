@@ -115,7 +115,9 @@ struct CLITmuxCompatStoreConcurrencyTests {
             timeout: 30
         )
         #expect(serverDone.wait(timeout: .now() + 30) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0)
+        #expect(result.stderr.contains("dataCorrupted"), Comment(rawValue: result.stderr))
         #expect(try Data(contentsOf: storeURL) == malformed)
     }
 
