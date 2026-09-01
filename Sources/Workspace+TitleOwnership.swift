@@ -114,7 +114,7 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if didMutatePanelTitle {
+        if didMutatePanelTitle || isRemoteTmuxMirror {
             _ = reconcileTabTitlePresentation(
                 panelId: panelId,
                 fallback: panelTitles[panelId]
