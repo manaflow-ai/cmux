@@ -134,7 +134,13 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
         throw CmxIrohSettingsControlError.unsupported
     }
 
-    func resetIrohSettingsToDefaults() async throws {}
+    func resetIrohSettingsToDefaults() async throws {
+        // irx intentionally has no user-editable relay configuration. In
+        // forced relay-only mode the preference is managed by the launch
+        // policy, so claiming a successful reset would leave the UI and the
+        // persisted/runtime state unchanged.
+        throw CmxIrohSettingsControlError.unsupported
+    }
 
     func refreshIrohSettings() async {
         await refreshIrohSettings(allowActivationRestart: true)

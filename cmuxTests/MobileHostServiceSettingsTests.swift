@@ -440,13 +440,14 @@ struct MobileHostTransportRouteCompositionTests {
             routes: [],
             activeConnectionCount: 0,
             lastErrorDescription: nil,
-            effectiveIrohActivationState: .reauthenticationRequired
+            effectiveIrohActivationState: .reauthenticationRequired,
+            irohBrokerFailure: failure
         )
 
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
         #expect(snapshot.irohStatus == .reauthenticationRequired)
-        #expect(status.payload["iroh_broker_operation"] == nil)
-        #expect(status.payload["iroh_broker_error_code"] == nil)
+        #expect(status.payload["iroh_broker_operation"] as? String == "register")
+        #expect(status.payload["iroh_broker_error_code"] as? String == "unauthorized")
     }
 
     @Test func routeCleanupPreservesIrxLifecycleState() {

@@ -28,7 +28,7 @@ struct CmxIrohConnectionCheckReportTests {
         let report = CmxIrohConnectionCheckReport(
             role: .mobileClient,
             snapshot: snapshot(runtimeStatus: .active, hasMac: true),
-            diagnostics: diagnosticFailure(.timedOut),
+            diagnostics: diagnosticFailure(.offline),
             relayReachability: .unreachable,
             macDiscovery: .found
         )
@@ -114,7 +114,7 @@ struct CmxIrohConnectionCheckReportTests {
                 policySource: .unavailable,
                 requiresReauthentication: true
             ),
-            diagnostics: diagnosticFailure(.timedOut),
+            diagnostics: diagnosticFailure(.offline),
             relayReachability: .unavailable
         )
 

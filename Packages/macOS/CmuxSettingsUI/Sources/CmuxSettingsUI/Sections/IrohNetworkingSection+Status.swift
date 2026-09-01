@@ -33,7 +33,7 @@ struct IrohNetworkingAttentionNote: View {
     }
 }
 
-private func networkingRuntimeStatusText(
+func networkingRuntimeStatusText(
     for snapshot: CmxIrohSettingsSnapshot
 ) -> String {
     if snapshot.requiresReauthentication {

@@ -249,10 +249,20 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
 
 }
 
+/// Identifies which host runtime currently owns the shared Iroh route slot.
+/// Feature flags are configuration, not ownership: a disabled runtime can
+/// still be finishing an asynchronous teardown after another runtime took the
+/// slot.
+enum MobileHostIrohRouteOwner: Equatable {
+    case legacy
+    case irx
+}
+
 enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var irohRouteOwner: MobileHostIrohRouteOwner?
     // SAFETY: these cache values are always read and written while `lock` is
     // held; the unsafe annotation only permits synchronous cross-actor reads.
     private nonisolated(unsafe) static var irxActivationState: IrxHostActivationState = .inactive
@@ -269,6 +279,21 @@ enum MobileHostPublicStatusCache {
         irohIdentity identity: CmxIrohPeerIdentity?,
         pathHints: [CmxIrohPathHint] = []
     ) {
+        update(
+            irohIdentity: identity,
+            owner: .legacy,
+            pathHints: pathHints
+        )
+    }
+
+    /// Publishes or clears the route only when the caller owns the slot.
+    /// Clearing another runtime's route would advertise a stale endpoint or
+    /// hide a newly activated one during a feature-flag transition.
+    static func update(
+        irohIdentity identity: CmxIrohPeerIdentity?,
+        owner: MobileHostIrohRouteOwner,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
         lock.lock()
         if let identity {
             irohRoute = try? CmxAttachRoute(
@@ -280,8 +305,10 @@ enum MobileHostPublicStatusCache {
                 ),
                 priority: 0
             )
-        } else {
+            irohRouteOwner = owner
+        } else if irohRouteOwner == owner {
             irohRoute = nil
+            irohRouteOwner = nil
         }
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
@@ -298,6 +325,7 @@ enum MobileHostPublicStatusCache {
             ),
             priority: 0
         )
+        irohRouteOwner = .legacy
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -329,6 +357,7 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        irohRouteOwner = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }

@@ -7,11 +7,15 @@ extension MobileIrxRuntimeComposition {
     /// Builds and warms the account-pinned broker/endpoint stack. Publication
     /// is all-or-nothing: a late auth transition cannot retain a half-built
     /// client or rebind an endpoint for a retired session.
-    func provisionOnce() async throws -> IrxBrokerService {
+    func provisionOnce(
+        session: AuthenticatedSessionSnapshot
+    ) async throws -> IrxBrokerService {
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
-        let session = try await auth.authenticatedSessionSnapshot()
+        guard await isCurrentProvisioning(session: session) else {
+            throw CancellationError()
+        }
         // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
         // stack, so the binding refreshes in place and stored routes + pair
         // grants stay valid across the transport switch.
@@ -37,7 +41,9 @@ extension MobileIrxRuntimeComposition {
                 identityGeneration: adopted.material.generation
             ),
             identity: identity,
-            tokenSource: brokerTokenSource(accountID: session.accountID, auth: auth),
+            tokenSource: auth.accountPinnedIrohBrokerTokenSource(
+                accountID: session.accountID
+            ),
             journal: Self.journal
         )
         let supervisor = IrxEndpointSupervisor(
@@ -91,6 +97,16 @@ extension MobileIrxRuntimeComposition {
         endpointSupervisor = supervisor
         autopilot = pilot
         await pilot.start()
+        // `start()` can suspend while auth/sign-out tears down this owner.
+        // Fence the returned pilot before any background task can use it.
+        guard await isCurrentProvisioning(
+            session: session,
+            broker: broker,
+            endpoint: supervisor
+        ) else {
+            await pilot.stop()
+            throw CancellationError()
+        }
 
         // Fire-and-forget refresh/warm-up work is retained and fenced so
         // sign-out can cancel it without allowing a late endpoint bind.
@@ -98,6 +114,7 @@ extension MobileIrxRuntimeComposition {
         let refreshDiscovery = refreshDiscoveryInBackground
         backgroundProvisioningTask?.cancel()
         let backgroundTask = Task { [weak self, broker, supervisor] in
+            let ownerToken = await self?.provisioningOwnerToken
             let refreshTask = Task { [weak self, broker] in
                 guard let self,
                       await self.isCurrentProvisioning(
@@ -108,7 +125,13 @@ extension MobileIrxRuntimeComposition {
                         _ = try await broker.register(
                             pairingEnabled: false, relayURLHint: nil)
                     } catch {
-                        if await self.handleProvisioningFailure(error) {
+                        if await self.handleProvisioningFailure(
+                            error,
+                            session: session,
+                            broker: broker,
+                            endpoint: supervisor,
+                            ownerToken: ownerToken
+                        ) {
                             return
                         }
                         Self.journal.record(
@@ -126,7 +149,13 @@ extension MobileIrxRuntimeComposition {
                     do {
                         _ = try await broker.discover()
                     } catch {
-                        if await self.handleProvisioningFailure(error) {
+                        if await self.handleProvisioningFailure(
+                            error,
+                            session: session,
+                            broker: broker,
+                            endpoint: supervisor,
+                            ownerToken: ownerToken
+                        ) {
                             return
                         }
                         Self.journal.record(

@@ -17,6 +17,19 @@ extension IrxBrokerService {
         } catch let failure as IrxBrokerFailure {
             onError?(failure)
             throw failure.with(operation: operation)
+        } catch let recovery as CmxIrohBrokerTokenRecoveryError {
+            // Preserve the auth owner's one-refresh outcome instead of
+            // collapsing it into an unclassified local error. This is the
+            // fail-closed boundary used by register, discover, mint, and hint.
+            let failure = IrxBrokerFailure(operation: operation, error: recovery)
+            onError?(failure)
+            throw failure
+        } catch let broker as CmxIrohTrustBrokerClientError {
+            // HTTP 429/5xx and connectivity retain their operation/status so
+            // lifecycle backoff and diagnostics can choose the right policy.
+            let failure = IrxBrokerFailure(operation: operation, error: broker)
+            onError?(failure)
+            throw failure
         } catch {
             onError?(error)
             if let urlError = error as? URLError {

@@ -79,6 +79,10 @@ public actor MobileIrxRuntimeComposition {
     var identity: IrxIdentity?
     var provisionedAccountID: String?
     var provisionedSessionGeneration: UInt64?
+    /// Invalidates late provisioning failures when a newer owner or sign-out
+    /// supersedes the task. This is independent of the auth generation because
+    /// the coordinator may publish nil while reporting the rejection itself.
+    var provisioningOwnerToken = UUID()
     var provisioningTask: Task<Void, Never>?
     var provisionInFlight: Task<IrxBrokerService, any Error>?
     var backgroundProvisioningTask: Task<Void, Never>?
@@ -226,13 +230,12 @@ public actor MobileIrxRuntimeComposition {
         guard let session = try? await auth.authenticatedSessionSnapshot() else {
             return false
         }
-        await prepareForProvisioning(accountID: session.accountID)
         do {
-            _ = try await provisionedBroker()
+            _ = try await provisionedBroker(for: session)
             Self.journal.record("client-runtime", "provisioned")
             return true
         } catch {
-            if await handleProvisioningFailure(error) {
+            if await handleProvisioningFailure(error, session: session) {
                 // A definitive broker/auth rejection must stop the launch
                 // poll. The account/session observer owns the only implicit
                 // restart after a new sign-in generation.
@@ -253,21 +256,28 @@ public actor MobileIrxRuntimeComposition {
     /// later call, which is exactly the poisoned state this single-flight
     /// all-or-nothing shape forbids.
     private func provisionedBroker() async throws -> IrxBrokerService {
-        if let broker, !reauthenticationRequired { return broker }
         guard let auth else { throw CompositionError.notSignedIn }
         let session = try await auth.authenticatedSessionSnapshot()
+        return try await provisionedBroker(for: session)
+    }
+
+    private func provisionedBroker(
+        for session: AuthenticatedSessionSnapshot
+    ) async throws -> IrxBrokerService {
+        if let broker, !reauthenticationRequired { return broker }
         if reauthenticationRequired {
-            guard session.generation != provisionedSessionGeneration else {
+            guard let expectedGeneration = provisionedSessionGeneration,
+                  session.generation != expectedGeneration else {
                 throw CompositionError.notSignedIn
             }
             await resetForSignOut()
         }
-        await prepareForProvisioning(accountID: session.accountID)
+        await prepareForProvisioning(session: session)
         if let provisionInFlight {
             return try await provisionInFlight.value
         }
         let task = Task<IrxBrokerService, any Error> {
-            try await self.provisionOnce()
+            try await self.provisionOnce(session: session)
         }
         provisionInFlight = task
         defer { provisionInFlight = nil }

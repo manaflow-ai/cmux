@@ -9,7 +9,6 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
     /// The first and maximum retry bounds used by an irx host.
     public let retrySchedule: CmxIrohRetrySchedule
     private let postRecoveryUnauthorizedFailureLimit: Int
-    private let missingAuthenticationFailureLimit: Int
 
     /// The outcome of classifying one activation failure.
     public typealias Decision = IrxHostActivationDecision
@@ -17,14 +16,11 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
     /// Creates an activation policy.
     public init(
         retrySchedule: CmxIrohRetrySchedule = .foregroundClient,
-        postRecoveryUnauthorizedFailureLimit: Int = 2,
-        missingAuthenticationFailureLimit: Int = 2
+        postRecoveryUnauthorizedFailureLimit: Int = 2
     ) {
         self.retrySchedule = retrySchedule
         self.postRecoveryUnauthorizedFailureLimit = max(
             1, min(20, postRecoveryUnauthorizedFailureLimit))
-        self.missingAuthenticationFailureLimit = max(
-            1, min(20, missingAuthenticationFailureLimit))
     }
 
     /// Classifies a failure and computes its next bounded retry delay.
@@ -52,8 +48,6 @@ public struct IrxHostActivationPolicy: Equatable, Sendable {
         if escalateUnauthorized {
             switch failure.escalationBucket {
             case .unauthorized where failureCount >= postRecoveryUnauthorizedFailureLimit:
-                return .reauthenticationRequired
-            case .missingAuthentication where failureCount >= missingAuthenticationFailureLimit:
                 return .reauthenticationRequired
             case .unauthorized, .missingAuthentication, .transient:
                 break

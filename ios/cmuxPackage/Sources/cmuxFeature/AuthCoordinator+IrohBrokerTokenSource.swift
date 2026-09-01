@@ -1,18 +1,22 @@
 import CmuxAuthRuntime
 import CmuxIrohTransport
 
-extension MobileIrxRuntimeComposition {
-    /// Creates the account-pinned source shared by every iOS irx broker call.
-    func brokerTokenSource(
-        accountID: String,
-        auth: AuthCoordinator
+/// Shared iOS construction for an account-pinned broker token source.
+///
+/// Both the legacy and irx compositions use this instance method so the
+/// one-refresh-on-401 contract, account pin, and auth-error mapping cannot
+/// drift between runtimes.
+@MainActor
+extension AuthCoordinator {
+    func accountPinnedIrohBrokerTokenSource(
+        accountID: String
     ) -> CmxIrohBrokerTokenSource {
-        return .accountPinned(
+        .accountPinned(
             to: accountID,
-            snapshot: { [weak auth] in
-                guard let auth else { return nil }
+            snapshot: { [weak self] in
+                guard let self else { return nil }
                 do {
-                    let session = try await auth.authenticatedSessionSnapshot()
+                    let session = try await self.authenticatedSessionSnapshot()
                     return CmxIrohAccountCredentialSnapshot(
                         accountID: session.accountID,
                         credentials: CmxIrohBrokerCredentials(
@@ -24,12 +28,12 @@ extension MobileIrxRuntimeComposition {
                     return nil
                 }
             },
-            forceRefresh: { [weak auth] in
-                guard let auth else {
+            forceRefresh: { [weak self] in
+                guard let self else {
                     throw CmxIrohBrokerTokenRecoveryError.transient
                 }
                 do {
-                    _ = try await auth.forceRefreshAccessToken()
+                    _ = try await self.forceRefreshAccessToken()
                 } catch AuthError.unauthorized {
                     throw CmxIrohBrokerTokenRecoveryError.authenticationRequired
                 } catch is CancellationError {

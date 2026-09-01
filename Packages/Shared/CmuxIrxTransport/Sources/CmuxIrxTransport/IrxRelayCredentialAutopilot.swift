@@ -9,6 +9,11 @@ public import CmuxIrohTransport
 /// loop is what makes 15 minutes without a disconnect possible at all.
 public actor IrxRelayCredentialAutopilot {
     private static let maximumHintRetryAttempts = 3
+    private static let hintRetrySchedule = CmxIrohRetrySchedule(
+        initialDelay: 5,
+        maximumDelay: 60,
+        jitterFraction: 0
+    )
 
     private typealias HintRefreshOutcome = IrxRelayCredentialAutopilotHintRefreshOutcome
     private typealias FailureCounts = IrxRelayCredentialAutopilotFailureCounts
@@ -25,6 +30,10 @@ public actor IrxRelayCredentialAutopilot {
     private let credentialPolicy = IrxRelayCredentialPolicy()
     private var loop: Task<Void, Never>?
     private var loopGeneration: UInt64 = 0
+    /// Independent hint recovery never waits for the next credential mint.
+    private var hintRetryTask: Task<Void, Never>?
+    private var hintRetryGeneration: UInt64 = 0
+    private var hintRetryFailureCount = 0
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
     public var onRotation: (@Sendable () async throws -> Void)?
@@ -54,7 +63,6 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     /// Installs the lifecycle failure sink for mint and hint-refresh errors.
-    /// Installs the lifecycle failure sink.
     public func setOnFailure(
         _ handler: @escaping @Sendable (IrxBrokerFailure, FailureDisposition) async -> Void
     ) {
@@ -86,6 +94,7 @@ public actor IrxRelayCredentialAutopilot {
         loopGeneration &+= 1
         loop?.cancel()
         loop = nil
+        cancelHintRetry()
         journal.record("credential-autopilot", "stopped")
     }
 
@@ -96,6 +105,7 @@ public actor IrxRelayCredentialAutopilot {
         loopGeneration &+= 1
         let generation = loopGeneration
         loop?.cancel()
+        cancelHintRetry()
         loop = Task { await self.run(generation: generation) }
         journal.record("credential-autopilot", "kicked")
     }
@@ -109,6 +119,9 @@ public actor IrxRelayCredentialAutopilot {
         loop = Task {
             defer { self.clearLoopIfCurrent(generation: generation) }
             let outcome = await self.refreshHint()
+            if outcome == .exhausted {
+                self.scheduleHintRetry()
+            }
             guard outcome != .stopped else { return }
             guard !Task.isCancelled else { return }
             await self.run(generation: generation)
@@ -146,7 +159,13 @@ public actor IrxRelayCredentialAutopilot {
                 guard !Task.isCancelled else { return }
                 await endpoint.rotateCredentials(minted)
                 guard !Task.isCancelled else { return }
-                guard await refreshHint() != .stopped else { return }
+                let hintOutcome = await refreshHint()
+                if hintOutcome == .exhausted {
+                    scheduleHintRetry()
+                } else if hintOutcome == .succeeded {
+                    cancelHintRetry()
+                }
+                guard hintOutcome != .stopped else { return }
                 failureCounts = FailureCounts()
             } catch is CancellationError {
                 return
@@ -178,6 +197,51 @@ public actor IrxRelayCredentialAutopilot {
     private func clearLoopIfCurrent(generation: UInt64) {
         guard loopGeneration == generation else { return }
         loop = nil
+    }
+
+    /// Arms one bounded-delay hint probe without minting credentials again.
+    /// Repeated outages advance a capped ladder, while a successful hint or a
+    /// stopped autopilot cancels the independent task.
+    private func scheduleHintRetry() {
+        guard hintRetryTask == nil, !Task.isCancelled else { return }
+        let generation = hintRetryGeneration
+        let delay = Self.hintRetrySchedule.delay(
+            failureCount: hintRetryFailureCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        )
+        hintRetryFailureCount = min(hintRetryFailureCount + 1, 20)
+        let deadline = clock.now().addingTimeInterval(delay)
+        journal.record(
+            "credential-autopilot", "hint-retry-scheduled",
+            ["retry_delay_s": String(Int(delay.rounded()))]
+        )
+        hintRetryTask = Task {
+            do {
+                try await clock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  self.hintRetryGeneration == generation else { return }
+            let outcome = await self.refreshHint()
+            self.hintRetryTask = nil
+            switch outcome {
+            case .succeeded:
+                self.hintRetryFailureCount = 0
+            case .stopped:
+                return
+            case .exhausted:
+                self.scheduleHintRetry()
+            }
+        }
+    }
+
+    private func cancelHintRetry() {
+        hintRetryGeneration &+= 1
+        hintRetryTask?.cancel()
+        hintRetryTask = nil
+        hintRetryFailureCount = 0
     }
 
     /// Retries a failed hint registration without minting another credential.

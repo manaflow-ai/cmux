@@ -72,7 +72,11 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                 } catch let error as CmxIrohBrokerTokenRecoveryError {
                     throw error
                 } catch {
-                    return nil
+                    // Preserve an unknown auth-provider failure as transient.
+                    // Returning nil would make the broker client replay the
+                    // original 401 and misclassify a token-store/network blip
+                    // as a definitive authorization rejection.
+                    throw CmxIrohBrokerTokenRecoveryError.transient
                 }
                 let refreshed: CmxIrohAccountCredentialSnapshot?
                 do {
@@ -82,7 +86,10 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                 } catch let error as CmxIrohBrokerTokenRecoveryError {
                     throw error
                 } catch {
-                    return nil
+                    // The refresh completed, but the rotated pair is not
+                    // readable yet. Keep this on the bounded retry ladder;
+                    // do not reissue the stale pair's 401.
+                    throw CmxIrohBrokerTokenRecoveryError.transient
                 }
                 guard let refreshed,
                       refreshed.accountID == expectedAccountID else { return nil }

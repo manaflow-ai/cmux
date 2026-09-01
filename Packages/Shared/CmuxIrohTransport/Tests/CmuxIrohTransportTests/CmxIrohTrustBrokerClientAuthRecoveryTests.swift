@@ -313,6 +313,35 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     }
 
     @Test
+    func postRefreshSnapshotFailureRemainsTransient() async throws {
+        let source = PostRefreshFailingSnapshotSource(
+            snapshot: Self.accountSnapshot(
+                accountID: "account-a",
+                accessToken: "stale-access"
+            )
+        )
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { try await source.snapshot() },
+                forceRefresh: { await source.forceRefresh() }
+            ),
+            clientNamespace: "legacy",
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+        #expect(await source.forceRefreshCount == 1)
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
     func cachedPolicyRecoveryFailsClosedForAuthRejections() {
         #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.connectivity
@@ -402,5 +431,25 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
                 refreshToken: "\(accessToken)-refresh"
             )
         )
+    }
+}
+
+private actor PostRefreshFailingSnapshotSource {
+    private let value: CmxIrohAccountCredentialSnapshot
+    private var reads = 0
+    private(set) var forceRefreshCount = 0
+
+    init(snapshot: CmxIrohAccountCredentialSnapshot) {
+        value = snapshot
+    }
+
+    func snapshot() throws -> CmxIrohAccountCredentialSnapshot? {
+        reads += 1
+        if reads == 3 { throw CmxIrohBrokerTokenRecoveryError.transient }
+        return value
+    }
+
+    func forceRefresh() {
+        forceRefreshCount += 1
     }
 }

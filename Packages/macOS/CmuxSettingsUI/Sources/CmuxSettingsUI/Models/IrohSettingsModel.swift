@@ -190,7 +190,7 @@ final class IrohSettingsModel {
               // irx owns its own recovery lifecycle; its terminal state is
               // already surfaced by the status row and must not be restarted
               // by this observer-driven diagnostic pass.
-              next.supportsRelayConfiguration || next.runtimeStatus != .degraded,
+              next.supportsRelayConfiguration,
               previousStatus != .degraded,
               next.runtimeStatus == .degraded,
               diagnosticReport.lastFailureKind != nil

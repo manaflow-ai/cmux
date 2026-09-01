@@ -1552,6 +1552,7 @@
 		C1B1810000000000000009 /* MobileHostIrxEventWriterOpenError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000019 /* MobileHostIrxEventWriterOpenError.swift */; };
 		C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */; };
 		C1B1810000000000000006 /* MobileHostIrxRuntime+Recovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000016 /* MobileHostIrxRuntime+Recovery.swift */; };
+		C1B181000000000000000A /* MobileHostIrxRuntime+RecoveryScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B181000000000000001A /* MobileHostIrxRuntime+RecoveryScheduling.swift */; };
 		C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */; };
 		C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000011 /* MobileHostIrxRuntime.swift */; };
 		C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */; };
@@ -4516,6 +4517,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C1B1810000000000000019 /* MobileHostIrxEventWriterOpenError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxEventWriterOpenError.swift; sourceTree = "<group>"; };
 		C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxLegacyDialectServer.swift; sourceTree = "<group>"; };
 		C1B1810000000000000016 /* MobileHostIrxRuntime+Recovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+Recovery.swift"; sourceTree = "<group>"; };
+		C1B181000000000000001A /* MobileHostIrxRuntime+RecoveryScheduling.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+RecoveryScheduling.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000011 /* MobileHostIrxRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxRuntime.swift; sourceTree = "<group>"; };
 		C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxTerminalLaneServer.swift; sourceTree = "<group>"; };
@@ -6264,6 +6266,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */,
 				C1B1810000000000000016 /* MobileHostIrxRuntime+Recovery.swift */,
 				C1B1810000000000000019 /* MobileHostIrxEventWriterOpenError.swift */,
+				C1B181000000000000001A /* MobileHostIrxRuntime+RecoveryScheduling.swift */,
 				C1B1810000000000000017 /* MobileHostIrxEventWriter.swift */,
 				C1B1810000000000000018 /* IrxDiskCacheTrustReader.swift */,
 				C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */,
@@ -10453,6 +10456,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C1B1810000000000000009 /* MobileHostIrxEventWriterOpenError.swift in Sources */,
 				C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */,
 				C1B1810000000000000006 /* MobileHostIrxRuntime+Recovery.swift in Sources */,
+				C1B181000000000000000A /* MobileHostIrxRuntime+RecoveryScheduling.swift in Sources */,
 				C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */,
 				C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */,
 				C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */,

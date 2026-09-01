@@ -133,6 +133,9 @@ final class MobileHostIrohRuntime {
     /// legacy relay-policy diagnostics so Settings can distinguish sign-in
     /// from a merely degraded relay catalog after the endpoint is torn down.
     var irohAuthenticationFailure: IrxBrokerFailure?
+    /// Last non-auth activation failure, retained while bounded recovery is
+    /// pending so Settings/status do not collapse a retrying host to inactive.
+    var irohActivationFailure: IrxBrokerFailure?
     var preparedSignOut: CmxIrohHostSignOutPreparation?
     var signOutIntentActive = false
     var signOutPreparationTask: Task<Void, Never>?
@@ -330,6 +333,8 @@ final class MobileHostIrohRuntime {
             if await handleIrohActivationFailure(error, revision: revision) {
                 return
             }
+            irohActivationFailure = error as? IrxBrokerFailure
+                ?? IrxBrokerFailure(operation: .register, error: error)
             let failureKind = Self.diagnosticFailureKind(for: error)
             let failureType = String(reflecting: type(of: error))
             diagnosticLog.record(DiagnosticEvent(

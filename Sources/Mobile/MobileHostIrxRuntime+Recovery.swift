@@ -9,7 +9,9 @@ extension MobileHostIrxRuntime {
     /// serialized so a policy lift cannot start a new endpoint while an older
     /// teardown is still closing its resources.
     func setDesiredActive(_ desired: Bool) {
-        let effectiveDesired = desired && MobileRemoteControlPolicy.isEnabled
+        let effectiveDesired = desired
+            && MobileRemoteControlPolicy.isEnabled
+            && Self.isEnabled
         guard desiredActive != effectiveDesired else { return }
         desiredActive = effectiveDesired
         if !effectiveDesired {
@@ -63,11 +65,29 @@ extension MobileHostIrxRuntime {
     /// Starts an activation through the lifecycle-owned task so sign-out and
     /// account changes can cancel every retry-triggered activation as well.
     func startActivation(accountID: String) {
+        guard desiredActive,
+              Self.isEnabled,
+              activeAccountID == accountID else { return }
         cancelActivationRetry()
         cancelAutopilotRecovery()
+        // Invalidate the previous task synchronously before cancellation. A
+        // cancellation can be delivered while that task is parked in a broker
+        // call; the token fence keeps its late continuation from publishing.
+        generationToken = UUID()
         activationTask?.cancel()
+        let activityGeneration = desiredActivityGeneration
         activationTask = Task { @MainActor [weak self] in
-            await self?.activate(accountID: accountID)
+            guard let self else { return }
+            await self.cleanupActivationResources(invalidateGeneration: false)
+            guard self.desiredActive,
+                  Self.isEnabled,
+                  self.activeAccountID == accountID,
+                  self.desiredActivityGeneration == activityGeneration,
+                  !Task.isCancelled else { return }
+            await self.activate(
+                accountID: accountID,
+                activityGeneration: activityGeneration
+            )
         }
     }
 
@@ -89,7 +109,10 @@ extension MobileHostIrxRuntime {
         autopilotRecoveryID = nil
     }
     func handleAutopilotSuccess(accountID: String, token: UUID) {
-        guard generationToken == token, activeAccountID == accountID else { return }
+        guard generationToken == token,
+              activeAccountID == accountID,
+              desiredActive,
+              Self.isEnabled else { return }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0
         activationMissingAuthenticationFailureCount = 0
@@ -162,13 +185,14 @@ extension MobileHostIrxRuntime {
         accountID: String,
         token: UUID
     ) async {
-        guard generationToken == token, activeAccountID == accountID else { return }
+        guard generationToken == token,
+              activeAccountID == accountID,
+              desiredActive,
+              Self.isEnabled else { return }
         lastBrokerFailure = failure
         var attributes = failure.journalAttributes
         Self.journal.record("host-runtime", "activation-failed", attributes)
-        let diagnosticFailure = failure.requiresReauthentication
-            ? DiagnosticFailureKind.authorizationFailed
-            : (failure.kind == .transient ? .offline : .policyUnavailable)
+        let diagnosticFailure = failure.diagnosticFailureKind
         MobileHostIrohRuntime.hostDiagnosticLog.record(
             DiagnosticEvent(
                 failure.requiresReauthentication
@@ -191,6 +215,7 @@ extension MobileHostIrxRuntime {
             Self.journal.record("host-runtime", "reauthentication-required", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
         case let .retry(policyDelay, retryAfterSeconds):
+            let activityGeneration = desiredActivityGeneration
             let delay = credentialPolicy.boundedRetryDelay(
                 expiresAt: nil,
                 now: Date(),
@@ -205,6 +230,14 @@ extension MobileHostIrxRuntime {
             }
             Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
+            // Cleanup suspends while endpoint, registry, and autopilot lanes
+            // close. A policy/feature transition can win that suspension; do
+            // not arm a retry from the post-cleanup generation in that case.
+            guard desiredActive,
+                  Self.isEnabled,
+                  activeAccountID == accountID,
+                  desiredActivityGeneration == activityGeneration,
+                  !Task.isCancelled else { return }
             let retryToken = generationToken
             advanceActivationFailureCount(for: failure)
             let clock = activationRetryClock
@@ -227,8 +260,11 @@ extension MobileHostIrxRuntime {
                 }
                 guard let self,
                       !Task.isCancelled,
+                      self.desiredActive,
+                      Self.isEnabled,
                       self.generationToken == retryToken,
-                      self.activeAccountID == accountID else { return }
+                      self.activeAccountID == accountID,
+                      self.desiredActivityGeneration == activityGeneration else { return }
                 self.startActivation(accountID: accountID)
             }
         case .stopped:
@@ -238,6 +274,10 @@ extension MobileHostIrxRuntime {
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
             await cleanupActivationResources(invalidateGeneration: true)
+            guard desiredActive,
+                  Self.isEnabled,
+                  activeAccountID == accountID,
+                  !Task.isCancelled else { return }
             scheduleFailedActivationRecovery(failure: failure, accountID: accountID)
         }
     }
@@ -248,7 +288,10 @@ extension MobileHostIrxRuntime {
         accountID: String,
         token: UUID
     ) async {
-        guard generationToken == token, activeAccountID == accountID else { return }
+        guard generationToken == token,
+              activeAccountID == accountID,
+              desiredActive,
+              Self.isEnabled else { return }
         lastBrokerFailure = failure
         Self.journal.record(
             "host-runtime", "activation-failed", failure.journalAttributes)
@@ -257,13 +300,10 @@ extension MobileHostIrxRuntime {
                 failure.requiresReauthentication
                     ? .hostAuthenticationFailed : .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
-                b: failure.requiresReauthentication
-                    ? DiagnosticFailureKind.authorizationFailed.rawValue
-                    : (failure.kind == .transient
-                        ? DiagnosticFailureKind.offline.rawValue
-                        : DiagnosticFailureKind.policyUnavailable.rawValue)
+                b: failure.diagnosticFailureKind.rawValue
             )
         )
+        let activityGeneration = desiredActivityGeneration
         switch disposition {
         case .advisory:
             // The endpoint remains usable; retain the classified context for
@@ -282,7 +322,10 @@ extension MobileHostIrxRuntime {
             let broker = brokerService
             let healthy = await endpoint?.isHealthy() ?? false
             let credentials = await broker?.cachedRelayCredentials() ?? []
-            guard generationToken == token, activeAccountID == accountID else { return }
+            guard generationToken == token,
+                  activeAccountID == accountID,
+                  desiredActive,
+                  Self.isEnabled else { return }
             if healthy, credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 setActivationState(.active)
             } else {
@@ -333,6 +376,11 @@ extension MobileHostIrxRuntime {
             Self.journal.record("host-runtime", "activation-stopped", attributes)
             await cleanupActivationResources(
                 invalidateGeneration: true, stopAutopilot: false)
+            guard desiredActive,
+                  Self.isEnabled,
+                  activeAccountID == accountID,
+                  desiredActivityGeneration == activityGeneration,
+                  !Task.isCancelled else { return }
             scheduleFailedActivationRecovery(failure: failure, accountID: accountID)
         }
     }
@@ -387,87 +435,40 @@ extension MobileHostIrxRuntime {
         return true
     }
 
-    /// Gives non-auth terminal failures a few bounded recovery probes. Once
-    /// those probes are exhausted the runtime stays explicitly failed until an
-    /// account transition, policy re-enable, or Settings refresh resets it.
-    private func scheduleFailedActivationRecovery(
-        failure: IrxBrokerFailure,
-        accountID: String
-    ) {
-        guard activeAccountID == accountID, activationRetryTask == nil else { return }
-        guard terminalRecoveryCount < 3 else {
-            Self.journal.record(
-                "host-runtime", "activation-recovery-exhausted",
-                failure.journalAttributes
-            )
-            return
-        }
-        let delay = activationRetryPolicy.retrySchedule.delay(
-            failureCount: terminalRecoveryCount,
-            retryAfterSeconds: nil,
-            jitterUnitInterval: 0
-        )
-        terminalRecoveryCount += 1
-        let token = generationToken
-        let clock = activationRetryClock
-        let deadline = clock.now().addingTimeInterval(delay)
-        var attributes = failure.journalAttributes
-        attributes["delay_s"] = String(Int(delay.rounded()))
-        attributes["state"] = IrxHostActivationState.failed.rawValue
-        Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
-        let retryID = UUID()
-        activationRetryID = retryID
-        activationRetryTask = Task { @MainActor [weak self] in
-            defer {
-                if let self, self.activationRetryID == retryID {
-                    self.activationRetryTask = nil
-                    self.activationRetryID = nil
-                }
-            }
-            do {
-                try await clock.sleep(until: deadline)
-            } catch {
-                return
-            }
-            guard let self,
-                  !Task.isCancelled,
-                  self.generationToken == token,
-                  self.activeAccountID == accountID else { return }
-            self.setActivationState(.activating)
-            self.startActivation(accountID: accountID)
-        }
-    }
-
     func cleanupActivationResources(
         invalidateGeneration: Bool = false,
-        stopAutopilot: Bool = true
+        stopAutopilot: Bool = true,
+        expectedToken: UUID? = nil
     ) async {
+        guard expectedToken == nil || generationToken == expectedToken else { return }
+        let cleanupToken = invalidateGeneration ? UUID() : generationToken
         if invalidateGeneration {
-            generationToken = UUID()
+            generationToken = cleanupToken
         }
         acceptLoop?.cancel()
         acceptLoop = nil
         if stopAutopilot, let autopilot {
             await autopilot.stop()
         }
+        guard generationToken == cleanupToken else { return }
         autopilot = nil
         if let registry {
             await registry.closeAll(code: .hostShutdown)
         }
+        guard generationToken == cleanupToken else { return }
         registry = nil
         if let endpointSupervisor {
             await endpointSupervisor.close()
         }
+        guard generationToken == cleanupToken else { return }
         endpointSupervisor = nil
         brokerService = nil
         localBinding = nil
         hadLiveDiscovery = false
-        // The route slot is shared with the legacy runtime. A dormant irx
-        // instance (feature flag off) must not clear the route currently owned
-        // by that runtime during its serialized teardown.
-        if Self.isEnabled {
-            MobileHostPublicStatusCache.update(irohIdentity: nil)
-        }
+        // Route ownership is explicit because the feature flag can change
+        // while this asynchronous teardown is still unwinding.
+        guard generationToken == cleanupToken else { return }
+        MobileHostPublicStatusCache.update(irohIdentity: nil, owner: .irx)
     }
 
     func deactivate(preserveReauthentication: Bool = false) async {

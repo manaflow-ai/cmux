@@ -11,6 +11,12 @@ extension MobileHostIrohRuntime {
         if desiredActive, irohAuthenticationFailure != nil {
             return .reauthenticationRequired
         }
+        if desiredActive, failureRecoveryTask != nil {
+            return .retrying
+        }
+        if desiredActive, irohActivationFailure != nil {
+            return .failed
+        }
         switch routePublicationPhase {
         case .unavailable:
             .inactive
@@ -24,7 +30,8 @@ extension MobileHostIrohRuntime {
     /// The definitive broker failure retained for the shared host status
     /// projection. It remains visible after route teardown.
     var publishedIrohBrokerFailure: IrxBrokerFailure? {
-        desiredActive ? irohAuthenticationFailure : nil
+        guard desiredActive else { return nil }
+        return irohAuthenticationFailure ?? irohActivationFailure
     }
 
     /// Records a definitive auth rejection from the shared broker client and
@@ -39,6 +46,7 @@ extension MobileHostIrohRuntime {
         guard failure.requiresReauthentication,
               revision == lifecycleRevision else { return false }
         irohAuthenticationFailure = failure
+        irohActivationFailure = failure
         cancelFailureRecovery(resetBackoff: true)
         let failedRuntime = runtime
         runtime = nil
@@ -57,6 +65,7 @@ extension MobileHostIrohRuntime {
     /// Clears a prior auth failure when a fresh activation is authorized.
     func clearIrohAuthenticationFailure() {
         irohAuthenticationFailure = nil
+        irohActivationFailure = nil
     }
 
     func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {

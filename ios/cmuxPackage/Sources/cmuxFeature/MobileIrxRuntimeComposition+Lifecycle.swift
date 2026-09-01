@@ -7,7 +7,13 @@ extension MobileIrxRuntimeComposition {
     /// `true` tells the launch poller to stop; a new authenticated session
     /// generation is the only implicit recovery trigger.
     @discardableResult
-    func handleProvisioningFailure(_ error: any Error) async -> Bool {
+    func handleProvisioningFailure(
+        _ error: any Error,
+        session: AuthenticatedSessionSnapshot,
+        broker: IrxBrokerService? = nil,
+        endpoint: IrxEndpointSupervisor? = nil,
+        ownerToken: UUID? = nil
+    ) async -> Bool {
         let failure: IrxBrokerFailure?
         if let classified = error as? IrxBrokerFailure,
            classified.requiresReauthentication {
@@ -24,15 +30,30 @@ extension MobileIrxRuntimeComposition {
         } else {
             failure = nil
         }
-        guard let failure else { return false }
+        guard let failure,
+              provisioningOwnerToken == (ownerToken ?? provisioningOwnerToken),
+              provisionedAccountID == session.accountID,
+              provisionedSessionGeneration == session.generation else {
+            return false
+        }
+        guard await ownsProvisioning(
+            session: session,
+            broker: broker,
+            endpoint: endpoint,
+            allowSignedOut: failure.requiresReauthentication,
+            ownerToken: ownerToken
+        ) else { return false }
         cancelAutopilotRecovery()
-        await autopilot?.stop()
+        // Record the rejected owner before tearing resources down. This is
+        // needed even when provisioning failed before `broker` was published.
+        provisionedAccountID = session.accountID
+        provisionedSessionGeneration = session.generation
         reauthenticationRequired = true
-        publishAuthenticationState()
         var attributes = failure.journalAttributes
         attributes["state"] = "reauthentication_required"
         Self.journal.record(
             "client-runtime", "reauthentication-required", attributes)
+        await resetForSignOut(preserveReauthentication: true)
         return true
     }
 
@@ -78,9 +99,25 @@ extension MobileIrxRuntimeComposition {
         _ identity: AuthenticatedSessionIdentity?
     ) async {
         guard let identity else {
-            if broker != nil || reauthenticationRequired {
-                await resetForSignOut()
+            if reauthenticationRequired
+                || broker != nil
+                || provisionedAccountID != nil
+                || provisionInFlight != nil {
+                // AuthCoordinator can publish nil either while a rejected
+                // refresh is being reported or while the normal sign-out hook
+                // is still unwinding. Preserve the owner fence until the
+                // corresponding handler/sign-out hook makes the final choice.
+                await resetForSignOut(preserveReauthentication: true)
             }
+            return
+        }
+        if reauthenticationRequired {
+            guard let expectedGeneration = provisionedSessionGeneration,
+                  let expectedAccountID = provisionedAccountID,
+                  expectedAccountID == identity.accountID,
+                  expectedGeneration != identity.generation else { return }
+            await resetForSignOut()
+            _ = await provisionIfPossible()
             return
         }
         if let provisionedAccountID,
@@ -91,12 +128,7 @@ extension MobileIrxRuntimeComposition {
         }
         if broker == nil {
             _ = await provisionIfPossible()
-            return
         }
-        guard reauthenticationRequired,
-              provisionedSessionGeneration != identity.generation else { return }
-        await resetForSignOut()
-        _ = await provisionIfPossible()
     }
 
     /// Creates the client credential autopilot and routes terminal failures to
@@ -112,8 +144,7 @@ extension MobileIrxRuntimeComposition {
             journal: Self.journal,
             retryPolicy: IrxHostActivationPolicy(
                 retrySchedule: .foregroundClient,
-                postRecoveryUnauthorizedFailureLimit: 4,
-                missingAuthenticationFailureLimit: 4
+                postRecoveryUnauthorizedFailureLimit: 4
             )
         )
         await pilot.setOnFailure { [weak self] failure, disposition in
@@ -127,6 +158,14 @@ extension MobileIrxRuntimeComposition {
         }
         await pilot.setOnRotation { [weak self, broker, endpoint] in
             guard let self else { throw CancellationError() }
+            // Registration initially carries no relay hint on iOS. Re-publish
+            // the endpoint's actual home relay after every credential rotation
+            // so paired Macs do not disappear when the broker hint expires.
+            let relay = endpoint.homeRelayURL()
+            try await broker.registerHintIfNeeded(
+                pairingEnabled: false,
+                relayURLHint: relay
+            )
             await self.handleAutopilotRotation(
                 session: session,
                 broker: broker,
@@ -180,28 +219,31 @@ extension MobileIrxRuntimeComposition {
             "client-runtime", "autopilot-failed", failure.journalAttributes)
         guard case let .terminal(requiresReauthentication) = disposition else { return }
         if requiresReauthentication {
-            guard await isCurrentProvisioning(
+            guard await ownsProvisioning(
                 session: session,
                 broker: broker,
-                endpoint: endpoint
+                endpoint: endpoint,
+                allowSignedOut: true
             ) else { return }
-            await autopilot?.stop()
             cancelAutopilotRecovery()
+            provisionedAccountID = session.accountID
+            provisionedSessionGeneration = session.generation
             reauthenticationRequired = true
-            publishAuthenticationState()
             var attributes = failure.journalAttributes
             attributes["state"] = "reauthentication_required"
             Self.journal.record(
                 "client-runtime", "reauthentication-required", attributes)
+            await resetForSignOut(preserveReauthentication: true)
             return
         }
         // Keep the current endpoint intact and schedule a few bounded kicks.
         // A frontmost app cannot rely on another foreground transition to
         // restart renewal, so the lifecycle owns this short recovery ladder.
-        guard await isCurrentProvisioning(
+        guard await ownsProvisioning(
             session: session,
             broker: broker,
-            endpoint: endpoint
+            endpoint: endpoint,
+            allowSignedOut: false
         ) else { return }
         await autopilot?.stop()
         scheduleAutopilotRecovery(
@@ -276,14 +318,21 @@ extension MobileIrxRuntimeComposition {
     }
 
     /// Fences provisioning to one authenticated account at a time.
-    func prepareForProvisioning(accountID: String) async {
+    func prepareForProvisioning(
+        session: AuthenticatedSessionSnapshot
+    ) async {
         if let provisionedAccountID,
-           provisionedAccountID != accountID {
+           provisionedAccountID != session.accountID {
             await resetForSignOut()
         }
-        // Set this before ``provisionOnce()`` suspends so an account switch
-        // cannot publish the old account's broker after a late completion.
-        provisionedAccountID = accountID
+        if provisionedAccountID != session.accountID
+            || provisionedSessionGeneration != session.generation {
+            provisioningOwnerToken = UUID()
+        }
+        // Set both fields before ``provisionOnce()`` suspends so a late
+        // failure cannot be attributed to a newer account/session.
+        provisionedAccountID = session.accountID
+        provisionedSessionGeneration = session.generation
     }
 
     /// Confirms that an asynchronous provisioning continuation still belongs
@@ -310,6 +359,28 @@ extension MobileIrxRuntimeComposition {
         return self.broker === broker && endpointSupervisor === endpoint
     }
 
+    /// Verifies the captured owner even when the auth coordinator has already
+    /// published nil for the rejection being handled. A newer session or a
+    /// reset invalidates the account/generation/instance fence first.
+    func ownsProvisioning(
+        session: AuthenticatedSessionSnapshot,
+        broker: IrxBrokerService? = nil,
+        endpoint: IrxEndpointSupervisor? = nil,
+        allowSignedOut: Bool,
+        ownerToken: UUID? = nil
+    ) async -> Bool {
+        guard provisioningOwnerToken == (ownerToken ?? provisioningOwnerToken),
+              provisionedAccountID == session.accountID,
+              provisionedSessionGeneration == session.generation else {
+            return false
+        }
+        if let broker, self.broker !== broker { return false }
+        if let endpoint, endpointSupervisor !== endpoint { return false }
+        if await isCurrentProvisioning(session: session) { return true }
+        guard allowSignedOut, let auth else { return false }
+        return await auth.authenticatedSessionIdentity == nil
+    }
+
     /// Stops irx-owned sessions before auth clears the account's credentials.
     ///
     /// The provisioning loop itself remains installed so a later sign-in can
@@ -317,7 +388,14 @@ extension MobileIrxRuntimeComposition {
     /// cancelled before ownership is cleared; their session/instance fences
     /// make late completions harmless without blocking sign-out on a network
     /// request.
-    public func resetForSignOut() async {
+    public func resetForSignOut(
+        preserveReauthentication: Bool = false
+    ) async {
+        provisioningOwnerToken = UUID()
+        let retainedAccountID = preserveReauthentication
+            ? provisionedAccountID : nil
+        let retainedGeneration = preserveReauthentication
+            ? provisionedSessionGeneration : nil
         if let provisionInFlight {
             provisionInFlight.cancel()
         }
@@ -327,8 +405,6 @@ extension MobileIrxRuntimeComposition {
         backgroundProvisioningTask = nil
         cancelAutopilotRecovery()
         autopilotRecoveryCount = 0
-        reauthenticationRequired = false
-        publishAuthenticationState()
 
         if let autopilot {
             await autopilot.stop()
@@ -349,8 +425,10 @@ extension MobileIrxRuntimeComposition {
         endpointSupervisor = nil
         broker = nil
         identity = nil
-        provisionedAccountID = nil
-        provisionedSessionGeneration = nil
+        provisionedAccountID = retainedAccountID
+        provisionedSessionGeneration = retainedGeneration
+        reauthenticationRequired = preserveReauthentication
+        publishAuthenticationState()
         Self.journal.record("client-runtime", "reset-for-sign-out")
     }
 }

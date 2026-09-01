@@ -71,10 +71,10 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
         case let broker as CmxIrohTrustBrokerClientError:
             switch broker {
             case .missingAuthentication:
-                // A nil account-pinned snapshot also represents a brief
-                // account transition. The auth identity stream owns the
-                // definitive sign-out signal, so keep this request retryable
-                // instead of stranding a valid session on its first read.
+                // A nil account-pinned snapshot represents a brief account
+                // transition. The auth identity stream owns the definitive
+                // sign-out signal, so keep this request on the generic retry
+                // ladder instead of prompting from a single empty read.
                 kind = .transient
                 statusCode = nil
                 errorCode = broker.code
@@ -238,7 +238,26 @@ extension IrxBrokerFailure: DiagnosticFailureProviding {
         case .authenticationRequired:
             .authorizationFailed
         case .transient:
-            .offline
+            switch statusCode {
+            case 408, 425:
+                .timedOut
+            case 429:
+                // The broker was reachable and explicitly asked us to slow
+                // down; reporting this as offline sends operators in the wrong
+                // direction and hides the useful rate-limit evidence.
+                .policyUnavailable
+            case let status? where (500 ... 599).contains(status):
+                .endpointUnavailable
+            default:
+                switch errorCode {
+                case "auth_refresh_transient", "missing_authentication":
+                    .credentialUnavailable
+                case "connectivity":
+                    .offline
+                default:
+                    .endpointUnavailable
+                }
+            }
         case .rejected:
             .policyUnavailable
         case .invalid:

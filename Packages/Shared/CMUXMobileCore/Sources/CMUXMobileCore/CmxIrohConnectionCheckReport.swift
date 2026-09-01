@@ -121,13 +121,11 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         recommendation = Self.recommendation(
             role: role,
             transportStatus: transportStatus,
-            policyStatus: policyStatus,
             relayReachability: relayReachability,
             discoveryStatus: discoveryStatus,
             sessionStatus: sessionStatus,
             failureKind: diagnostics.lastFailureKind,
             requiresReauthentication: snapshot.requiresReauthentication,
-            supportsRelayConfiguration: snapshot.supportsRelayConfiguration,
             hasRelayConfigurationProblem: snapshot.supportsRelayConfiguration
                 && (
                     snapshot.policySource == .unavailable
@@ -140,19 +138,16 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
     private static func recommendation(
         role: Role,
         transportStatus: StageStatus,
-        policyStatus: StageStatus,
         relayReachability: RelayReachability,
         discoveryStatus: StageStatus,
         sessionStatus: StageStatus,
         failureKind: DiagnosticFailureKind?,
         requiresReauthentication: Bool,
-        supportsRelayConfiguration: Bool,
         hasRelayConfigurationProblem: Bool
     ) -> Recommendation {
         if requiresReauthentication { return .refreshAccount }
         if transportStatus == .failed, failureKind == .offline { return .checkInternet }
-        if (supportsRelayConfiguration && policyStatus == .failed)
-            || hasRelayConfigurationProblem {
+        if hasRelayConfigurationProblem {
             return .reviewRelaySettings
         }
         // Corporate-allowlist advice requires a relay that was actually probed

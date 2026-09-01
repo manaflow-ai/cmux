@@ -452,19 +452,25 @@ final class MobileHostService {
     /// otherwise. Running both would reincarnate the binding in a loop.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        if MobileHostIrxRuntime.isEnabled {
-            MobileHostIrxRuntime.shared.configure(auth: auth)
-        } else {
-            MobileHostIrohRuntime.shared.configure(auth: auth)
-        }
+        // Both runtimes observe the same auth coordinator so a feature-flag
+        // flip while the process is alive can hand ownership to the other
+        // stack without leaving it unconfigured. Desired activity below still
+        // selects exactly one owner.
+        MobileHostIrxRuntime.shared.configure(auth: auth)
+        MobileHostIrohRuntime.shared.configure(auth: auth)
+        let irxEnabled = MobileHostIrxRuntime.isEnabled
+        MobileHostIrxRuntime.shared.setDesiredActive(irxEnabled)
+        MobileHostIrohRuntime.shared.setDesiredActive(!irxEnabled)
     }
 
     func updateIrohRoute(
         identity: CmxIrohPeerIdentity?,
+        owner: MobileHostIrohRouteOwner = .legacy,
         pathHints: [CmxIrohPathHint] = []
     ) {
         MobileHostPublicStatusCache.update(
             irohIdentity: identity,
+            owner: owner,
             pathHints: pathHints
         )
     }
@@ -1249,6 +1255,9 @@ final class MobileHostService {
         let effectiveIrxState = MobileHostIrxRuntime.isEnabled
             ? irxStatus.state
             : legacyIrohState
+        let brokerFailure = MobileHostIrxRuntime.isEnabled
+            ? irxStatus.failure
+            : MobileHostIrohRuntime.shared.publishedIrohBrokerFailure
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
@@ -1259,7 +1268,8 @@ final class MobileHostService {
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription,
-            effectiveIrohActivationState: effectiveIrxState
+            effectiveIrohActivationState: effectiveIrxState,
+            irohBrokerFailure: brokerFailure
         )
     }
 

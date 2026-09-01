@@ -48,13 +48,14 @@ struct IrxHostActivationPolicyTests {
             Issue.record("a missing snapshot should use the transient ladder")
             return
         }
-        #expect(
-            policy.decision(
-                for: failure,
-                failureCount: 2,
-                jitterUnitInterval: 0
-            ) == .reauthenticationRequired
-        )
+        guard case .retry = policy.decision(
+            for: failure,
+            failureCount: 20,
+            jitterUnitInterval: 0
+        ) else {
+            Issue.record("a missing snapshot must remain on the transient ladder")
+            return
+        }
     }
 
     @Test("a wire error code cannot masquerade as missing authentication")
@@ -173,8 +174,7 @@ struct IrxHostActivationPolicyTests {
                 maximumDelay: 8,
                 jitterFraction: 0
             ),
-            postRecoveryUnauthorizedFailureLimit: 4,
-            missingAuthenticationFailureLimit: 4
+            postRecoveryUnauthorizedFailureLimit: 4
         )
         let failure = IrxBrokerFailure(
             operation: .mint,
@@ -412,5 +412,50 @@ struct IrxHostActivationPolicyTests {
                 jitterUnitInterval: 0
             ) == .retry(delay: 1, retryAfterSeconds: nil)
         )
+    }
+
+    @Test("reachable broker outages keep actionable diagnostic categories")
+    func transientBrokerDiagnosticsDistinguishReachability() {
+        let rateLimited = IrxBrokerFailure(
+            operation: .mint,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 429,
+                code: "rate_limited"
+            )
+        )
+        let serverUnavailable = IrxBrokerFailure(
+            operation: .discover,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 503,
+                code: "unavailable"
+            )
+        )
+
+        #expect(rateLimited.diagnosticFailureKind == .policyUnavailable)
+        #expect(serverUnavailable.diagnosticFailureKind == .endpointUnavailable)
+        #expect(
+            IrxBrokerFailure(
+                operation: .discover,
+                error: CmxIrohTrustBrokerClientError.connectivity
+            ).diagnosticFailureKind == .offline
+        )
+    }
+
+    @Test("broker token recovery errors retain operation context")
+    func brokerOperationPreservesTokenRecoveryClassification() async throws {
+        let service = try IrxBrokerArmingSupport.makeService(
+            identity: IrxBrokerArmingSupport.identity(),
+            cacheDirectory: IrxBrokerArmingSupport.temporaryDirectory()
+        )
+        do {
+            _ = try await service.withBrokerOperation(.mint) { () -> Void in
+                throw CmxIrohBrokerTokenRecoveryError.authenticationRequired
+            }
+            Issue.record("Expected a classified auth failure")
+        } catch let failure as IrxBrokerFailure {
+            #expect(failure.operation == .mint)
+            #expect(failure.requiresReauthentication)
+            #expect(failure.errorCode == "unauthorized")
+        }
     }
 }
