@@ -6798,6 +6798,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue: flags.rawValue)
     }
 
+    /// Maps AppKit keyboard modifiers to crossterm's stable bit assignments.
+    /// Ghostty's precision and momentum bits are intentionally excluded.
+    private func manualScrollModifierBits(_ flags: NSEvent.ModifierFlags) -> UInt8 {
+        var bits: UInt8 = 0
+        if flags.contains(.shift) { bits |= 0b0000_0001 }
+        if flags.contains(.option) { bits |= 0b0000_0010 }
+        if flags.contains(.control) { bits |= 0b0000_0100 }
+        if flags.contains(.command) { bits |= 0b0000_1000 }
+        return bits
+    }
+
     /// Consumed mods are modifiers that were used for text translation.
     /// Control and Command never contribute to text translation, so they
     /// should be excluded from consumed_mods.
@@ -8253,12 +8264,76 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let momentumEnded = event.momentumPhase == .ended || event.momentumPhase == .cancelled
         GhosttyApp.shared.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
 
-        ghostty_surface_mouse_scroll(
-            surface,
-            x,
-            y,
-            ghostty_input_scroll_mods_t(mods)
+        // A rendered-frame source (currently Herdr) owns its viewport and
+        // must receive a semantic scroll command. Byte-stream sources leave
+        // this hook unclaimed, preserving Ghostty's exact mouse-report,
+        // alternate-scroll, and local-scrollback behavior. Geometry for a
+        // manual surface comes only from the owner snapshot. Reading the
+        // native surface here would race the manual output lane and could
+        // describe a different grid than the frame being displayed.
+        let manualIO = terminalSurface?.ioMode.usesManualIO == true
+        let sizingSample = terminalSurface?.rawSizingSample()
+        if manualIO, sizingSample == nil {
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
+            )
+            return
+        }
+        let columns: Int
+        let rows: Int
+        let cellWidthPixels: Int
+        let cellHeightPixels: Int
+        if let sizingSample {
+            columns = max(sizingSample.columns, 1)
+            rows = max(sizingSample.rows, 1)
+            cellWidthPixels = max(sizingSample.cellWidthPx, 1)
+            cellHeightPixels = max(sizingSample.cellHeightPx, 1)
+        } else {
+            let nativeSize = ghostty_surface_size(surface)
+            columns = max(Int(nativeSize.columns), 1)
+            rows = max(Int(nativeSize.rows), 1)
+            cellWidthPixels = max(Int(nativeSize.cell_width_px), 1)
+            cellHeightPixels = max(Int(nativeSize.cell_height_px), 1)
+        }
+        let eventPoint = convert(event.locationInWindow, from: nil)
+        let pointCellSize = terminalSurface?.cellSizePoints()
+            ?? CGSize(
+                width: CGFloat(cellWidthPixels),
+                height: CGFloat(cellHeightPixels)
+            )
+        let xInset = max(0, (bounds.width - CGFloat(columns) * pointCellSize.width) / 2)
+        let yInset = max(0, (bounds.height - CGFloat(rows) * pointCellSize.height) / 2)
+        let column = pointCellSize.width > 0
+            ? UInt16(clamping: min(
+                max(Int(floor((eventPoint.x - xInset) / pointCellSize.width)), 0),
+                columns - 1
+            ))
+            : nil
+        let row = pointCellSize.height > 0
+            ? UInt16(clamping: min(
+                max(Int(floor((bounds.height - eventPoint.y - yInset) / pointCellSize.height)), 0),
+                rows - 1
+            ))
+            : nil
+        let manualScroll = TerminalManualScrollEvent(
+            deltaX: Double(x),
+            deltaY: Double(y),
+            isPrecise: precision,
+            cellHeightPixels: Double(cellHeightPixels),
+            column: column,
+            row: row,
+            modifiers: manualScrollModifierBits(event.modifierFlags)
         )
+        let handledByManualSource = terminalSurface?.routeManualScroll(manualScroll) == true
+        if !handledByManualSource {
+            ghostty_surface_mouse_scroll(
+                surface,
+                x,
+                y,
+                ghostty_input_scroll_mods_t(mods)
+            )
+        }
 
         guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
             // Surface teardown can race input delivery. Cancel the pending

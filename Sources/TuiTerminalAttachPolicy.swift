@@ -8,6 +8,65 @@ import Foundation
 /// (daemon spawn, CLI calls) lives in `TuiTerminalAttachBridge`; everything
 /// here is deterministic and unit-testable.
 enum TuiTerminalAttachPolicy {
+    /// Chooses the renderer transport for a terminal that may have been
+    /// provisioned by cmux-tui. A persisted terminal id is only a durable
+    /// identity. It is not proof that the currently selected client can run
+    /// the pipe-IO protocol. Keeping this decision pure prevents restore and
+    /// split paths from drifting when an app update replaces the bundled
+    /// binary.
+    enum ManualIOAttachment: Equatable {
+        /// Use the existing process-owned PTY path.
+        case unavailable
+        /// Mount a manual surface now, then bind its pump when provisioning
+        /// commits. No terminal identity is fabricated for this state.
+        case pending
+        /// Mount a manual surface already bound to one durable terminal.
+        case ready(terminalID: String)
+
+        var terminalID: String? {
+            guard case let .ready(terminalID) = self else { return nil }
+            return terminalID
+        }
+
+        var usesManualSurface: Bool {
+            switch self {
+            case .unavailable: return false
+            case .pending, .ready: return true
+            }
+        }
+    }
+
+    static func manualIOAttachment(
+        requestedReattachTerminalID: String?,
+        provisionedTerminalID: String?,
+        provisioningPending: Bool,
+        manualIOAvailable: Bool
+    ) -> ManualIOAttachment {
+        // A pending lease is an explicit creation transaction. Its capability
+        // check runs inside that transaction, so an asynchronous probe must
+        // not make the caller silently choose the legacy PTY path for this
+        // surface. The old behavior made the first terminal depend on probe
+        // timing and left later lifecycle code with two possible owners.
+        if provisioningPending { return .pending }
+        guard manualIOAvailable else { return .unavailable }
+        if let terminalID = normalizedTerminalIdentifier(requestedReattachTerminalID) {
+            return .ready(terminalID: terminalID)
+        }
+        if provisioningPending {
+            return .pending
+        }
+        if let terminalID = normalizedTerminalIdentifier(provisionedTerminalID) {
+            return .ready(terminalID: terminalID)
+        }
+        return .unavailable
+    }
+
+    private static func normalizedTerminalIdentifier(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
     /// What session restore should do with a persisted daemon terminal id.
     enum RestoreDecision: Equatable {
         /// The daemon is alive and still owns the terminal: run the attach
@@ -48,21 +107,30 @@ enum TuiTerminalAttachPolicy {
     }
 
     /// Whether a brand-new terminal surface should be provisioned in the
-    /// daemon. Only plain local main-grid terminals qualify: an explicit
-    /// startup command (agent launch, remote workspace bootstrap), a tmux
-    /// start command, or a remote PTY session all keep today's path.
+    /// daemon. Only plain local terminals with no startup payload qualify.
+    /// Commands, initial input, restore agents, remote PTY sessions, and
+    /// remote workspaces keep the existing PTY path until the daemon launch
+    /// contract can carry that state faithfully.
     static func shouldProvisionNewTerminal(
         flagEnabled: Bool,
         hasExplicitStartupCommand: Bool,
         hasTmuxStartCommand: Bool,
         hasRemotePTYSessionID: Bool,
-        isRemoteWorkspace: Bool
+        isRemoteWorkspace: Bool,
+        hasStartupInput: Bool = false,
+        hasStartupRestoreAgent: Bool = false,
+        hasConfigCommand: Bool = false,
+        hasConfigInitialInput: Bool = false
     ) -> Bool {
         flagEnabled
             && !hasExplicitStartupCommand
             && !hasTmuxStartCommand
             && !hasRemotePTYSessionID
             && !isRemoteWorkspace
+            && !hasStartupInput
+            && !hasStartupRestoreAgent
+            && !hasConfigCommand
+            && !hasConfigInitialInput
     }
 
     /// The daemon session name for this app instance: `cmux-<tag>` derived
@@ -137,13 +205,94 @@ enum TuiTerminalAttachPolicy {
     /// `--term` must follow `server start` (it is a start option) and makes
     /// child shells see the Ghostty terminfo instead of the
     /// xterm-256color default.
-    static func daemonStartArguments(sessionName: String) -> [String] {
-        [
+    static func daemonStartArguments(
+        sessionName: String,
+        socketPath: String? = nil
+    ) -> [String] {
+        var arguments = [
             "server", "start",
             "--session", sessionName,
             "--headless",
             "--term", childShellTerm,
         ]
+        if let socketPath, !socketPath.isEmpty {
+            arguments += ["--socket", socketPath]
+        }
+        return arguments
+    }
+
+    /// The canonical durable-owner lifecycle command. `server ensure` owns
+    /// the spawn lock, detached process, socket bind, and readiness identity;
+    /// the app must use this transaction instead of recreating those rules
+    /// around a foreground `server start` process.
+    static func daemonEnsureArguments(
+        sessionName: String,
+        socketPath: String
+    ) -> [String] {
+        [
+            "--json",
+            "--session", sessionName,
+            "--socket", socketPath,
+            "server", "ensure",
+        ]
+    }
+
+    enum DaemonEnsureResult: Equatable {
+        /// The client accepted the ensure request and returned a validated
+        /// ready-owner response.
+        case ready
+        /// The selected client predates `server ensure`; callers may use the
+        /// explicitly bounded legacy start path for compatibility.
+        case unsupported
+        /// The command exists but its response or execution was invalid. A
+        /// real lifecycle error must not be hidden by a second spawn attempt.
+        case failed
+    }
+
+    /// Classifies one `server ensure --json` result without interpreting human
+    /// help text as a successful lifecycle transaction. The success payload
+    /// is intentionally checked for the owner identity fields the canonical
+    /// command promises, so a stale or mismatched binary fails closed.
+    static func classifyDaemonEnsureResult(
+        exitStatus: Int32?,
+        timedOut: Bool,
+        executionError: String?,
+        stdout: String?,
+        stderr: String?,
+        expectedSession: String,
+        expectedSocket: String
+    ) -> DaemonEnsureResult {
+        guard executionError == nil, !timedOut else { return .failed }
+        let text = [stdout, stderr]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+        if let data = stdout?.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if exitStatus == 0,
+               let status = object["status"] as? String,
+               status == "running" || status == "started",
+               object["session"] as? String == expectedSession,
+               object["socket"] as? String == expectedSocket,
+               let pid = object["pid"] as? NSNumber,
+               pid.int64Value > 0,
+               let generation = object["generation"] as? String,
+               !generation.isEmpty {
+                return .ready
+            }
+            // Older clients report an unsupported action as a structured
+            // usage error. Any other structured error belongs to the current
+            // lifecycle contract and must remain visible to the caller.
+            if object["code"] as? String == "usage.invalid",
+               (object["message"] as? String)?.contains("unknown server action") == true {
+                return .unsupported
+            }
+            return .failed
+        }
+        if exitStatus != 0,
+           text.localizedCaseInsensitiveContains("unknown server action") {
+            return .unsupported
+        }
+        return .failed
     }
 
     /// Extracts the created terminal id from `workspace create --json` output
@@ -164,6 +313,16 @@ enum TuiTerminalAttachPolicy {
             return nil
         }
         return Set(array.compactMap { $0["id"] as? String })
+    }
+
+    /// Returns whether a cmux-tui client advertises the renderer-less relay.
+    /// The app bundles a rolling client artifact, so its version can lag the
+    /// source branch that enables this beta path. A missing or malformed help
+    /// response is treated as unsupported and callers keep the existing PTY
+    /// attach path.
+    static func supportsPipeIO(fromHelpOutput data: Data?) -> Bool {
+        guard let data else { return false }
+        return String(decoding: data, as: UTF8.self).contains("--pipe-io")
     }
 
     /// Whether quitting the app should first ask keep-vs-stop for the daemon
@@ -262,6 +421,43 @@ enum TuiTerminalAttachPolicy {
     ) -> [[String]] {
         terminalIDs.map { ["--session", sessionName, "terminal", $0, "close"] }
             + [["server", "stop", "--session", sessionName]]
+    }
+
+    /// Harbor: the CLI argument list that creates the shared empty daemon
+    /// workspace Harbor attach terminals run in. `--empty` avoids spawning a
+    /// default shell nobody attaches to.
+    static func harborWorkspaceCreateArguments(sessionName: String) -> [String] {
+        ["--session", sessionName, "--json", "workspace", "create", "--empty", "--name", harborWorkspaceName]
+    }
+
+    /// Harbor: the CLI argument list that runs one attach command as a new
+    /// daemon terminal. `shell` routes the command through the daemon's
+    /// default login shell so tool binaries resolve through the user's PATH.
+    static func harborRunArguments(
+        sessionName: String,
+        workspaceSelector: String,
+        terminalName: String,
+        shellCommand: String
+    ) -> [String] {
+        [
+            "--session", sessionName, "--json",
+            "workspace", workspaceSelector, "run",
+            "--name", terminalName,
+            "shell", shellCommand,
+        ]
+    }
+
+    static let harborWorkspaceName = "harbor"
+
+    /// Extracts the created workspace id from `workspace create --json`
+    /// output (shape: `{"value": {"workspace_id": "ws_..."}}`).
+    static func workspaceID(fromWorkspaceCreateJSON data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object["value"] as? [String: Any],
+              let workspaceID = value["workspace_id"] as? String,
+              !workspaceID.isEmpty
+        else { return nil }
+        return workspaceID
     }
 
     private static func sanitizedSessionToken(_ raw: String) -> String {

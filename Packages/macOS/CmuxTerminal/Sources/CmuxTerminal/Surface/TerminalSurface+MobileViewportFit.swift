@@ -106,19 +106,32 @@ extension TerminalSurface {
 
         guard sizeChanged else {
             if fit.fontChanged {
-                ghostty_surface_refresh(surface)
+                _ = enqueueManualRefresh(to: surface)
             }
             return (fit.columns, fit.rows)
         }
-        applySurfaceSize(
-            surface,
-            width: appliedWidth,
-            height: appliedHeight,
-            caller: "mobile.viewport.apply"
-        )
-        lastPixelWidth = appliedWidth
-        lastPixelHeight = appliedHeight
-        ghostty_surface_refresh(surface)
+        if ioMode.usesManualIO {
+            _ = enqueueManualGeometryUpdate(
+                surface: surface,
+                width: appliedWidth,
+                height: appliedHeight,
+                xScale: lastXScale,
+                yScale: lastYScale,
+                coalescePixelOnlyResize: false,
+                suppressAssignedGridPin: true,
+                caller: "mobile.viewport.apply"
+            )
+        } else {
+            applySurfaceSize(
+                surface,
+                width: appliedWidth,
+                height: appliedHeight,
+                caller: "mobile.viewport.apply"
+            )
+            lastPixelWidth = appliedWidth
+            lastPixelHeight = appliedHeight
+            ghostty_surface_refresh(surface)
+        }
         return (fit.columns, fit.rows)
     }
 
@@ -129,13 +142,13 @@ extension TerminalSurface {
         rows: Int,
         reason: String
     ) -> (columns: Int, rows: Int)? {
-        let size = ghostty_surface_size(surface)
-        let cellWidth = max(1, Int(size.cell_width_px))
-        let cellHeight = max(1, Int(size.cell_height_px))
-        let currentColumns = max(1, Int(size.columns))
-        let currentRows = max(1, Int(size.rows))
-        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
-        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
+        let measured = geometryComponents(for: surface)
+        let cellWidth = max(1, measured.cellWidth)
+        let cellHeight = max(1, measured.cellHeight)
+        let currentColumns = max(1, measured.columns)
+        let currentRows = max(1, measured.rows)
+        let horizontalNonGridPixels = max(0, measured.width - currentColumns * cellWidth)
+        let verticalNonGridPixels = max(0, measured.height - currentRows * cellHeight)
         let targetWidth = safePixelDimension(cellCount: columns, cellSize: cellWidth, nonGridPixels: horizontalNonGridPixels)
         let targetHeight = safePixelDimension(cellCount: rows, cellSize: cellHeight, nonGridPixels: verticalNonGridPixels)
 
@@ -164,15 +177,28 @@ extension TerminalSurface {
         #endif
 
         guard sizeChanged else { return (appliedColumns, appliedRows) }
-        applySurfaceSize(
-            surface,
-            width: appliedWidth,
-            height: appliedHeight,
-            caller: "mobile.viewport.legacy"
-        )
-        lastPixelWidth = appliedWidth
-        lastPixelHeight = appliedHeight
-        ghostty_surface_refresh(surface)
+        if ioMode.usesManualIO {
+            _ = enqueueManualGeometryUpdate(
+                surface: surface,
+                width: appliedWidth,
+                height: appliedHeight,
+                xScale: lastXScale,
+                yScale: lastYScale,
+                coalescePixelOnlyResize: false,
+                suppressAssignedGridPin: true,
+                caller: "mobile.viewport.legacy"
+            )
+        } else {
+            applySurfaceSize(
+                surface,
+                width: appliedWidth,
+                height: appliedHeight,
+                caller: "mobile.viewport.legacy"
+            )
+            lastPixelWidth = appliedWidth
+            lastPixelHeight = appliedHeight
+            ghostty_surface_refresh(surface)
+        }
         return (appliedColumns, appliedRows)
     }
 
@@ -195,7 +221,11 @@ extension TerminalSurface {
         let uncappedHeight = lastUncappedPixelHeight
         guard uncappedWidth > 0, uncappedHeight > 0 else {
             if fontRestored {
-                ghostty_surface_refresh(surface)
+                if ioMode.usesManualIO {
+                    _ = enqueueManualRefresh(to: surface)
+                } else {
+                    ghostty_surface_refresh(surface)
+                }
             }
             return fontRestored
         }
@@ -211,18 +241,35 @@ extension TerminalSurface {
         #endif
 
         guard sizeChanged else {
-            ghostty_surface_refresh(surface)
+            if ioMode.usesManualIO {
+                _ = enqueueManualRefresh(to: surface)
+            } else {
+                ghostty_surface_refresh(surface)
+            }
             return fontRestored
         }
-        applySurfaceSize(
-            surface,
-            width: uncappedWidth,
-            height: uncappedHeight,
-            caller: "mobile.viewport.clear"
-        )
-        lastPixelWidth = uncappedWidth
-        lastPixelHeight = uncappedHeight
-        ghostty_surface_refresh(surface)
+        if ioMode.usesManualIO {
+            _ = enqueueManualGeometryUpdate(
+                surface: surface,
+                width: uncappedWidth,
+                height: uncappedHeight,
+                xScale: lastXScale,
+                yScale: lastYScale,
+                coalescePixelOnlyResize: false,
+                suppressAssignedGridPin: true,
+                caller: "mobile.viewport.clear"
+            )
+        } else {
+            applySurfaceSize(
+                surface,
+                width: uncappedWidth,
+                height: uncappedHeight,
+                caller: "mobile.viewport.clear"
+            )
+            lastPixelWidth = uncappedWidth
+            lastPixelHeight = uncappedHeight
+            ghostty_surface_refresh(surface)
+        }
         return true
     }
 
@@ -327,17 +374,18 @@ extension TerminalSurface {
         return .fallback(width: fallback.width, height: fallback.height, columns: fallback.columns, rows: fallback.rows, grant: appliedBox, baseFont: baseFont, currentFont: currentFont, fontChanged: fontChanged)
     }
 
+    @MainActor
     private func mobileViewportPixelLimit(for surface: ghostty_surface_t) -> (width: UInt32, height: UInt32)? {
         guard let mobileViewportCellLimit else {
             return nil
         }
-        let size = ghostty_surface_size(surface)
-        let cellWidth = max(1, Int(size.cell_width_px))
-        let cellHeight = max(1, Int(size.cell_height_px))
-        let currentColumns = max(1, Int(size.columns))
-        let currentRows = max(1, Int(size.rows))
-        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
-        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
+        let measured = geometryComponents(for: surface)
+        let cellWidth = max(1, measured.cellWidth)
+        let cellHeight = max(1, measured.cellHeight)
+        let currentColumns = max(1, measured.columns)
+        let currentRows = max(1, measured.rows)
+        let horizontalNonGridPixels = max(0, measured.width - currentColumns * cellWidth)
+        let verticalNonGridPixels = max(0, measured.height - currentRows * cellHeight)
         return (
             width: safePixelDimension(cellCount: mobileViewportCellLimit.columns, cellSize: cellWidth, nonGridPixels: horizontalNonGridPixels),
             height: safePixelDimension(cellCount: mobileViewportCellLimit.rows, cellSize: cellHeight, nonGridPixels: verticalNonGridPixels)
@@ -366,16 +414,46 @@ extension TerminalSurface {
         horizontalNonGridPixels: Int,
         verticalNonGridPixels: Int
     ) {
-        let size = ghostty_surface_size(surface)
-        let cellWidth = max(1, Int(size.cell_width_px))
-        let cellHeight = max(1, Int(size.cell_height_px))
-        let currentColumns = max(1, Int(size.columns))
-        let currentRows = max(1, Int(size.rows))
+        let measured = geometryComponents(for: surface)
+        let cellWidth = max(1, measured.cellWidth)
+        let cellHeight = max(1, measured.cellHeight)
+        let currentColumns = max(1, measured.columns)
+        let currentRows = max(1, measured.rows)
         return (
             cellWidth: cellWidth,
             cellHeight: cellHeight,
-            horizontalNonGridPixels: max(0, Int(size.width_px) - currentColumns * cellWidth),
-            verticalNonGridPixels: max(0, Int(size.height_px) - currentRows * cellHeight)
+            horizontalNonGridPixels: max(0, measured.width - currentColumns * cellWidth),
+            verticalNonGridPixels: max(0, measured.height - currentRows * cellHeight)
+        )
+    }
+
+    @MainActor
+    private func geometryComponents(for surface: ghostty_surface_t) -> (
+        columns: Int,
+        rows: Int,
+        width: Int,
+        height: Int,
+        cellWidth: Int,
+        cellHeight: Int
+    ) {
+        if let snapshot = manualGeometrySnapshot {
+            return (
+                columns: snapshot.columns,
+                rows: snapshot.rows,
+                width: Int(snapshot.widthPixels),
+                height: Int(snapshot.heightPixels),
+                cellWidth: Int(snapshot.cellWidthPixels),
+                cellHeight: Int(snapshot.cellHeightPixels)
+            )
+        }
+        let size = ghostty_surface_size(surface)
+        return (
+            columns: Int(size.columns),
+            rows: Int(size.rows),
+            width: Int(size.width_px),
+            height: Int(size.height_px),
+            cellWidth: Int(size.cell_width_px),
+            cellHeight: Int(size.cell_height_px)
         )
     }
 

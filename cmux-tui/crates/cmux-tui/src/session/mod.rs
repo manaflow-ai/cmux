@@ -35,6 +35,7 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+pub(crate) use remote::{PipeIoByteBudget, PipeIoSurfaceAttach};
 pub use remote::{
     PipeIoEvent, RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface,
     RemoteTransport, RemoteTransportAbort,
@@ -154,6 +155,13 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<remote::RemoteRequestError>()
         .is_some_and(remote::RemoteRequestError::is_timeout)
+}
+
+pub(crate) fn is_remote_shutdown(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<remote::RemoteRequestError>(),
+        Some(remote::RemoteRequestError::Shutdown)
+    )
 }
 
 pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
@@ -2043,6 +2051,17 @@ impl SurfaceHandle {
         matches!(self, SurfaceHandle::Remote(_, _))
     }
 
+    /// The authoritative surface represented by this handle. Keeping the
+    /// identity on the handle lets transport adapters classify a rejected
+    /// operation without parsing human-readable error text.
+    pub fn surface_id(&self) -> Option<SurfaceId> {
+        match self {
+            SurfaceHandle::Local(surface, _) => Some(surface.id),
+            SurfaceHandle::Remote(surface, _) => Some(surface.id),
+            SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     /// Whether the terminal application authored its cursor style (DECSCUSR)
     /// rather than inheriting a session or frontend default. A scoped attach
     /// client mirrors the cursor to the host terminal only when this is true.
@@ -2111,7 +2130,7 @@ impl SurfaceHandle {
                 return Ok(accepted);
             }
             SurfaceHandle::Remote(surface, session) => {
-                if !resize_action(desired, surface.reported_size()) {
+                if !_reassert && !resize_action(desired, surface.reported_size()) {
                     report(None);
                     return Ok(false);
                 }

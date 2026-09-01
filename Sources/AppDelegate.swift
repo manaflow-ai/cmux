@@ -563,6 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
+    let harborSessionDragRegistry = HarborSessionDragRegistry()
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
     private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
     var tabDragTransferRegistry: TabDragTransferRegistry {
@@ -1426,6 +1427,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
         }
         CmuxTuiSurfaceProviderRegistry.shared.start(catalog: .shared)
+        // Resolve the bundled client's pipe-IO capability during launch. The
+        // first terminal creation can then choose the manual surface without
+        // synchronously probing a binary on the main actor.
+        TuiTerminalAttachBridge.shared.warmManualIOCapabilityProbe()
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(

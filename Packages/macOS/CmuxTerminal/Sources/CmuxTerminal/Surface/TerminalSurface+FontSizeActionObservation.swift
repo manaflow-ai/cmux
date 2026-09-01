@@ -10,9 +10,26 @@ private let terminalGhosttyFontSizeActionCallback:
         previousIsAdjusted,
         currentIsAdjusted in
         guard let userdata else { return }
-        let userdataAddress =
-            UInt(bitPattern: userdata)
-        MainActor.assumeIsolated {
+        let userdataAddress = UInt(bitPattern: userdata)
+        // `ghostty_surface_set_content_scale` and manual geometry mutations can
+        // invoke this callback from the serialized native lane. Retain the
+        // callback context for the hop, then release it after the main-actor
+        // observer has consumed the event. `assumeIsolated` would be undefined
+        // behavior on that lane and could crash during a resize.
+        Unmanaged<GhosttySurfaceCallbackContext>
+            .fromOpaque(userdata)
+            .retain()
+        Task { @MainActor [userdataAddress] in
+            defer {
+                if let retainedUserdata =
+                    UnsafeMutableRawPointer(
+                        bitPattern: userdataAddress
+                    ) {
+                    Unmanaged<GhosttySurfaceCallbackContext>
+                        .fromOpaque(retainedUserdata)
+                        .release()
+                }
+            }
             guard let mainActorUserdata =
                     UnsafeMutableRawPointer(
                         bitPattern: userdataAddress

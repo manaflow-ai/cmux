@@ -185,6 +185,7 @@ extension TerminalSurface {
                 }
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
+            resetManualGeometryStateForRuntimeTransition()
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
@@ -311,6 +312,7 @@ extension TerminalSurface {
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        resetManualGeometryStateForRuntimeTransition()
         surface = nil
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -406,6 +408,7 @@ extension TerminalSurface {
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        resetManualGeometryStateForRuntimeTransition()
         surface = nil
         activePortalHostLease = nil
         portalHostAuthority = nil
@@ -751,10 +754,9 @@ extension TerminalSurface {
             scaleFactors: scaleFactors,
             agentCommandShims: agentCommandShims
         )
-        surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
 
-        if surface == nil {
+        guard let createdSurface = runtimeSurfaceCreation.createdSurface else {
             invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: false)
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
@@ -779,7 +781,12 @@ extension TerminalSurface {
             #endif
             return
         }
-        guard let createdSurface = surface else { return }
+        // Publish the runtime generation before installing callbacks and
+        // registry ownership. Manual output is held in the model buffer until
+        // bootstrap geometry finishes, so this publication cannot race the
+        // one-time main-actor native setup.
+        isBootstrappingManualGeometry = ioMode.usesManualIO
+        surface = createdSurface
         guard let surfaceCallbackContext else {
             preconditionFailure(
                 "A native terminal surface requires callback userdata"
@@ -828,24 +835,36 @@ extension TerminalSurface {
             ghostty_surface_set_display_id(createdSurface, displayID)
         }
 
-        ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
         let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
-        if wpx > 0, hpx > 0 {
-            applySurfaceSize(
-                createdSurface,
-                width: wpx,
-                height: hpx,
-                caller: "runtime.create.initial"
+        lastUncappedPixelWidth = wpx
+        lastUncappedPixelHeight = hpx
+        _ = applySurfaceGeometry(
+            createdSurface,
+            width: wpx,
+            height: hpx,
+            xScale: scaleFactors.x,
+            yScale: scaleFactors.y,
+            applySize: wpx > 0 && hpx > 0,
+            deferScaleOnIncrease: false,
+            caller: "runtime.create.initial"
+        )
+        if ioMode.usesManualIO {
+            let initial = ghostty_surface_size(createdSurface)
+            manualGeometrySnapshot = TerminalSurfaceManualGeometrySnapshot(
+                columns: Int(initial.columns),
+                rows: Int(initial.rows),
+                widthPixels: initial.width_px,
+                heightPixels: initial.height_px,
+                cellWidthPixels: initial.cell_width_px,
+                cellHeightPixels: initial.cell_height_px,
+                xScale: Double(scaleFactors.x),
+                yScale: Double(scaleFactors.y)
             )
-            lastPixelWidth = wpx
-            lastPixelHeight = hpx
-            lastUncappedPixelWidth = wpx
-            lastUncappedPixelHeight = hpx
-            lastXScale = scaleFactors.x
-            lastYScale = scaleFactors.y
+            manualGeometryAppliedSequence = manualGeometryRequestSequence
         }
+        isBootstrappingManualGeometry = false
 
         // Flush remote-tmux output that arrived before the surface existed
         // after sizing, so the seed paints into the final grid instead of
@@ -881,7 +900,15 @@ extension TerminalSurface {
         // miss the first vsync callback and sit on a blank frame until another focus/visibility
         // transition nudges the renderer.
         view.forceRefreshSurface()
-        ghostty_surface_refresh(createdSurface)
+        if ioMode.usesManualIO {
+            // Manual surfaces publish their native pointer to the output lane
+            // after bootstrap. Keep the first refresh behind the flushed
+            // output and initial geometry so the first frame cannot observe a
+            // partially applied terminal state.
+            _ = enqueueManualRefresh(to: createdSurface)
+        } else {
+            ghostty_surface_refresh(createdSurface)
+        }
         rendererRuntimeSurfaceDidCreate()
 
         NotificationCenter.default.post(

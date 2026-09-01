@@ -44,6 +44,65 @@ import Testing
         #expect(result.executionError == nil)
     }
 
+    @Test func passesExplicitEnvironmentOverridesWithoutDroppingInheritedValues() async {
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "sh",
+            arguments: ["-c", "printf '%s:%s' \"$CMUX_COMMAND_RUNNER_TEST\" \"$HOME\""],
+            timeout: 10,
+            environmentOverrides: ["CMUX_COMMAND_RUNNER_TEST": "override"]
+        )
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout?.hasPrefix("override:") == true)
+    }
+
+    @Test func launchesWithTheSameEnvironmentUsedForCommandResolution() async {
+        let runner = CommandRunner(
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_COMMAND_RUNNER_BASE": "base-value",
+            ],
+            bundledBinPath: nil,
+            fallbackSearchDirectories: []
+        )
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "sh",
+            arguments: ["-c", "printf %s \"$CMUX_COMMAND_RUNNER_BASE\""],
+            timeout: 10
+        )
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout == "base-value")
+    }
+
+    @Test func streamsFiniteStandardInputAndClosesIt() async {
+        let input = Data(repeating: 0x41, count: 256 * 1024)
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "sh",
+            arguments: ["-c", "wc -c | tr -d ' '"],
+            timeout: 10,
+            environmentOverrides: nil,
+            standardInput: input
+        )
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout == "262144\n")
+    }
+
+    @Test func rejectsOversizedStandardInputBeforeLaunch() async {
+        let input = Data(repeating: 0x42, count: CommandRunner.maximumStandardInputBytes + 1)
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "cat",
+            arguments: [],
+            timeout: 10,
+            environmentOverrides: nil,
+            standardInput: input
+        )
+        #expect(result.exitStatus == nil)
+        #expect(result.executionError?.contains("standard input exceeds") == true)
+    }
+
     @Test func nonZeroExitMakesRunStandardOutputNil() async {
         let output = await runner.runStandardOutput(
             directory: tempDir,

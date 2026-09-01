@@ -499,6 +499,7 @@ extension Workspace {
         // A manual-IO pump follows its surface: a detach transfer keeps the
         // surface (and pump) alive; every other discard stops the relay.
         if closePanel, !preservesTerminalForTransfer {
+            cancelPendingTuiProvisioning(for: panelId)
             TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: panelId)
         }
 

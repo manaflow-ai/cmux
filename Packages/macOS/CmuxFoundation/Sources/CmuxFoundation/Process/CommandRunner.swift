@@ -68,6 +68,61 @@ public struct CommandRunner: CommandRunning, Sendable {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
+        await run(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            environmentOverrides: nil
+        )
+    }
+
+    /// Runs a command with explicit environment overrides while retaining the
+    /// inherited process environment. This overload is for app-owned helpers
+    /// that must pass a scoped setting such as a config path without losing
+    /// `HOME`, `PATH`, locale, or authentication variables.
+    public func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?,
+        environmentOverrides: [String: String]?
+    ) async -> CommandResult {
+        await run(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            environmentOverrides: environmentOverrides,
+            standardInput: nil
+        )
+    }
+
+    /// Runs a command with finite standard input. The input is delivered by a
+    /// bounded, non-blocking pipe writer, then closed so programs that read to
+    /// EOF can complete. This is the appropriate path for scripts and other
+    /// protocol payloads; callers never block an actor on `FileHandle.write`.
+    ///
+    /// Inputs larger than the fixed budget are rejected before launch. A
+    /// caller that needs an interactive stream should use a dedicated session
+    /// gateway rather than treating this one-shot API as a terminal transport.
+    public func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?,
+        environmentOverrides: [String: String]?,
+        standardInput: Data?
+    ) async -> CommandResult {
+        guard standardInput?.count ?? 0 <= Self.maximumStandardInputBytes else {
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: false,
+                executionError: "standard input exceeds the \(Self.maximumStandardInputBytes)-byte limit"
+            )
+        }
         let executableURL: URL
         let resolvedArguments: [String]
         if let resolved = resolvedCommandPath(executable: executable) {
@@ -81,7 +136,10 @@ public struct CommandRunner: CommandRunning, Sendable {
             let execution = try CommandExecution(
                 executableURL: executableURL,
                 arguments: resolvedArguments,
-                currentDirectoryURL: URL(fileURLWithPath: directory)
+                currentDirectoryURL: URL(fileURLWithPath: directory),
+                baseEnvironment: environment,
+                environmentOverrides: environmentOverrides,
+                standardInputData: standardInput
             )
             return await execution.run(timeout: timeout)
         } catch {
@@ -94,6 +152,11 @@ public struct CommandRunner: CommandRunning, Sendable {
             )
         }
     }
+
+    /// Maximum one-shot input accepted by ``run(...standardInput:)``. This
+    /// keeps a caller mistake from turning a finite command into an unbounded
+    /// memory and pipe admission problem.
+    public static let maximumStandardInputBytes = 16 * 1024 * 1024
 
     /// Resolves `executable` to an absolute path, searching `PATH`, the bundled
     /// bin directory, and the fallback directories. Returns `nil` when nothing

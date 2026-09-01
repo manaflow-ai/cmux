@@ -52088,13 +52088,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or cloud"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or harbor"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, harbor"
           }
         }
       }
@@ -123879,6 +123879,430 @@
         }
       }
     },
+    "harbor.action.addHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add SSH Host…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSHホストを追加…"
+          }
+        }
+      }
+    },
+    "harbor.action.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "harbor.addHost.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        }
+      }
+    },
+    "harbor.addHost.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "user@host or ssh alias"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "user@host または ssh エイリアス"
+          }
+        }
+      }
+    },
+    "harbor.addHost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add SSH Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSHホストを追加"
+          }
+        }
+      }
+    },
+    "harbor.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sessions found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが見つかりません。"
+          }
+        }
+      }
+    },
+    "harbor.error.probeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "probe failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出に失敗"
+          }
+        }
+      }
+    },
+    "harbor.error.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウト"
+          }
+        }
+      }
+    },
+    "harbor.header.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harbor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーバー"
+          }
+        }
+      }
+    },
+    "harbor.host.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストを削除"
+          }
+        }
+      }
+    },
+    "harbor.host.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unreachable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続不可: %@"
+          }
+        }
+      }
+    },
+    "harbor.notice.manualIOOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual IO beta is off. Harbor drops open in a plain terminal instead of a daemon-backed pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動IOベータが無効です。Harborからドロップした項目はデーモン管理のペインではなく通常のターミナルで開きます。"
+          }
+        }
+      }
+    },
+    "harbor.row.attach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach in Current Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のワークスペースに接続"
+          }
+        }
+      }
+    },
+    "harbor.source.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac"
+          }
+        }
+      }
+    },
+    "harbor.state.attached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "attached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中"
+          }
+        }
+      }
+    },
+    "harbor.state.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "detached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断"
+          }
+        }
+      }
+    },
+    "harbor.state.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "exited"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        }
+      }
+    },
+    "harbor.state.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        }
+      }
+    },
+    "harbor.state.stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stopped"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        }
+      }
+    },
+    "harbor.state.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
+          }
+        }
+      }
+    },
+    "harbor.agent.state.blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "blocked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブロック" } }
+      }
+    },
+    "harbor.agent.state.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "harbor.agent.state.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "待機中" } }
+      }
+    },
+    "harbor.agent.state.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "harbor.agent.state.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "working" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作業中" } }
+      }
+    },
+    "harbor.host.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ready" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "準備完了" } }
+      }
+    },
+    "harbor.menu.attachSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attach Session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションに接続" } }
+      }
+    },
+    "harbor.menu.copyCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy Attach Command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続コマンドをコピー" } }
+      }
+    },
+    "harbor.menu.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "harbor.refreshing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Scanning…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スキャン中…" } }
+      }
+    },
+    "harbor.session.terminalCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d terminals · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%d個のターミナル · %@" } }
+      }
+    },
+    "harbor.terminal.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブ" } }
+      }
+    },
     "historyPane.clearClosed": {
       "extractionState": "manual",
       "localizations": {
@@ -154155,6 +154579,23 @@
         }
       }
     },
+    "rightSidebar.mode.harbor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harbor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーバー"
+          }
+        }
+      }
+    },
     "rightSidebar.mode.machines": {
       "extractionState": "manual",
       "localizations": {
@@ -154541,13 +154982,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|harbor> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
+            "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock|harbor> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }
@@ -174797,6 +175238,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Feed を右サイドバーのモード切り替えに表示し、エージェントの判断をインラインで扱えるようにします。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.harbor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harbor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーバー"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.harbor.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides Harbor from the right sidebar until you enable it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで右サイドバーからHarborを非表示にします。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.harbor.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows Harbor in the right sidebar: attachable tmux, zellij, screen, zmx, herdr, and cmux-tui sessions, local and over SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーにHarborを表示します。ローカルとSSH上のtmux、zellij、screen、zmx、herdr、cmux-tuiセッションに接続できます。"
           }
         }
       }
@@ -254539,6 +255031,41 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The daemon-backed terminal has ended. Close the tab, or keep it to read the final screen." } },
         "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルが終了しました。タブを閉じるか、最後の画面を確認するために残せます。" } }
+      }
+    },
+    "harbor.overlay.ended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal session ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
+      }
+    },
+    "harbor.overlay.ended.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal session ended. Close the tab, or keep the final screen." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました。タブを閉じるか、最後の画面を残せます。" } }
+      }
+    },
+    "harbor.overlay.ended.detailWithReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal session ended: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました：%@" } }
+      }
+    },
+    "harbor.overlay.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal backend unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルバックエンドを利用できません" } }
+      }
+    },
+    "harbor.overlay.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal source failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルソースに失敗しました：%@" } }
       }
     },
     "uiTest.bonsplit.action.title": {

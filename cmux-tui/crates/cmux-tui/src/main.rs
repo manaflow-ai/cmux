@@ -1285,6 +1285,8 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--session",
     "--machine",
     "--terminal",
+    "--cols",
+    "--rows",
     "--state",
     "--machine-provider",
     "--cloud-host",
@@ -1655,6 +1657,9 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         let surface = resolved
             .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
         if !remote.supports_surface_subscription_filter() {
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::ProtocolError);
+            }
             anyhow::bail!(messages.filtered_subscription_unavailable);
         }
         if let Err(error) = remote.scope_events_to_surface(surface) {
@@ -1681,16 +1686,23 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
     if args.pipe_io {
         let surface = surface_only.expect("--pipe-io is validated to carry --terminal");
         let terminal = terminal.as_ref().expect("--pipe-io is validated to carry --terminal");
-        let session = Session::Remote(remote.clone());
-        let reason = pipe_io::run(
-            &session,
+        let reason = match pipe_io::run(
             &remote,
             &socket_path,
             terminal,
             surface,
             args.pipe_io_cols.unwrap_or(80),
             args.pipe_io_rows.unwrap_or(24),
-        )?;
+        ) {
+            Ok(reason) => reason,
+            Err(error) => {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"diag": {"relay": {"error": error.to_string()}}})
+                );
+                pipe_io::PipeIoExitReason::ProtocolError
+            }
+        };
         exit_pipe_io(reason);
     }
     run_connected_session_client(
@@ -3898,6 +3910,29 @@ mod tests {
         let parsed = args(&["--session", "agents", "attach"]);
         assert!(parsed.attach);
         assert_eq!(parsed.session, "agents");
+    }
+
+    #[test]
+    fn pipe_io_attach_keeps_its_size_values_in_process_mode() {
+        let values = [
+            "--socket",
+            "/tmp/cmux-tui.sock",
+            "attach",
+            "--terminal",
+            "term_0123456789abcdef0123456789abcdef",
+            "--pipe-io",
+            "--cols",
+            "137",
+            "--rows",
+            "41",
+        ];
+        let raw = values.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
+        assert!(!is_cli_invocation(&raw));
+        let parsed = args(&values);
+        assert!(parsed.attach);
+        assert!(parsed.pipe_io);
+        assert_eq!(parsed.pipe_io_cols, Some(137));
+        assert_eq!(parsed.pipe_io_rows, Some(41));
     }
 
     #[test]
