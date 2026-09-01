@@ -71,7 +71,12 @@ public struct CmxPairingURLScheme {
                   || components.host?.lowercased() == "pair") else {
             return false
         }
-        return true
+        // Keep the future-code escape hatch limited to a plausible complete
+        // bundle namespace. A prefix alone would route arbitrary
+        // `cmux-ios-foo` links into pairing and show stale-code guidance.
+        return MobileIOSAppNamespace(
+            bundleIdentifier: String(scheme.dropFirst("cmux-ios-".count))
+        ) != nil
     }
 
     /// Whether this scheme identifies a tagged iOS development build.

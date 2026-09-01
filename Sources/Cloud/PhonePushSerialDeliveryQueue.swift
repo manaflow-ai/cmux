@@ -40,9 +40,8 @@ final class PhonePushSerialDeliveryQueue {
     @discardableResult
     func enqueue(_ envelope: PhonePushRequestEnvelope) -> Bool {
         if let key = envelope.coalescingID,
-           let index = pending.lastIndex(where: {
-               $0.coalescingID == key
-                   && $0.correlationID != inFlightCorrelationID
+           let index = pending.indices.reversed().first(where: {
+               pending[$0].coalescingID == key && !isInFlight(index: $0)
            }) {
             pending.remove(at: index)
             pending.append(envelope)
@@ -65,9 +64,8 @@ final class PhonePushSerialDeliveryQueue {
     func enqueuePrioritizingDismiss(_ envelope: PhonePushRequestEnvelope) -> Bool {
         if enqueue(envelope) { return true }
         guard envelope.coalescingID == nil,
-              let index = pending.firstIndex(where: {
-                  $0.coalescingID != nil
-                      && $0.correlationID != inFlightCorrelationID
+              let index = pending.indices.first(where: {
+                  pending[$0].coalescingID != nil && !isInFlight(index: $0)
               }) else { return false }
         pending.remove(at: index)
         pending.append(envelope)
@@ -92,7 +90,7 @@ final class PhonePushSerialDeliveryQueue {
     ) {
         var changed = false
         for index in pending.indices {
-            guard pending[index].correlationID != inFlightCorrelationID else {
+            guard !isInFlight(index: index) else {
                 continue
             }
             let rebound = transform(pending[index])
@@ -174,7 +172,7 @@ final class PhonePushSerialDeliveryQueue {
             guard generation == drainGeneration, !Task.isCancelled else {
                 break
             }
-            if pending.first?.correlationID == envelope.correlationID {
+            if pending.first == envelope {
                 pending.removeFirst()
                 publishPending()
             }
@@ -192,6 +190,13 @@ final class PhonePushSerialDeliveryQueue {
 
     private func publishPending() {
         pendingChanged(pending)
+    }
+
+    /// The in-flight request always owns the first queue slot. Correlation IDs
+    /// are retry identifiers, not queue-entry identity, so a later envelope may
+    /// legitimately reuse one while the original request is awaiting a reply.
+    private func isInFlight(index: Int) -> Bool {
+        inFlightCorrelationID != nil && index == pending.startIndex
     }
 
     private func finishIfIdle() {

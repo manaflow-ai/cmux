@@ -63,6 +63,16 @@ final class MobilePairedPhoneStore {
            existing.source == .authenticatedHandshake,
            existing.accountID == normalizedAccountID,
            existing.handshakeIdentity == normalizedHandshakeIdentity,
+           existing.bundleIdentifier == normalizedBundleIdentifier {
+            // Host-status heartbeats repeat the same authenticated identity.
+            // Treat them as a read so pairedAt, defaults, and downstream
+            // re-key notifications stay stable until a new transport pairs.
+            return false
+        }
+        if let existing = recordsByClientID[normalizedClientID],
+           existing.source == .authenticatedHandshake,
+           existing.accountID == normalizedAccountID,
+           existing.handshakeIdentity == normalizedHandshakeIdentity,
            existing.bundleIdentifier != normalizedBundleIdentifier {
             // One authenticated transport identity cannot silently switch the
             // app namespace underneath an existing record.
@@ -71,9 +81,13 @@ final class MobilePairedPhoneStore {
         let previousRecords = recordsByClientID
         // A modern handshake supersedes every compatibility marker. Once the
         // phone identity is known, no stale picker-derived value may compete
-        // with it after account or variant changes.
+        // with it after this account or variant changes. Keep compatibility
+        // records for other accounts so an older client can still route after
+        // a second account signs in on the same Mac.
         recordsByClientID = recordsByClientID.filter {
             $0.value.source == .authenticatedHandshake
+                || ($0.value.source == .legacyCompatibility
+                    && $0.value.accountID != normalizedAccountID)
         }
         recordsByClientID[normalizedClientID] = MobilePairedPhoneRecord(
             clientID: normalizedClientID,
@@ -238,12 +252,12 @@ private extension MobilePairedPhoneStore {
     static func decodeRecords(from defaults: UserDefaults) -> [String: MobilePairedPhoneRecord] {
         guard let data = defaults.data(forKey: defaultsKey),
               let decoded = try? JSONDecoder().decode(
-                  [MobilePairedPhoneRecord].self,
+                  LossyPairedPhoneRecordArray.self,
                   from: data
               ) else {
             return [:]
         }
-        return decoded.reduce(into: [:]) { records, record in
+        return decoded.records.reduce(into: [:]) { records, record in
             guard let clientID = normalized(record.clientID),
                   clientID.utf16.count <= maximumClientIDLength,
                   validBundleIdentifier(record.bundleIdentifier) != nil else {
@@ -257,6 +271,27 @@ private extension MobilePairedPhoneStore {
                 source: record.source,
                 handshakeIdentity: normalized(record.handshakeIdentity)
             )
+        }
+    }
+
+    /// Decodes records independently so one future/invalid element cannot
+    /// erase every known pairing when the persisted schema evolves.
+    private struct LossyPairedPhoneRecordArray: Decodable {
+        let records: [MobilePairedPhoneRecord]
+
+        init(from decoder: Decoder) throws {
+            var container = try decoder.unkeyedContainer()
+            var records: [MobilePairedPhoneRecord] = []
+            records.reserveCapacity(container.count ?? 0)
+            while !container.isAtEnd {
+                guard let elementDecoder = try? container.superDecoder() else {
+                    break
+                }
+                if let record = try? MobilePairedPhoneRecord(from: elementDecoder) {
+                    records.append(record)
+                }
+            }
+            self.records = records
         }
     }
 

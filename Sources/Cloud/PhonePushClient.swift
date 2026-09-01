@@ -559,21 +559,29 @@ final class PhonePushClient {
         guard identity != activeIdentity else { return }
         if let identity,
            let previousIdentity = activeIdentity,
-           identity.accountID == previousIdentity.accountID,
-           !unresolvedRestoredEnvelopes.isEmpty {
+           identity.accountID == previousIdentity.accountID {
             // A same-account token refresh changes the generation but does not
-            // invalidate a queue that is waiting only for the phone's bundle.
-            // Rebind the held envelopes in memory and keep the durable file for
-            // the eventual authenticated pairing.
+            // invalidate pending work, whether it is still waiting for the
+            // phone's bundle or already in the delivery queue. Rebind both
+            // projections in memory and keep the durable file intact; an
+            // account change below remains the destructive boundary.
             unresolvedRestoredEnvelopes = unresolvedRestoredEnvelopes.map { envelope in
                 reboundEnvelope(
                     envelope,
-                    targetBundleIdentifier: nil,
+                    targetBundleIdentifier: envelope.targetBundleIdentifier,
+                    identity: identity
+                )
+            }
+            deliveryQueue.rebindPending { envelope in
+                reboundEnvelope(
+                    envelope,
+                    targetBundleIdentifier: envelope.targetBundleIdentifier,
                     identity: identity
                 )
             }
             activeIdentity = identity
             pairedPhoneTargetDidChange()
+            deliveryQueue.start()
             return
         }
         cancelInMemoryQueue()

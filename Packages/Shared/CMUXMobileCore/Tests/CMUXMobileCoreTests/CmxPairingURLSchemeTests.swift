@@ -96,7 +96,7 @@ import Testing
         }
     }
 
-    @Test func officialMacUsesOneCanonicalSchemeForEveryReleaseVariant() {
+    @Test func officialMacUsesOneCanonicalScheme() {
         let resolver = CmxPairingURLSchemeResolver(
             currentIOSBundleIdentifier: nil,
             targetIOSBundleIdentifier: nil,
@@ -104,19 +104,6 @@ import Testing
             isDevelopmentBuild: false
         )
         #expect(resolver.resolved?.rawValue == "cmux-ios-com.cmux.app")
-        for bundleIdentifier in [
-            "com.cmux.app",
-            "dev.cmux.app.beta",
-            "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
-        ] {
-            #expect(
-                CmxPairingURLScheme(
-                    rawValue: resolver.resolved?.rawValue
-                ) != nil,
-                "the canonical scheme must be accepted by \(bundleIdentifier)'s scanner policy"
-            )
-        }
         #expect(
             CmxPairingURLSchemeResolver(
                 currentIOSBundleIdentifier: nil,
@@ -157,6 +144,9 @@ import Testing
         ))
         #expect(!CmxPairingURLScheme.isPairingURLCandidate(
             "cmux-ios-dev.cmux.app.future://settings"
+        ))
+        #expect(!CmxPairingURLScheme.isPairingURLCandidate(
+            "cmux-ios-unknown://attach?v=4"
         ))
     }
 

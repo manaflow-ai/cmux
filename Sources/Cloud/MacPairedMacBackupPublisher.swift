@@ -31,6 +31,11 @@ final class MacPairedMacBackupPublisher {
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
     private var authObserveTask: Task<Void, Never>?
+    /// Every observer feeds one ordered publish chain. The network request is
+    /// still asynchronous, but a newer route/target cannot finish before an
+    /// older request and leave the backup namespace stale.
+    private var publishTask: Task<Void, Never>?
+    private var publishSequence = 0
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
@@ -73,6 +78,9 @@ final class MacPairedMacBackupPublisher {
         self.auth = auth
         observeTask?.cancel()
         authObserveTask?.cancel()
+        publishSequence &+= 1
+        publishTask?.cancel()
+        publishTask = nil
         observeTask = nil
         authObserveTask = nil
         lastPublishedRoutes = []
@@ -126,6 +134,23 @@ final class MacPairedMacBackupPublisher {
     }
 
     private func publish(routes: [CmxAttachRoute]) async {
+        publishSequence &+= 1
+        let sequence = publishSequence
+        let previous = publishTask
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard !Task.isCancelled,
+                  let self,
+                  self.publishSequence == sequence else { return }
+            await self.performPublish(routes: routes)
+            guard self.publishSequence == sequence else { return }
+            self.publishTask = nil
+        }
+        publishTask = task
+        await task.value
+    }
+
+    private func performPublish(routes: [CmxAttachRoute]) async {
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else { return }
         let sessionSnapshot: AuthenticatedSessionSnapshot
         do {

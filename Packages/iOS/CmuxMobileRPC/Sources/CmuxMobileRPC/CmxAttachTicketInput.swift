@@ -28,6 +28,11 @@ public struct CmxAttachTicketInput {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         if knownScheme == nil, url.host == "pair" {
+            guard CmxPairingURLScheme.isPairingURLCandidate(rawValue) else {
+                // A `pair` host alone is not enough to identify a cmux URL;
+                // unrelated deep links must retain generic invalid-code copy.
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             guard let version = components.flatMap({ CmxPairingQRCode.attachURLVersion($0) }) else {
                 throw MobileSyncPairingPayloadError.invalidURL

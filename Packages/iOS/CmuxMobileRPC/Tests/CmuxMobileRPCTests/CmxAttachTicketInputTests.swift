@@ -293,6 +293,14 @@ import Testing
         }
     }
 
+    @Test func unrelatedPairURLStaysGenericInvalidURL() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                "https://pair?v=99&payload=not-cmux"
+            )
+        }
+    }
+
     @Test func futureTicketRevisionStaysOnTheUpdateGuidancePath() {
         let payload = """
         {"v":2,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.0.5","p":8443}}]}

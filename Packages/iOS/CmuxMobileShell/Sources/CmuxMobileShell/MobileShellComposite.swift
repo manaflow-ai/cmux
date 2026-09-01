@@ -4746,7 +4746,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // the generic "not a valid code" copy.
                 applyPairingValidationFailure(.unrecognizedVersion)
             } else if case let MobileSyncPairingPayloadError.unsupportedVersion(version) = error,
-                      version > CmxPairingQRCode.version {
+                      version > MobileSyncPairingPayload.currentVersion {
                 // The legacy `pair` envelope reports its newer grammar through
                 // the shared payload validator rather than the plain-URL
                 // decoder. Keep that stale-code path on the same update copy.

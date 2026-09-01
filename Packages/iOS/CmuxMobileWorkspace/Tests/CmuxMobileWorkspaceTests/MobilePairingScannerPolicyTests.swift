@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Testing
 @testable import CmuxMobileWorkspace
 
@@ -6,6 +7,24 @@ import Testing
 /// service so a generic QR code (a URL, a Wi-Fi join code) can never be
 /// mistaken for a pairing link, while one Mac QR works in every official app.
 @Suite struct MobilePairingScannerPolicyTests {
+    @Test(arguments: [
+        "com.cmux.app",
+        "dev.cmux.app.beta",
+        "dev.cmux.app.internal",
+        "dev.cmux.app.demo",
+    ])
+    func canonicalMacQRIsAcceptedByEveryOfficialVariant(
+        bundleIdentifier: String
+    ) {
+        #expect(
+            CmxPairingURLScheme(iOSBundleIdentifier: bundleIdentifier)?.isRelease
+                == true
+        )
+        #expect(MobilePairingScannerPolicy.acceptsCode(
+            "cmux-ios-com.cmux.app://attach?v=2&r=100.64.0.5:58465"
+        ))
+    }
+
     @Test(arguments: [
         ("cmux-ios://attach?ticket=abc", true),
         ("cmux-ios://", true),
