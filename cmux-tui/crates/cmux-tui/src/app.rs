@@ -5353,6 +5353,7 @@ struct SelectionClickSequence {
     count: u8,
     mode: SelectionMode,
     anchor: (u16, u64),
+    dragged: bool,
     tracked_anchor: Option<TrackedScreenPoint>,
 }
 
@@ -16885,6 +16886,7 @@ impl App {
             count,
             mode,
             anchor: cell,
+            dragged: false,
             tracked_anchor,
         });
         mode
@@ -16907,6 +16909,16 @@ impl App {
                 }
             })
             .flatten()
+    }
+
+    fn mark_selection_dragged(&mut self, surface: SurfaceId, current: (u16, u64)) {
+        let moved = self.selection_anchor_cell(surface).is_none_or(|anchor| anchor != current);
+        if moved
+            && let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.dragged = true;
+        }
     }
 
     fn update_semantic_selection(
@@ -17103,6 +17115,7 @@ impl App {
             col.min(content.width.saturating_sub(1).saturating_add(source_x)),
             offset + edge_row as u64,
         );
+        self.mark_selection_dragged(surface_id, edge_cell);
         if self.selection_mode != SelectionMode::Cell
             && self.selection_mode_surface == Some(surface_id)
         {
@@ -22242,6 +22255,9 @@ impl App {
                     .map(|surface| self.surface_scroll_offset(surface))
                     .unwrap_or(0);
                 let current = (col, offset + (cy - content.y) as u64);
+                if let Some(surface) = selection_surface {
+                    self.mark_selection_dragged(surface, current);
+                }
                 let mode = selection_surface
                     .filter(|surface| self.selection_mode_surface == Some(*surface))
                     .and_then(|surface| {
@@ -22475,8 +22491,15 @@ impl App {
         let semantic_select = was_select
             && self.selection_mode_surface.is_some()
             && self.selection_mode != SelectionMode::Cell;
+        let selection_dragged = was_select
+            && self.selection_click_sequence.as_ref().is_some_and(|sequence| sequence.dragged);
         let was_drag = self.drag.is_some();
         self.drag = None;
+        if selection_dragged {
+            // Keep the sequence through the gesture so word and line drags use
+            // their semantic mode, then make the next press a plain click.
+            self.reset_selection_click_sequence();
+        }
         if !was_select {
             return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
