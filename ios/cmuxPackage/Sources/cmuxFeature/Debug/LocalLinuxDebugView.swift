@@ -316,6 +316,11 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
     /// barrier releases it.
     private var bootDrainTask: Task<Void, Never>?
     private var bootDrainGeneration: UInt?
+    /// Completion fence for sessions released by synchronous teardown. The
+    /// next boot waits for this task so a retry cannot race the old C pty
+    /// hangup.
+    private var closeBarrier: Task<Void, Never>?
+    private var closeBarrierID: UUID?
     /// A retry or foreground attachment asks for a boot. The drain callback
     /// consumes this intent only after the previous operation is quiescent.
     private var bootStartRequested = false
@@ -371,8 +376,8 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         inputTask?.cancel()
         inputWorkerID = nil
         resizeTask?.cancel()
-        pendingSession?.closeSynchronously()
-        session?.closeSynchronously()
+        _ = pendingSession?.beginClose()
+        _ = session?.beginClose()
         if let lane {
             Task { await lane.close() }
         }
@@ -439,22 +444,29 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         let runtime = self.runtime
         let generation = lifecycleGeneration
         let task = Task { @MainActor [weak self, runtime, generation] in
-            let result = await Self.bootSession(runtime: runtime)
-            guard let self else {
-                if case .success(let session) = result {
-                    session.closeSynchronously()
-                }
-                return
-            }
             // Keep ownership of the startup task through every return path.
             // Teardown may race any await below, and the drain barrier must
             // not start a replacement until this continuation has settled.
             defer {
-                self.finishBootTask(generation: generation)
+                self?.finishBootTask(generation: generation)
+            }
+            // A prior stop can have scheduled an asynchronous C hangup. Wait
+            // for that fence before entering the next synchronous bridge open.
+            await self?.waitForSessionCloseBarrier()
+            guard self?.isCurrentBoot(generation) == true else { return }
+            let result = await Self.bootSession(runtime: runtime)
+            guard let self else {
+                // The coordinator may be dismantled while the detached boot
+                // worker is still unwinding. Never orphan a successful C
+                // session when its owner has gone away.
+                if case .success(let session) = result {
+                    await session.hangup()
+                }
+                return
             }
             guard self.isCurrentBoot(generation) else {
                 if case .success(let session) = result {
-                    session.closeSynchronously()
+                    await session.hangup()
                 }
                 return
             }
@@ -462,7 +474,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
             switch result {
             case .success(let session):
                 guard self.isCurrentBoot(generation) else {
-                    session.closeSynchronously()
+                    await session.hangup()
                     return
                 }
                 self.pendingSession = session
@@ -483,7 +495,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                     localLinuxLog.error(
                         "local Linux output ring failed to start: \(String(describing: error), privacy: .public)"
                     )
-                    session.closeSynchronously()
+                    await session.hangup()
                     guard self.isCurrentBoot(generation),
                           self.pendingSession === session else { return }
                     self.report(.failed(.linux))
@@ -495,11 +507,11 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                 let ended = await session.isEnded
                 guard self.isCurrentBoot(generation),
                       self.pendingSession === session else {
-                    session.closeSynchronously()
+                    await session.hangup()
                     return
                 }
                 guard !ended else {
-                    session.closeSynchronously()
+                    await session.hangup()
                     self.acceptsInput = false
                     self.report(.ended)
                     return
@@ -531,7 +543,7 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
                 }
                 guard self.isCurrentBoot(generation),
                       self.session === session else {
-                    session.closeSynchronously()
+                    await session.hangup()
                     return
                 }
                 if !self.pendingInput.isEmpty {
@@ -598,6 +610,37 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         }
     }
 
+    /// Starts a nonblocking session close and chains it behind any earlier
+    /// close. UIKit teardown is synchronous, while the C bridge hangup is an
+    /// asynchronous completion fence. Retaining this task prevents a retry
+    /// from opening a replacement pty before the old one is quiescent.
+    private func scheduleSessionClose(_ candidate: LocalLinuxSession?) {
+        guard let candidate else { return }
+        let previous = closeBarrier
+        let barrierID = UUID()
+        let task = Task.detached(priority: .utility) {
+            if let previous {
+                await previous.value
+            }
+            await candidate.hangup()
+        }
+        closeBarrier = task
+        closeBarrierID = barrierID
+    }
+
+    /// Awaits all session closes currently owned by the coordinator. MainActor
+    /// reentrancy can append a newer barrier while this one is suspended, so
+    /// metadata is cleared only when the identity still matches.
+    private func waitForSessionCloseBarrier() async {
+        while let barrier = closeBarrier {
+            let barrierID = closeBarrierID
+            await barrier.value
+            guard closeBarrierID == barrierID else { continue }
+            closeBarrier = nil
+            closeBarrierID = nil
+        }
+    }
+
     private func finishBootTask(generation: UInt) {
         // An invalidated task is still owned by `bootDrainTask`. Its own
         // defer must not clear the metadata before that barrier observes the
@@ -643,9 +686,9 @@ private final class LocalLinuxDebugCoordinator: NSObject, GhosttySurfaceViewDele
         inputWorkerID = nil
         resizeTask?.cancel()
         resizeTask = nil
-        pendingSession?.closeSynchronously()
+        scheduleSessionClose(pendingSession)
         pendingSession = nil
-        session?.closeSynchronously()
+        scheduleSessionClose(session)
         scrollbackRing = nil
         session = nil
         inputQueue.removeAll(keepingCapacity: false)
