@@ -1350,7 +1350,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// One authoritative per-Mac connection registry. Compatibility accessors
     /// below keep focused/control call sites reviewable while every mutation
     /// lands in this single role-aware map.
-    private let macConnectionRegistry = MobileMacConnectionRegistry()
+    let macConnectionRegistry = MobileMacConnectionRegistry()
     var connections: MobileMacConnectionRegistry.FocusedConnections {
         macConnectionRegistry.focusedConnections
     }
@@ -7895,7 +7895,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// keyed by ``foregroundMacKey`` and its rows stamped with the real device id
     /// (when known) for the machine filter. `groups == nil` leaves groups as-is
     /// (a merge/single-entry refresh omits them).
-    private func setForegroundWorkspaceState(
+    func setForegroundWorkspaceState(
         workspaces newWorkspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview]?,
         merge: Bool

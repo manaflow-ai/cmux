@@ -54,7 +54,7 @@ import Testing
         #expect(store.displayPairedMacs.first?.customName == "Old custom")
         #expect(store.displayPairedMacs.first?.customColor == "palette:3")
         #expect(store.displayPairedMacs.first?.customIcon == "laptopcomputer")
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-old": MacWorkspaceState(
                 macDeviceID: "mac-old",
                 workspaces: [

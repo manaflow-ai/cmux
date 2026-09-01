@@ -1067,8 +1067,8 @@ extension MobileShellComposite {
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
             legacyTailscaleRoutes: storedPairing?.legacyTailscaleRoutes ?? [],
-            knownPairing: storedPairing,
-            recordsPairingAttempt: true
+            recordsPairingAttempt: true,
+            knownPairing: storedPairing
         )).didConnect
         guard connectedRoute else {
             if previousActive != nil, connectionState != .connected {

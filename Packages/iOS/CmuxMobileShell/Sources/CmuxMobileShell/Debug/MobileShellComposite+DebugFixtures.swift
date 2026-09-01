@@ -14,7 +14,7 @@ extension MobileShellComposite {
     }
 
     /// Seeds per-Mac workspace state for deterministic aggregation fixtures.
-    func setWorkspaceStatesForTesting(
+    func setWorkspaceStateSnapshot(
         _ states: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
     ) {
@@ -25,15 +25,15 @@ extension MobileShellComposite {
     }
 
     /// Marks a secondary Mac unavailable for a DEBUG refresh fixture.
-    func markSecondaryMacUnavailableForTesting(_ macID: String) {
+    func markSecondaryMacUnavailableSnapshot(_ macID: String) {
         markSecondaryMacUnavailable(MacPairingKey(pairingID: macID))
     }
 
     /// Returns the current foreground Mac identifier for a fixture assertion.
-    func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
+    func foregroundMacDeviceIDSnapshot() -> String? { foregroundMacDeviceID }
 
     /// Returns the pooled route for a fixture assertion.
-    func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
+    func pooledRouteSnapshot(macDeviceID: String) -> CmxAttachRoute? {
         macConnectionRegistry.focusedConnection(onDevice: macDeviceID)?.route
             ?? macConnectionRegistry.controlSubscriptions.first {
                 $0.key.isOnDevice(macDeviceID)
@@ -41,7 +41,7 @@ extension MobileShellComposite {
     }
 
     /// Recomputes registry routes for a deterministic fixture.
-    func refreshRoutesFromRegistryForTesting(
+    func refreshRoutesFromRegistrySnapshot(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot
     ) {

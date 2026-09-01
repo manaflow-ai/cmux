@@ -332,7 +332,7 @@ import Testing
 
         #expect(result == .connected)
         #expect(store.activeRoute?.id == "good")
-        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
+        #expect(store.pooledRouteSnapshot(macDeviceID: "test-mac")?.id == "good")
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
