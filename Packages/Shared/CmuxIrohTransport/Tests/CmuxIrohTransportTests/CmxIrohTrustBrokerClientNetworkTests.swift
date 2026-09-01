@@ -229,7 +229,7 @@ extension CmxIrohTrustBrokerClientTests {
             clientNamespace: "legacy",
             transport: transport
         )
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity(nil)) {
             _ = try await client.discover()
         }
         #expect(await transport.requests().isEmpty)
@@ -255,7 +255,13 @@ extension CmxIrohTrustBrokerClientTests {
         )
         let client = try makeNetworkClient(transport: transport)
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+        let expected = CmxIrohTrustBrokerClientError.connectivity(
+            CmxIrohBrokerConnectivityCause(
+                urlErrorCode: URLError.Code.notConnectedToInternet.rawValue
+            )
+        )
+        #expect(String(describing: expected) == "connectivity(notConnectedToInternet(-1009))")
+        await #expect(throws: expected) {
             _ = try await client.discover()
         }
     }
