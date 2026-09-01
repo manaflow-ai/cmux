@@ -117,8 +117,20 @@ struct FramingTests {
     func typePolicy() {
         let policy = FrameTypePolicy()
         #expect(policy.classify(FrameTypes.hello) == .known)
+        #expect(policy.classify(FrameTypes.grantExpiring) == .known)
+        #expect(policy.classify(FrameTypes.relayCredential) == .known)
+        #expect(policy.classify(FrameTypes.chatTyping) == .known)
         #expect(policy.classify("opt.telemetry") == .ignorableUnknown)
         #expect(policy.classify("ctl.future-feature") == .fatalUnknown)
+    }
+
+    @Test("A terminal sequence number is malformed instead of overflowing")
+    func terminalSequenceDoesNotTrap() {
+        var validator = TrafficValidator()
+        validator.ingest(Frame.dataChunk(seq: Int64.max, data: Data([0x01])))
+        #expect(validator.malformedFrames == 1)
+        #expect(validator.expectedSeq == 0)
+        #expect(!validator.isClean)
     }
 }
 

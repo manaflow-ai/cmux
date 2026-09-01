@@ -149,5 +149,13 @@ struct LaneTests {
         await #expect(throws: TransportError.pipeClosed) {
             try await sender.send(TerminalTraffic.chunk(seq: 1, size: 32, seed: 3))
         }
+
+        // A stale task asking for a lane that did not exist before close must
+        // also get an immediately dead lane, never a freshly live pipe.
+        let lateLane = await client.lane("created-after-close")
+        #expect(await lateLane.receive() == nil)
+        await #expect(throws: TransportError.pipeClosed) {
+            try await lateLane.send(TerminalTraffic.chunk(seq: 2, size: 32, seed: 3))
+        }
     }
 }

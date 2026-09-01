@@ -221,6 +221,37 @@ struct BridgeLaneLiveTests {
         }
     }
 
+    @Test("Application-lane opener rejects reserved lane kinds")
+    func applicationOpenerRejectsReservedKinds() async throws {
+        try await withRig { rig in
+            for lane in [CmxIrohLane.control, .serverEvents(cursor: nil)] {
+                await #expect(throws: CmxIrohClientSessionError.invalidOutgoingLane) {
+                    _ = try await BridgeLaneDialer.openLane(
+                        on: rig.clientConn, lane: lane, priority: 0)
+                }
+            }
+        }
+    }
+
+    @Test("Closed bridge byte transport rejects every later operation")
+    func closedByteTransportRejectsUse() async throws {
+        try await withRig { rig in
+            let phoneControl = try await BridgeLaneDialer.openControlTransport(on: rig.clientConn)
+            _ = try await rig.acceptor.nextControlStream()
+            await phoneControl.close()
+
+            await #expect(throws: CmxIrohByteTransportError.alreadyClosed) {
+                try await phoneControl.connect()
+            }
+            await #expect(throws: CmxIrohByteTransportError.alreadyClosed) {
+                _ = try await phoneControl.receive()
+            }
+            await #expect(throws: CmxIrohByteTransportError.alreadyClosed) {
+                try await phoneControl.send(Data("after-close".utf8))
+            }
+        }
+    }
+
     @Test("Connection close ends the accept loop")
     func closeEndsAccept() async throws {
         try await withRig { rig in

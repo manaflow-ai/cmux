@@ -199,6 +199,22 @@ extension SessionStateMachineTests {
         #expect(machine.state == .connecting)
     }
 
+    @Test("stop after a remote close makes the owner terminal")
+    func stopAfterRemoteCloseIsTerminal() {
+        var machine = readyMachine()
+        _ = machine.handle(
+            .remoteClosed(CloseReason(origin: .remote, code: "connection-lost")))
+
+        let effects = machine.handle(.closeRequested(.userRequested))
+
+        #expect(effects == [.closeConnection(.userRequested)])
+        #expect(machine.state == .closed(.userRequested))
+        #expect(machine.closedTerminally)
+        #expect(
+            machine.handle(.dialRequested(.automatic(trigger: "backoff")))
+                == [.invalidEventRecorded("dialRequested after terminal close")])
+    }
+
     @Test("The transition log is bounded to the most recent window")
     func transitionLogIsBounded() {
         var machine = readyMachine()

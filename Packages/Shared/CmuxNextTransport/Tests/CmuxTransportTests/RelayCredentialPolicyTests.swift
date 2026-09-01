@@ -28,6 +28,14 @@ struct RelayCredentialPolicyTests {
         #expect(next == now + 120 - 60)
     }
 
+    @Test("An unknown expiry keeps the fallback deadline when known expiry is later")
+    func mixedUnknownExpiryKeepsFallback() {
+        let now: Int64 = 1_000
+        let next = RelayCredentialSchedule.nextRefresh(
+            expiries: [nil, now + 3_600], now: now)
+        #expect(next == now + RelayCredentialSchedule.fallbackIntervalSeconds)
+    }
+
     @Test("Stale or clock-skewed expiries clamp to a prompt retry, not a hot loop")
     func staleClampsToMinimum() {
         let now: Int64 = 1_000

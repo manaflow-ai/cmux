@@ -125,6 +125,23 @@ struct LoopbackSessionTests {
         #expect(await host.counters.admissions == 0)
     }
 
+    @Test("An admit verdict requires a nonempty session id")
+    func emptyAdmitSessionIsRejected() async throws {
+        let (identity, grant) = try mintedIdentity(app: "dev.cmux.lite")
+        let (client, hostEnd) = LoopbackWire().makeEnds()
+        let fakeHost = Task {
+            let control = await hostEnd.lane("ctl")
+            _ = await control.receive()
+            try await control.send(.admit(sessionID: ""))
+        }
+
+        await #expect(throws: TransportError.self) {
+            _ = try await TransportClient.connect(
+                connection: client, identity: identity, grant: grant)
+        }
+        try await fakeHost.value
+    }
+
     @Test("A denial is readable before the connection closes (3.2, 3.3)")
     func denialReadableBeforeClose() async throws {
         let host = makeHost()
