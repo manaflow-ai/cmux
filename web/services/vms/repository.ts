@@ -151,10 +151,32 @@ export type VmRepositoryShape = {
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Live VM rows that currently claim a persistent home volume. */
+  readonly listLiveHomeVolumeNames?: (input: {
+    readonly provider: ProviderId;
+  }) => Effect.Effect<readonly string[], VmDatabaseError>;
+  /** Point-in-time ownership recheck immediately before a provider delete. */
+  readonly isLiveHomeVolumeReferenced?: (input: {
+    readonly provider: ProviderId;
+    readonly volumeName: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Oldest provisioning rows for the bounded resource reaper. */
+  readonly stuckProvisioningCandidates?: (input: {
+    readonly before: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Atomic transition used when a stale provisioning row has no provider id. */
+  readonly markProvisioningFailed?: (input: {
+    readonly id: string;
+    readonly code: string;
+    readonly message: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
+    /** When set, do not overwrite a row that another worker already advanced. */
+    readonly expectedStatus?: CloudVmStatus;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -1158,6 +1180,52 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .limit(input.limit);
     }),
 
+  listLiveHomeVolumeNames: (input) =>
+    dbEffect("listLiveHomeVolumeNames", async () => {
+      const db = cloudDb();
+      const homeVolume = sql<string | null>`${cloudVms.providerMetadata}->>'homeVolume'`;
+      const rows = await db
+        .select({ homeVolume })
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.provider, input.provider),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+          sql`${homeVolume} is not null and ${homeVolume} <> ''`,
+        ));
+      return rows
+        .map((row) => row.homeVolume?.trim())
+        .filter((name): name is string => !!name);
+    }),
+
+  isLiveHomeVolumeReferenced: (input) =>
+    dbEffect("isLiveHomeVolumeReferenced", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .select({ id: cloudVms.id })
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.provider, input.provider),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+          sql`${cloudVms.providerMetadata}->>'homeVolume' = ${input.volumeName}`,
+        ))
+        .limit(1);
+      return !!row;
+    }),
+
+  stuckProvisioningCandidates: (input) =>
+    dbEffect("stuckProvisioningCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.status, "provisioning"),
+          lt(cloudVms.createdAt, input.before),
+        ))
+        .orderBy(asc(cloudVms.createdAt), asc(cloudVms.id))
+        .limit(input.limit);
+    }),
+
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
@@ -1172,6 +1240,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           and(
             eq(cloudVms.id, input.id),
             eq(cloudVms.providerVmId, input.providerVmId),
+            ...(input.expectedStatus ? [eq(cloudVms.status, input.expectedStatus)] : []),
             ne(cloudVms.status, "destroyed"),
           ),
         )
@@ -1223,6 +1292,22 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));
+    }),
+
+  markProvisioningFailed: (input) =>
+    dbEffect("markProvisioningFailed", async () => {
+      const db = cloudDb();
+      const updated = await db
+        .update(cloudVms)
+        .set({
+          status: "failed",
+          failureCode: input.code,
+          failureMessage: input.message,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(cloudVms.id, input.id), eq(cloudVms.status, "provisioning")))
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
     }),
 
   hasOwnedSnapshot: (input) =>

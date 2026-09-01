@@ -14,6 +14,7 @@ import {
   type VMHandle,
   type VMStatus,
   type VMStats,
+  type VMVolume,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
@@ -28,6 +29,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     volumeName: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  /** Optional provider volume inventory used by the VM resource reaper. */
+  readonly listVolumes?: (
+    provider: ProviderId,
+  ) => Effect.Effect<readonly VMVolume[], VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
@@ -108,6 +113,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       // Providers without persistent volumes have nothing to delete.
       if (!impl.deleteHomeVolume) return;
       await impl.deleteHomeVolume(volumeName);
+    }),
+  listVolumes: (provider) =>
+    providerEffect(provider, "listVolumes", async () => {
+      const impl = getProvider(provider);
+      // Providers without persistent volume support have no inventory to reap.
+      if (!impl.listVolumes) return [];
+      return await impl.listVolumes();
     }),
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type { VMVolume } from "../services/vms/drivers";
+import type { ProviderId, VMVolume } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   VmRepository,
@@ -12,10 +12,6 @@ import { VmProviderOperationError } from "../services/vms/errors";
 import { reapVmResources } from "../services/vms/workflows";
 
 const NOW = new Date("2026-08-31T20:00:00.000Z");
-
-function providerLayer(provider: VmProviderGatewayShape) {
-  return Layer.succeed(VmProviderGateway, provider);
-}
 
 function workflowLayer(repo: VmRepositoryShape, provider: VmProviderGatewayShape) {
   return Layer.mergeAll(
@@ -67,6 +63,10 @@ function baseRepository(): VmRepositoryShape {
   } as unknown as VmRepositoryShape;
 }
 
+function repository(overrides: Partial<VmRepositoryShape> = {}): VmRepositoryShape {
+  return { ...baseRepository(), ...overrides };
+}
+
 function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   return {
     id: "00000000-0000-4000-8000-000000000001",
@@ -108,14 +108,15 @@ describe("Cloud VM reaper", () => {
       { name: "cmux-home-abcdef123456-bold-fox", createdAt: 3, attachedTo: "sandbox:bold-fox" },
       { name: "user-home-noble-wren", createdAt: 4, attachedTo: null },
     ];
-    const repo = baseRepository();
-    repo.listLiveHomeVolumeNames = () => Effect.succeed([]);
-    repo.stuckProvisioningCandidates = () => Effect.succeed([]);
-    repo.recordUsageEvent = (event) => Effect.sync(() => usage.push(event as Record<string, unknown>));
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      stuckProvisioningCandidates: () => Effect.succeed([]),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed(volumes),
-      deleteHomeVolume: (_provider, name) => Effect.sync(() => deleted.push(name)),
+      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
     };
 
     const result = await Effect.runPromise(
@@ -141,15 +142,16 @@ describe("Cloud VM reaper", () => {
 
   test("deletes only a free machine-owned volume when delete mode is enabled", async () => {
     const deleted: string[] = [];
-    const repo = baseRepository();
-    repo.listLiveHomeVolumeNames = () => Effect.succeed([]);
-    repo.stuckProvisioningCandidates = () => Effect.succeed([]);
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      stuckProvisioningCandidates: () => Effect.succeed([]),
+    });
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed([
         { name: "cmux-home-abcdef123456-noble-wren", createdAt: 2, attachedTo: null },
       ]),
-      deleteHomeVolume: (_provider, name) => Effect.sync(() => deleted.push(name)),
+      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
     };
 
     const result = await Effect.runPromise(
@@ -165,15 +167,16 @@ describe("Cloud VM reaper", () => {
 
   test("skips a machine volume referenced by a live VM row", async () => {
     const deleted: string[] = [];
-    const repo = baseRepository();
-    repo.listLiveHomeVolumeNames = () => Effect.succeed(["cmux-home-abcdef123456-noble-wren"]);
-    repo.stuckProvisioningCandidates = () => Effect.succeed([]);
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed(["cmux-home-abcdef123456-noble-wren"]),
+      stuckProvisioningCandidates: () => Effect.succeed([]),
+    });
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed([
         { name: "cmux-home-abcdef123456-noble-wren", createdAt: 2, attachedTo: null },
       ]),
-      deleteHomeVolume: (_provider, name) => Effect.sync(() => deleted.push(name)),
+      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
     };
 
     const result = await Effect.runPromise(
@@ -191,18 +194,19 @@ describe("Cloud VM reaper", () => {
     const updates: Array<Record<string, unknown>> = [];
     const usage: Array<Record<string, unknown>> = [];
     const row = vmRow({ providerVmId: "stale-sandbox" });
-    const repo = baseRepository();
-    repo.listLiveHomeVolumeNames = () => Effect.succeed([]);
-    repo.stuckProvisioningCandidates = () => Effect.succeed([row]);
-    repo.markProviderObservedStatus = (update) => Effect.sync(() => {
-      updates.push(update as Record<string, unknown>);
-      return true;
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      stuckProvisioningCandidates: () => Effect.succeed([row]),
+      markProviderObservedStatus: (update) => Effect.sync(() => {
+        updates.push(update as Record<string, unknown>);
+        return true;
+      }),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
     });
-    repo.recordUsageEvent = (event) => Effect.sync(() => usage.push(event as Record<string, unknown>));
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed([]),
-      getStatus: (_provider, vmId) => Effect.fail(missingProviderError(vmId)),
+      getStatus: (_provider: ProviderId, vmId: string) => Effect.fail(missingProviderError(vmId)),
     };
 
     const result = await Effect.runPromise(
@@ -227,14 +231,15 @@ describe("Cloud VM reaper", () => {
     const failures: Array<Record<string, unknown>> = [];
     const usage: Array<Record<string, unknown>> = [];
     const row = vmRow({ providerVmId: null });
-    const repo = baseRepository();
-    repo.listLiveHomeVolumeNames = () => Effect.succeed([]);
-    repo.stuckProvisioningCandidates = () => Effect.succeed([row]);
-    repo.markProvisioningFailed = (input) => Effect.sync(() => {
-      failures.push(input as Record<string, unknown>);
-      return true;
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      stuckProvisioningCandidates: () => Effect.succeed([row]),
+      markProvisioningFailed: (input) => Effect.sync(() => {
+        failures.push(input as Record<string, unknown>);
+        return true;
+      }),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
     });
-    repo.recordUsageEvent = (event) => Effect.sync(() => usage.push(event as Record<string, unknown>));
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed([]),
@@ -271,17 +276,18 @@ describe("Cloud VM reaper", () => {
       createdAt: new Date(NOW.getTime() - (index + 2) * 60 * 60 * 1000),
       updatedAt: new Date(NOW.getTime() - (index + 2) * 60 * 60 * 1000),
     }));
-    const repo = baseRepository();
-    repo.listLiveHomeVolumeNames = () => Effect.succeed([]);
-    repo.stuckProvisioningCandidates = ({ limit }) => Effect.succeed(rows.slice(0, limit));
-    repo.markProviderObservedStatus = ({ providerVmId }) => Effect.sync(() => {
-      statusCalls.push(providerVmId);
-      return true;
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      stuckProvisioningCandidates: ({ limit }) => Effect.succeed(rows.slice(0, limit)),
+      markProviderObservedStatus: ({ providerVmId }) => Effect.sync(() => {
+        statusCalls.push(providerVmId);
+        return true;
+      }),
     });
     const provider = {
       ...baseProvider(),
       listVolumes: () => Effect.succeed(volumes),
-      deleteHomeVolume: (_provider, name) => Effect.sync(() => deleted.push(name)),
+      deleteHomeVolume: (_provider: ProviderId, name: string) => Effect.sync(() => deleted.push(name)),
       getStatus: () => Effect.succeed("running" as const),
     };
 

@@ -13,6 +13,7 @@ import {
   type VMProvider,
   type VMStats,
   type VMStatus,
+  type VMVolume,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
@@ -296,6 +297,14 @@ type BlaxelPreview = {
     prefixUrl?: string;
     customDomain?: string;
   };
+};
+
+type BlaxelVolume = {
+  metadata?: { name?: string; createdAt?: string | number };
+  state?: { attachedTo?: string | null };
+  // Keep the parser tolerant of older control-plane responses that surfaced
+  // attachment state at the resource root.
+  attachedTo?: string | null;
 };
 
 // The preview URL is the only ingress to the cmux-tui daemon, and it must stay token-gated:
@@ -655,6 +664,40 @@ function parseJsonArray(text: string): Array<Record<string, unknown>> {
   } catch {
     return [];
   }
+}
+
+function volumeListItems(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  const candidate = payload as { items?: unknown; data?: unknown };
+  if (Array.isArray(candidate.items)) return candidate.items;
+  if (Array.isArray(candidate.data)) return candidate.data;
+  return [];
+}
+
+/** Normalize the Blaxel `/volumes` response for provider-agnostic cleanup code. */
+export function parseBlaxelVolumes(payload: unknown): VMVolume[] {
+  return volumeListItems(payload).flatMap((item): VMVolume[] => {
+    if (!item || typeof item !== "object") return [];
+    const volume = item as BlaxelVolume;
+    const name = volume.metadata?.name?.trim();
+    if (!name) return [];
+    const rawCreatedAt = volume.metadata?.createdAt;
+    const createdAt = typeof rawCreatedAt === "number" && Number.isFinite(rawCreatedAt)
+      ? rawCreatedAt
+      : typeof rawCreatedAt === "string"
+        ? Date.parse(rawCreatedAt)
+        : Number.NaN;
+    const attachedValue = volume.state?.attachedTo ?? volume.attachedTo;
+    const attachedTo = typeof attachedValue === "string" && attachedValue.trim().length > 0
+      ? attachedValue.trim()
+      : null;
+    return [{
+      name,
+      createdAt: Number.isFinite(createdAt) ? createdAt : null,
+      attachedTo,
+    }];
+  });
 }
 
 export class BlaxelProvider implements VMProvider {
@@ -1054,6 +1097,12 @@ export class BlaxelProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /** List all persistent volumes in the Blaxel workspace for the reaper. */
+  async listVolumes(): Promise<readonly VMVolume[]> {
+    const payload = await blaxelFetch<unknown>("GET", `${CONTROL_PLANE_BASE}/volumes`);
+    return parseBlaxelVolumes(payload);
   }
 
   async getStatus(vmId: string): Promise<VMStatus> {

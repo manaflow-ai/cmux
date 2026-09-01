@@ -26,6 +26,15 @@ export type VMStats = {
   readonly diskUsedMb?: number;
 };
 
+/** A provider persistent volume normalized for control-plane cleanup. */
+export type VMVolume = {
+  readonly name: string;
+  /** Epoch milliseconds from provider metadata, when present. */
+  readonly createdAt?: number | null;
+  /** Provider attachment id, or null when the volume is free. */
+  readonly attachedTo?: string | null;
+};
+
 export type VMHandle = {
   provider: ProviderId;
   providerVmId: string;
@@ -228,6 +237,9 @@ export interface VMProvider {
    * destroyed machine may be passed here.
    */
   deleteHomeVolume?(volumeName: string): Promise<void>;
+
+  /** Optional provider volume inventory used by the VM resource reaper. */
+  listVolumes?(): Promise<readonly VMVolume[]>;
 
   getStatus?(vmId: string): Promise<VMStatus>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
