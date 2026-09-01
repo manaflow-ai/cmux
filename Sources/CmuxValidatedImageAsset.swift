@@ -95,6 +95,10 @@ struct CmuxValidatedImageAsset {
               fileType == .typeRegular else {
             return .failure(.notRegularFile)
         }
+        if let fileSize = attributes[.size] as? NSNumber,
+           fileSize.uint64Value > UInt64(maxImageBytes) {
+            return .failure(.tooLarge)
+        }
         guard let data = fileManager.contents(atPath: resolvedPath) else {
             return .failure(.unreadableFile)
         }

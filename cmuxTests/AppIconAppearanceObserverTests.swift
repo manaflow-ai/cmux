@@ -265,7 +265,7 @@ struct AppIconAppearanceObserverTests {
 }
 
 // Each instance is confined to one synchronous test invocation.
-private final class AppIconOversizedFileManager: FileManager, @unchecked Sendable {
+private final class AppIconOversizedFileManager: FileManager {
     private(set) var requestedContentPaths: [String] = []
 
     override func contents(atPath path: String) -> Data? {
