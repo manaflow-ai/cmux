@@ -424,8 +424,7 @@ public struct TerminalEmittedLinkScanner: Sendable {
         return host == "localhost" ||
             host.contains(".") ||
             host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil ||
-            host.contains(":") ||
-            hostKey.contains(":")
+            host.contains(":")
     }
 
     private func isAllowedScheme(_ raw: String) -> Bool {

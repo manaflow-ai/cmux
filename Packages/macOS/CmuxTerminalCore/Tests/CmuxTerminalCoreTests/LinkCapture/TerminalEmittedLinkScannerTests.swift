@@ -174,6 +174,14 @@ end https://end.example/c
         #expect(scanner.detectURLs(in: "http://127.0.0.1/path") == ["http://127.0.0.1/path"])
     }
 
+    @Test
+    func detectsBracketedIPv6URLs() {
+        let scanner = TerminalEmittedLinkScanner()
+        #expect(scanner.detectURLs(in: "open https://[2001:db8::1]/path") == [
+            "https://[2001:db8::1]/path",
+        ])
+    }
+
     private func bytes(_ string: String) -> [UInt8] {
         Array(string.utf8)
     }
