@@ -1,0 +1,61 @@
+name: CLA policy guard
+
+on:
+  # This workflow is evaluated from the base branch. It never checks out or
+  # executes the pull-request revision, so a contributor cannot edit the guard
+  # and the policy it protects in the same pull request.
+  pull_request_target:
+    branches: [main]
+    types: [opened,edited,reopened,synchronize]
+permissions: {}
+
+jobs:
+  validate:
+    name: CLA policy guard
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout immutable guard revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/validate-cla-policy.rb
+          sparse-checkout-cone-mode: false
+
+      - name: Verify trusted checkout
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$WORKFLOW_SHA" ]]
+          [[ -f scripts/ci/validate-cla-policy.rb ]]
+
+      - name: Run trusted CLA regression matrix and validate policy as data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          candidate_dir="$(mktemp -d "$RUNNER_TEMP/cla-policy.XXXXXX")"
+          trap 'rm -rf "$candidate_dir"' EXIT
+          CANDIDATE_DIR="$candidate_dir" ruby scripts/ci/validate-cla-policy.rb
+          if [[ -f "$candidate_dir/rerun-failed-cla.sh" ]]; then
+            shellcheck --shell=bash "$candidate_dir/rerun-failed-cla.sh"
+          fi
+          if [[ -f "$candidate_dir/cla.yml" ]]; then
+            archive="$RUNNER_TEMP/actionlint.tar.gz"
+            curl -fsSL -o "$archive" \
+              "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz"
+            echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $archive" | sha256sum --check --strict
+            tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+            "$RUNNER_TEMP/actionlint" "$candidate_dir/cla.yml"
+          fi
