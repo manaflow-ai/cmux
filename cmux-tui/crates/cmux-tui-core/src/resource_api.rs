@@ -725,7 +725,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .agents
             .into_iter()
             .filter(|agent| {
-                !(agent.source == "hook" && agent.state == "done")
+                (agent.source != "hook" || agent.state != "done")
                     && !agent
                         .source_session
                         .as_deref()
