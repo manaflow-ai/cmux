@@ -6883,6 +6883,10 @@ pub struct App {
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub(crate) chrome_row_scratch: ReusableRowBuffer,
+    /// Reusable storage for the ordered sidebar kind snapshot taken during a
+    /// frame. The draw loop takes this out while dispatching so mutable rail
+    /// renderers do not borrow the layout across calls.
+    pub(crate) sidebar_kind_scratch: Vec<RailKind>,
     /// Terminal grid dimensions from the frame actually drawn for each
     /// surface. Pointer routing uses this snapshot so resize transitions do
     /// not target blank pane margins or wait on the PTY's terminal lock.
@@ -9151,6 +9155,7 @@ fn run_with_machine_updates_inner(
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         chrome_row_scratch: ReusableRowBuffer::default(),
+        sidebar_kind_scratch: Vec::new(),
         rendered_terminal_sizes: HashMap::new(),
         rendered_terminal_pointer_semantics: HashMap::new(),
         rendered_pane_content_generations: HashMap::new(),
@@ -44980,6 +44985,7 @@ mod tests {
             tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
+            sidebar_kind_scratch: Vec::new(),
             rendered_terminal_sizes: HashMap::new(),
             rendered_terminal_pointer_semantics: HashMap::new(),
             rendered_pane_content_generations: HashMap::new(),
