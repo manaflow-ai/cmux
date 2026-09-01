@@ -146743,6 +146743,40 @@
         }
       }
     },
+    "notification.terminalUpload.failed.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was typed into the terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルには何も入力されていません"
+          }
+        }
+      }
+    },
+    "notification.terminalUpload.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't upload the dropped file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップしたファイルをアップロードできませんでした"
+          }
+        }
+      }
+    },
     "notificationHook.failure.body": {
       "extractionState": "manual",
       "localizations": {

@@ -52,7 +52,11 @@ extension GhosttyNSView {
         plan: TerminalImageTransferPlan,
         operation: TerminalImageTransferOperation
     ) -> Bool {
-        TerminalCustomUploadRunner().handleIfMatched(
+        // Captured before the upload starts: this view can be reattached to a
+        // different surface while it runs, so reading it back in the completion
+        // would name whichever surface happens to be mounted then.
+        let originSurfaceId = terminalSurface?.id
+        return TerminalCustomUploadRunner().handleIfMatched(
             plan: plan,
             operation: operation,
             cleanup: { GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles($0) },
@@ -61,10 +65,14 @@ extension GhosttyNSView {
                 switch result {
                 case .success(let text):
                     self?.deliverUploadResultText(text)
-                case .failure:
-                    NSSound.beep()
+                case .failure(let error):
+                    let posted = TerminalUploadFailureNotification.post(
+                        error: error,
+                        surfaceId: originSurfaceId
+                    )
+                    if !posted { NSSound.beep() }
 #if DEBUG
-                    cmuxDebugLog("terminal.remoteDropUpload.customFailed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+                    cmuxDebugLog("terminal.remoteDropUpload.customFailed surface=\(originSurfaceId?.uuidString.prefix(5) ?? "nil")")
 #endif
                 }
             }

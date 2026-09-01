@@ -260,7 +260,7 @@ extension GhosttyApp {
                             }
                             completeClipboardRequest(with: text)
                         },
-                        onFailure: { _ in
+                        onFailure: { error in
                             let shouldPresentFailure = MainActor.assumeIsolated {
                                 indicatorView.endImageTransferIndicator(
                                     for: operation
@@ -270,7 +270,13 @@ extension GhosttyApp {
                                 )
                             }
                             if shouldPresentFailure {
-                                NSSound.beep()
+                                let posted = MainActor.assumeIsolated {
+                                    TerminalUploadFailureNotification.post(
+                                        error: error,
+                                        surfaceId: callbackContext.surfaceId
+                                    )
+                                }
+                                if !posted { NSSound.beep() }
 #if DEBUG
                                 cmuxDebugLog(
                                     "terminal.remotePasteUpload.failed " +

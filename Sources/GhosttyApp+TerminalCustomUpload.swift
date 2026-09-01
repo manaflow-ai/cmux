@@ -27,8 +27,16 @@ extension GhosttyApp {
                 switch result {
                 case .success(let text):
                     completeClipboardRequest(text)
-                case .failure:
-                    NSSound.beep()
+                case .failure(let error):
+                    // surfaceId came from the callback context captured when the
+                    // paste started, so it names the surface the user dropped on.
+                    let posted = MainActor.assumeIsolated {
+                        TerminalUploadFailureNotification.post(
+                            error: error,
+                            surfaceId: callbackContext.surfaceId
+                        )
+                    }
+                    if !posted { NSSound.beep() }
 #if DEBUG
                     cmuxDebugLog("terminal.remotePasteUpload.customFailed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
 #endif
