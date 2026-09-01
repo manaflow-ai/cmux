@@ -1,0 +1,123 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// Regression coverage for the review findings around config recovery,
+/// runtime validation, shortcuts, and palette resolution.
+struct CmuxConfigReviewRegressionTests {
+    private func jsonObject(_ json: String) throws -> Any {
+        try JSONSerialization.jsonObject(with: Data(json.utf8))
+    }
+
+    private func decode(_ json: String) throws -> CmuxConfigFile {
+        try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
+    }
+
+    @Test func malformedActionCannotEraseDuplicateTrimmedID() {
+        #expect(throws: (any Error).self) {
+            try CmuxConfigFile.decodeToleratingInvalidActions(from: Data("""
+            {
+              "actions": {
+                "  duplicate  ": { "type": "command", "command": "echo good" },
+                "duplicate": {
+                  "type": "workspace",
+                  "workspace": {
+                    "layout": {
+                      "direction": "horizontal",
+                      "children": [{ "pane": { "surfaces": [{ "type": "terminal" }] } }]
+                    }
+                  }
+                }
+              }
+            }
+            """.utf8))
+        }
+    }
+
+    @Test func runtimeDecoderAndDoctorValidatorRejectInvalidActionValues() throws {
+        let cases: [(name: String, action: String, path: String)] = [
+            (
+                "builtin",
+                #"{ "type": "builtin", "builtin": "not-a-built-in" }"#,
+                "actions.builtin.builtin"
+            ),
+            (
+                "color",
+                #"{ "type": "workspace", "workspace": { "color": "not-a-color" } }"#,
+                "actions.color.workspace.color"
+            ),
+            (
+                "shortcut",
+                #"{ "type": "command", "command": "echo", "shortcut": "bare" }"#,
+                "actions.shortcut.shortcut"
+            ),
+        ]
+
+        for item in cases {
+            let json = "{\"actions\":{\"\(item.name)\":\(item.action)}}"
+            let object = try jsonObject(json)
+            #expect(CmuxConfigValidator().validate(jsonObject: object).contains { issue in
+                issue.path == item.path
+            })
+
+            let result = try CmuxConfigFile.decodeToleratingInvalidActions(from: Data(json.utf8))
+            #expect(result.config.actions[item.name] == nil)
+            #expect(result.actionIssues.contains { $0.path == item.path })
+        }
+    }
+
+    @Test func runtimeOnlySurfaceButtonErrorsAreNotHiddenByStructuralValidation() throws {
+        let json = #"{"surfaceTabBarButtons":[{"type":"unknown"}]}"#
+        let object = try jsonObject(json)
+        #expect(CmuxConfigValidator().validate(jsonObject: object).isEmpty)
+        #expect(throws: (any Error).self) {
+            try CmuxConfigFile.decodeToleratingInvalidActions(from: Data(json.utf8))
+        }
+    }
+
+    @Test func unmodifiedChordSecondStrokeMatchesRuntimeParser() throws {
+        let json = #"{"actions":{"chord":{"type":"command","command":"echo","shortcut":["cmd+k","t"]}}}"#
+        let object = try jsonObject(json)
+        #expect(CmuxConfigValidator().validate(jsonObject: object).isEmpty)
+
+        let result = try CmuxConfigFile.decodeToleratingInvalidActions(from: Data(json.utf8))
+        #expect(result.actionIssues.isEmpty)
+        #expect(result.config.actions["chord"]?.shortcut?.hasChord == true)
+    }
+
+    @Test func legacyPaletteNamesAndCaseMatchRuntimeResolution() throws {
+        let suiteName = "cmux-config-review-palette-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(["Indigo": "#123456"], forKey: "workspaceTabColor.defaultOverrides")
+        defaults.set(["#abcdef"], forKey: "workspaceTabColor.customColors")
+
+        #expect(CmuxConfigWorkspaceColorPalette.containsName(" custom 1 ", defaults: defaults))
+        #expect(WorkspaceTabColorSettings.resolvedColorHex(" iNdIgO ", defaults: defaults) == "#123456")
+        #expect(WorkspaceTabColorSettings.resolvedColorHex("CUSTOM 1", defaults: defaults) == "#ABCDEF")
+
+        let config = try decode("""
+        {
+          "commands": [{
+            "name": "palette",
+            "workspace": { "color": "red" }
+          }]
+        }
+        """.replacingOccurrences(of: "\"red\"", with: "\" custom 1 \""), colorDefaults: defaults)
+        #expect(config.commands[0].workspace?.color == "#ABCDEF")
+    }
+}
+
+private extension CmuxConfigReviewRegressionTests {
+    func decode(_ json: String, colorDefaults: UserDefaults) throws -> CmuxConfigFile {
+        let decoder = JSONDecoder()
+        decoder.userInfo[.cmuxWorkspaceColorDefaults] = colorDefaults
+        return try decoder.decode(CmuxConfigFile.self, from: Data(json.utf8))
+    }
+}
