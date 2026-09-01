@@ -52,6 +52,14 @@ private enum WorkspaceRootToolbarSizing {
     static let maximumPickerWidth: CGFloat = 124
     private static let nonPickerWidth: CGFloat = 277
 
+    /// Principal toolbar items can be dropped by UIKit when the leading
+    /// controls consume nearly all of a narrow iPad sidebar. Moving the
+    /// picker into the leading group keeps it present, where its label can
+    /// apply the requested ellipsis instead of disappearing as a whole.
+    static func usesLeadingPlacement(for contentWidth: CGFloat) -> Bool {
+        contentWidth > 0 && contentWidth < nonPickerWidth + minimumPickerWidth
+    }
+
     static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
         min(
             maximumPickerWidth,
@@ -65,6 +73,7 @@ private enum WorkspaceRootToolbarSizing {
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let openSettings: () -> Void
     let openDevices: () -> Void
@@ -84,7 +93,10 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
         }
-        ToolbarItem(id: "workspace-list-title", placement: .principal) {
+        ToolbarItem(
+            id: "workspace-list-title",
+            placement: titlePlacement
+        ) {
             WorkspaceMacTitlePicker(
                 value: WorkspaceMacTitlePickerValue(
                     title: title,
@@ -109,6 +121,16 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
+    }
+
+    private var titlePlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        if horizontalSizeClass == .regular,
+           WorkspaceRootToolbarSizing.usesLeadingPlacement(for: contentWidth) {
+            return .topBarLeading
+        }
+        #endif
+        return .principal
     }
 }
 
@@ -291,7 +313,9 @@ struct WorkspaceShellView: View {
                 notificationUnreadCount: presentation.notificationUnreadCount,
                 taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                     ? nil
-                    : taskComposerAction
+                    : taskComposerAction,
+                iPadSidebarWidth: splitSidebarWidth,
+                iPadSidebarVisible: !usesCompactStack && splitColumnVisibility != .detailOnly
             ) {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
@@ -354,11 +378,15 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection
                 )
             }
-            .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
+            .environment(
+                \.workspaceRootToolbarContentWidth,
+                !usesCompactStack && selectedPrimaryTab == .workspaces && splitSidebarWidth > 0
+                    ? splitSidebarWidth
+                    : geometry.size.width
+            )
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onPreferenceChange(WorkspaceSplitSidebarWidthKey.self) { width in
-                guard width > 0 else { return }
-                splitSidebarWidth = width
+                splitSidebarWidth = max(0, width)
             }
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
                 store.recordAppEvent(

@@ -299,13 +299,16 @@ private struct WorkspaceMacTitlePickerLabel: View {
     var body: some View {
         VStack(spacing: 1) {
             HStack(spacing: 6) {
-                Spacer(minLength: 0)
                 Text(title)
                     .font(.headline.weight(.bold))
                     .lineLimit(1)
                     .truncationMode(truncationMode)
                     .allowsTightening(false)
-                    .layoutPriority(1)
+                    // Leave the text as the flexible item. A high layout
+                    // priority makes a narrow toolbar item ask UIKit to hide
+                    // the entire principal item before SwiftUI can insert an
+                    // ellipsis.
+                    .frame(maxWidth: .infinity, alignment: .center)
                 ZStack {
                     Image(systemName: "chevron.down")
                         .font(.caption.weight(.bold))
@@ -317,7 +320,6 @@ private struct WorkspaceMacTitlePickerLabel: View {
                 }
                 .frame(width: 12, height: 12)
                 .accessibilityHidden(true)
-                Spacer(minLength: 0)
             }
             if let statusLine {
                 WorkspaceConnectionStatusLineView(line: statusLine)
