@@ -3448,21 +3448,19 @@ mod unix {
     /// its daemon, so a raw OSC 7 URL here would become the next surface's
     /// inherited spawn directory after reattachment.
     fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        let path = term
-            .pwd()
-            .as_deref()
-            .and_then(crate::platform::terminal_pwd_to_local_path)
-            .or_else(|| spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path))?;
-        if !path.is_absolute() {
-            return Some(format!(
-                "{}{}",
-                crate::platform::SNAPSHOT_RELATIVE_CWD_PREFIX,
-                path.to_string_lossy()
-            ));
+        if let Some(path) =
+            term.pwd().as_deref().and_then(crate::platform::terminal_pwd_to_local_path)
+        {
+            let mut url = url::Url::from_file_path(path).ok()?;
+            url.set_host(Some("localhost")).ok()?;
+            return Some(url.into());
         }
-        let mut url = url::Url::from_file_path(path).ok()?;
-        url.set_host(Some("localhost")).ok()?;
-        Some(url.into())
+        let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
+        Some(format!(
+            "{}{}",
+            crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+            path.to_string_lossy()
+        ))
     }
 
     impl HostShared {
@@ -9260,13 +9258,13 @@ mod unix {
         #[test]
         fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file://localhost/spawn".into()));
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("cmux-tui:spawn-cwd:/spawn".into()));
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file://localhost/spawn".into()));
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("cmux-tui:spawn-cwd:/spawn".into()));
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file://localhost/spawn".into()));
+            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("cmux-tui:spawn-cwd:/spawn".into()));
             assert_eq!(snapshot_cwd(&term, Some("file:///spawn")), None);
         }
 

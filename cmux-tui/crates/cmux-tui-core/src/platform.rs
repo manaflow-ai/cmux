@@ -926,12 +926,11 @@ pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
     terminal_pwd_to_local_path(value)
 }
 
-pub const SNAPSHOT_RELATIVE_CWD_PREFIX: &str = "cmux-tui:relative-cwd:";
+pub const SNAPSHOT_SPAWN_CWD_PREFIX: &str = "cmux-tui:spawn-cwd:";
 
 pub fn snapshot_cwd_to_local_path(value: &str) -> Option<PathBuf> {
-    if let Some(relative) = value.strip_prefix(SNAPSHOT_RELATIVE_CWD_PREFIX) {
-        return (!relative.is_empty() && !relative.contains('\0'))
-            .then(|| PathBuf::from(relative));
+    if let Some(path) = value.strip_prefix(SNAPSHOT_SPAWN_CWD_PREFIX) {
+        return (!path.is_empty() && !path.contains('\0')).then(|| PathBuf::from(path));
     }
     terminal_pwd_to_local_path(value)
 }
@@ -1483,7 +1482,7 @@ mod tests {
         );
         assert_eq!(spawn_cwd_to_local_path("file:///tmp/hostless"), None);
         assert_eq!(
-            snapshot_cwd_to_local_path("cmux-tui:relative-cwd:subdir"),
+            snapshot_cwd_to_local_path("cmux-tui:spawn-cwd:subdir"),
             Some(PathBuf::from("subdir"))
         );
     }
