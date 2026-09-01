@@ -753,7 +753,7 @@ mod tests {
     #[test]
     fn newly_identified_processes_use_adaptive_acquisition_rechecks() {
         let start = Instant::now();
-        let entry = cached(start, true, Some(7));
+        let entry = cached_with_acquisition_start(start, start);
         assert!(!process_info_refresh_due(
             &entry,
             Some(7),
