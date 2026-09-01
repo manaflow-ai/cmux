@@ -147,7 +147,7 @@ Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `
 | --- | --- |
 | both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
-| only one supplied | Optional-size commands ignore the incomplete pair. `create-terminal` and `attach-surface` are strict exceptions: they return an error and require `cols` and `rows` together. |
+| only one supplied | Optional-size commands ignore the incomplete pair. `create-terminal`, `create-surface-with-receipt`, and `attach-surface` are strict exceptions: they return an error and require `cols` and `rows` together. |
 
 `resize-surface` requires both fields and clamps each to `1..10000`. Attached
 clients retain the report until release; an unattached one-shot report is
