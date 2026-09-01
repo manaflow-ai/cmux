@@ -1,5 +1,10 @@
 public import Foundation
 
+// Generated wire values contain only immutable strings; make that fact
+// explicit so the tolerant overlay can carry the legacy key list across
+// actor boundaries without changing the generated source.
+extension GrantVerificationKey: @unchecked Sendable {}
+
 // Hand-written OVERLAY models for the list-auth control-plane additions.
 //
 // The generated `CtlWireModels.swift` is owned by the schema pipeline and did
@@ -15,6 +20,12 @@ public import Foundation
 public struct IrxCtlDirectoryFact: Decodable, Equatable, Sendable {
     public struct Payload: Decodable, Equatable, Sendable {
         public var bindings: [Entry]
+        /// Legacy directory fields retained so the compatibility handler can
+        /// receive the complete pre-list-auth payload when strict decoding
+        /// fails on omitted lease fields.
+        public var grantVerificationKeys: [GrantVerificationKey]?
+        public var relayFleet: [String]?
+        public var routeContractVersion: Int?
         /// RFC3339 server stamp; absent against a pre-list-auth server.
         public var issuedAt: Date?
         public var ttlSeconds: Int?
@@ -23,6 +34,7 @@ public struct IrxCtlDirectoryFact: Decodable, Equatable, Sendable {
 
     public struct Entry: Decodable, Equatable, Sendable {
         public var endpointID: String
+        public var clientNamespace: String?
         public var deviceID: String?
         public var bindingID: String?
         public var instanceTag: String?
@@ -33,10 +45,12 @@ public struct IrxCtlDirectoryFact: Decodable, Equatable, Sendable {
         public var releaseTrack: String?
         public var capabilities: [String]?
         public var lastConfirmedAt: Date?
+        public var updatedAt: Date?
         public var identityGeneration: Int?
 
         enum CodingKeys: String, CodingKey {
             case endpointID = "endpointId"
+            case clientNamespace = "clientNamespace"
             case deviceID = "deviceId"
             case bindingID = "bindingId"
             case instanceTag = "instanceTag"
@@ -47,6 +61,7 @@ public struct IrxCtlDirectoryFact: Decodable, Equatable, Sendable {
             case releaseTrack = "releaseTrack"
             case capabilities = "capabilities"
             case lastConfirmedAt = "lastConfirmedAt"
+            case updatedAt = "updatedAt"
             case identityGeneration = "identityGeneration"
         }
     }

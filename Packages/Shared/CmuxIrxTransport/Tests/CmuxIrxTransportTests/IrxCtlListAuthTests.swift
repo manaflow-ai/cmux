@@ -141,6 +141,39 @@ struct IrxCtlListAuthWireTests {
         #expect(snapshot.ttlSeconds == IrxDeviceListSnapshot.defaultTTLSeconds)
     }
 
+    @Test func legacyDirectoryPayloadPreservesOldFrameFields() throws {
+        let json = Data(
+            """
+            {
+              "v": 1, "type": "directory", "rev": 3,
+              "payload": {
+                "routeContractVersion": 1,
+                "relayFleet": ["https://usw1.relay.cmux.dev/"],
+                "grantVerificationKeys": [{"alg":"EdDSA","keyId":"k1","publicKey":"pk1"}],
+                "bindings": [{
+                  "bindingId": "b-1",
+                  "clientNamespace": "com.cmuxterm.app",
+                  "deviceId": "d-1",
+                  "endpointId": "ccdd",
+                  "homeRelayUrl": "https://usw1.relay.cmux.dev/"
+                }]
+              }
+            }
+            """.utf8)
+        let fact = try Self.decoder.decode(IrxCtlDirectoryFact.self, from: json)
+        let receivedAt = Date(timeIntervalSince1970: 1_787_000_000)
+        let payload = IrxControlPlaneClient.legacyDirectoryPayload(
+            from: fact, receivedAt: receivedAt)
+        #expect(payload.bindings.count == 1)
+        #expect(payload.bindings[0].bindingID == "b-1")
+        #expect(payload.bindings[0].clientNamespace == "com.cmuxterm.app")
+        #expect(payload.bindings[0].homeRelayURL == "https://usw1.relay.cmux.dev/")
+        #expect(payload.grantVerificationKeys.count == 1)
+        #expect(payload.relayFleet == ["https://usw1.relay.cmux.dev/"])
+        #expect(payload.issuedAt == receivedAt)
+        #expect(payload.ttlSeconds == IrxDeviceListSnapshot.defaultTTLSeconds)
+    }
+
     @Test func currentFrameStampDecodesFromPayloadOrTopLevel() throws {
         let inPayload = Data(
             #"{"v":1,"type":"current","rev":9,"payload":{"issuedAt":"2026-08-29T10:00:00Z"}}"#

@@ -131,10 +131,26 @@ public actor IrxPeerEngine {
                 code: IrxCloseCode(rawValue: parkedCode) ?? .invalidGrant)
         }
         if explicit {
+            // An explicit replacement invalidates the old session before the
+            // new dial starts. Keeping it here after a failed replacement
+            // makes currentSession() return a zombie and suppresses every
+            // subsequent automatic dial.
+            let previous = session
+            session = nil
+            terminationWatcher?.cancel()
+            terminationWatcher = nil
             parkedCode = nil
             cooldownUntil = nil
             dialTask?.cancel()
             dialTask = nil
+            if let previous {
+                Task {
+                    await previous.connection.close(
+                        code: .explicitRedial,
+                        origin: .local
+                    )
+                }
+            }
         }
         if let dialTask {
             record("dial-joined", ["trigger": trigger])

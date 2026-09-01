@@ -177,6 +177,14 @@ struct IrxDeviceListStoreTests {
         #expect(a != b)
         #expect(a != c)
     }
+
+    @Test func scopeEncodingIsInjectiveAcrossDelimiterLikeValues() {
+        let first = IrxDeviceListStore.storageAccount(
+            accountID: "a-b", backendHost: "c")
+        let second = IrxDeviceListStore.storageAccount(
+            accountID: "a", backendHost: "b-c")
+        #expect(first != second)
+    }
 }
 
 @Suite("list judge")

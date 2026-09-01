@@ -119,6 +119,44 @@ public actor IrxControlPlaneClient {
         return decoder
     }()
 
+    /// Reconstruct the generated legacy payload from the tolerant overlay.
+    /// Older servers omit the lease fields, so `CTLDirectory` cannot decode
+    /// them directly. Keeping this bridge means the existing directory
+    /// consumer still receives every route and binding while the overlay
+    /// consumer applies list-auth defaults independently.
+    static func legacyDirectoryPayload(
+        from fact: IrxCtlDirectoryFact,
+        receivedAt: Date = Date()
+    ) -> CTLDirectoryPayload {
+        CTLDirectoryPayload(
+            bindings: fact.payload.bindings.map { entry in
+                Binding(
+                    appVersion: entry.appVersion,
+                    bindingID: entry.bindingID ?? "",
+                    capabilities: entry.capabilities,
+                    clientNamespace: entry.clientNamespace ?? "",
+                    deviceID: entry.deviceID,
+                    endpointID: entry.endpointID,
+                    homeRelayURL: entry.homeRelayURL,
+                    instanceTag: entry.instanceTag,
+                    lastConfirmedAt: entry.lastConfirmedAt,
+                    releaseTrack: entry.releaseTrack.flatMap(ReleaseTrack.init(rawValue:)),
+                    revoked: entry.revoked ?? false,
+                    status: entry.status.flatMap(Status.init(rawValue:)),
+                    updatedAt: entry.updatedAt
+                )
+            },
+            grantVerificationKeys: fact.payload.grantVerificationKeys ?? [],
+            issuedAt: fact.payload.issuedAt ?? receivedAt,
+            minimumSupportedVersion: fact.payload.minimumSupportedVersion.map {
+                PurpleMinimumSupportedVersion(ios: $0.ios, mac: $0.mac)
+            },
+            relayFleet: fact.payload.relayFleet ?? [],
+            routeContractVersion: fact.payload.routeContractVersion ?? 1,
+            ttlSeconds: fact.payload.ttlSeconds ?? IrxDeviceListSnapshot.defaultTTLSeconds
+        )
+    }
+
     public init(
         configuration: Configuration,
         tokenPair: @escaping @Sendable () async throws -> (access: String, refresh: String)?,
@@ -323,6 +361,9 @@ public actor IrxControlPlaneClient {
                 )
                 if let fact = try? Self.decoder.decode(CTLDirectory.self, from: data) {
                     await handlers.onDirectory(fact.payload)
+                } else {
+                    await handlers.onDirectory(
+                        Self.legacyDirectoryPayload(from: listFact))
                 }
                 for binding in listFact.payload.bindings {
                     if let relay = binding.homeRelayURL {

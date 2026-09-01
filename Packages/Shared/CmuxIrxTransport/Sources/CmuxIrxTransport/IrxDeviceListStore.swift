@@ -49,19 +49,15 @@ public actor IrxDeviceListStore {
         self.monotonicNow = monotonicNow
     }
 
-    /// The contract scope is `<accountID>|<backendHost>`; the development
-    /// FILE store only accepts `[A-Za-z0-9._-]` account names, so the scope
-    /// is normalized to that charset for both backends (one canonical key).
+    /// The contract scope is the ordered `(accountID, backendHost)` tuple. The
+    /// development FILE store only accepts `[A-Za-z0-9._-]` account names, so
+    /// encode each UTF-8 component as hex instead of replacing characters:
+    /// lossy normalization would let two scopes share a persisted lease.
     static func storageAccount(accountID: String, backendHost: String) -> String {
-        let raw = "\(accountID)|\(backendHost)"
-        return String(
-            raw.map { character in
-                character.isASCII
-                    && (character.isLetter || character.isNumber
-                        || ["-", ".", "_"].contains(character))
-                    ? character : "-"
-            }
-        )
+        func hex(_ value: String) -> String {
+            value.utf8.map { String(format: "%02x", $0) }.joined()
+        }
+        return "device-list-v2-\(hex(accountID))-\(hex(backendHost))"
     }
 
     /// Loads the persisted lease, re-anchored to the monotonic clock.
