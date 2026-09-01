@@ -792,6 +792,39 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     if source.bytes().any(|byte| byte == 0 || byte.is_ascii_control()) {
         anyhow::bail!("plugin git URL must not contain NUL or control characters");
     }
+
+    // Git receives this value as a process argument. Reject URL forms that
+    // can carry a password or token so credentials do not enter the process
+    // table, shell history, or Git's diagnostic output. SSH user names remain
+    // valid because `ssh://git@host/repo` is a normal key-based source.
+    if let Some(scheme_end) = source.find("://") {
+        let scheme = &source[..scheme_end];
+        let authority_start = scheme_end + 3;
+        let authority_end = source[authority_start..]
+            .find(['/', '?', '#'])
+            .map_or(source.len(), |offset| authority_start + offset);
+        let authority = &source[authority_start..authority_end];
+        let suffix = &source[authority_end..];
+        if suffix.contains(['?', '#']) {
+            anyhow::bail!("plugin git URL must not contain a query or fragment");
+        }
+        if let Some((userinfo, _host)) = authority.rsplit_once('@')
+            && (scheme.eq_ignore_ascii_case("http")
+                || scheme.eq_ignore_ascii_case("https")
+                || userinfo.contains([':', '%']))
+        {
+            anyhow::bail!("plugin git URL must not contain embedded credentials");
+        }
+    } else if let Some(at) = source.find('@') {
+        // Also cover scp-like sources such as `user:password@host:path`.
+        // A plain `git@host:path` remains valid.
+        let component_start = source[..at]
+            .rfind(['/', '\\'])
+            .map_or(0, |index| index + 1);
+        if source[component_start..at].contains(':') {
+            anyhow::bail!("plugin git URL must not contain embedded credentials");
+        }
+    }
     Ok(())
 }
 
