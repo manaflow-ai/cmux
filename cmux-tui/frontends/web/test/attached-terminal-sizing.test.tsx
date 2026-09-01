@@ -239,6 +239,14 @@ describe("attached terminal sizing", () => {
     };
     const client = {
       attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7n,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array(),
+          colors: {},
+        },
         { event: "detached", surface: 7n },
       ])),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
@@ -249,6 +257,24 @@ describe("attached terminal sizing", () => {
     render(<Harness client={client} />);
 
     await waitFor(() => expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n));
+
+    const terminal = terminalMocks.instances[0];
+    if (terminal === undefined) throw new Error("xterm terminal was not created");
+    const handler = terminal.customKeyEventHandler;
+    if (handler === undefined) throw new Error("xterm key handler was not registered");
+
+    // The stream first becomes writable, then detaches. A detached stream must
+    // stop accepting editing input while the React consumer is still mounted
+    // and before its cleanup runs.
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Backspace",
+      metaKey: true,
+    });
+    expect(handler(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(client.send).not.toHaveBeenCalled();
   });
 
   it("applies sparse palette overrides after replay and on color changes", async () => {
