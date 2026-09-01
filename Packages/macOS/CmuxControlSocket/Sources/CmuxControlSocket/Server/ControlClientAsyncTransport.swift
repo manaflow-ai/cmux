@@ -25,6 +25,8 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     /// The revocation source only needs its cancellation handle; keeping it
     /// separate from ``SourceBox`` avoids allocating a second read buffer for
     /// connections that listen for authorization revocation.
+    // @unchecked Sendable is safe because the source handle is touched only by
+    // the revocation source's serial utility queue and its cancellation path.
     private final class RevocationSourceBox: @unchecked Sendable {
         var source: (any DispatchSourceRead)?
     }
@@ -34,6 +36,9 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     struct BufferedByteAccounting: Sendable {
         var queued = 0
         var pending = 0
+        /// Records a terminal rejection when the shared byte budget is
+        /// exceeded; the read source is finished immediately afterward.
+        var didRejectForMaximum = false
     }
 
     private let socket: Int32
@@ -57,6 +62,9 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     /// Written by the drain callback (utility queue) and the reader task, so
     /// it needs its own gate. Internal visibility lets the package test target
     /// inspect the source-of-truth counters through `@testable import`.
+    // Lock carve-out: the read-source callback and the one owning reader task
+    // must reserve/move bytes atomically without an async hop at this low-level
+    // socket bridge. The lock never spans an await or protects parser work.
     internal let bufferedByteAccounting: OSAllocatedUnfairLock<BufferedByteAccounting>
     // The deadline task and the single reader task may finish/cancel on
     // different executors. This tiny gate protects only the active-limit bit;
@@ -95,10 +103,10 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         // count: `read(2)` may return arbitrarily short chunks (one per
         // readable event), so an element-count policy would close a valid
         // request long before the byte cap (128 one-byte chunks vs 16 MiB).
-        // The drain callback accounts every yielded byte against
-        // `maximumBufferedBytes` and fails the connection closed when a
-        // client pipelines past the cap; the stream itself is unbounded
-        // because the byte gate is what bounds it.
+        // The drain callback reserves every yielded byte against the shared
+        // stream-plus-parser `maximumBufferedBytes` budget and fails the
+        // connection closed when a client pipelines past the cap; the stream
+        // itself is unbounded because the byte gate is what bounds it.
         let stream = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         let streamContinuation = stream.continuation
         continuation = streamContinuation
@@ -382,9 +390,15 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             if count > 0 {
                 let accepted = bufferedByteAccounting.withLock { state -> Bool in
                     let (newQueued, queuedOverflowed) = state.queued.addingReportingOverflow(count)
-                    guard !queuedOverflowed else { return false }
+                    guard !queuedOverflowed else {
+                        state.didRejectForMaximum = true
+                        return false
+                    }
                     let (total, totalOverflowed) = newQueued.addingReportingOverflow(state.pending)
-                    guard !totalOverflowed, total <= maximumBufferedBytes else { return false }
+                    guard !totalOverflowed, total <= maximumBufferedBytes else {
+                        state.didRejectForMaximum = true
+                        return false
+                    }
                     state.queued = newQueued
                     return true
                 }

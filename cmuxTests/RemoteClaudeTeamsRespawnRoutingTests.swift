@@ -313,7 +313,13 @@ struct RemoteClaudeTeamsRespawnRoutingTests {
         ))
         #expect(plan.remoteCommand == "cd '/data00/it'\\''s here' && claude --agent-id t1@team")
         #expect(plan.rawCommand == "claude --agent-id t1@team")
-        #expect(plan.bridgeCommand.contains("ssh-pty-attach"))
+        #expect(
+            fixture.workspace.remotePTYAttachStartupCommand(
+                sessionID: plan.sessionID,
+                remoteCommand: plan.remoteCommand,
+                requireExisting: false
+            ).contains("ssh-pty-attach")
+        )
 
         let bare = try #require(fixture.workspace.remotePTYRespawnPlan(
             panelId: fixture.panelID,

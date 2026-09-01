@@ -28,17 +28,58 @@ extension RemoteSessionCoordinator {
     public func closePTYSession(sessionID: String, timeout: TimeInterval = 8.0) throws {
         let deadline = DispatchTime.now() + max(0, timeout)
         try runOnControllerQueue(timeout: timeout) {
-            guard self.daemonReady, self.proxyLease != nil else {
-                throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon is not ready",
-                ])
-            }
-            try self.proxyBroker.closePTY(
-                configuration: self.configuration,
-                sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            try self.closePTYSessionLocked(
+                sessionID: sessionID,
                 deadline: deadline
             )
         }
+    }
+
+    /// Closes one persistent PTY session without blocking the caller's
+    /// Swift-concurrency worker. The coordinator queue performs the legacy
+    /// synchronous RPC and resumes this operation when it completes.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - timeout: Maximum duration granted to the daemon-side close.
+    /// - Throws: The same readiness or daemon error as
+    ///   ``closePTYSession(sessionID:timeout:)``.
+    public func closePTYSessionAsync(
+        sessionID: String,
+        timeout: TimeInterval = 8.0
+    ) async throws {
+        let deadline = DispatchTime.now() + max(0, timeout)
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async { [self] in
+                do {
+                    try closePTYSessionLocked(
+                        sessionID: normalizedSessionID,
+                        deadline: deadline
+                    )
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func closePTYSessionLocked(
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws {
+        guard daemonReady, proxyLease != nil else {
+            throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon is not ready",
+            ])
+        }
+        try proxyBroker.closePTY(
+            configuration: configuration,
+            sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            deadline: deadline
+        )
     }
 
     /// Returns the serialized lifecycle decision for one persistent PTY session.

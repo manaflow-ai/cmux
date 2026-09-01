@@ -1,42 +1,17 @@
 import CmuxCore
 import CmuxRemoteSession
+import CmuxRemoteWorkspace
 import Foundation
-
-/// Identifies whether a terminal respawn may cross the remote PTY boundary.
-enum RemotePTYRespawnRouting: Equatable {
-    case local
-    case persistentSSH
-    case unsupportedRemote
-}
-
-/// The local launch payload and lifecycle identity for one remote respawn.
-struct RemotePTYRespawnPlan: Equatable {
-    let bridgeCommand: String
-    let sessionID: String
-    let previousSessionID: String?
-    let viewerWorkingDirectory: String
-    let rawCommand: String
-    /// The command actually delivered to the remote daemon: the raw command,
-    /// prefixed with a `cd` when the respawn carried an explicit remote
-    /// working directory.
-    let remoteCommand: String
-}
 
 @MainActor
 extension Workspace {
     /// Classifies a respawn target without treating a remote workspace's
     /// untracked/local panes as remote-owned.
     func remotePTYRespawnRouting(panelId: UUID) -> RemotePTYRespawnRouting {
-        guard isRemotePTYOwnedSurface(panelId) else { return .local }
-        guard let configuration = remoteConfiguration,
-              configuration.transport == .ssh,
-              configuration.terminalTransport == .ssh,
-              configuration.preserveAfterTerminalExit,
-              configuration.persistentDaemonSlot != nil,
-              !configuration.skipDaemonBootstrap else {
-            return .unsupportedRemote
-        }
-        return .persistentSSH
+        RemotePTYRespawnPlanner().routing(
+            isRemoteOwned: isRemotePTYOwnedSurface(panelId),
+            configuration: remoteConfiguration
+        )
     }
 
     /// Builds a remote-owned respawn payload while keeping the raw command out
@@ -49,41 +24,16 @@ extension Workspace {
         guard remotePTYRespawnRouting(panelId: panelId) == .persistentSSH else {
             return nil
         }
-        let trimmedCommand = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return nil }
-        // `respawn-pane -c <dir>` names a directory in the remote namespace:
-        // honor it on the daemon side rather than dropping it (the viewer's
-        // local cwd stays the home fallback either way).
-        let trimmedRemoteWorkingDirectory = remoteWorkingDirectory?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let remoteCommand: String
-        if let trimmedRemoteWorkingDirectory, !trimmedRemoteWorkingDirectory.isEmpty {
-            remoteCommand = "cd \(Self.shellSingleQuoted(trimmedRemoteWorkingDirectory)) && \(trimmedCommand)"
-        } else {
-            remoteCommand = trimmedCommand
-        }
-
-        // The parser accepts the stable `ssh-<workspace>-<panel>` shape. A
-        // fresh synthetic panel UUID gives every respawn a new daemon session
-        // while retaining workspace inference and relay-alias support.
-        let sessionID = Self.defaultSSHPTYSessionID(workspaceId: id, panelId: UUID())
-        let previousSessionID = remotePTYSessionIDForRespawnCleanup(panelId: panelId)
-        return RemotePTYRespawnPlan(
-            bridgeCommand: remotePTYAttachStartupCommand(
-                sessionID: sessionID,
-                remoteCommand: remoteCommand,
-                requireExisting: false
-            ),
-            sessionID: sessionID,
-            previousSessionID: previousSessionID,
-            viewerWorkingDirectory: Self.remotePTYViewerWorkingDirectory(),
-            rawCommand: trimmedCommand,
-            remoteCommand: remoteCommand
+        let sessionID = RemotePTYRespawnPlanner.defaultSessionID(
+            workspaceID: id,
+            panelID: UUID()
         )
-    }
-
-    private nonisolated static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        return RemotePTYRespawnPlanner().plan(
+            sessionID: sessionID,
+            rawCommand: rawCommand,
+            remoteWorkingDirectory: remoteWorkingDirectory,
+            previousSessionID: remotePTYSessionIDForRespawnCleanup(panelId: panelId)
+        )
     }
 
     /// Replaces a remote-owned panel with a local viewer for a fresh remote PTY.
@@ -109,10 +59,15 @@ extension Workspace {
         } else {
             persistedStartCommand = rawStartCommand
         }
+        let bridgeCommand = remotePTYAttachStartupCommand(
+            sessionID: plan.sessionID,
+            remoteCommand: plan.remoteCommand,
+            requireExisting: false
+        )
         guard let replacement = respawnTerminalSurface(
             panelId: panelId,
-            command: plan.bridgeCommand,
-            workingDirectory: plan.viewerWorkingDirectory,
+            command: bridgeCommand,
+            workingDirectory: Self.remotePTYViewerWorkingDirectory(),
             tmuxStartCommand: persistedStartCommand,
             focus: focus,
             waitAfterCommand: true,
@@ -177,38 +132,65 @@ extension Workspace {
             return
         }
         #endif
-        for (sessionID, owningConfiguration) in pendingRemotePTYSessionCleanups {
+        let pendingEntries = pendingRemotePTYSessionCleanups
+        var controllersByIdentity: [
+            String: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)
+        ] = [:]
+        for owner in remoteSessionCleanupControllers.values {
+            for key in owner.configuration.persistentPTYIdentityLookupKeys {
+                controllersByIdentity[key] = owner
+            }
+        }
+        if let remoteSessionController,
+           let currentConfiguration = remoteConfiguration {
+            for key in currentConfiguration.persistentPTYIdentityLookupKeys {
+                controllersByIdentity[key] = (
+                    controller: remoteSessionController,
+                    configuration: currentConfiguration
+                )
+            }
+        }
+
+        for (sessionID, owningConfiguration) in pendingEntries {
             guard remotePTYSessionCleanupTasksBySessionID[sessionID] == nil else { continue }
-            guard let controller = remotePTYSessionCleanupController(
-                matching: owningConfiguration
-            ) else {
+            var matchedOwner: (
+                controller: RemoteSessionCoordinator,
+                configuration: WorkspaceRemoteConfiguration
+            )?
+            for key in owningConfiguration.persistentPTYIdentityLookupKeys {
+                guard let candidate = controllersByIdentity[key],
+                      candidate.configuration.hasSamePersistentPTYIdentity(as: owningConfiguration) else {
+                    continue
+                }
+                matchedOwner = candidate
+                break
+            }
+            guard let matchedOwner else {
                 continue
             }
             pendingRemotePTYSessionCleanups.removeValue(forKey: sessionID)
-            // RemoteSessionCoordinator is queue-confined and explicitly
-            // `@unchecked Sendable`; this task performs only its synchronous,
-            // queue-bridged close operation and then reports back to the
-            // main actor.
-            let task = Task.detached(priority: .utility) { [weak self] in
+            // The coordinator's async close schedules the RPC on its own
+            // queue, so this task suspends instead of blocking a cooperative
+            // Swift-concurrency worker on the legacy synchronous bridge.
+            let task = Task {
+                @MainActor [weak self, controller = matchedOwner.controller, sessionID, owningConfiguration] in
                 let closeError: (any Error)?
                 do {
-                    try controller.closePTYSession(sessionID: sessionID)
+                    try await controller.closePTYSessionAsync(sessionID: sessionID)
                     closeError = nil
                 } catch {
                     closeError = error
                 }
-                await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    self.remotePTYSessionCleanupTasksBySessionID.removeValue(forKey: sessionID)
-                    guard closeError != nil else { return }
-                    let owningControllerIsLive =
-                        self.remoteControllerConnectionState == .connected &&
-                        self.remoteConfiguration?.hasSamePersistentPTYIdentity(
-                            as: owningConfiguration
-                        ) == true
-                    guard !owningControllerIsLive else { return }
-                    self.pendingRemotePTYSessionCleanups[sessionID] = owningConfiguration
-                }
+                guard let self else { return }
+                self.remotePTYSessionCleanupTasksBySessionID.removeValue(forKey: sessionID)
+                guard closeError != nil else { return }
+                let owningControllerIsLive =
+                    self.remoteControllerConnectionState == .connected &&
+                    self.remoteConfiguration?.hasSamePersistentPTYIdentity(
+                        as: owningConfiguration
+                    ) == true
+                guard !owningControllerIsLive else { return }
+                self.pendingRemotePTYSessionCleanups[sessionID] = owningConfiguration
             }
             remotePTYSessionCleanupTasksBySessionID[sessionID] = task
         }
@@ -235,18 +217,6 @@ extension Workspace {
         }
         guard isRemotePTYOwnedSurface(panelId) else { return nil }
         return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
-    }
-
-    private func remotePTYSessionCleanupController(
-        matching owningConfiguration: WorkspaceRemoteConfiguration
-    ) -> RemoteSessionCoordinator? {
-        if let remoteSessionController,
-           remoteConfiguration?.hasSamePersistentPTYIdentity(as: owningConfiguration) == true {
-            return remoteSessionController
-        }
-        return remoteSessionCleanupControllers.values.first {
-            $0.configuration.hasSamePersistentPTYIdentity(as: owningConfiguration)
-        }?.controller
     }
 
     private static func remotePTYViewerWorkingDirectory() -> String {
