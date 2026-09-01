@@ -254,7 +254,11 @@ async function proxyClaudeRequestWith(
     }
     if (upstream.status === 401) {
       refreshRetries++;
+      // The rejected response is never handed to the caller: drop its body
+      // and forget it so an exhausted pool answers no_usable_account, not a
+      // dead stream.
       await discardBody(upstream);
+      upstream = null;
       addCoderouterBreadcrumb(
         "refresh",
         "Refreshing rejected credential",
@@ -271,15 +275,14 @@ async function proxyClaudeRequestWith(
           expectedRevision: account.vaultRevision,
           force: true,
         });
-        if (refreshed.provider === "claude") {
-          upstream = await sendClaude(
-            target,
-            request,
-            forwardedHeaders,
-            bodyBytes,
-            refreshed,
-          );
-        }
+        if (refreshed.provider !== "claude") continue;
+        upstream = await sendClaude(
+          target,
+          request,
+          forwardedHeaders,
+          bodyBytes,
+          refreshed,
+        );
       } catch (error) {
         failureStage = "credential_refresh";
         reportCoderouterFailure("provider_refresh", error, {
@@ -294,6 +297,7 @@ async function proxyClaudeRequestWith(
       // surfacing its 401.
       if (upstream.status === 401) {
         await discardBody(upstream);
+        upstream = null;
         reportCoderouterFailure("provider_refresh", new Error("credential rejected after refresh"), {
           provider: "claude",
           status: 401,
@@ -305,16 +309,18 @@ async function proxyClaudeRequestWith(
     // 429: this account is out of quota; 529: Anthropic is overloaded for it.
     // Either way, cool the account down and let another one take the session.
     if (upstream.status === 429 || upstream.status === 529) {
-      await discardBody(upstream);
+      const limited = upstream;
+      await discardBody(limited);
+      upstream = null;
       reportCoderouterFailure(
         "provider_rate_limit",
         new Error("rate limited"),
         {
           provider: "claude",
-          status: upstream.status,
+          status: limited.status,
         },
       );
-      await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
+      await dependencies.cooldown(account.id, rateLimitDelay(limited.headers));
       continue;
     }
     break;

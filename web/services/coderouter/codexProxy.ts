@@ -202,8 +202,10 @@ async function proxyCodexRequestWith(
     }
     if (upstream.status === 401) {
       refreshRetries++;
-      // The rejected response is retried past; do not keep its stream alive.
+      // The rejected response is never handed to the caller: drop its body
+      // and forget it so an exhausted pool answers no_usable_account.
       await upstream.body?.cancel().catch(() => undefined);
+      upstream = null;
       addCoderouterBreadcrumb(
         "refresh",
         "Refreshing rejected credential",
@@ -220,13 +222,12 @@ async function proxyCodexRequestWith(
           expectedRevision: account.vaultRevision,
           force: true,
         });
-        if (refreshed.provider === "codex") {
-          upstream = await sendCodex(
-            request.clone(),
-            forwardedHeaders,
-            refreshed,
-          );
-        }
+        if (refreshed.provider !== "codex") continue;
+        upstream = await sendCodex(
+          request.clone(),
+          forwardedHeaders,
+          refreshed,
+        );
       } catch (error) {
         failureStage = "credential_refresh";
         reportCoderouterFailure("provider_refresh", error, {
@@ -237,7 +238,9 @@ async function proxyCodexRequestWith(
       }
     }
     if (upstream.status === 429) {
-      await upstream.body?.cancel().catch(() => undefined);
+      const limited = upstream;
+      await limited.body?.cancel().catch(() => undefined);
+      upstream = null;
       reportCoderouterFailure(
         "provider_rate_limit",
         new Error("rate limited"),
@@ -246,7 +249,7 @@ async function proxyCodexRequestWith(
           status: 429,
         },
       );
-      await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
+      await dependencies.cooldown(account.id, rateLimitDelay(limited.headers));
       continue;
     }
     break;

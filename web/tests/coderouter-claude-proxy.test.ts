@@ -256,6 +256,26 @@ describe("claude messages proxy", () => {
     expect(cooldowns).toEqual(["acct-1"]);
   });
 
+  test("a rate limit on the last account yields no_usable_account, never the discarded 429", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    upstreamStatuses = [429];
+    const response = await proxy(messagesRequest());
+    expect(response.status).toBe(503);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("no_usable_account");
+    expect(cooldowns).toEqual(["acct-1"]);
+  });
+
+  test("a 401 that survives the forced refresh on the last account yields no_usable_account", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    upstreamStatuses = [401, 401];
+    const response = await proxy(messagesRequest());
+    expect(response.status).toBe(503);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("no_usable_account");
+    expect(cooldownReasons).toEqual(["auth_rejected"]);
+  });
+
   test("returns no_usable_account when selection is exhausted", async () => {
     accountsToServe = [];
     const response = await proxy(messagesRequest());
