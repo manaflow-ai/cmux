@@ -1013,6 +1013,13 @@ impl PtyManager {
             opening.reservations.remove(pty_id);
             opening.cancellations.remove(&owner);
             opening.cancelled.insert(pty_id.to_owned(), owner);
+        } else if opening
+            .active_openings
+            .get(pty_id)
+            .is_some_and(|(active_owner, _)| active_owner == &owner)
+        {
+            opening.active_openings.remove(pty_id);
+            opening.cancelled.insert(pty_id.to_owned(), owner);
         }
     }
 
