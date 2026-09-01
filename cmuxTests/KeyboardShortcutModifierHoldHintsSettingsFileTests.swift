@@ -123,6 +123,43 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
     }
 
     @Test
+    func validSidebarShortcutHintStyleSurvivesMalformedColor() throws {
+        let defaults = UserDefaults.standard
+        let sidebar = SidebarCatalogSection()
+        try preservingDefaults(keys: [
+            sidebar.shortcutHintStyle.userDefaultsKey,
+            sidebar.shortcutHintColorHex.userDefaultsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("pill", forKey: sidebar.shortcutHintStyle.userDefaultsKey)
+            defaults.set("#112233", forKey: sidebar.shortcutHintColorHex.userDefaultsKey)
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "sidebar": {
+                "shortcutHintStyle": "bare",
+                "shortcutHintColor": "not-a-color"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: sidebar.shortcutHintStyle.userDefaultsKey) == "bare")
+            #expect(defaults.string(forKey: sidebar.shortcutHintColorHex.userDefaultsKey) == "#112233")
+        }
+    }
+
+    @Test
     func settingsFileStoreAppliesPaneChromeColorSettings() throws {
         let defaults = UserDefaults.standard
         let paneBorderKey = PaneChromeSettings.paneBorderColorKey
