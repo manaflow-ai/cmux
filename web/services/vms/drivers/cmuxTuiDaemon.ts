@@ -53,8 +53,38 @@ export const CMUX_CLOUD_LAYOUT: CmuxTuiHomeLayout = {
   volumeBackingPath: CMUX_CLOUD_HOME_VOLUME_BACKING_PATH,
 };
 
+/** Returns the durable cmux-tui binary path for a daemon home. */
 export function cmuxTuiBinaryPath(home: string): string {
   return `${home}/.cmux/bin/cmux-tui`;
+}
+
+/** Selects the durable home used by a layout-aware install or pin check. */
+function cmuxTuiInstallHomeSelector(layout: CmuxTuiHomeLayout): string {
+  const root = shellQuote("/root");
+  const backing = shellQuote(layout.volumeBackingPath);
+  const home = shellQuote(layout.home);
+  return (
+    `if mountpoint -q ${root} 2>/dev/null; then CMUX_TUI_HOME=${root}; ` +
+    `elif mountpoint -q ${backing} 2>/dev/null; then CMUX_TUI_HOME=${backing}; ` +
+    `else CMUX_TUI_HOME=${home}; fi`
+  );
+}
+
+/** Keeps the non-root daemon branch disabled when its bindfs home view is absent. */
+export function cmuxTuiUserUsableCondition(layout: CmuxTuiHomeLayout): string {
+  const { user, home, volumeBackingPath: backing } = layout;
+  return (
+    `command -v mountpoint >/dev/null 2>&1 && ` +
+    `(! mountpoint -q ${backing} 2>/dev/null || mountpoint -q ${home} 2>/dev/null) && ` +
+    `id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
+    `command -v sudo >/dev/null 2>&1 && ` +
+    `runuser -u ${user} -- test -w ${home} 2>/dev/null`
+  );
+}
+
+/** Detects a mounted persistent volume whose identity view needs recovery. */
+export function cmuxTuiHomeViewMissingCondition(layout: CmuxTuiHomeLayout): string {
+  return `mountpoint -q ${layout.volumeBackingPath} 2>/dev/null && ! mountpoint -q ${layout.home} 2>/dev/null`;
 }
 
 export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
@@ -145,7 +175,29 @@ export function resetCmuxTuiSourceCache(): void {
  * through the provider API on every cold create.
  */
 export function cmuxTuiInstallCommand(source: CmuxTuiSource, layout?: CmuxTuiHomeLayout): string {
-  const binaryPath = layout ? cmuxTuiBinaryPath(layout.home) : CMUX_TUI_BINARY_PATH;
+  if (layout) {
+    const selector = cmuxTuiInstallHomeSelector(layout);
+    const bin = '"$CMUX_TUI_BIN"';
+    const tmp = '"$CMUX_TUI_TMP"';
+    const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
+    const fetch =
+      `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
+      `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
+      `else wget -q -O ${tmp} ${shellQuote(source.url)}; fi`;
+    return [
+      selector,
+      `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`,
+      `CMUX_TUI_TMP="$CMUX_TUI_BIN.tmp"`,
+      `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
+      `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
+      `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
+      // The volume is already identity-mapped by bindfs. Chown only the nodes this
+      // install created, never the potentially large persistent state tree.
+      `if [ "$CMUX_TUI_HOME" != '/root' ]; then chown ${layout.user}:${layout.user} "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN" 2>/dev/null || true; fi`,
+      `${bin} --version`,
+    ].join(" && ");
+  }
+  const binaryPath = CMUX_TUI_BINARY_PATH;
   const bin = shellQuote(binaryPath);
   const tmp = shellQuote(`${binaryPath}.tmp`);
   const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
@@ -160,17 +212,19 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource, layout?: CmuxTuiHom
     `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ` +
       `${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
-    // Install runs as root (the provider control plane); the daemon and its state
-    // run as the layout user, so hand it the bin dir.
-    ...(layout
-      ? [`(chown -R ${layout.user}:${layout.user} ${shellQuote(`${layout.home}/.cmux`)} 2>/dev/null || true)`]
-      : []),
     `${bin} --version`,
   ].join(" && ");
 }
 
 /** True when the installed binary matches the manifest pin (exit 0 from this command). */
-export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
+export function cmuxTuiPinCheckCommand(source: CmuxTuiSource, layout?: CmuxTuiHomeLayout): string {
+  if (layout) {
+    return (
+      `${cmuxTuiInstallHomeSelector(layout)} && ` +
+      `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui" && ` +
+      `test -x "$CMUX_TUI_BIN" && printf '%s  %s\n' ${shellQuote(source.sha256)} "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1`
+    );
+  }
   return `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`;
 }
 
@@ -195,7 +249,7 @@ export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
  *    keeps the root daemon until it is resurrected onto the new mount path.
  *  - A machine where the user cannot actually use the home — no user or no
  *    runuser (stock Alpine base), or the bindfs identity view over the
- *    root-squashing volume failed to mount (the `test -w` probe) — falls back
+ *    root-squashing volume failed to mount (the mount guard) — falls back
  *    to a root daemon rather than crash-looping or serving broken shells.
  */
 export function cmuxTuiDaemonCommand(
@@ -208,10 +262,20 @@ export function cmuxTuiDaemonCommand(
   }
   const { user, home, volumeBackingPath: backing } = layout;
   const bin = cmuxTuiBinaryPath(home);
+  const backingBin = cmuxTuiBinaryPath(backing);
   const legacyBin = cmuxTuiBinaryPath("/root");
+  const usable = cmuxTuiUserUsableCondition(layout);
+  const backingInvocation =
+    `cd ${backing} && if [ -x ${backingBin} ]; then exec env HOME=${backing} TERM=xterm-256color ${backingBin} ${args}; ` +
+    `elif [ -x ${legacyBin} ]; then exec env HOME=${backing} TERM=xterm-256color ${legacyBin} ${args}; ` +
+    `else exec env HOME=${backing} TERM=xterm-256color ${backingBin} ${args}; fi; `;
+  const rootFallbackInvocation =
+    `if mountpoint -q ${backing} 2>/dev/null; then ${backingInvocation}` +
+    `else cd ${home} && exec env HOME=${home} TERM=xterm-256color ${bin} ${args}; fi`;
   return (
     `if mountpoint -q /root 2>/dev/null; then ` +
-    `cd /root && if [ -x ${bin} ]; then exec env HOME=/root TERM=xterm-256color ${bin} ${args}; ` +
+    `cd /root && if [ -x ${legacyBin} ]; then exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; ` +
+    `elif [ -x ${bin} ]; then exec env HOME=/root TERM=xterm-256color ${bin} ${args}; ` +
     `else exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; fi; ` +
     // The volume is mounted but the identity view over it is not: home on the
     // backing path as root, so sessions and daemon state stay on persistent
@@ -222,15 +286,15 @@ export function cmuxTuiDaemonCommand(
     // findable on the machine instead of silent.
     // Overwrite-latest, not append: a crash-looping daemon must not grow this file.
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s view-missing\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; } 2>/dev/null; ` +
-    `cd ${backing} && exec env HOME=${backing} TERM=xterm-256color ${bin} ${args}; ` +
+    backingInvocation +
     // A cmux session is promised passwordless sudo; without the binary it would be
     // trapped unprivileged, so fall back to a (breadcrumbed) root session until
     // the driver's sudo heal lands and the next daemon start re-evaluates.
-    `elif id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && runuser -u ${user} -- test -w ${home} 2>/dev/null; then ` +
+    `elif ${usable}; then ` +
     `cd ${home} && exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash TERM=xterm-256color ${bin} ${args}; ` +
     `else ` +
     `{ mkdir -p /etc/cmux 2>/dev/null; printf '%s user-unusable\\n' "$(date -u +%FT%TZ)" > /etc/cmux/root-session-fallback; } 2>/dev/null; ` +
-    `cd ${home} && exec env HOME=${home} TERM=xterm-256color ${bin} ${args}; fi`
+    `${rootFallbackInvocation}; fi`
   );
 }
 

@@ -46,11 +46,11 @@ touch "/home/cua/.config/google-chrome/First Run"
 chown cua:cua /home/cua /home/cua/.config /home/cua/.config/google-chrome \
   "/home/cua/.config/google-chrome/First Run"
 
-# The persistent home volume mounts over /home/cmux root-owned; hand the mount
-# point itself to the work user so its first shell can write. The one-time
-# recursive ownership migration of pre-existing volume contents is the driver's
-# job (CMUX_CLOUD_USER_SETUP_COMMAND), not boot's — same no-unbounded-walk rule
-# as /home/cua above.
+# The persistent home volume is mounted at /cmux/home. The driver later presents
+# it at /home/cmux through bindfs, so this boot chown only prepares the disposable
+# rootfs home for machines without that identity view. The one-time recursive
+# ownership migration of pre-existing volume contents is the driver's job
+# (CMUX_CLOUD_USER_SETUP_COMMAND), not boot's.
 if id -u cmux >/dev/null 2>&1; then
   mkdir -p /home/cmux
   chown cmux:cmux /home/cmux 2>/dev/null || true

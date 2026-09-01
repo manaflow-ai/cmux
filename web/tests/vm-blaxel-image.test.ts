@@ -118,7 +118,7 @@ describe("Blaxel baked image template", () => {
     // The volume lives at /cmux/home; this boot chown only prepares a disposable
     // rootfs home for machines without the bindfs view, and is never recursive.
     expect(entrypoint).toContain("persistent home volume is mounted at /cmux/home");
-    expect(entrypoint).toContain("only prepares the disposable rootfs home");
+    expect(entrypoint).toContain("rootfs home for machines without that identity view");
     expect(entrypoint).toContain("chown cmux:cmux /home/cmux");
   });
 

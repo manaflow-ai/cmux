@@ -4,6 +4,7 @@ import {
   cmuxTuiDaemonCommand,
   cmuxTuiPreviewBranded,
   cmuxTuiInstallCommand,
+  cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
   parseCmuxTuiManifest,
   parseEnrollmentInvitationUri,
@@ -89,12 +90,14 @@ describe("cmux-tui install and daemon commands", () => {
 
   test("with the cloud layout the install lands in the cmux home and hands the bin dir to the user", () => {
     const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null }, CMUX_CLOUD_LAYOUT);
-    expect(command).toContain("mkdir -p '/home/cmux/.cmux/bin'");
-    expect(command).toContain(`'${SHA}' '/home/cmux/.cmux/bin/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
-    expect(command).toContain("ln -sfn '/home/cmux/.cmux/bin/cmux-tui' /usr/local/bin/cmux-tui");
-    expect(command).toContain("chown -R cmux:cmux '/home/cmux/.cmux'");
-    expect(command.endsWith("'/home/cmux/.cmux/bin/cmux-tui' --version")).toBe(true);
-    expect(command).not.toContain("/root/.cmux");
+    expect(command).toContain("elif mountpoint -q '/cmux/home'");
+    expect(command).toContain('CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"');
+    expect(command).toContain(`'${SHA}' \"$CMUX_TUI_BIN\" | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" /usr/local/bin/cmux-tui');
+    expect(command).toContain('chown cmux:cmux "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN"');
+    expect(command).not.toContain("chown -R");
+    expect(command).toContain('"$CMUX_TUI_BIN" --version');
+    expect(command).toContain("CMUX_TUI_HOME='/home/cmux'");
   });
 
   test("with the cloud layout the daemon drops to the cmux user, never for pre-layout volumes", () => {
@@ -113,13 +116,20 @@ describe("cmux-tui install and daemon commands", () => {
     // Volume mounted but the identity view missing (bindfs failed): home on the
     // persistent backing path as root, never the writable-but-disposable rootfs dir.
     expect(command).toContain("elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then ");
-    expect(command).toContain("cd /cmux/home && exec env HOME=/cmux/home TERM=xterm-256color /cmux/home/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("cd /cmux/home && if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color /cmux/home/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("elif [ -x /root/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
     // No user, no runuser, or an unusable home (bindfs view missing over the
     // root-squashing volume): fall back to root instead of crash-looping.
     expect(command).toContain(
       "id -u cmux >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && runuser -u cmux -- test -w /home/cmux 2>/dev/null",
     );
+    expect(command).toContain("(! mountpoint -q /cmux/home 2>/dev/null || mountpoint -q /home/cmux 2>/dev/null)");
     expect(command).toContain("cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
+    // If the work user is unavailable even after setup, keep root fallback state on
+    // the mounted volume instead of the disposable /home/cmux rootfs directory.
+    expect(command).toContain(
+      "if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home && if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home",
+    );
     // Both root fallbacks leave a breadcrumb so the degraded state is findable.
     expect(command.split("/etc/cmux/root-session-fallback").length - 1).toBe(2);
   });
@@ -133,6 +143,16 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("CMUX_TUI_HOME='/cmux/home'");
     expect(command).toContain('CMUX_TUI_BIN=\"$CMUX_TUI_HOME/.cmux/bin/cmux-tui\"');
     expect(command).toContain('CMUX_TUI_TMP=\"$CMUX_TUI_BIN.tmp\"');
+  });
+
+  test("pins the binary in the same persistent location used by layout installs", () => {
+    const command = cmuxTuiPinCheckCommand(
+      { url: URL, sha256: SHA, commit: COMMIT, builtAt: null },
+      CMUX_CLOUD_LAYOUT,
+    );
+    expect(command).toContain("elif mountpoint -q '/cmux/home'");
+    expect(command).toContain('CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"');
+    expect(command).toContain('test -x "$CMUX_TUI_BIN"');
   });
 });
 

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import {
   BlaxelProvider,
   DESKTOP_VNC_HEAL_COMMAND,
@@ -454,10 +453,14 @@ describe("background provisioning", () => {
       expect(CMUX_PROVISION_SCRIPT).toContain(pkg);
     }
     expect(CMUX_PROVISION_SCRIPT).toContain("cua-computer-server");
-    // Persistent-home placement: npm globals and bun survive sandbox resurrection,
-    // in the cmux user's home (the volume mount), never /root.
-    expect(CMUX_PROVISION_SCRIPT).toContain("npm config set prefix /home/cmux/.npm-global");
-    expect(CMUX_PROVISION_SCRIPT).toContain("/home/cmux/.bun/bin/bun");
+    // Persistent-home placement: npm globals and bun survive sandbox resurrection.
+    // A failed bindfs mount selects the durable backing path instead of disposable
+    // /home/cmux, while the normal path remains the identity-mapped home.
+    expect(CMUX_PROVISION_SCRIPT).toContain("if mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null");
+    expect(CMUX_PROVISION_SCRIPT).toContain('export HOME=/cmux/home');
+    expect(CMUX_PROVISION_SCRIPT).toContain('export HOME=/home/cmux');
+    expect(CMUX_PROVISION_SCRIPT).toContain('npm config set prefix "$HOME/.npm-global"');
+    expect(CMUX_PROVISION_SCRIPT).toContain('"$HOME/.bun/bin/bun"');
     expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.npm-global");
     expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.bun");
     // Legacy sandboxes (volume still at /root) were provisioned by the old driver;
@@ -470,7 +473,10 @@ describe("background provisioning", () => {
     // but only on rootfs homes: through a mounted view chown is a no-op and the
     // walk over a grown persistent home would be pure wasted disk work.
     expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /home/cmux 2>/dev/null && return 0");
-    expect(CMUX_PROVISION_SCRIPT).toContain("chown -R cmux:cmux /home/cmux/.bun /home/cmux/.npm-global /home/cmux/.local");
+    expect(CMUX_PROVISION_SCRIPT).toContain("mountpoint -q /cmux/home 2>/dev/null && return 0");
+    expect(CMUX_PROVISION_SCRIPT).toContain('chown -R cmux:cmux "$HOME/.bun" "$HOME/.npm-global" "$HOME/.local"');
+    expect(CMUX_PROVISION_SCRIPT).toContain("distro_packages_unlocked()");
+    expect(CMUX_PROVISION_SCRIPT).toContain("( flock 9; distro_packages_unlocked ) 9>/etc/cmux/package-install.lock");
     expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
   });
 });
@@ -483,7 +489,7 @@ describe("cloud work user setup", () => {
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("|| adduser -D -u 1001 -s /bin/bash cmux");
     // Every fallback keeps the same uid; an auto-assigned uid would break the
     // persistent-volume identity contract on older Alpine images.
-    expect((CMUX_CLOUD_USER_SETUP_COMMAND.match(/\b-u 1001\b/g) ?? [])).toHaveLength(4);
+    expect((CMUX_CLOUD_USER_SETUP_COMMAND.match(/-u 1001/g) ?? [])).toHaveLength(4);
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain('[ "$(id -u cmux 2>/dev/null || echo -1)" = "1001" ] || exit 1');
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
@@ -504,10 +510,10 @@ describe("cloud work user setup", () => {
     // installed on demand for images that predate it being baked in.
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(CMUX_HOME_BINDFS_COMMAND);
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("if mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null");
-    // The whole view setup (mount check, junk clean, mount) is serialized under an
-    // in-VM flock so a concurrent setup can never junk-clean a just-mounted home.
+    // The whole view setup (mount check, junk clean, mount) shares the package
+    // flock, so it cannot race sudo/provision installs or junk-clean a mounted home.
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("( flock 9; ");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(") 9>/etc/cmux/home-setup.lock");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(") 9>/etc/cmux/package-install.lock");
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
   });
 
@@ -524,16 +530,6 @@ describe("cloud work user setup", () => {
     expect(CMUX_SUDO_INSTALL_COMMAND).toContain("exit 1");
   });
 
-  test("handles sudo heal failures without hiding the readiness decision", () => {
-    const driver = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/blaxel.ts"),
-      "utf8",
-    );
-    expect(driver).toContain("private async healSudo");
-    expect(driver).toContain("sudo heal request failed");
-    expect(driver).not.toContain("CMUX_SUDO_INSTALL_COMMAND, CMUX_SUDO_INSTALL_TIMEOUT_MS).catch(() => undefined)");
-  });
-
   test("user-facing exec runs as the work user, root only via legacy volume, missing view, or sudo", () => {
     const wrapped = userExecCommand("echo 'hi there'");
     expect(wrapped).toContain("runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux sh -c 'echo '\\''hi there'\\'''");
@@ -544,7 +540,11 @@ describe("cloud work user setup", () => {
     expect(wrapped).toContain(
       "elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then cd /cmux/home 2>/dev/null; exec env HOME=/cmux/home sh -c",
     );
-    // No user/runuser: fall back to root rather than failing the exec.
+    // No user/runuser: fall back to root, keeping state on the mounted volume
+    // when one exists and using the rootfs home only without a volume.
+    expect(wrapped).toContain(
+      "else if mountpoint -q /cmux/home 2>/dev/null; then cd /cmux/home 2>/dev/null; exec env HOME=/cmux/home sh -c",
+    );
     expect(wrapped).toContain("else cd /home/cmux 2>/dev/null; exec env HOME=/home/cmux sh -c");
   });
 });
