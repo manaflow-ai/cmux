@@ -1301,7 +1301,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     /// Descriptor-backed URL used for reads of an artifact sidebar file.
     var readURL: URL {
-        artifactReadCopyURL ?? fileURL
+        if let artifactReadCopyURL {
+            return artifactReadCopyURL
+        }
+        // A refresh removes the materialized copy before asynchronously
+        // revalidating the pathname. Keep in-process readers on the original
+        // descriptor during that interval; falling back to `fileURL` would
+        // reopen a path that may have been replaced or symlinked elsewhere.
+        if let artifactFile {
+            return artifactFile.readURL
+        }
+        return fileURL
     }
 
     /// Artifact sidebar previews are read-only so a replaced pathname cannot
@@ -1373,6 +1383,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 try? FileManager.default.removeItem(at: artifactReadCopyURL)
                 self.artifactReadCopyURL = nil
             }
+            // Native preview sessions may receive an unrelated SwiftUI update
+            // while the replacement copy is being staged. Hide them until the
+            // newly validated copy is ready so they cannot consume a stale URL.
+            isFileUnavailable = true
             guard artifactRoot != nil else {
                 isFileUnavailable = true
                 return nil

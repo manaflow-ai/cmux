@@ -161,6 +161,41 @@ struct ArtifactHTMLPreviewSecurityTests {
         #expect(try String(contentsOf: asyncTemporary, encoding: .utf8) == "authorized")
     }
 
+    @Test("File preview panels keep descriptor reads after copy teardown")
+    @MainActor
+    func filePreviewPanelDoesNotFallbackToReplacedPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-panel-open-\(UUID().uuidString)", isDirectory: true)
+        let outside = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-panel-outside-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: outside)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("artifact.txt", isDirectory: false)
+        let outsideSource = outside.appendingPathComponent("artifact.txt", isDirectory: false)
+        try "authorized".write(to: source, atomically: true, encoding: .utf8)
+        try "outside".write(to: outsideSource, atomically: true, encoding: .utf8)
+        let opened = try #require(
+            ArtifactSidebarFileAccess().openedFile(for: source, artifactRoot: root)
+        )
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: opened.sourceURL.path,
+            startFileWatcher: false,
+            artifactFile: opened
+        )
+        panel.close()
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.createSymbolicLink(at: source, withDestinationURL: outsideSource)
+
+        #expect(panel.readURL == opened.readURL)
+        #expect(try String(contentsOf: panel.readURL, encoding: .utf8) == "authorized")
+    }
+
     @Test("Concurrent descriptor previews keep independent offsets and stay bounded")
     func concurrentDescriptorPreviewsStayBounded() async throws {
         let root = FileManager.default.temporaryDirectory
