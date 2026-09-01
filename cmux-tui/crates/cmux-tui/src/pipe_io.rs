@@ -528,4 +528,29 @@ mod tests {
         let unexpected = anyhow::anyhow!("attach capability negotiation failed");
         assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::DaemonLost);
     }
+
+    #[test]
+    fn public_remote_diagnostics_use_a_stable_code_and_hide_server_text() {
+        let error = crate::session::test_remote_rejected_error_with_message(
+            "sensitive remote path /Users/example/private",
+        );
+        let payload = public_error_payload("resize", 80, 24, &error);
+        assert_eq!(payload["diag"]["resize"]["cols"], 80);
+        assert_eq!(payload["diag"]["resize"]["rows"], 24);
+        assert_eq!(
+            payload["diag"]["resize"]["error_code"],
+            REMOTE_OPERATION_FAILED_CODE
+        );
+        assert_eq!(payload["diag"]["resize"]["error"], "remote operation failed");
+        assert!(!payload.to_string().contains("sensitive remote path"));
+    }
+
+    #[test]
+    fn public_local_diagnostics_remain_generic() {
+        let error = anyhow::anyhow!("local detail /private/fixture");
+        let payload = public_error_payload("claim", 0, 0, &error);
+        assert_eq!(payload["diag"]["claim"]["error_code"], LOCAL_OPERATION_FAILED_CODE);
+        assert_eq!(payload["diag"]["claim"]["error"], "operation failed");
+        assert!(!payload.to_string().contains("local detail"));
+    }
 }
