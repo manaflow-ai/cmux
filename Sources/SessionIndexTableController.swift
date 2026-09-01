@@ -60,6 +60,11 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     private let rowHeightCalculator = SessionIndexTableRowHeightCalculator()
     private let popoverPresenter: SessionIndexTablePopoverPresenter
     private var scrollBoundsObserver: NSObjectProtocol?
+    /// Row identity captured at `didAdd` time. During virtualization,
+    /// `didRemove` may arrive after the row has been detached and its numeric
+    /// index may already refer to a different snapshot; the object identity
+    /// keeps dismissal tied to the row AppKit actually recycled.
+    private var rowIDsByView: [ObjectIdentifier: SessionIndexTableRowID] = [:]
     private var isApplyingRows = false
     private lazy var mutationScheduler = SessionIndexTableMutationScheduler(
         applyFlush: { [weak self] in self?.flushApply($0) }
@@ -215,6 +220,7 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             NotificationCenter.default.removeObserver(scrollBoundsObserver)
             self.scrollBoundsObserver = nil
         }
+        rowIDsByView.removeAll()
         popoverPresenter.dismiss()
     }
 
@@ -316,6 +322,7 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         guard let rowIndex = rows.firstIndex(where: {
             $0.id == .section(presentation.identity.sectionKey)
         }) else {
+            dismissPresentedPopoverIfAnchorDisappeared(for: presentation)
             popoverPresenter.dismiss()
             return
         }
@@ -324,9 +331,44 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
             row: rowIndex,
             makeIfNecessary: false
         ) as? SessionIndexTableCellView else {
+            // A virtualized table can remove the section cell without
+            // delivering `didRemove` until a later layout pass. Treat the
+            // missing realized anchor as the authoritative visibility signal
+            // so a preview never lingers at its old screen position.
+            dismissPresentedPopoverIfAnchorDisappeared(for: presentation)
+            return
+        }
+
+        // Transcript rows already own a native, row-sized drag source view.
+        // Reuse that view as the popover's positioning view so AppKit tracks
+        // the exact session row through scrolls and table virtualization. The
+        // geometry snapshot remains the fallback for section-level "Show
+        // more" popovers, whose button does not have a drag source.
+        if case .transcript = presentation.identity {
+            guard let anchorView = cell.popoverAnchorView(for: presentation.identity),
+                  anchorView.window != nil else {
+                // Never fall back to the section's cached geometry for a
+                // transcript. A transiently missing native row anchor means
+                // the clicked session is not currently realized; using the
+                // stale section rectangle would strand the preview away from
+                // the session until the next scroll.
+                dismissPresentedPopoverIfAnchorDisappeared(for: presentation)
+                return
+            }
+            let anchorOwnerView = table.rowView(
+                atRow: rowIndex,
+                makeIfNecessary: false
+            ) ?? cell.superview ?? cell
+            popoverPresenter.reconcile(
+                presentation,
+                relativeTo: anchorView.bounds,
+                of: anchorView,
+                ownedBy: anchorOwnerView
+            )
             return
         }
         guard let anchorRectInCell = cell.popoverAnchorRect(for: presentation.identity) else {
+            dismissPresentedPopoverIfAnchorDisappeared(for: presentation)
             return
         }
         // Section cells host the entire group, while the selected session may
@@ -336,16 +378,35 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
         // AppKit see an offscreen positioning rect and fall back to centering
         // the popover, which disconnects the transcript from its row.
         let anchorRect = cell.convert(anchorRectInCell, to: table)
-        // NSTableView reports recycling through the row view itself. Retain
-        // that exact owner so `didRemove` can dismiss deterministically even
-        // after AppKit has detached the cell from its hierarchy.
-        let anchorOwnerView = cell.superview ?? cell
+        // NSTableView reports recycling through the row view itself. Ask the
+        // table for that exact instance instead of inferring it from the
+        // cell's current superview (AppKit can briefly reparent a cell while
+        // it is being reused). Retaining the row owner lets `didRemove`
+        // dismiss deterministically even after AppKit detaches it.
+        let anchorOwnerView = table.rowView(
+            atRow: rowIndex,
+            makeIfNecessary: false
+        ) ?? cell.superview ?? cell
         popoverPresenter.reconcile(
             presentation,
             relativeTo: anchorRect,
             of: table,
             ownedBy: anchorOwnerView
         )
+    }
+
+    private func dismissPresentedPopoverIfAnchorDisappeared(
+        for presentation: SessionIndexTablePopoverPresentation
+    ) {
+        guard popoverPresenter.isPopoverShown,
+              popoverPresenter.presentedIdentity == presentation.identity else {
+            return
+        }
+        if isApplyingRows {
+            popoverPresenter.dismiss()
+        } else {
+            popoverPresenter.dismissAndNotify()
+        }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -382,12 +443,38 @@ final class SessionIndexTableController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        if rows.indices.contains(row) {
+            rowIDsByView[ObjectIdentifier(rowView)] = rows[row].id
+        }
         guard !isApplyingRows else { return }
         reconcilePresentation(in: tableView)
     }
 
     func tableView(_ tableView: NSTableView, didRemove rowView: NSTableRowView, forRow row: Int) {
-        guard popoverPresenter.isAnchored(in: rowView) else { return }
+        let removedRowID = rowIDsByView.removeValue(forKey: ObjectIdentifier(rowView))
+        let removedPresentedSection = {
+            guard let removedRowID,
+                  let presentedIdentity = popoverPresenter.presentedIdentity else {
+                return false
+            }
+            return removedRowID == .section(presentedIdentity.sectionKey)
+        }()
+        // A scroll-only recycle can arrive without a `didAdd` pairing (some
+        // AppKit releases recycle the row view directly). While the table
+        // snapshot is stable, the delegate's row index is still an exact
+        // identity fallback; use it only for the currently presented section.
+        let removedSnapshotSection = {
+            guard rows.indices.contains(row),
+                  let presentedIdentity = popoverPresenter.presentedIdentity else {
+                return false
+            }
+            return rows[row].id == .section(presentedIdentity.sectionKey)
+        }()
+        guard removedPresentedSection
+                || removedSnapshotSection
+                || popoverPresenter.isAnchored(in: rowView) else {
+            return
+        }
         if isApplyingRows {
             popoverPresenter.dismiss()
         } else {

@@ -295,6 +295,7 @@ final class SessionIndexStore: ObservableObject {
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
+    private var liveIndexObserver: NSObjectProtocol? = nil
 
     init(snapshotLoader: SessionIndexSnapshotLoader = SessionIndexSnapshotLoader()) {
         self.snapshotLoader = snapshotLoader
@@ -307,11 +308,27 @@ final class SessionIndexStore: ObservableObject {
         self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .recency
         let storedSort = UserDefaults.standard.string(forKey: Self.recencySortKey)
         self.recencySort = VaultSessionSort(rawValue: storedSort ?? "") ?? .lastActivity
+        liveIndexObserver = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: SharedLiveAgentIndex.shared,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshLiveSessionKeys()
+            }
+        }
     }
 
-    /// Re-derives `liveSessionKeys` from the shared live agent index. Uses the
-    /// cached index and lets the shared cache schedule its own refresh, so this
-    /// is cheap enough to call from `reload()` and grouping changes.
+    deinit {
+        if let liveIndexObserver {
+            NotificationCenter.default.removeObserver(liveIndexObserver)
+        }
+    }
+
+    /// Projects the authoritative shared live-agent index into the immutable
+    /// key snapshot consumed by recency sections. The notification observer
+    /// above refreshes this projection whenever the owner publishes a new
+    /// index, while reload/grouping changes still seed it synchronously.
     func refreshLiveSessionKeys() {
         let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
         let next = VaultLiveSessionKeys.runningKeys(in: index)
@@ -1239,11 +1256,27 @@ final class SessionIndexStore: ObservableObject {
     /// report failures (e.g. SQL prepare errors when an agent bumps its
     /// schema) without requiring the helpers to throw across actor boundaries.
     final class ErrorBag: @unchecked Sendable {
+        private static let logger = Logger(
+            subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+            category: "SessionIndexSearch"
+        )
+        static let genericProviderFailure = String(
+            localized: "sessionIndex.search.providerFailure",
+            defaultValue: "Some session history could not be searched"
+        )
         private let lock = NSLock()
         private var messages: [String] = []
         func add(_ msg: String) {
             lock.lock(); defer { lock.unlock() }
-            messages.append(msg)
+            if !messages.contains(msg) {
+                messages.append(msg)
+            }
+        }
+        /// Records a private diagnostic while exposing only a stable product
+        /// message to the UI/CLI response.
+        func addSafe(diagnostic: String) {
+            Self.logger.error("Session search provider failure: \(diagnostic, privacy: .private)")
+            add(Self.genericProviderFailure)
         }
         func snapshot() -> [String] {
             lock.lock(); defer { lock.unlock() }
@@ -1263,7 +1296,21 @@ final class SessionIndexStore: ObservableObject {
         limit: Int
     ) async -> SearchOutcome {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let needle = trimmed.lowercased()
+        let parsedQuery = VaultSessionSearchQuery.parse(trimmed)
+        var seenNeedles: Set<String> = []
+        let orderedNeedles = parsedQuery.textTerms
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs < rhs
+            }
+            .filter { seenNeedles.insert($0).inserted }
+        // Keep transcript fan-out bounded just like global Vault search. The
+        // longest terms are the most selective; intersecting their matches
+        // preserves AND semantics for normal multi-term queries instead of
+        // requiring the exact joined phrase.
+        let needles = orderedNeedles.isEmpty
+            ? [""]
+            : Array(orderedNeedles.prefix(Self.globalSearchMaxTranscriptTerms))
         let bag = ErrorBag()
         #if DEBUG
         let totalStart = ProcessInfo.processInfo.systemUptime
@@ -1272,7 +1319,60 @@ final class SessionIndexStore: ObservableObject {
             cmuxDebugLog("session.search.total ms=\(String(format: "%.0f", totalMs)) needle=\"\(trimmed.prefix(20))\" offset=\(offset) limit=\(limit) errors=\(bag.snapshot().count)")
         }
         #endif
-        let entries: [SessionEntry]
+        let safeOffset = max(0, offset)
+        let safeLimit = max(0, limit)
+        let target = min(Self.searchMaxFiles, safeOffset + safeLimit)
+        guard target > 0 else {
+            return SearchOutcome(entries: [], errors: [])
+        }
+
+        var resultIDsByTerm: [Set<String>] = []
+        var entriesByID: [String: SessionEntry] = [:]
+        for needle in needles {
+            guard !Task.isCancelled else {
+                return SearchOutcome(entries: [], errors: [])
+            }
+            let termEntries = await searchSessionsForNeedle(
+                needle,
+                scope: scope,
+                limit: target,
+                errorBag: bag
+            )
+            guard !Task.isCancelled else {
+                return SearchOutcome(entries: [], errors: [])
+            }
+            var termIDs: Set<String> = []
+            for entry in termEntries where parsedQuery.matchesOperators(entry) {
+                termIDs.insert(entry.id)
+                if let existing = entriesByID[entry.id] {
+                    if entry.modified > existing.modified { entriesByID[entry.id] = entry }
+                } else {
+                    entriesByID[entry.id] = entry
+                }
+            }
+            resultIDsByTerm.append(termIDs)
+        }
+
+        let matchedIDs = resultIDsByTerm.dropFirst().reduce(resultIDsByTerm.first ?? []) {
+            $0.intersection($1)
+        }
+        let entries = matchedIDs.compactMap { entriesByID[$0] }
+            .sorted {
+                if $0.modified != $1.modified { return $0.modified > $1.modified }
+                return $0.id < $1.id
+            }
+        return SearchOutcome(
+            entries: Array(entries.dropFirst(safeOffset).prefix(safeLimit)),
+            errors: Array(Set(bag.snapshot())).sorted()
+        )
+    }
+
+    private func searchSessionsForNeedle(
+        _ needle: String,
+        scope: SearchScope,
+        limit: Int,
+        errorBag bag: ErrorBag
+    ) async -> [SessionEntry] {
         switch scope {
         case .agent(let a):
             let registry: CmuxVaultAgentRegistry
@@ -1291,16 +1391,15 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])
             }
-            entries = await Self.searchAgent(
+            return await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
-                offset: offset, limit: limit, errorBag: bag, registry: registry
+                offset: 0, limit: limit, errorBag: bag, registry: registry
             )
         case .directory(let path):
             let noFolderScope = (path == nil) || ((path ?? "").isEmpty)
             let cwdFilter = noFolderScope ? nil : path
-            // Multi-agent merge: fetch the union of (offset+limit) per agent so the
-            // merge-sort can produce a stable global ordering, then slice.
-            let target = offset + limit
+            // Multi-agent merge: fetch the bounded union per agent so the
+            // caller can intersect terms and apply one stable final page.
             let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
             let merged = await Self.loadAgents(
                 order.agents,
@@ -1308,17 +1407,16 @@ final class SessionIndexStore: ObservableObject {
                 needle: needle,
                 cwdFilter: cwdFilter,
                 offset: 0,
-                limit: target,
+                limit: limit,
                 errorBag: bag
             )
-            entries = await SessionIndexEntryProjection().page(
+            return await SessionIndexEntryProjection().page(
                 entries: merged,
                 noFolderScope: noFolderScope,
-                offset: offset,
+                offset: 0,
                 limit: limit
             )
         }
-        return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
 
     nonisolated private static func loadAgents(
@@ -1813,18 +1911,16 @@ final class SessionIndexStore: ObservableObject {
             }
             snapshot = madeSnapshot
         } catch {
-            let format = String(
-                localized: "sessionIndex.error.openCodeSnapshot",
-                defaultValue: "OpenCode: cannot snapshot opencode.db (%@)"
-            )
-            errorBag.add(String(format: format, error.localizedDescription))
+            errorBag.addSafe(diagnostic: "OpenCode snapshot failed: \(String(describing: error))")
             return []
         }
         defer { snapshot.remove() }
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("OpenCode: cannot open opencode.db (\(sqliteMessage(db) ?? "unknown error"))")
+            errorBag.addSafe(
+                diagnostic: "OpenCode database open failed: \(sqliteMessage(db) ?? "unknown error")"
+            )
             sqlite3_close(db)
             return []
         }
@@ -1872,7 +1968,9 @@ final class SessionIndexStore: ObservableObject {
             stmt = nil
             hasExtendedColumns = false
             guard sqlite3_prepare_v2(db, buildSQL(extended: false), -1, &stmt, nil) == SQLITE_OK, stmt != nil else {
-                errorBag.add("OpenCode: schema unsupported — \(sqliteMessage(db) ?? "prepare failed")")
+                errorBag.addSafe(
+                    diagnostic: "OpenCode schema prepare failed: \(sqliteMessage(db) ?? "prepare failed")"
+                )
                 sqlite3_finalize(stmt)
                 return []
             }

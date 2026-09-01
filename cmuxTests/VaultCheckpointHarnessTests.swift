@@ -235,9 +235,8 @@ struct VaultGrokCheckpointTests {
         let root = history.deletingLastPathComponent().deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let checkpoint = VaultSessionCheckpoint(
-            id: "turn:line:4", source: .turn, timestamp: nil, name: nil,
-            turnIndex: 2, anchor: "line:4", gitSHA: nil, promptSnippet: nil
+        let checkpoint = try #require(
+            VaultSessionCheckpoints.deriveGrokTurns(fileURL: history).checkpoints.last
         )
         let forked = try VaultCheckpointHarness.fork(
             entry: makeEntry(agent: .grok, fileURL: history),
@@ -254,5 +253,158 @@ struct VaultGrokCheckpointTests {
         #expect(!FileManager.default.fileExists(atPath: newDirectory.appendingPathComponent("chat_history.jsonl.lock").path))
         // Parent history untouched.
         #expect(try readJSONLines(history).count == 5)
+    }
+
+    @Test
+    func grokPositionalAnchorRejectsInsertedLine() throws {
+        let history = try writeGrokSession()
+        let root = history.deletingLastPathComponent().deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpoint = try #require(
+            VaultSessionCheckpoints.deriveGrokTurns(fileURL: history).checkpoints.last
+        )
+        let original = try String(contentsOf: history, encoding: .utf8)
+        let inserted = #"{"type":"system","content":"inserted after checkpoint"}"# + "\n"
+        try (inserted + original).write(to: history, atomically: true, encoding: .utf8)
+
+        #expect(throws: VaultCheckpointForkError.anchorNotFound) {
+            try VaultCheckpointHarness.fork(
+                entry: makeEntry(agent: .grok, fileURL: history),
+                checkpoint: checkpoint,
+                newSessionID: newID
+            )
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(newID, isDirectory: true).path
+        ))
+    }
+
+    @Test
+    func grokManualPositionalAnchorRejectsRewrittenLine() throws {
+        let history = try writeGrokSession()
+        let root = history.deletingLastPathComponent().deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let derivation = VaultSessionCheckpoints.deriveGrokTurns(fileURL: history)
+        let manual = VaultSessionCheckpoint(
+            id: "manual:grok",
+            source: .manual,
+            timestamp: Date(),
+            name: "tip",
+            turnIndex: derivation.checkpoints.count,
+            anchor: derivation.lastAnchor,
+            anchorFingerprint: derivation.lastAnchorFingerprint,
+            gitSHA: nil,
+            promptSnippet: derivation.checkpoints.last?.promptSnippet
+        )
+        let lines = try String(contentsOf: history, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+        var rewritten = lines.map(String.init)
+        guard let anchorLine = rewritten.lastIndex(where: { $0.contains("second prompt") }) else {
+            Issue.record("fixture did not contain the expected anchor line")
+            return
+        }
+        rewritten[anchorLine] = #"{"type":"user","content":"rewritten prompt"}"#
+        try (rewritten.joined(separator: "\n")).write(to: history, atomically: true, encoding: .utf8)
+
+        #expect(throws: VaultCheckpointForkError.anchorNotFound) {
+            try VaultCheckpointHarness.fork(
+                entry: makeEntry(agent: .grok, fileURL: history),
+                checkpoint: manual,
+                newSessionID: newID
+            )
+        }
+    }
+
+    @Test
+    func grokAnchorIndexIncludesMalformedRawLines() throws {
+        let root = try tempDirectory("cmux-grok-raw-index")
+        let sessionDirectory = root.appendingPathComponent(parentID, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let history = sessionDirectory.appendingPathComponent("chat_history.jsonl")
+        let lines = [
+            #"{"type":"system","content":"system"}"#,
+            "not json",
+            #"{"type":"user","content":"first prompt"}"#,
+            #"{"type":"assistant","content":"reply"}"#,
+            #"{"type":"user","content":"second prompt"}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: history, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpoint = try #require(
+            VaultSessionCheckpoints.deriveGrokTurns(fileURL: history).checkpoints.last
+        )
+        #expect(checkpoint.anchor == "line:4")
+        let forked = try VaultCheckpointHarness.fork(
+            entry: makeEntry(agent: .grok, fileURL: history),
+            checkpoint: checkpoint,
+            newSessionID: newID
+        )
+        let raw = try String(contentsOf: forked, encoding: .utf8)
+        #expect(raw.contains("not json"))
+        #expect(raw.split(separator: "\n").count == 4)
+    }
+
+    @Test
+    func codexFallbackLineAnchorUsesRawLineIndex() throws {
+        let root = try tempDirectory("cmux-codex-raw-index")
+        let url = root.appendingPathComponent("rollout-(parentID).jsonl")
+        let lines = [
+            "not-json",
+            #"{"type":"event_msg","payload":{"type":"user_message","message":"first prompt"}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"reply"}]}}"#,
+            #"{"type":"event_msg","payload":{"type":"user_message","message":"second prompt"}}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpoint = try #require(
+            VaultSessionCheckpoints.deriveCodexTurns(fileURL: url).checkpoints.last
+        )
+        #expect(checkpoint.anchor == "line:3")
+        let forked = try VaultCheckpointHarness.fork(
+            entry: makeEntry(agent: .codex, fileURL: url),
+            checkpoint: checkpoint,
+            newSessionID: newID
+        )
+        let raw = try String(contentsOf: forked, encoding: .utf8)
+        #expect(raw.split(separator: "\n").count == 3)
+        #expect(raw.contains("not-json"))
+        #expect(raw.contains("first prompt"))
+    }
+
+    @Test
+    func piFallbackLineAnchorUsesRawLineIndex() throws {
+        let root = try tempDirectory("cmux-pi-raw-index")
+        let url = root.appendingPathComponent("2026-08-14T10-00-00-000Z_(parentID).jsonl")
+        let lines = [
+            "not-json",
+            #"{"type":"session","version":3,"id":"\#(parentID)"}"#,
+            #"{"type":"message","timestamp":"2026-08-14T10:00:01Z","message":{"role":"user","content":[{"type":"text","text":"first prompt"}]}}"#,
+            #"{"type":"message","timestamp":"2026-08-14T10:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"reply"}]}}"#,
+            #"{"type":"message","timestamp":"2026-08-14T10:00:03Z","message":{"role":"user","content":[{"type":"text","text":"second prompt"}]}}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpoint = try #require(
+            VaultSessionCheckpoints.derivePiFamilyTurns(fileURL: url).checkpoints.last
+        )
+        #expect(checkpoint.anchor == "line:4")
+        let forked = try VaultCheckpointHarness.fork(
+            entry: makeEntry(
+                agent: .registered(RegisteredSessionAgent(id: "pi")),
+                fileURL: url,
+                registeredID: "pi"
+            ),
+            checkpoint: checkpoint,
+            newSessionID: newID
+        )
+        let raw = try String(contentsOf: forked, encoding: .utf8)
+        #expect(raw.split(separator: "\n").count == 4)
+        #expect(raw.contains("not-json"))
+        #expect(raw.contains("first prompt"))
     }
 }

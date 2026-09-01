@@ -1028,9 +1028,18 @@ private struct SessionRow: View, Equatable {
     )
 
     static func messageCountText(_ count: Int) -> String {
-        String(
-            localized: "sessionIndex.row.messageCount",
-            defaultValue: "\(count) msgs"
+        if count == 1 {
+            return String(
+                localized: "sessionIndex.row.messageCount.one",
+                defaultValue: "1 msg"
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(
+                localized: "sessionIndex.row.messageCount.other",
+                defaultValue: "%lld msgs"
+            ),
+            Int64(count)
         )
     }
 
@@ -2468,6 +2477,9 @@ struct SectionPopoverView: View {
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
     private static let pageSize = 100
+    /// Short, cancellable pause that coalesces rapid text-field edits before
+    /// starting filesystem/SQLite work.
+    private static let searchDebounce: Duration = .milliseconds(200)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -2668,7 +2680,7 @@ struct SectionPopoverView: View {
             isLoading = true
 
             do {
-                try await Task.sleep(for: .milliseconds(200))
+                try await ContinuousClock().sleep(for: Self.searchDebounce)
             } catch {
                 return
             }
