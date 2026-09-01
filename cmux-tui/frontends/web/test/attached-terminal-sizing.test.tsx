@@ -1,15 +1,18 @@
 import { render, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CmuxClient, DecodedAttachEvent } from "cmux/raw";
 import { useAttachedTerminal } from "../src/hooks/useAttachedTerminal";
 
 const fitDimensions = { cols: 80, rows: 24 };
+type TerminalMock = {
+  options: Record<string, unknown>;
+  writes: Array<string | Uint8Array>;
+  disableStdinDuringWrites: boolean[];
+  customKeyEventHandler?: (event: KeyboardEvent) => boolean;
+};
 const terminalMocks = vi.hoisted(() => ({
-  instances: [] as Array<{
-    options: Record<string, unknown>;
-    writes: Array<string | Uint8Array>;
-  }>,
+  instances: [] as TerminalMock[],
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
@@ -24,6 +27,8 @@ vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     options: Record<string, unknown>;
     writes: Array<string | Uint8Array> = [];
+    disableStdinDuringWrites: boolean[] = [];
+    customKeyEventHandler?: (event: KeyboardEvent) => boolean;
 
     constructor(options: Record<string, unknown>) {
       this.options = options;
@@ -32,10 +37,14 @@ vi.mock("@xterm/xterm", () => ({
 
     loadAddon() {}
     open() {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      this.customKeyEventHandler = handler;
+    }
     reset() {}
     resize() {}
     write(data: string | Uint8Array, callback?: () => void) {
       this.writes.push(data);
+      this.disableStdinDuringWrites.push(this.options.disableStdin === true);
       if (data instanceof Uint8Array && data.length > 0) {
         this.options.theme = {
           ...(this.options.theme as Record<string, unknown>),
@@ -101,9 +110,18 @@ function Harness({ client }: { client: CmuxClient }) {
 
 describe("attached terminal sizing", () => {
   const originalResizeObserver = globalThis.ResizeObserver;
+  const originalNavigatorPlatform = navigator.platform;
+
+  beforeEach(() => {
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+  });
 
   afterEach(() => {
     globalThis.ResizeObserver = originalResizeObserver;
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: originalNavigatorPlatform,
+    });
     terminalMocks.instances.length = 0;
   });
 
@@ -139,6 +157,96 @@ describe("attached terminal sizing", () => {
     expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n);
   });
 
+  it("forwards Command and Option editing chords through xterm and preserves browser shortcuts", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7n,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array(),
+          colors: {},
+        },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+    await waitFor(() => expect(terminalMocks.instances[0]?.customKeyEventHandler).toEqual(expect.any(Function)));
+    const handler = terminalMocks.instances[0]?.customKeyEventHandler;
+    if (handler === undefined) throw new Error("xterm key handler was not registered");
+
+    // The attach starts with stdin disabled until the first authoritative
+    // replay arrives. Editing chords must not leak into the VM during that
+    // window, and must remain suppressed in the browser.
+    const terminal = terminalMocks.instances[0];
+    if (terminal === undefined) throw new Error("xterm terminal was not created");
+    terminal.options.disableStdin = true;
+    const beforeAttach = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Backspace",
+      metaKey: true,
+    });
+    expect(handler(beforeAttach)).toBe(false);
+    expect(beforeAttach.defaultPrevented).toBe(true);
+    expect(client.send).not.toHaveBeenCalled();
+    terminal.options.disableStdin = false;
+
+    const editingEvents = [
+      ["Backspace", "\u0015", "metaKey"],
+      ["Delete", "\u000b", "metaKey"],
+      ["ArrowLeft", "\u0001", "metaKey"],
+      ["ArrowRight", "\u0005", "metaKey"],
+      ["Backspace", "\u001b\u007f", "altKey"],
+      ["Delete", "\u001bd", "altKey"],
+      ["ArrowLeft", "\u001bb", "altKey"],
+      ["ArrowRight", "\u001bf", "altKey"],
+    ] as const;
+    for (const [key, text, modifier] of editingEvents) {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key,
+        [modifier]: true,
+      });
+      expect(handler(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+      await waitFor(() => expect(client.send).toHaveBeenCalledWith(7n, { text }));
+      for (const type of ["keypress", "keyup"] as const) {
+        const followup = new KeyboardEvent(type, { key, [modifier]: true });
+        expect(handler(followup)).toBe(false);
+      }
+    }
+
+    const copy = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "c",
+      metaKey: true,
+    });
+    expect(handler(copy)).toBe(true);
+    expect(client.send).toHaveBeenCalledTimes(editingEvents.length);
+
+    const optionText = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "x",
+      altKey: true,
+    });
+    expect(handler(optionText)).toBe(true);
+    expect(client.send).toHaveBeenCalledTimes(editingEvents.length);
+    view.unmount();
+  });
+
   it("releases sizing when the attach consumer terminates", async () => {
     globalThis.ResizeObserver = class {
       observe() {}
@@ -147,6 +255,14 @@ describe("attached terminal sizing", () => {
     };
     const client = {
       attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7n,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array(),
+          colors: {},
+        },
         { event: "detached", surface: 7n },
       ])),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
@@ -157,6 +273,65 @@ describe("attached terminal sizing", () => {
     render(<Harness client={client} />);
 
     await waitFor(() => expect(client.releaseSurfaceSize).toHaveBeenCalledWith(7n));
+
+    const terminal = terminalMocks.instances[0];
+    if (terminal === undefined) throw new Error("xterm terminal was not created");
+    const handler = terminal.customKeyEventHandler;
+    if (handler === undefined) throw new Error("xterm key handler was not registered");
+
+    // The stream first becomes writable, then detaches. A detached stream must
+    // stop accepting editing input while the React consumer is still mounted
+    // and before its cleanup runs.
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Backspace",
+      metaKey: true,
+    });
+    expect(handler(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it("blocks editing input while a resize replay replaces the terminal buffer", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7n,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array([1]),
+          colors: {},
+        },
+        {
+          event: "resized",
+          surface: 7n,
+          cols: 100,
+          rows: 30,
+          data: new Uint8Array([2]),
+          replay: new Uint8Array([2]),
+          colors: {},
+        },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+    await waitFor(() => expect(terminalMocks.instances[0]?.writes).toHaveLength(2));
+
+    const terminal = terminalMocks.instances[0];
+    if (terminal === undefined) throw new Error("xterm terminal was not created");
+    expect(terminal.disableStdinDuringWrites).toEqual([true, true]);
+    expect(terminal.options.disableStdin).toBe(false);
+    view.unmount();
   });
 
   it("applies sparse palette overrides after replay and on color changes", async () => {

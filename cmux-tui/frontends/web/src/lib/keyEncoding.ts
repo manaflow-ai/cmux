@@ -7,6 +7,11 @@ export interface TerminalKeyEvent {
   isComposing?: boolean;
 }
 
+export interface TerminalKeyEncodingOptions {
+  /** Enable macOS Command/Option editing chords for this browser surface. */
+  macEditing?: boolean;
+}
+
 export type TerminalKeyAction =
   | { kind: "text"; text: string }
   | { kind: "key"; key: string };
@@ -67,8 +72,93 @@ function isSingleCodePoint(value: string): boolean {
   return Array.from(value).length === 1;
 }
 
-export function encodeTerminalKey(event: TerminalKeyEvent): TerminalKeyAction | null {
-  if (event.isComposing || event.metaKey || ignoredKeys.has(event.key)) return null;
+interface BrowserPlatformSource {
+  userAgentData?: { platform?: string };
+  platform?: string;
+  userAgent?: string;
+}
+
+/** Returns true when a browser platform identifies itself as macOS. */
+export function browserIsMacPlatform(source?: BrowserPlatformSource): boolean {
+  const browser = source ?? (
+    typeof globalThis.navigator === "undefined"
+      ? undefined
+      : (globalThis.navigator as unknown as BrowserPlatformSource)
+  );
+  // Some privacy-focused browsers expose an empty UA-Client-Hints platform
+  // while still providing the older platform or user-agent fields. Treat an
+  // empty value as unavailable so the later, less-preferred signal can decide.
+  const platform = browser?.userAgentData?.platform || browser?.platform || browser?.userAgent;
+  return /mac/i.test(platform ?? "");
+}
+
+/**
+ * Keep the browser's Command shortcuts intact, but mirror the small set of
+ * macOS editing chords that Ghostty sends to a terminal. These are raw
+ * readline-compatible bytes rather than named keys, so the behavior does not
+ * depend on the remote terminal's application-key or Kitty-keyboard mode.
+ */
+function macEditingAction(event: TerminalKeyEvent): TerminalKeyAction | null {
+  const command = event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+  const option = event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey;
+  if (!command && !option) return null;
+
+  switch (event.key) {
+    case "Backspace":
+      return {
+        kind: "text",
+        // Command+Backspace is Ctrl-U. Option+Backspace is ESC DEL, which is
+        // the readline word-delete sequence and matches Ghostty's native path.
+        text: command ? "\u0015" : "\u001b\u007f",
+      };
+    case "Delete":
+      return {
+        kind: "text",
+        // Command+ForwardDelete is Ctrl-K. Option+ForwardDelete is ESC d,
+        // readline's forward-word deletion sequence.
+        text: command ? "\u000b" : "\u001bd",
+      };
+    case "ArrowLeft":
+      return {
+        kind: "text",
+        // Command+Left moves to the line start. Option+Left moves one word.
+        text: command ? "\u0001" : "\u001bb",
+      };
+    case "ArrowRight":
+      return {
+        kind: "text",
+        // Command+Right moves to the line end. Option+Right moves one word.
+        text: command ? "\u0005" : "\u001bf",
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Returns true only for editing chords that the browser may consume before
+ * xterm receives them. Option+letter input is intentionally excluded: it is
+ * ordinary terminal text and must keep the generic ESC-prefixed encoding.
+ */
+export function isMacEditingChord(
+  event: TerminalKeyEvent,
+  options: TerminalKeyEncodingOptions = {},
+): boolean {
+  return options.macEditing === true && !event.isComposing && macEditingAction(event) !== null;
+}
+
+export function encodeTerminalKey(
+  event: TerminalKeyEvent,
+  options: TerminalKeyEncodingOptions = {},
+): TerminalKeyAction | null {
+  if (event.isComposing || ignoredKeys.has(event.key)) return null;
+  if (event.metaKey || event.altKey) {
+    const editing = options.macEditing === true ? macEditingAction(event) : null;
+    if (editing !== null) return editing;
+    // Preserve browser Command shortcuts and generic Option text. Command
+    // events must not fall through to text encoding, while Option events do.
+    if (event.metaKey) return null;
+  }
 
   if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey) {
     return { kind: "key", key: "backtab" };

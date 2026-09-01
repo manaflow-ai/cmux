@@ -165,6 +165,22 @@ describe("devbox image template", () => {
     for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
+    // Keep the alternate Meta-Delete spellings as delete actions in both
+    // editing modes. ble.sh already provides the common C-u/C-k/M-d actions.
+    for (const bind of [
+      "ble-bind -m emacs -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-BS' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-delete' kill-forward-cword",
+      "ble-bind -m vi_imap -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-BS' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-delete' kill-forward-cword",
+    ]) {
+      expect(bashrc).toContain(bind);
+    }
   });
 
   test("stays within the E2B Dockerfile-parser restrictions", () => {

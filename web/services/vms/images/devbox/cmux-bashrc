@@ -48,6 +48,21 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   # foreground gray.
   bleopt highlight_syntax= highlight_filename= highlight_variable=
   ble-face auto_complete=fg=245
+
+  # Keep macOS word deletion consistent across terminal encodings. Ghostty's
+  # C-u/C-k and M-d bindings already exist in ble.sh. Only replace the stock
+  # copy actions for the alternate spellings of Meta-Delete, in emacs and vi
+  # insert mode, while leaving vi command mode unchanged.
+  ble-bind -m emacs -f 'M-C-?' kill-backward-cword
+  ble-bind -m emacs -f 'M-C-h' kill-backward-cword
+  ble-bind -m emacs -f 'M-DEL' kill-backward-cword
+  ble-bind -m emacs -f 'M-BS' kill-backward-cword
+  ble-bind -m emacs -f 'M-delete' kill-forward-cword
+  ble-bind -m vi_imap -f 'M-C-?' kill-backward-cword
+  ble-bind -m vi_imap -f 'M-C-h' kill-backward-cword
+  ble-bind -m vi_imap -f 'M-DEL' kill-backward-cword
+  ble-bind -m vi_imap -f 'M-BS' kill-backward-cword
+  ble-bind -m vi_imap -f 'M-delete' kill-forward-cword
 fi
 
 # half-life palette: purple 135, lime 118, orange 166, hotpink 161. The machine

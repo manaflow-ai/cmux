@@ -30,6 +30,7 @@ describe("Blaxel baked image template", () => {
       "cmux-bashrc",
       "entrypoint.sh",
       "ghostty-cmux.desktop",
+      "ghostty-defaults.conf",
       "google-chrome-cmux.desktop",
       "seed-history",
       "start-vnc.sh",
@@ -152,6 +153,45 @@ describe("Blaxel baked image template", () => {
     for (const line of faceLines) {
       expect(line).not.toContain("bg=");
     }
+  });
+
+  test("macOS line and word delete bytes have delete actions in ble.sh", () => {
+    // Ghostty emits ESC DEL for Option+Backspace and ESC d for
+    // Option+ForwardDelete. ble.sh already owns C-u/C-k/M-d, so this contract
+    // only replaces the alternate Meta-Delete spellings whose stock actions
+    // copy instead of deleting.
+    for (const bind of [
+      "ble-bind -m emacs -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-BS' kill-backward-cword",
+      "ble-bind -m emacs -f 'M-delete' kill-forward-cword",
+      "ble-bind -m vi_imap -f 'M-C-?' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-C-h' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-DEL' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-BS' kill-backward-cword",
+      "ble-bind -m vi_imap -f 'M-delete' kill-forward-cword",
+    ]) {
+      expect(bashrc).toContain(bind);
+    }
+    expect(bashrc.indexOf("source /usr/local/share/blesh/ble.sh")).toBeLessThan(
+      bashrc.indexOf("ble-bind -m emacs"),
+    );
+  });
+
+  test("desktop Ghostty gets macOS editing defaults without replacing user config", () => {
+    const defaults = read("ghostty-defaults.conf");
+    expect(defaults).toContain("keybind = super+backspace=text:\\x15");
+    expect(defaults).toContain("keybind = super+delete=text:\\x0b");
+    expect(defaults).toContain("keybind = super+left=text:\\x01");
+    expect(defaults).toContain("keybind = super+right=text:\\x05");
+    expect(defaults).toContain("keybind = alt+backspace=text:\\x1b\\x7f");
+    expect(defaults).toContain("keybind = alt+delete=text:\\x1b\\x64");
+    expect(defaults).toContain("keybind = alt+left=text:\\x1b\\x62");
+    expect(defaults).toContain("keybind = alt+right=text:\\x1b\\x66");
+    expect(startVnc).toContain("ensure_ghostty_defaults");
+    expect(startVnc).toContain("[ -e \"$config_file\" ] && return 0");
+    expect(startVnc).toContain("ln \"$tmp\" \"$config_file\"");
   });
 
   test("agent config generator wires the coderouter model plane per HOME", () => {

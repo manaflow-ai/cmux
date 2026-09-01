@@ -1,7 +1,9 @@
 import AppKit
-import Foundation
-import Testing
 import CmuxTerminal
+import Foundation
+import GhosttyKit
+import Testing
+@preconcurrency import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,7 +12,7 @@ import CmuxTerminal
 #endif
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct GhosttyDECCKMArrowKeyTests {
     private struct HostedTerminalWindow {
         let surface: TerminalSurface
@@ -36,11 +38,11 @@ struct GhosttyDECCKMArrowKeyTests {
         import tty
 
         fd = 0
-        sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
-        sys.stdout.flush()
         old = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
+            sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
+            sys.stdout.flush()
             data = bytearray()
             deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline and len(data) < 12:
@@ -65,15 +67,17 @@ struct GhosttyDECCKMArrowKeyTests {
         // surface. In that environment the predicate tests below still cover
         // the routing decision; this byte-level integration path needs a live
         // surface to poll terminal text.
-        guard hostedTerminal.surface.hasLiveSurface else { return }
+        guard hostedTerminal.surface.hasLiveSurface else {
+            throw XCTSkip("Ghostty surface failed to initialize on this host; byte-level arrow routing is unavailable.")
+        }
 
+        try installIsolatedEditingKeybinds(on: hostedTerminal.surface)
         #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
 
         let readyText = try waitForTerminalText(from: hostedTerminal) {
             $0.contains(captureReadyMarker)
         }
         #expect(readyText.contains(captureReadyMarker), "Expected DECCKM capture harness to become ready")
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         let arrows: [(name: String, characters: String, keyCode: UInt16)] = [
             ("up", String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
@@ -119,6 +123,115 @@ struct GhosttyDECCKMArrowKeyTests {
         )
     }
 
+    @Test
+    func macTextEditingChordsReachShell() throws {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let captureReadyMarker = "CMUX_EDIT_READY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let captureMarker = "CMUX_EDIT_HEX_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-editing-capture-\(UUID().uuidString).py")
+        let script = """
+        import os
+        import select
+        import sys
+        import termios
+        import time
+        import tty
+
+        fd = 0
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            sys.stdout.write("\\x1b[?1h\(captureReadyMarker)\\n")
+            sys.stdout.flush()
+            data = bytearray()
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline and len(data) < 6:
+                if select.select([sys.stdin], [], [], 0.05)[0]:
+                    data.extend(os.read(fd, 64))
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        print("\\r\\n\(captureMarker)=" + data.hex(), flush=True)
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+        let hostedTerminal = try makeHostedTerminalWindow(
+            initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
+        )
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        // The byte assertion needs a live Metal surface. Predicate tests still
+        // cover routing policy on headless runners, and this explicit skip keeps
+        // the integration result honest when Metal is unavailable.
+        guard hostedTerminal.surface.hasLiveSurface else {
+            throw XCTSkip("Ghostty surface failed to initialize on this host; byte-level editing routing is unavailable.")
+        }
+        try installIsolatedEditingKeybinds(on: hostedTerminal.surface)
+        #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
+
+        let readyText = try waitForTerminalText(from: hostedTerminal) {
+            $0.contains(captureReadyMarker)
+        }
+        #expect(readyText.contains(captureReadyMarker), "Expected editing capture harness to become ready")
+
+        let events: [(name: String, flags: NSEvent.ModifierFlags, keyCode: UInt16, characters: String)] = [
+            ("Command+Backspace", [.command], 51, "\u{8}"),
+            ("Command+ForwardDelete", [.command, .function], 117, "\u{f728}"),
+            ("Option+Backspace", [.option], 51, "\u{8}"),
+            ("Option+ForwardDelete", [.option, .function], 117, "\u{f728}"),
+        ]
+        let timestamp = ProcessInfo.processInfo.systemUptime
+
+        try withExtendedLifetime(hostedTerminal.surface) {
+            for (index, item) in events.enumerated() {
+                let event = try #require(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: item.flags,
+                    timestamp: timestamp + (Double(index) * 0.001),
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    characters: item.characters,
+                    charactersIgnoringModifiers: item.characters,
+                    isARepeat: false,
+                    keyCode: item.keyCode
+                ))
+
+                if item.flags.contains(.command) {
+                    // AppKit offers Command delete chords to the window's menu
+                    // equivalent path first. This is the route cmux repairs.
+                    #expect(
+                        window.performKeyEquivalent(with: event),
+                        "Terminal \(item.name) should be consumed by the editing route"
+                    )
+                } else {
+                    // Option-only delete chords use the normal responder
+                    // keyDown path on macOS. Exercise that path directly so
+                    // this test does not depend on AppKit's menu heuristics.
+                    surfaceView.keyDown(with: event)
+                }
+            }
+        }
+
+        let captureText = try waitForTerminalText(from: hostedTerminal, timeout: 5) {
+            $0.contains(captureMarker)
+        }
+        let markerRange = try #require(captureText.range(of: "\(captureMarker)="))
+        let hexCharacters = Set("0123456789abcdefABCDEF")
+        let capturedHex = captureText[markerRange.upperBound...]
+            .prefix { hexCharacters.contains($0) }
+
+        #expect(
+            String(capturedHex) == "150b1b7f1b64",
+            "macOS line and word delete chords must reach the shell as readline-compatible bytes"
+        )
+    }
+
     @Test(arguments: [123, 124, 125, 126] as [UInt16])
     func terminalArrowPredicateAcceptsUnmodifiedTerminalArrows(keyCode: UInt16) {
         #expect(shouldDispatchTerminalArrowViaFirstResponderKeyDown(
@@ -161,6 +274,45 @@ struct GhosttyDECCKMArrowKeyTests {
         ))
     }
 
+    @Test(arguments: [51, 117] as [UInt16])
+    func terminalDeletePredicateAcceptsCommandDelete(keyCode: UInt16) {
+        #expect(shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: keyCode,
+            firstResponderIsTerminal: true,
+            flags: [.command, .function, .numericPad]
+        ))
+    }
+
+    @Test
+    func terminalDeletePredicateKeepsForeignAndModifiedDeleteKeysAlone() {
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: false,
+            flags: [.command]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: true,
+            firstResponderHasMarkedText: true,
+            flags: [.command]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: true,
+            flags: [.command, .shift]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 51,
+            firstResponderIsTerminal: true,
+            flags: [.command, .option]
+        ))
+        #expect(!shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+            keyCode: 36,
+            firstResponderIsTerminal: true,
+            flags: [.command]
+        ))
+    }
+
     private func makeHostedTerminalWindow(initialCommand: String? = nil) throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
@@ -198,6 +350,36 @@ struct GhosttyDECCKMArrowKeyTests {
             hostedView: hostedView,
             surfaceView: try #require(findGhosttyNSView(in: hostedView))
         )
+    }
+
+    /// Replace only this test surface's Ghostty configuration with a small,
+    /// deterministic key map. The app owns one process-wide configuration, so
+    /// `configTemplate` cannot isolate key bindings from a developer's
+    /// `~/.config/ghostty` file. Updating the surface after creation keeps the
+    /// production app configuration untouched while making the byte-level
+    /// assertion independent of the host's user settings.
+    private func installIsolatedEditingKeybinds(on surface: TerminalSurface) throws {
+        let runtimeSurface = try #require(surface.surface)
+        let config = try #require(ghostty_config_new())
+        defer { ghostty_config_free(config) }
+
+        let contents = #"""
+        keybind = clear
+        keybind = super+backspace=text:\x15
+        keybind = super+delete=text:\x0b
+        keybind = alt+backspace=text:\x1b\x7f
+        keybind = alt+delete=text:\x1b\x64
+        """#
+        contents.withCString { pointer in
+            ghostty_config_load_string(
+                config,
+                pointer,
+                UInt(contents.utf8.count),
+                "/__cmux_test__/mac-editing.conf"
+            )
+        }
+        ghostty_config_finalize(config)
+        ghostty_surface_update_config(runtimeSurface, config)
     }
 
     private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {

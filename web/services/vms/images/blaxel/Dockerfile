@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-31-r13
+ENV CMUX_IMAGE_EPOCH=2026-09-01-r14
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -271,6 +271,7 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # /entrypoint.sh is the path every official Blaxel template uses; the microVM
 # boot command comes from this ENTRYPOINT.
 COPY start-vnc.sh /usr/local/bin/start-vnc.sh
+COPY ghostty-defaults.conf /etc/cmux/ghostty-defaults.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /usr/local/bin/start-vnc.sh /entrypoint.sh /usr/local/bin/sandbox-api \
   && bash -n /usr/local/bin/start-vnc.sh && bash -n /entrypoint.sh

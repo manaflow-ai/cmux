@@ -964,6 +964,7 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadCmuxDefaultMacTextEditingKeybinds(fallbackConfig)
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
@@ -1109,6 +1110,24 @@ class GhosttyApp {
         )
     }
 
+    private func loadCmuxDefaultMacTextEditingKeybinds(_ config: ghostty_config_t) {
+        // Keep the common macOS editing chords available in every terminal,
+        // including when Ghostty falls back after an invalid user config.
+        // Loading this before user files lets an explicit user keybind or
+        // `keybind = clear` retain priority.
+        loadInlineGhosttyConfig(
+            #"""
+            keybind = super+backspace=text:\x15
+            keybind = super+delete=text:\x0b
+            keybind = alt+backspace=text:\x1b\x7f
+            keybind = alt+delete=text:\x1b\x64
+            """#,
+            into: config,
+            prefix: "cmux-default-mac-text-editing",
+            logLabel: "default mac text editing"
+        )
+    }
+
     private func loadStartupPreviewProfile(
         _ profile: GhosttyStartupAppearancePreviewProfile,
         into config: ghostty_config_t,
@@ -1193,6 +1212,11 @@ class GhosttyApp {
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
+
+        // Install cmux's small set of macOS editing defaults before any profile
+        // or user files. Explicit user bindings, including `keybind = clear`,
+        // therefore retain precedence in every loading mode.
+        loadCmuxDefaultMacTextEditingKeybinds(config)
 
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
@@ -6568,6 +6592,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if handled { return }
         }
 
+        // AppKit sends Option+Backspace through `interpretKeyEvents`, where it
+        // becomes the printable U+2202 character (and Option is marked as
+        // consumed). That loses the word-delete meaning for shells and TUI
+        // programs. Forward both macOS delete directions as raw Ghostty key
+        // events before AppKit can perform that text transformation. Command
+        // delete uses the same path so its configured Ghostty binding remains
+        // authoritative after the window-level menu-equivalent route.
+        if shouldUseRawMacDeleteKeyPath(event) {
+            _ = reassertTerminalFocusForInputIfFirstResponder(forceNative: true)
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+            keyEvent.keycode = UInt32(event.keyCode)
+            keyEvent.mods = modsFromEvent(event)
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.composing = false
+            keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
+            keyEvent.text = nil
+
+            let handled: Bool
+#if DEBUG
+            let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+            handled = sendTimedGhosttyKey(
+                surface,
+                keyEvent,
+                path: "terminal.keyDown.macDeleteGhosttySend",
+                event: event
+            )
+            ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+#else
+            handled = sendGhosttyKey(surface, keyEvent)
+#endif
+            if handled { return }
+        }
+
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)
@@ -7386,6 +7444,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return chars
+    }
+
+    /// Returns whether AppKit text interpretation must be bypassed for a
+    /// terminal delete equivalent. Option and Command are intentionally
+    /// accepted only without Shift or Control, and marked text stays owned by
+    /// the active input method.
+    private func shouldUseRawMacDeleteKeyPath(_ event: NSEvent) -> Bool {
+        guard !hasMarkedText() else { return false }
+        guard event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) else {
+            return false
+        }
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return flags == [.command] || flags == [.option]
     }
 
     /// Get the unshifted codepoint for the key event

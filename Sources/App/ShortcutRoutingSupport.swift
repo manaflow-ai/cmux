@@ -1,8 +1,10 @@
 import AppKit
 import Bonsplit
+import Carbon.HIToolbox
 import CmuxCommandPalette
 import Foundation
 import CmuxTerminal
+import CmuxTerminalCore
 
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
@@ -41,7 +43,7 @@ func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
-func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+nonisolated func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
     flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
@@ -169,6 +171,25 @@ func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
 ) -> Bool {
     guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
+}
+
+/// Returns true when a focused terminal should receive a macOS line-delete
+/// equivalent before AppKit offers the same key to an Edit menu item.
+/// Function and numeric-pad flags are transport details for forward delete.
+nonisolated func shouldDispatchTerminalDeleteEquivalentViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsTerminal: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return terminalDeleteEquivalentShouldDispatch(
+        keyCode: keyCode,
+        firstResponderIsTerminal: firstResponderIsTerminal,
+        firstResponderHasMarkedText: firstResponderHasMarkedText,
+        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: normalizedFlags),
+        optionModifier: normalizedFlags.contains(.option)
+    )
 }
 
 struct BrowserAddressBarTrackingContext {

@@ -16,6 +16,11 @@ import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
 import { nextFitSize, type TerminalSize } from "../lib/fit";
 import {
+  browserIsMacPlatform,
+  encodeTerminalKey,
+  isMacEditingChord,
+} from "../lib/keyEncoding";
+import {
   colorsToCursorOptionsPatch,
   colorsToDynamicColorSequence,
   colorsToPaletteSequence,
@@ -58,6 +63,37 @@ export function useAttachedTerminal({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    const keyEncodingOptions = { macEditing: browserIsMacPlatform() };
+    const sendInput = (text: string) => {
+      // xterm can still deliver a queued data event after a detach or while
+      // the authoritative replay is being installed. Keep the transport gate
+      // in one place so every input path fails closed in those states.
+      if (cancelled || terminal.options.disableStdin) return;
+      void client.send(surface, { text }).catch(onError);
+    };
+    // xterm.js deliberately leaves macOS Command and Option editing chords to
+    // the browser. Forward only the line/word editing subset that the
+    // render-mode terminal handles, keeping Cmd-C/V/W and ordinary Option
+    // text untouched.
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (!isMacEditingChord(event, keyEncodingOptions)) return true;
+      const action = encodeTerminalKey(event, keyEncodingOptions);
+      if (action?.kind !== "text") return true;
+      // xterm invokes custom handlers even while stdin is disabled. Do not
+      // transmit editing bytes until the attach has published an authoritative
+      // replay, and suppress the browser default during that short interval.
+      if (cancelled || terminal.options.disableStdin) {
+        if (event.type === "keydown") event.preventDefault();
+        return false;
+      }
+      if (event.type === "keydown") {
+        event.preventDefault();
+        sendInput(action.text);
+      }
+      // A keydown can also produce keypress and keyup events. Keep xterm from
+      // translating those same editing chords a second time.
+      return false;
+    });
     const webgl = tryLoadWebglRenderer(terminal);
     // Match desktop Ghostty's Display P3 presentation; no-op where the
     // browser (or the DOM fallback renderer) cannot retag the buffer.
@@ -94,9 +130,7 @@ export function useAttachedTerminal({
     window.visualViewport?.addEventListener("resize", sendResize);
     window.visualViewport?.addEventListener("scroll", sendResize);
     sendResize();
-    const input = terminal.onData((text) => {
-      void client.send(surface, { text }).catch(onError);
-    });
+    const input = terminal.onData(sendInput);
     const writeTerminal = (data: string | Uint8Array) =>
       new Promise<void>((resolve) => terminal.write(data, resolve));
     const applyColors = async (
@@ -154,6 +188,7 @@ export function useAttachedTerminal({
       try {
         let recoveryAttempt = 0;
         for (;;) {
+          terminal.options.disableStdin = true;
           stream = await client.attachSurface(surface);
           // Cleanup may have raced the attach round-trip; close the stream we
           // just opened or its buffered events leak for the surface's lifetime.
@@ -175,6 +210,7 @@ export function useAttachedTerminal({
             }
             if (cancelled) return;
             if (event.event === "detached") {
+              terminal.options.disableStdin = true;
               return;
             } else if (event.event === "vt-state") {
               const replay = event as DecodedVtStateEvent;
@@ -195,10 +231,16 @@ export function useAttachedTerminal({
               terminal.write((event as DecodedOutputEvent).data);
             } else if (event.event === "resized") {
               const resized = event as DecodedResizedEvent;
+              // A resize replay replaces xterm's entire buffer. Keep the
+              // transport closed for the whole reset/write transaction so a
+              // user key cannot land between the reset and authoritative
+              // replay.
+              terminal.options.disableStdin = true;
               terminal.reset();
               terminal.resize(resized.cols, resized.rows);
               await writeReplay(resized.data, resized.colors);
               if (cancelled) return;
+              terminal.options.disableStdin = false;
             } else if (event.event === "colors-changed") {
               const colors = event as ColorsChangedEvent;
               applyCursorDefaults(colors);
@@ -218,7 +260,10 @@ export function useAttachedTerminal({
           }
           stream.close();
           stream = null;
-          if (!overflowed) return;
+          if (!overflowed) {
+            terminal.options.disableStdin = true;
+            return;
+          }
           const delayMs = attachRecoveryDelay(recoveryAttempt++);
           if (delayMs === null) {
             throw new Error(t("attachOverflowRecoveryFailed"));
@@ -227,8 +272,10 @@ export function useAttachedTerminal({
           if (cancelled) return;
         }
       } catch (error) {
+        terminal.options.disableStdin = true;
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
       } finally {
+        terminal.options.disableStdin = true;
         stream?.close();
         if (!cancelled) {
           reportedFit = null;
@@ -243,6 +290,7 @@ export function useAttachedTerminal({
 
     return () => {
       cancelled = true;
+      terminal.options.disableStdin = true;
       observer.disconnect();
       window.visualViewport?.removeEventListener("resize", sendResize);
       window.visualViewport?.removeEventListener("scroll", sendResize);
