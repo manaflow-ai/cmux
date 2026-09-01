@@ -246,10 +246,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # process-state passes remain the source of truth when the wrapper
           # does not publish an event (for example, a plain shell fixture).
           cmux_ssh_auth_wait_for_term_event() {
+            [ "${CMUX_SSH_AUTH_TERM_EVENT_ENABLED:-0}" = 1 ] || return 0
             if [ ! -p "$cmux_ssh_auth_term_event_fifo" ]; then return 0; fi
             exec 9<> "$cmux_ssh_auth_term_event_fifo" || return 0
             cmux_ssh_auth_term_event_byte=
-            IFS= read -r -t 0 -n 1 cmux_ssh_auth_term_event_byte <&9 || true
+            while cmux_ssh_auth_cleanup_has_time; do
+              if IFS= read -r -t 0.05 -n 1 cmux_ssh_auth_term_event_byte <&9; then
+                break
+              fi
+            done
             exec 9>&-
           }
 
@@ -660,6 +665,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             // the cleanup helper. Export its PID so the nested `script` and
             // zsh processes use the same event path instead of their own PPID.
             "CMUX_SSH_AUTH_ROOT_PID=\"${CMUX_SSH_AUTH_ROOT_PID:-$$}\"; export CMUX_SSH_AUTH_ROOT_PID",
+            "CMUX_SSH_AUTH_TERM_EVENT_ENABLED=1; export CMUX_SSH_AUTH_TERM_EVENT_ENABLED",
             "cmux_ssh_auth_term_event_fifo=\"${TMPDIR:-/tmp}/cmux-ssh-auth-term.${CMUX_SSH_AUTH_ROOT_PID}/done\"",
             "cmux_ssh_auth_signal_completion() { if [ -p \"$cmux_ssh_auth_term_event_fifo\" ]; then printf '%s\\n' done > \"$cmux_ssh_auth_term_event_fifo\" 2>/dev/null || true; fi; }",
             "cmux_ssh_auth_capture_cleanup() {",
