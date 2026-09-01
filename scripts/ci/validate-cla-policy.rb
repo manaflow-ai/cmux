@@ -24,10 +24,10 @@ CLA_ACTION = "manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a6432
 # secret reference, action input, or permission while retaining the fragments
 # checked below. Policy changes require a separate, reviewed update to this
 # base-controlled guard, followed by the workflow change.
-EXPECTED_WORKFLOW_DIGEST = "d4db98df5a1b1e6f3b006a82639761a0513eeeaf153a9eb2b98d42d1af782145"
+EXPECTED_WORKFLOW_DIGEST = "f458101f6f17bc28381f2ee4f063d9b4333fa2cf7c7bec18b0a656a3311d9033"
 EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 EXPECTED_GUARD_WORKFLOW_DIGEST = "6960b5009aa712b599dc412ea332a835207677a7f0840f53a6cf8c31dd6da4d0"
-EXPECTED_GUARD_SCRIPT_DIGEST = "563be9cf91b231a23f81e3df9cf9ce3225b3b35ecc8b7a586d48a86e5875e426"
+EXPECTED_GUARD_SCRIPT_DIGEST = "6a1e2f74f590a342125a820c15cf2ace730838c24fbe65676a2c57c84f417c51"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
@@ -207,7 +207,11 @@ def cla_admission_outcome(event)
   return :malformed unless pr_author_id.is_a?(String) && pr_author_id.match?(POSITIVE_ID)
   return :malformed unless association.is_a?(String) && !association.empty? && !association.match?(/[\r\n]/)
 
-  return :admitted if event[:comment_body] == CLA_SIGN_PHRASE
+  if event[:comment_body] == CLA_SIGN_PHRASE
+    return :admitted if author_id == pr_author_id
+
+    return :ordinary
+  end
   if event[:comment_body] == CLA_RECHECK_PHRASE
     return :admitted if author_id == pr_author_id || CLA_TRUSTED_ASSOCIATIONS.include?(association)
 
@@ -237,6 +241,12 @@ def run_trusted_cla_regression_matrix!
 
   add.call("author-recheck", {}, :admitted)
   add.call("exact-sign", { comment_body: CLA_SIGN_PHRASE }, :admitted)
+  add.call("non-author-sign", {
+    comment_body: CLA_SIGN_PHRASE,
+    comment_author_id: "301",
+    comment_author_login: "reviewer",
+    comment_author_association: "MEMBER"
+  }, :ordinary)
   add.call("legacy-sign", { comment_body: "I have read the CLA Document and I hereby sign the CLA" }, :ordinary)
   add.call("uppercase-recheck", { comment_body: "RECHECK" }, :ordinary)
   add.call("padded-sign", { comment_body: " #{CLA_SIGN_PHRASE} " }, :ordinary)
@@ -308,6 +318,12 @@ def validate_workflow(raw)
 
   fail!("CLACommentGate must have no permissions") unless gate["permissions"] == {}
   fail!("CLACompatibility must have no permissions") unless compatibility["permissions"] == {}
+  admission_step = steps(gate, "CLACommentGate").find { |step| step.is_a?(Hash) && step["id"] == "admission" }
+  admission_run = admission_step && admission_step["run"]
+  fail!("CLACommentGate admission implementation is missing") unless admission_run.is_a?(String)
+  fail!("CLA signing must require the pull-request opener") unless admission_run.match?(
+    /if \[\[ "\$\{COMMENT_AUTHOR_ID\}" != "\$\{PR_AUTHOR_ID\}" \]\]; then\s+printf 'admitted=false\\n'/
+  )
   assert_permission(assistant, "CLAAssistant", "contents", "write")
   assert_permission(assistant, "CLAAssistant", "issues", "write")
   assert_permission(assistant, "CLAAssistant", "pull-requests", "write")
@@ -364,6 +380,11 @@ def validate_workflow(raw)
     "if: success()",
     "issues: write"
   ].each { |fragment| assert_text(raw, fragment) }
+  sign_author_guard = Regexp.new(
+    "github\\.event\\.comment\\.body == '#{Regexp.escape(CLA_SIGN_PHRASE)}'\\s*&&\\s*" \
+    "github\\.event\\.comment\\.user\\.id == github\\.event\\.issue\\.user\\.id"
+  )
+  fail!("CLA signing trigger does not require the pull-request opener") unless raw.match?(sign_author_guard)
   fail!("CLA workflow may not checkout a pull-request ref") if raw.match?(/ref:\s*\$\{\{\s*github\.event\.pull_request/)
 
   uses = []
