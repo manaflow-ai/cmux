@@ -1155,10 +1155,9 @@ fn retained_tail_anchor(first_sequence: u64) -> Option<u64> {
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
 /// committed after the cursor. A reducer-version mismatch discards the
-/// snapshot and re-folds from the journal head. Deltas produced here are
-/// dropped deliberately: their projection commits and change broadcasts
-/// already happened when the events first committed, and the durable
-/// projection restores itself independently.
+/// snapshot and re-folds from the journal head. Replay happens before runtime
+/// resources are materialized, so every reducer delta is retained for the
+/// startup projection repair pass.
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
