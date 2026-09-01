@@ -352,9 +352,7 @@ jobs:
 
       - name: Cleanup tagged app
         if: always()
-        run: |
-          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
-          rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+        run: ./scripts/ci/cleanup-target-scale.sh "$PERF_TAG"
 
   activation-session:
     needs:

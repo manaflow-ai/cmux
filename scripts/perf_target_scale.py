@@ -79,6 +79,16 @@ def sanitize_bundle(raw: str) -> str:
     return re.sub(r"\.+", ".", value) or "perf"
 
 
+def default_app_path_for_tag(tag: str) -> pathlib.Path:
+    """Return the isolated Debug bundle path used by a tagged benchmark."""
+
+    slug = sanitize_tag(str(tag))
+    return pathlib.Path.home() / (
+        f"Library/Developer/Xcode/DerivedData/cmux-{slug}/"
+        f"Build/Products/Debug/cmux DEV {slug}.app"
+    )
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -296,10 +306,7 @@ class TargetScaleRunner:
         self.collector_warnings: list[str] = []
 
     def default_app_path(self) -> pathlib.Path:
-        return pathlib.Path.home() / (
-            f"Library/Developer/Xcode/DerivedData/cmux-{self.tag_slug}/"
-            f"Build/Products/Debug/cmux DEV {self.tag_slug}.app"
-        )
+        return default_app_path_for_tag(self.tag)
 
     def app_environment(self) -> dict[str, str]:
         environment = os.environ.copy()
@@ -781,11 +788,7 @@ def _write_junit(path: pathlib.Path, artifact: Mapping[str, Any]) -> None:
 def _metadata(args: argparse.Namespace) -> dict[str, Any]:
     app_path = pathlib.Path(args.app_path).expanduser() if args.app_path else None
     if app_path is None and args.tag:
-        slug = sanitize_tag(str(args.tag))
-        app_path = pathlib.Path.home() / (
-            f"Library/Developer/Xcode/DerivedData/cmux-{slug}/"
-            f"Build/Products/Debug/cmux DEV {slug}.app"
-        )
+        app_path = default_app_path_for_tag(args.tag)
     git_sha = _safe_text(["git", "rev-parse", "HEAD"], timeout=10)
     metadata: dict[str, Any] = {
         "benchmark": "cmux target-scale resource budgets",
@@ -863,8 +866,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.self_test:
             result = self_test()
             print(json.dumps(result, indent=2, sort_keys=True))
-            if args.output:
-                _write_json(args.output, result)
+            self_test_output = args.output.with_name(f"{args.output.stem}.self-test{args.output.suffix}")
+            _write_json(self_test_output, result)
             return 0 if result.get("passed") else 1
 
         if not args.synthetic and not args.tag:
