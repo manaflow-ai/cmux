@@ -48,22 +48,49 @@ extension RemoteSessionCoordinator {
         sessionID: String,
         timeout: TimeInterval = 8.0
     ) async throws {
-        let deadline = DispatchTime.now() + max(0, timeout)
         let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let timeoutMilliseconds = Self.ptyCloseTimeoutMilliseconds(timeout)
+        let gate = RemotePTYAsyncCloseOperationGate()
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, any Error>) in
             queue.async { [self] in
+                guard gate.begin() else { return }
+                let deadline = DispatchTime.now() + max(0, timeout)
                 do {
                     try closePTYSessionLocked(
                         sessionID: normalizedSessionID,
                         deadline: deadline
                     )
-                    continuation.resume()
+                    if gate.complete() {
+                        continuation.resume()
+                    }
                 } catch {
-                    continuation.resume(throwing: error)
+                    if gate.complete() {
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
+            Task { [clock, gate] in
+                guard (try? await clock.sleep(forMilliseconds: timeoutMilliseconds)) != nil else {
+                    return
+                }
+                guard gate.timeoutBeforeStart() else { return }
+                continuation.resume(throwing: Self.ptyQueueHandoffTimedOutError())
+            }
         }
+    }
+
+    private static func ptyCloseTimeoutMilliseconds(_ timeout: TimeInterval) -> Int {
+        guard timeout.isFinite else { return Int.max }
+        let milliseconds = max(0, timeout * 1_000).rounded(.up)
+        guard milliseconds < Double(Int.max) else { return Int.max }
+        return Int(milliseconds)
+    }
+
+    private static func ptyQueueHandoffTimedOutError() -> NSError {
+        NSError(domain: "cmux.remote.pty", code: 8, userInfo: [
+            NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation queue",
+        ])
     }
 
     private func closePTYSessionLocked(

@@ -7295,7 +7295,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
-        "ssh-\(workspaceId.uuidString)-\(panelId.uuidString)"
+        RemotePTYRespawnPlanner.defaultSessionID(
+            workspaceID: workspaceId,
+            panelID: panelId
+        )
     }
 
     nonisolated static let remotePTYSessionEnvironmentKey = "CMUX_REMOTE_PTY_SESSION_ID"

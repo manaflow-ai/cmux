@@ -114,8 +114,9 @@ extension Workspace {
     /// ``Workspace/remotePTYSessionCleanupTasksBySessionID``, which also
     /// serializes per-session drains. A close that fails while the owning
     /// identity's controller is live is terminal — the daemon no longer knows
-    /// the session, so retrying would spin forever; any other failure
-    /// re-parks the request for the next drain.
+    /// the session, so retrying would spin forever; a queue-handoff timeout is
+    /// the exception because the RPC never started, and is re-parked for the
+    /// next drain.
     func drainPendingRemotePTYSessionCleanups() {
         guard !pendingRemotePTYSessionCleanups.isEmpty else { return }
         #if DEBUG
@@ -189,7 +190,18 @@ extension Workspace {
                     self.remoteConfiguration?.hasSamePersistentPTYIdentity(
                         as: owningConfiguration
                     ) == true
-                guard !owningControllerIsLive else { return }
+                let queueHandoffTimedOut: Bool
+                if let closeError {
+                    let nsError = closeError as NSError
+                    queueHandoffTimedOut =
+                        nsError.domain == "cmux.remote.pty" && nsError.code == 8
+                } else {
+                    queueHandoffTimedOut = false
+                }
+                // Code 8 means the coordinator queue never started the close;
+                // retain the request even when the old controller still looks
+                // connected so a later lifecycle transition can retry it.
+                guard !owningControllerIsLive || queueHandoffTimedOut else { return }
                 self.pendingRemotePTYSessionCleanups[sessionID] = owningConfiguration
             }
             remotePTYSessionCleanupTasksBySessionID[sessionID] = task
