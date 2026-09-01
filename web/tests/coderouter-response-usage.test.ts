@@ -106,6 +106,19 @@ describe("model usage observation", () => {
     expect(completed).toBe(false);
   });
 
+  test("a client hang-up (abort-class error) propagates without being reported", async () => {
+    const abort = new DOMException("The operation was aborted.", "AbortError");
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(abort);
+      },
+    });
+    const reported: unknown[] = [];
+    const observed = observeModelUsage(body, () => {}, (error) => reported.push(error));
+    await expect(observed!.getReader().read()).rejects.toBe(abort);
+    expect(reported).toEqual([]);
+  });
+
   test("yields nothing when neither side of the stream completes the counts", () => {
     expect(__test.usageFromStream("", '{"usage":{"output_tokens":9}}')).toBeNull();
     expect(__test.usageFromStream('{"usage":{"input_tokens":9}}', "no usage here")).toBeNull();

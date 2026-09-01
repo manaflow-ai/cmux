@@ -72,7 +72,9 @@ export function reportStreamErrors(
         if (done) controller.close();
         else controller.enqueue(value);
       } catch (error) {
-        onError(error);
+        // A client hang-up cancels the response body, which surfaces here as
+        // an abort-class rejection; that is not a provider failure.
+        if (!isAbortError(error)) onError(error);
         controller.error(error);
       }
     },
@@ -80,6 +82,12 @@ export function reportStreamErrors(
       return reader.cancel(reason);
     },
   });
+}
+
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const name = (error as { name?: unknown }).name;
+  return name === "AbortError" || name === "TimeoutError";
 }
 
 type UsageCounts = {
