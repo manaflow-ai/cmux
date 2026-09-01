@@ -1106,15 +1106,21 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_bare_github_hosted_runners() {
-  # Every job must route its runner through a repo variable (LINUX_RUNNER,
-  # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
-  # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
-  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
+  # Every ordinary job must route its runner through a repo variable
+  # (LINUX_RUNNER, MACOS_RUNNER_*) so the Blacksmith<->Warp /
+  # Blacksmith<->macos-26 overflow switch is a single repo-variable flip with
+  # no PR. The immutable base-controlled CLA policy guard is the one deliberate
+  # exception: it never executes pull-request code and stays on GitHub-hosted
+  # Ubuntu so mutable runner variables cannot affect policy validation. A bare
+  # GitHub-hosted label (ubuntu-*, macos-NN) elsewhere cannot be redirected,
+  # so it is forbidden.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
   # deliberate single-runner pins such as the testmanagerd-wedged
   # `app-host-unit-tests` job.
   local hits
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" | grep -v "github-hosted-required" || true)"
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)([[:space:]]*$|[[:space:]]+#)" "$ROOT_DIR/.github/workflows" \
+    | grep -v "github-hosted-required" \
+    | grep -v '/cla-policy-guard.yml:' || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
     echo "$hits"
