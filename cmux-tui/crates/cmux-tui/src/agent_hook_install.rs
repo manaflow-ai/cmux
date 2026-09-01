@@ -2259,47 +2259,67 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hermes_command_reaps_child_when_reaper_spawn_fails() {
-        struct ReaperFailureGuard;
-
-        impl Drop for ReaperFailureGuard {
-            fn drop(&mut self) {
-                FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(false));
-            }
-        }
-
         let root = tempfile::tempdir().unwrap();
         let pid_path = root.path().join("hermes.pid");
+        let continue_path = root.path().join("hermes.continue");
         let script = format!(
-            "printf '%s' $$ > {}; sleep 30",
-            shell_quote(pid_path.to_string_lossy().as_ref())
+            "printf '%s' $$ > {}; while [ ! -f {} ]; do sleep 0.01; done; sleep 30",
+            shell_quote(pid_path.to_string_lossy().as_ref()),
+            shell_quote(continue_path.to_string_lossy().as_ref())
         );
-        FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
-        let _failure_guard = ReaperFailureGuard;
-        let started = Instant::now();
-        let error = run_hermes_command_with_timeout(
-            Path::new("/bin/sh"),
-            &["-c", &script],
-            Duration::from_millis(100),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("timed out"));
-        assert!(started.elapsed() < Duration::from_secs(2));
 
-        let pid = fs::read_to_string(pid_path).unwrap().trim().parse::<libc::pid_t>().unwrap();
+        let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
+            let result = run_hermes_command_with_timeout(
+                Path::new("/bin/sh"),
+                &["-c", &script],
+                Duration::from_secs(2),
+            );
+            result_sender.send(result).unwrap();
+        });
+
+        let startup_deadline = Instant::now() + Duration::from_secs(1);
+        let pid = loop {
+            if let Ok(contents) = fs::read_to_string(&pid_path) {
+                if let Ok(pid) = contents.trim().parse::<libc::pid_t>() {
+                    break pid;
+                }
+            }
+            assert!(Instant::now() < startup_deadline, "Hermes child did not complete startup");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        fs::write(&continue_path, b"continue\n").unwrap();
+
+        let error = result_receiver
+            .recv_timeout(Duration::from_secs(4))
+            .expect("Hermes timeout worker did not return")
+            .unwrap_err();
+        worker.join().unwrap();
+        assert!(error.to_string().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(4));
+
         let reap_deadline = Instant::now() + Duration::from_secs(2);
         loop {
-            let mut status = 0;
+            let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
             // SAFETY: `pid` was written by the direct child started above, and
-            // no other test thread can own or reap that child.
-            let waited = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
-            if waited < 0 {
+            // WNOWAIT keeps this assertion from consuming its exit status.
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    status.as_mut_ptr(),
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if result < 0 {
                 let error = io::Error::last_os_error();
                 if error.raw_os_error() == Some(libc::ECHILD) {
                     break;
                 }
-                panic!("waitpid failed while checking Hermes reaper: {error}");
+                panic!("waitid failed while checking Hermes reaper: {error}");
             }
-            assert_ne!(waited, pid, "the test thread reaped the Hermes child before the observer");
             assert!(
                 Instant::now() < reap_deadline,
                 "Hermes child was not reaped after timeout returned"
