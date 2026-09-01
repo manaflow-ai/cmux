@@ -920,11 +920,7 @@ pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
     if value.is_empty() || value.contains('\0') {
         return None;
     }
-    let bytes = value.as_bytes();
-    let is_drive_path = bytes.len() >= 2
-        && bytes[0].is_ascii_alphabetic()
-        && bytes[1] == b':';
-    if is_drive_path || !value.contains("://") {
+    if !value.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:")) {
         return Some(PathBuf::from(value));
     }
     terminal_pwd_to_local_path(value)
@@ -1480,6 +1476,10 @@ mod tests {
         assert_eq!(
             spawn_cwd_to_local_path(r"C:\Users\alice\src"),
             Some(PathBuf::from(r"C:\Users\alice\src"))
+        );
+        assert_eq!(
+            spawn_cwd_to_local_path("/tmp/foo://bar"),
+            Some(PathBuf::from("/tmp/foo://bar"))
         );
         assert_eq!(spawn_cwd_to_local_path("file:///tmp/hostless"), None);
         assert_eq!(
