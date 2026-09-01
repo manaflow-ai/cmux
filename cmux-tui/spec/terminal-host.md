@@ -404,6 +404,13 @@ across an unplanned no-tap interval until a durable host spool exists.
 Protocol v1 carries the base snapshot and legacy replay stream. Protocol v2
 adds Kitty image aliases and cell-pixel metrics. Protocol v3 adds Kitty replay
 state, Kitty quota controls, and the smart raw-byte stream. Protocol v4 adds
-the launch activation barrier. A v4 client may negotiate v1 or v2 only in
-legacy mode; smart renderers require v3 and restart their handshake on any gap
-or `ResyncRequired` frame.
+the launch activation barrier. The daemon's adoption path can still connect
+to legacy host records at an older version; smart renderers require v3 and
+restart their handshake on any gap or `ResyncRequired` frame. This document
+specifies the daemon-side v4 framing; renderer interoperability remains
+partial. Newly launched daemon hosts authenticate renderer clients at v4 and
+mint grants pinned to that version. The current cross-language renderer
+accepts only v1-v3 and pins its `ClientHello` to the grant version, while the
+grant API exposes no downgrade negotiation. This spec therefore does not
+advertise renderer attach to newly launched hosts; renderer v4 support or
+explicit mutually supported grant negotiation remains future work.

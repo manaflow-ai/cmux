@@ -1131,7 +1131,7 @@
       "id": "terminal-rendering",
       "wire_status": "partial",
       "programmability": "partial",
-      "route": "render attach is implemented; the current remote renderer defaults to terminal-host-v3 and decodes negotiated v1-v3 resize replay. Newly launched daemon hosts use v4, whose decoder accepts v1-v4. Typed SDK parity is incomplete"
+      "route": "render attach to newly launched hosts is unsupported. The daemon-side terminal-host-v4 decoder accepts v1-v4, but the current remote renderer defaults to terminal-host-v3 and decodes only negotiated v1-v3 resize replay. New-host grants are pinned to v4 and no mutually supported-version downgrade is exposed. Legacy adopted hosts can use their negotiated older version when the renderer supports it. Typed SDK parity is incomplete"
     },
     {
       "id": "terminal-selection-search-history",
@@ -1387,7 +1387,7 @@
     },
     {
       "id": "terminal-host-v4",
-      "status": "implemented",
+      "status": "partial",
       "spec": "terminal-host.md"
     },
     {
