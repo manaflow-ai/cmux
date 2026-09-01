@@ -13301,10 +13301,6 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: Tab not found"
         }
-        let usage = String(
-            localized: "cli.error.clearNotificationsUsage",
-            defaultValue: "clear_notifications [--tab=X] [--panel=ID] [--approval-id=ID|--approval-scope=SCOPE|--correlation-key=UUID]"
-        )
         let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
             return error
