@@ -320,6 +320,8 @@ struct Connection {
     pty_id: String,
     manager: Arc<PtyManager>,
     writer_tx: mpsc::Sender<WriterMessage>,
+    /// A permanently reserved channel slot for the explicit overflow frame.
+    overflow_permit: StdMutex<Option<mpsc::OwnedPermit<WriterMessage>>>,
     /// A permanently reserved channel slot for the terminal shutdown frame.
     /// `finish` is synchronous, so it cannot wait for queue capacity.
     end_permit: StdMutex<Option<mpsc::OwnedPermit<WriterMessage>>>,
@@ -451,9 +453,37 @@ impl Connection {
                 // reservation before closing the connection.
                 self.pending_out.fetch_sub(reserved, Ordering::AcqRel);
             }
-            self.finish();
+            if !self.finished.load(Ordering::SeqCst) {
+                self.reject_due_to_backpressure();
+            }
         }
         accepted
+    }
+
+    /// Report saturation using the reserved control slot, then close.
+    fn reject_due_to_backpressure(&self) {
+        let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
+        if self.finished.load(Ordering::SeqCst) {
+            return;
+        }
+        let overflow = encode_control_frame(&json!({ "t": "error", "code": "overflow" }))
+            .expect("overflow frame fits protocol");
+        let overflow_bytes = overflow.len() as u64;
+        if self.reserve_bytes(overflow.len(), true) {
+            if let Some(permit) = self.overflow_permit.lock().expect("overflow permit lock").take()
+            {
+                permit.send(WriterMessage::Frame(overflow));
+            } else {
+                self.pending_out.fetch_sub(overflow_bytes, Ordering::AcqRel);
+            }
+        }
+        self.finished.store(true, Ordering::SeqCst);
+        self.open_cancellation.cancel();
+        if let Some(permit) = self.end_permit.lock().expect("tunnel end permit lock").take() {
+            permit.send(WriterMessage::End);
+        }
+        self.flow_tx.send_replace(true);
+        self.done.cancel();
     }
 
     /// Idempotent shutdown: flush queued frames, close the socket, and let
@@ -716,9 +746,16 @@ async fn serve_connection(
     let _ = stream.set_nodelay(true);
     let (mut read_half, mut write_half) = stream.into_split();
     let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
-    // Reserve one item before any producer can fill the queue. Tokio's owned
-    // permit keeps this capacity unavailable to ordinary `try_send` calls and
-    // can later send End synchronously from `finish`.
+    // Reserve control slots before any producer can fill the queue. Tokio's
+    // owned permits keep these capacities unavailable to ordinary sends and
+    // can later send overflow and End synchronously.
+    let overflow_permit = match writer_tx.clone().reserve_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            let _ = write_half.shutdown().await;
+            return;
+        }
+    };
     let end_permit = match writer_tx.clone().reserve_owned().await {
         Ok(permit) => permit,
         Err(_) => {
@@ -745,6 +782,7 @@ async fn serve_connection(
         pty_id,
         manager: Arc::clone(&manager),
         writer_tx,
+        overflow_permit: StdMutex::new(Some(overflow_permit)),
         end_permit: StdMutex::new(Some(end_permit)),
         queue_gate: std::sync::Mutex::new(()),
         flow_tx,
@@ -1228,6 +1266,8 @@ mod tests {
         manager: Arc<PtyManager>,
     ) -> (Connection, mpsc::Receiver<WriterMessage>) {
         let (writer_tx, writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
+        let overflow_permit =
+            writer_tx.clone().reserve_owned().await.expect("reserve overflow slot");
         let end_permit = writer_tx.clone().reserve_owned().await.expect("reserve End slot");
         let (flow_tx, _) = watch::channel(false);
         let open_cancellation = manager.new_open_cancellation().expect("open attempt token");
@@ -1236,6 +1276,7 @@ mod tests {
                 pty_id: "queue-test".to_owned(),
                 manager,
                 writer_tx,
+                overflow_permit: StdMutex::new(Some(overflow_permit)),
                 end_permit: StdMutex::new(Some(end_permit)),
                 queue_gate: StdMutex::new(()),
                 flow_tx,
