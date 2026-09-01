@@ -143,7 +143,7 @@ struct VaultRestorePathGuaranteeTests {
         let launch = try #require(entry.resumeLaunch)
 
         #expect(launch.strategy == .legacyCommand)
-        #expect(launch.legacyFallbackReason == .missingStructuredSnapshot)
+        #expect(launch.legacyFallbackReason == .unrepresentableRegistration)
         #expect(launch.startupRestoreAgent == nil)
     }
 
@@ -263,7 +263,7 @@ struct VaultRestorePathGuaranteeTests {
         let launch = try #require(entry.resumeLaunch)
 
         #expect(launch.strategy == .legacyCommand)
-        #expect(launch.legacyFallbackReason == .missingStructuredSnapshot)
+        #expect(launch.legacyFallbackReason == .unrepresentableRegistration)
         #expect(
             launch.startupInput(for: .remoteHost)
                 == (entry.copyResumeCommand ?? "") + "\n"

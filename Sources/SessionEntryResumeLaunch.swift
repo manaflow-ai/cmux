@@ -15,6 +15,8 @@ nonisolated struct SessionEntryResumeLaunch: Sendable {
     enum LegacyFallbackReason: String, Sendable, Equatable {
         /// The persisted registration cannot be represented by a safe restorable kind.
         case missingStructuredSnapshot
+        /// A registered agent's template or identity cannot be represented safely.
+        case unrepresentableRegistration
         /// The registration's template could not produce structured argv.
         case unavailableStructuredArguments
     }
@@ -76,9 +78,17 @@ extension SessionEntry {
     ///
     /// Registered agents deliberately fall back to the quarantined copyable
     /// shell command only when their registration cannot produce structured argv.
+    /// A missing snapshot is distinguished from an unrepresentable registration
+    /// so callers can expose the compatibility path instead of hiding it.
     var resumeLaunch: SessionEntryResumeLaunch? {
         guard let snapshot = vaultResumeSnapshot else {
-            return legacyResumeLaunch(reason: .missingStructuredSnapshot)
+            let reason: SessionEntryResumeLaunch.LegacyFallbackReason = switch specifics {
+            case .registered:
+                .unrepresentableRegistration
+            default:
+                .missingStructuredSnapshot
+            }
+            return legacyResumeLaunch(reason: reason)
         }
         if let preparedArguments = snapshot.preparedResumeArguments(
             launchCommand: snapshot.launchCommand,
