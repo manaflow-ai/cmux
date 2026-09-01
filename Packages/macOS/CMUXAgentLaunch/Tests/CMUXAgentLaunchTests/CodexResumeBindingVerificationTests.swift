@@ -20,6 +20,207 @@ struct CodexResumeBindingVerificationTests {
         #expect(result == .missing)
     }
 
+    @Test func batchLegacyVerificationWalksOneHomeForMultipleIdentities() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let firstID = "019ff9a5-cbe1-7231-9478-0c55a8c44560"
+        let secondID = "019ff9a6-cbe1-7231-9478-0c55a8c44560"
+        let firstRollout = try fixture.writeRollout(
+            sessionId: firstID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+        let secondRollout = try fixture.writeRollout(
+            sessionId: secondID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            [
+                CodexSessionResumeVerificationRequest(sessionId: firstID),
+                CodexSessionResumeVerificationRequest(sessionId: secondID),
+                CodexSessionResumeVerificationRequest(sessionId: "missing-batch-id"),
+            ],
+            codexHome: fixture.codexHome.path
+        )
+
+        guard results.count == 3,
+              case .exists(let firstEvidence) = results[0],
+              case .exists(let secondEvidence) = results[1] else {
+            Issue.record("one legacy batch should resolve every exact rollout")
+            return
+        }
+        #expect(URL(fileURLWithPath: firstEvidence.rolloutPath).lastPathComponent == firstRollout.lastPathComponent)
+        #expect(URL(fileURLWithPath: secondEvidence.rolloutPath).lastPathComponent == secondRollout.lastPathComponent)
+        #expect(results[2] == .missing)
+    }
+
+    @Test func batchLegacyVerificationTrustsMetadataWhenFilenameNamesAnotherSession() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let filenameSessionID = "019ff9a7-cbe1-7231-9478-0c55a8c44560"
+        let metadataSessionID = "019ff9a8-cbe1-7231-9478-0c55a8c44560"
+        _ = try fixture.writeRollout(
+            sessionId: metadataSessionID,
+            filename: "rollout-\(filenameSessionID)-renamed.jsonl",
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            [
+                CodexSessionResumeVerificationRequest(sessionId: filenameSessionID),
+                CodexSessionResumeVerificationRequest(sessionId: metadataSessionID),
+            ],
+            codexHome: fixture.codexHome.path
+        )
+
+        guard results.count == 2,
+              case .exists(let evidence) = results[1] else {
+            Issue.record("session_meta.id must remain authoritative after a rollout rename")
+            return
+        }
+        #expect(evidence.sessionId == metadataSessionID)
+        #expect(evidence.source == .legacyRollout)
+    }
+
+    @Test func batchVerificationLimitsReturnedResultsToBound() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let requests = (0...CodexSessionResumeVerificationLimits.maximumBatchRequests).map {
+            CodexSessionResumeVerificationRequest(sessionId: "batch-session-\($0)")
+        }
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            requests,
+            codexHome: fixture.codexHome.path
+        )
+
+        #expect(results.count == CodexSessionResumeVerificationLimits.maximumBatchRequests)
+    }
+
+    @Test func fallbackCandidateTruncationIsUnavailable() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let directory = fixture.codexHome
+            .appendingPathComponent("sessions/2026/08/12", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let event: [String: Any] = [
+            "type": "event_msg",
+            "payload": ["type": "task_started"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys])
+        for index in 0...512 {
+            try data.write(
+                to: directory.appendingPathComponent("unrelated-\(index).jsonl"),
+                options: .atomic
+            )
+        }
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: "fallback-candidate-cap-target",
+                transcriptPath: nil,
+                codexHome: fixture.codexHome.path
+            ) == .unavailable
+        )
+    }
+
+    @Test func aggregateVerificationBudgetChargesBytesActuallyRead() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let sessionIDs = (0..<9).map { "aggregate-budget-session-\($0)" }
+        for sessionID in sessionIDs {
+            try fixture.writeSparseRollout(sessionId: sessionID)
+        }
+
+        let results = CodexSessionResumeVerifier().verifyBatch(
+            sessionIDs.map {
+                CodexSessionResumeVerificationRequest(sessionId: $0)
+            },
+            codexHome: fixture.codexHome.path
+        )
+
+        #expect(results.count == sessionIDs.count)
+        #expect(results.allSatisfy {
+            if case .exists = $0 { return true }
+            return false
+        })
+    }
+
+    @Test func codexHomeResolverPrefersLaunchMetadataOverAmbientState() {
+        let resolver = CodexHomeResolver()
+        let launchCodexHome = "/tmp/launch-codex"
+        let launchUserHome = "/tmp/launch-user"
+        let ambientCodexHome = "/tmp/ambient-codex"
+
+        #expect(
+            resolver.resolve(
+                launchEnvironment: ["CODEX_HOME": launchCodexHome],
+                launchVerificationHome: launchUserHome,
+                ambientEnvironment: [
+                    "CODEX_HOME": ambientCodexHome,
+                    "HOME": "/tmp/ambient-user",
+                ],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == launchCodexHome
+        )
+        #expect(
+            resolver.resolve(
+                launchEnvironment: ["HOME": launchUserHome],
+                ambientEnvironment: ["CODEX_HOME": ambientCodexHome],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == "\(launchUserHome)/.codex"
+        )
+        #expect(
+            resolver.resolve(
+                launchEnvironment: ["CODEX_HOME": ".codex"],
+                launchWorkingDirectory: "/tmp/captured-project",
+                ambientEnvironment: ["CODEX_HOME": ambientCodexHome],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == "/tmp/captured-project/.codex"
+        )
+    }
+
+    @Test func codexHomeResolverExpandsTildeUsingCapturedLaunchHome() {
+        let resolver = CodexHomeResolver()
+
+        #expect(
+            resolver.resolve(
+                launchEnvironment: [
+                    "CODEX_HOME": "~/.codex-work",
+                    "HOME": "/tmp/captured-launch-home",
+                ],
+                launchWorkingDirectory: "/tmp/captured-project",
+                ambientEnvironment: [
+                    "HOME": "/tmp/restoring-process-home",
+                    "CODEX_HOME": "/tmp/ambient-codex",
+                ],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == "/tmp/captured-launch-home/.codex-work"
+        )
+    }
+
+    @Test func codexHomeResolverCanPreferExplicitFallbackOverAmbientState() {
+        let resolver = CodexHomeResolver()
+
+        #expect(
+            resolver.resolve(
+                ambientEnvironment: [
+                    "HOME": "/tmp/ambient-user",
+                    "CODEX_HOME": "/tmp/ambient-codex",
+                ],
+                fallbackHomeDirectory: "/tmp/fixture-user",
+                preferFallbackHomeDirectory: true
+            ) == "/tmp/fixture-user/.codex"
+        )
+    }
+
     @Test func readableIndexWithoutThreadDoesNotScanUnindexedRollouts() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -38,6 +239,37 @@ struct CodexResumeBindingVerificationTests {
                 codexHome: fixture.codexHome.path
             ) == .missing
         )
+    }
+
+    @Test func indexedMissingCanBridgeAnExactLegacyRolloutForRestore() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9a6-cbe1-7231-9478-0c55a8c44560"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: sessionID,
+                transcriptPath: nil,
+                codexHome: fixture.codexHome.path
+            ) == .missing
+        )
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: nil,
+            codexHome: fixture.codexHome.path,
+            allowLegacyFallbackForIndexedMissing: true
+        ) else {
+            Issue.record("restore-mode verification should bridge a rollout/index write race")
+            return
+        }
+        #expect(evidence.sessionId == sessionID)
+        #expect(URL(fileURLWithPath: evidence.rolloutPath).lastPathComponent == rollout.lastPathComponent)
     }
 
     @Test func readableIndexWithoutThreadAcceptsExactTranscript() throws {
@@ -347,6 +579,32 @@ struct CodexResumeBindingVerificationTests {
         #expect(evidence.provenance == .exec)
     }
 
+    @Test func ambiguousNestedParentMetadataDoesNotClaimAncestry() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+
+        let sessionID = "019ff9d1-cbe1-7231-9478-0c55a8c44560"
+        let rollout = try fixture.writeRollout(
+            sessionId: sessionID,
+            nestedSource: [
+                "review": ["parent_thread_id": "first-parent"],
+                "metadata": ["parent_thread_id": "second-parent"],
+            ]
+        )
+        try fixture.insertThread(sessionId: sessionID, rolloutPath: rollout.path)
+
+        guard case .exists(let evidence) = CodexSessionResumeVerifier().verify(
+            sessionId: sessionID,
+            transcriptPath: rollout.path,
+            codexHome: fixture.codexHome.path
+        ) else {
+            Issue.record("the rollout should still be classified as durable evidence")
+            return
+        }
+        #expect(evidence.provenance == .exec)
+        #expect(evidence.parentSessionId == nil)
+    }
+
     @Test func transcriptWithoutExactSessionMetadataIsMissing() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -439,6 +697,7 @@ struct CodexResumeBindingVerificationTests {
 
         func writeRollout(
             sessionId: String,
+            filename: String? = nil,
             source: String? = nil,
             originator: String? = nil,
             nestedSource: [String: Any]? = nil
@@ -451,9 +710,22 @@ struct CodexResumeBindingVerificationTests {
             if let nestedSource { payload["source"] = nestedSource }
             let line: [String: Any] = ["type": "session_meta", "payload": payload]
             let data = try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])
-            let url = directory.appendingPathComponent("rollout-\(sessionId).jsonl")
+            let url = directory.appendingPathComponent(filename ?? "rollout-\(sessionId).jsonl")
             try data.write(to: url, options: .atomic)
             return url
+        }
+
+        func writeSparseRollout(sessionId: String) throws {
+            let url = try writeRollout(sessionId: sessionId)
+            var metadata = try Data(contentsOf: url)
+            metadata.append(0x0A)
+            try metadata.write(to: url, options: .atomic)
+            guard let handle = FileHandle(forWritingAtPath: url.path) else {
+                throw FixtureError.database
+            }
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(CodexSessionResumeVerificationLimits.maximumRolloutBytes) + 1)
+            try handle.write(contentsOf: Data([0]))
         }
 
         func insertThread(

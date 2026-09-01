@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Cloud Machines"
+  short_description: "Route work to cmux Cloud VMs from the CLI: vm route/run/agent pick a machine, vm tree/open show workspaces, terminals, desktop, and ports; plus exec, push/pull, checkpoints, forks."
+  default_prompt: "Use this skill to run work on cmux Cloud machines: decide cloud vs local, let `cmux vm route`/`run`/`agent` pick a machine (or reuse Base), start agents as detached terminals in the machine's cmux-tui session, transfer files with vm push/pull, mint private port URLs, checkpoint/fork for experiments, and use `cmux vm tree`/`vm open` to show terminals, the desktop, or ports to the user when results are ready."

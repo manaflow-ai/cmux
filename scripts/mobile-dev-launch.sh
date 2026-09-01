@@ -88,7 +88,11 @@ EXPECTED_ACCOUNT=""
 CHECK_AUTH_CONTRACT=0
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
-ATTACH_READY_TIMEOUT_SECONDS="${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-15}"
+# Stack session restore and the first control-plane snapshot can take longer
+# than the attach handshake itself on a physical device. Keep the default
+# bounded, but leave enough room for a cold auth bootstrap before declaring the
+# install unusable; callers can still tighten or extend it explicitly.
+ATTACH_READY_TIMEOUT_SECONDS="${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-60}"
 
 usage() { sed -n '2,58p' "$0"; }
 
