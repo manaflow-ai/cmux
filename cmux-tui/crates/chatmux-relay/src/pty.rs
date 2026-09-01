@@ -1088,6 +1088,12 @@ impl PtyManager {
             let publication =
                 candidate.publication_gate.lock().expect("attachment publication lock");
             let operation = candidate.operation_gate.lock().expect("attachment operation lock");
+            if candidate.startup_state.load(Ordering::Acquire) != 2 {
+                candidate.retire_pending.store(true, Ordering::Release);
+                drop(operation);
+                drop(publication);
+                continue;
+            }
             let removed = {
                 let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
                 let mut attachments = self.inner.attachments.lock().expect("attach lock");
@@ -1623,9 +1629,12 @@ impl Inner {
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
         start();
-        if let Some(attachment) = self.attachments.lock().expect("attach lock").get(&pty_id) {
+        if let Some(attachment) =
+            self.attachments.lock().expect("attach lock").get(&pty_id).cloned()
+        {
             attachment.startup_state.store(2, Ordering::Release);
             if attachment.retire_pending.swap(false, Ordering::AcqRel) {
+                self.attachments.lock().expect("attach lock").remove(&pty_id);
                 attachment.control.kill();
             }
         }
