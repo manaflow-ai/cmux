@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -348,18 +349,23 @@ extension CMUXCLI {
         maxBytes: UInt64
     ) -> [String]? {
         let expandedPath = NSString(string: path).expandingTildeInPath
-        // `FileHandle(forReadingFrom:)` follows FIFOs/devices. A hook path is
-        // expected to be a transcript regular file; reject special files
-        // before opening so a malicious/stale path cannot block the hook.
+        // Open and validate one descriptor. A path-only stat followed by a
+        // separate FileHandle open is a TOCTOU window in which a FIFO/device
+        // could replace the transcript and block the synchronous hook.
+        // `O_NOFOLLOW` rejects a final symlink and `O_NONBLOCK` keeps even a
+        // raced special-file open from waiting before fstat can reject it.
+        let descriptor = Darwin.open(
+            expandedPath,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else { return nil }
+        defer { _ = Darwin.close(descriptor) }
         var metadata = stat()
-        guard stat(expandedPath, &metadata) == 0,
-              (metadata.st_mode & S_IFMT) == S_IFREG else {
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
             return nil
         }
-        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
-            return nil
-        }
-        defer { try? handle.close() }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false)
 
         let size: UInt64
         do {
