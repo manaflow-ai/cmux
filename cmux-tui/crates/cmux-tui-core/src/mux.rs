@@ -2125,6 +2125,9 @@ pub struct Mux {
     /// Keeps a close from removing a just-created surface before legacy
     /// callers have resolved the committed public result back to its runtime.
     resource_creation_handoff: Mutex<()>,
+    /// Serializes the check-and-create sequence used when an attached local
+    /// frontend bootstraps an otherwise empty session.
+    initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
@@ -2488,6 +2491,7 @@ impl Mux {
             #[cfg(test)]
             terminal_exit_state_queries: AtomicU64::new(0),
             resource_creation_handoff: Mutex::new(()),
+            initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
@@ -2534,6 +2538,10 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
+    }
+
+    pub(crate) fn lock_initial_bootstrap(&self) -> MutexGuard<'_, ()> {
+        self.initial_bootstrap.lock().unwrap()
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
