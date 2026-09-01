@@ -54,6 +54,10 @@ LOCK_FILE="$BUILD_ROOT/.ish-ios-build.lock"
 LOCK_FD_OPEN=0
 WORK=""
 XC_WORK=""
+# The rootfs install uses a same-directory temporary file before its final
+# rename. Keep its exact path so an interrupt or validation failure cannot
+# leave a partial archive beside the package resource.
+ROOTFS_PART=""
 
 # Publishing is a small transaction. Keep the old trees in sibling backup
 # directories until both new trees and the manifest are in place. The EXIT
@@ -268,8 +272,10 @@ install_rootfs() {
         if [[ "$ROOTFS_INPUT" != "$ROOTFS_DEST" ]]; then
             local copied
             copied="$(mktemp "$ROOTFS_DEST.part.XXXXXX")"
+            ROOTFS_PART="$copied"
             cp "$ROOTFS_INPUT" "$copied"
             mv -f "$copied" "$ROOTFS_DEST"
+            ROOTFS_PART=""
         fi
     elif [[ -f "$ROOTFS_DEST" ]]; then
         validate_rootfs "$ROOTFS_DEST"
@@ -277,16 +283,20 @@ install_rootfs() {
         echo "rootfs missing, downloading pinned Alpine archive"
         local downloaded
         downloaded="$(mktemp "$ROOTFS_DEST.part.XXXXXX")"
+        ROOTFS_PART="$downloaded"
         if ! curl -fL --connect-timeout 20 --max-time 300 --retry 3 --retry-delay 2 \
             -o "$downloaded" "$ROOTFS_URL"; then
             rm -f "$downloaded"
+            ROOTFS_PART=""
             die "could not download rootfs; provide CMUX_ISH_ROOTFS_PATH for an offline build"
         fi
         if ! validate_rootfs "$downloaded"; then
             rm -f "$downloaded"
+            ROOTFS_PART=""
             exit 1
         fi
         mv -f "$downloaded" "$ROOTFS_DEST"
+        ROOTFS_PART=""
     fi
 
     echo "rootfs: $ROOTFS_DEST"
@@ -488,6 +498,13 @@ cleanup() {
     fi
     if [[ "$KEEP_BUILD" != 1 && -n "$XC_WORK" && -d "$XC_WORK" ]]; then
         rm -rf "$XC_WORK"
+    fi
+    if [[ -n "$ROOTFS_PART" && ( -e "$ROOTFS_PART" || -L "$ROOTFS_PART" ) ]]; then
+        # The path is created by mktemp in the package resource directory and
+        # is cleared after a successful rename. Remove it only while this
+        # invocation still owns the tracked path.
+        rm -f "$ROOTFS_PART"
+        ROOTFS_PART=""
     fi
     if [[ "$LOCK_FD_OPEN" == 1 ]]; then
         # Closing the descriptor releases the advisory lock. Never unlink the
