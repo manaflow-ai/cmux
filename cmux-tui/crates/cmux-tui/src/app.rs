@@ -8623,14 +8623,13 @@ impl MachineActionWorker {
             // so shutdown stays responsive without detaching the worker.
             let worker = Arc::new(std::sync::Mutex::new(Some(worker)));
             let worker_for_reaper = worker.clone();
-            match std::thread::Builder::new()
-                .name("machine-actions-reaper".into())
-                .spawn(move || {
+            match std::thread::Builder::new().name("machine-actions-reaper".into()).spawn(
+                move || {
                     if let Some(worker) = worker_for_reaper.lock().unwrap().take() {
                         let _ = worker.join();
                     }
-                })
-            {
+                },
+            ) {
                 Ok(reaper) => self.reaper = Some(reaper),
                 Err(_) => {
                     // Restore ownership when the reaper cannot start. This
@@ -8653,6 +8652,9 @@ impl MachineActionWorker {
 impl Drop for MachineActionWorker {
     fn drop(&mut self) {
         self.shutdown();
+        if let Some(reaper) = self.reaper.take() {
+            let _ = reaper.join();
+        }
     }
 }
 
@@ -24401,26 +24403,25 @@ mod tests {
         FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
         GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
         HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute,
-        MachineControllerCompletion, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
-        SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
-        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, content_size_for_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
-        forward_host_input, forward_mux_event, forward_mux_events,
+        MachineControllerCompletion, MenuAction, MenuItem, MutationImpact, MuxTitleIngress,
+        OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
         host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
