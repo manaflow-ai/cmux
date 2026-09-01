@@ -12,6 +12,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let eventLogURL: URL
     private let maxEventLogBytes: UInt64
     private let maxPendingLines: Int
+    private let onPersisted: (@Sendable () -> Void)?
     private let lock = NSLock()
     private var pendingLines: [String] = []
     private var flushScheduled = false
@@ -20,10 +21,16 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private var flushSuspendedForTesting = false
 #endif
 
-    init(eventLogURL: URL, maxEventLogBytes: UInt64, maxPendingLines: Int) {
+    init(
+        eventLogURL: URL,
+        maxEventLogBytes: UInt64,
+        maxPendingLines: Int,
+        onPersisted: (@Sendable () -> Void)? = nil
+    ) {
         self.eventLogURL = eventLogURL
         self.maxEventLogBytes = max(1, maxEventLogBytes)
         self.maxPendingLines = max(1, maxPendingLines)
+        self.onPersisted = onPersisted
     }
 
     func enqueue(_ line: String) {
@@ -127,6 +134,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
 
     private func append(_ lines: [String]) {
         guard !lines.isEmpty else { return }
+        defer { onPersisted?() }
         do {
             try FileManager.default.createDirectory(
                 at: eventLogURL.deletingLastPathComponent(),

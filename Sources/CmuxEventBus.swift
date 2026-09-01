@@ -148,14 +148,22 @@ final class CmuxEventBus: @unchecked Sendable {
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.maxEventLineBytes = normalizedMaxEventLineBytes
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
-        self.durableReplayStore = eventLogURL.map {
+        let replayStore = eventLogURL.map {
             CmuxEventLogReplayStore(eventLogURL: $0, maxEventLineBytes: normalizedMaxEventLineBytes)
         }
+        let onPersisted: (@Sendable () -> Void)?
+        if let replayStore = replayStore {
+            onPersisted = { [weak replayStore] in replayStore?.refreshFromDisk() }
+        } else {
+            onPersisted = nil
+        }
+        self.durableReplayStore = replayStore
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
                 maxEventLogBytes: maxEventLogBytes,
-                maxPendingLines: maxPendingEventLogLines
+                maxPendingLines: maxPendingEventLogLines,
+                onPersisted: onPersisted
             )
         }
         if let latestSequence = durableReplayStore?.snapshot().latestSequence {

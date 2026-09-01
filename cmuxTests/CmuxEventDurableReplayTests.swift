@@ -80,4 +80,27 @@ struct CmuxEventDurableReplayTests {
         #expect(resume["gap"] as? Bool == true)
         #expect(resume["gap_reason"] as? String == "durable event log has a sequence gap")
     }
+
+    @Test
+    func subscriptionUsesCachedPersistedSnapshotInsteadOfReadingTheLogAgain() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-cache-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let bus = CmuxEventBus(retainedEventLimit: 1, eventLogURL: logURL)
+        bus.publish(name: "first", category: "test", source: "writer")
+        bus.publish(name: "second", category: "test", source: "writer")
+        bus.flushEventLogForTesting()
+
+        // A subscription must use the cached snapshot. If it falls back to a
+        // synchronous disk read, removing the file makes the replay disappear
+        // and puts the socket worker back on the expensive path.
+        try FileManager.default.removeItem(at: logURL)
+
+        let snapshot = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        #expect(snapshot.replay.compactMap { $0["name"] as? String } == ["first", "second"])
+    }
 }
