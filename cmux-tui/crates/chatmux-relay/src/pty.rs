@@ -261,8 +261,7 @@ fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), 
         let expected =
             std::fs::metadata(&expected_path).map_err(|_| "cwd is not accessible".to_owned())?;
         ancestry.push(DirectoryIdentity { dev: expected.dev(), ino: expected.ino() });
-        let name = CString::new(name.as_os_str().as_bytes())
-            .map_err(|_| "cwd is not accessible".to_owned())?;
+        let name = CString::new(name.as_bytes()).map_err(|_| "cwd is not accessible".to_owned())?;
         // SAFETY: `parent` is an open directory and `name` is NUL-free.
         let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
         if fd < 0 {
