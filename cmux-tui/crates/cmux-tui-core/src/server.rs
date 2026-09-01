@@ -4826,6 +4826,21 @@ fn windows_socket_identity(path: &Path) -> std::io::Result<(u32, u64)> {
     Ok((information.dwVolumeSerialNumber, file_index))
 }
 
+/// Close a listener whose lease could not capture an identity, then remove its
+/// unreachable publication when the path still names a socket. The caller
+/// holds the per-path start lock, so cooperative replacements cannot race the
+/// probe. The second identity check avoids removing a replacement that appears
+/// after the initial probe.
+fn cleanup_unclaimed_listener(listener: transport::Listener, path: &Path) {
+    drop(listener);
+
+    let Ok(identity) = SocketPathIdentity::capture(path) else { return };
+    if transport::connect(path).is_ok() || !identity.matches_path(path).unwrap_or(false) {
+        return;
+    }
+    let _ = std::fs::remove_file(path);
+}
+
 struct ListenerControl {
     shutdown: Arc<AtomicBool>,
     wake: transport::ListenerWake,
@@ -5183,7 +5198,13 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     }
     let listener = transport::listen(&path)?;
-    let lease = ServedSocketLease::claim(path.clone())?;
+    let lease = match ServedSocketLease::claim(path.clone()) {
+        Ok(lease) => lease,
+        Err(error) => {
+            cleanup_unclaimed_listener(listener, &path);
+            return Err(error.into());
+        }
+    };
     drop(start_lock);
     let listener_wake = match listener.wake_handle() {
         Ok(wake) => wake,
