@@ -5350,6 +5350,7 @@ struct SelectionClickSequence {
     anchor: (u16, u64),
     dragged: bool,
     tracked_anchor: Option<TrackedScreenPoint>,
+    semantic_range: Option<SelectionRange>,
     /// A failed semantic press keeps `tracked_anchor` alive for a same-press
     /// cell drag, but it must not keep the repeat count alive for the next
     /// press.
@@ -16941,6 +16942,7 @@ impl App {
             anchor: cell,
             dragged: false,
             tracked_anchor,
+            semantic_range: None,
             repeatable: true,
         });
         mode
@@ -17074,13 +17076,27 @@ impl App {
             .flatten();
         let range = range.map(|range| {
             if mode == SelectionMode::Word {
-                self.selection
-                    .filter(|selection| selection.surface == surface)
-                    .map(|selection| {
-                        let initial = selection.range();
+                self.selection_click_sequence
+                    .as_ref()
+                    .and_then(|sequence| sequence.semantic_range)
+                    .map(|initial| {
+                        let start = if (initial.start.row, initial.start.column)
+                            <= (range.start.row, range.start.column)
+                        {
+                            initial.start
+                        } else {
+                            range.start
+                        };
+                        let end = if (initial.end.row, initial.end.column)
+                            >= (range.end.row, range.end.column)
+                        {
+                            initial.end
+                        } else {
+                            range.end
+                        };
                         SelectionRange {
-                            start: initial.0.min(range.start),
-                            end: initial.1.max(range.end),
+                            start,
+                            end,
                         }
                     })
                     .unwrap_or(range)
@@ -22333,6 +22349,20 @@ impl App {
                         self.selection_mode_surface = Some(area.surface);
                         if let Some(selection) = self.selection_for_click(area.surface, cell, mode)
                         {
+                            if let Some(sequence) = self.selection_click_sequence.as_mut()
+                                && mode != SelectionMode::Cell
+                            {
+                                sequence.semantic_range = Some(SelectionRange {
+                                    start: SelectionPoint {
+                                        column: selection.range().0.0,
+                                        row: selection.range().0.1 as u32,
+                                    },
+                                    end: SelectionPoint {
+                                        column: selection.range().1.0,
+                                        row: selection.range().1.1 as u32,
+                                    },
+                                });
+                            }
                             self.replace_selection(Some(selection));
                         } else {
                             // A semantic lookup can legitimately return no
