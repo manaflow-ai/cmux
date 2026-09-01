@@ -135,16 +135,20 @@ extension TransportHostLifecycleTests {
     func expiredPendingCredentialIsNotReplayed() async throws {
         let host = makeHost()
         let (identity, grant) = try mintedIdentity()
+        let admissionNow = now + 2
 
-        // Queued while offline, expired by the time the device reconnects.
-        _ = await host.pushRelayCredential(
+        // Queue a credential while it is still valid, then advance the
+        // admission timeline so the host exercises its pending-credential
+        // expiry/drop branch rather than rejecting the token at insert time.
+        let queued = await host.pushRelayCredential(
             deviceID: identity.deviceID, appIdentity: identity.appIdentity,
-            url: "https://usc1.relay.cmux.dev/", token: expiringToken(exp: now - 30),
+            url: "https://usc1.relay.cmux.dev/", token: expiringToken(exp: now + 1),
             now: now)
+        #expect(!queued)
 
         let (client, hostEnd) = LoopbackWire().makeEnds(
             authenticatedClientKey: identity.publicKeyData)
-        async let serving: Void = host.serve(connection: hostEnd, now: now)
+        async let serving: Void = host.serve(connection: hostEnd, now: admissionNow)
         let outcome = try await TransportClient.connect(
             connection: client, identity: identity, grant: grant)
         #expect(outcome == .admitted(sessionID: "s1"))
