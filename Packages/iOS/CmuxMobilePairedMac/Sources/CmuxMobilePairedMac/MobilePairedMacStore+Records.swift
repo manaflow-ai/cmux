@@ -289,20 +289,10 @@ extension MobilePairedMacStore {
         }
     }
 
-    private enum TailscaleGrantOrigin: String {
-        case migration
-        case user
-    }
-
-    private struct TailscaleRouteGrant {
-        let route: CmxAttachRoute
-        let origin: TailscaleGrantOrigin
-    }
-
     private func fetchTailscaleRouteGrants(
         macDeviceID: String,
         ownerKey: String
-    ) throws -> [TailscaleRouteGrant] {
+    ) throws -> [MobilePairedMacTailscaleRouteGrant] {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let result = sqlite3_prepare_v2(
@@ -322,7 +312,7 @@ extension MobilePairedMacStore {
         }
         try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
         let decoder = JSONDecoder()
-        var grants: [TailscaleRouteGrant] = []
+        var grants: [MobilePairedMacTailscaleRouteGrant] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let json = Self.readNullableText(statement, column: 0),
                   let data = json.data(using: .utf8),
@@ -330,10 +320,10 @@ extension MobilePairedMacStore {
                   route.kind == .tailscale else {
                 continue
             }
-            let origin = TailscaleGrantOrigin(
+            let origin = MobilePairedMacTailscaleGrantOrigin(
                 rawValue: Self.readNullableText(statement, column: 1) ?? "migration"
             ) ?? .migration
-            grants.append(TailscaleRouteGrant(route: route, origin: origin))
+            grants.append(MobilePairedMacTailscaleRouteGrant(route: route, origin: origin))
         }
         return grants
     }

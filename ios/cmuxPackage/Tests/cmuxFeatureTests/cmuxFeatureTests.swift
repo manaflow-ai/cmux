@@ -1007,7 +1007,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not trusted. Verify the Mac's Tailscale or local-network address, then scan its pairing QR or enter that address again.")
+    #expect(store.connectionError == "This pairing route is not trusted. Verify the Mac's Tailscale IP, MagicDNS name, or local-network address, then scan its pairing QR or enter that address again.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 

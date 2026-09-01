@@ -1203,6 +1203,7 @@ struct CMUXMobileRootView: View {
                 result.didConnect ? .appOpenURLHandled : .appOpenURLRejected,
                 failure: failure
             )
+            if result == .connected { pairingSucceeded() }
             switch followUp {
             case .none:
                 break
@@ -1224,7 +1225,6 @@ struct CMUXMobileRootView: View {
             openURLTaskToken = nil
         }
     }
-
     /// Follow-up owned by the stored open-URL task after its connection result.
     private enum OpenURLConnectionFollowUp {
         case none

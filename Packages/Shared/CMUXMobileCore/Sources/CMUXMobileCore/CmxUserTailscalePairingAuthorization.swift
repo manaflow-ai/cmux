@@ -29,7 +29,7 @@ public struct CmxUserTailscalePairingAuthorization: Equatable, Hashable, Sendabl
 
     /// Validates and canonicalizes one user-entered compatibility destination.
     public init(host: String, port: Int) throws {
-        guard let normalizedHost = Self.normalizedHost(host) else {
+        guard let normalizedHost = cmxUserTailscaleNormalizedHost(host) else {
             throw CmxUserTailscalePairingAuthorizationError.invalidHost
         }
         guard (1 ... 65_535).contains(port) else {
@@ -41,20 +41,21 @@ public struct CmxUserTailscalePairingAuthorization: Equatable, Hashable, Sendabl
 
     /// Whether a dial still names the exact peer the user entered.
     public func authorizes(host: String, port: Int) -> Bool {
-        guard let normalizedHost = Self.normalizedHost(host) else {
+        guard let normalizedHost = cmxUserTailscaleNormalizedHost(host) else {
             return false
         }
         return normalizedHost == self.host && port == self.port
     }
 
-    private static func normalizedHost(_ rawHost: String) -> String? {
-        if let peerAddress = CmxTailscalePeerAddress(rawHost) {
-            return peerAddress.value
-        }
-        guard let manualHost = CmxManualHost(rawHost)?.rawValue,
-              !CmxLoopbackHost().matches(manualHost) else {
-            return nil
-        }
-        return manualHost
+}
+
+private func cmxUserTailscaleNormalizedHost(_ rawHost: String) -> String? {
+    if let peerAddress = CmxTailscalePeerAddress(rawHost) {
+        return peerAddress.value
     }
+    guard let manualHost = CmxManualHost(rawHost)?.rawValue,
+          !CmxLoopbackHost().matches(manualHost) else {
+        return nil
+    }
+    return manualHost
 }

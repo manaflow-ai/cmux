@@ -114,42 +114,6 @@ struct ReconnectRefreshSnapshot: Sendable {
 
 @MainActor
 extension MobileShellComposite {
-    /// Resolves one immutable pre-Iroh capability for an exact raw Tailscale
-    /// route. Fresh registry/manual routes cannot create this evidence; they
-    /// must match a route retained by the local schema migration.
-    static func legacyTailscaleAuthorizationEvidence(
-        for route: CmxAttachRoute,
-        macDeviceID: String,
-        persistedRoutes: [CmxAttachRoute]
-    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
-        legacyTailscaleAuthorizationEvidence(
-            for: route,
-            macDeviceID: macDeviceID,
-            persistedAuthorizations: legacyTailscaleAuthorizationSet(
-                macDeviceID: macDeviceID,
-                from: persistedRoutes
-            )
-        )
-    }
-
-    nonisolated static func legacyTailscaleAuthorizationEvidence(
-        for route: CmxAttachRoute,
-        macDeviceID: String,
-        persistedAuthorizations: Set<CmxLegacyTailscaleAuthorizationEvidence>
-    ) -> CmxLegacyTailscaleAuthorizationEvidence? {
-        guard route.kind == .tailscale,
-              case let .hostPort(host, port) = route.endpoint,
-              let candidate = try? CmxLegacyTailscaleAuthorizationEvidence(
-                  macDeviceID: macDeviceID,
-                  host: host,
-                  port: port
-              ),
-              persistedAuthorizations.contains(candidate) else {
-            return nil
-        }
-        return candidate
-    }
-
     /// Whether any paired Mac retains a current route matching an exact local
     /// Tailscale grant. A grant for an old endpoint is not usable after the Mac
     /// changes address, so both route sets must still agree.
@@ -176,7 +140,7 @@ extension MobileShellComposite {
             }
         }
         for mac in macs {
-            let userAuthorizations = Self.userTailscalePairingAuthorizationsSet(
+            let userAuthorizations = cmuxUserTailscalePairingAuthorizationsSet(
                 from: mac.userAuthorizedTailscaleRoutes ?? []
             )
             for route in mac.routes {
@@ -186,7 +150,7 @@ extension MobileShellComposite {
                 ), authorizedEndpoints.contains(endpoint) {
                     return true
                 }
-                if Self.userTailscalePairingAuthorization(
+                if cmuxUserTailscalePairingAuthorization(
                     for: route,
                     authorizations: userAuthorizations
                 ) != nil {
@@ -264,22 +228,22 @@ extension MobileShellComposite {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
         if let tailscaleRequirement {
-            let legacyAuthorizations = legacyTailscaleAuthorizationSet(
+            let legacyAuthorizations = cmuxLegacyTailscaleAuthorizationSet(
                 macDeviceID: tailscaleRequirement.macDeviceID,
                 from: tailscaleRequirement.grantRoutes
             )
             let userAuthorizations = Set(
-                userTailscalePairingAuthorizations(
+                cmuxUserTailscalePairingAuthorizations(
                     from: tailscaleRequirement.userGrantRoutes
                 )
             )
             let authorizedTailscale = ordered.filter { route in
-                legacyTailscaleAuthorizationEvidence(
+                cmuxLegacyTailscaleAuthorizationEvidence(
                     for: route,
                     macDeviceID: tailscaleRequirement.macDeviceID,
                     persistedAuthorizations: legacyAuthorizations
                 ) != nil
-                    || userTailscalePairingAuthorization(
+                    || cmuxUserTailscalePairingAuthorization(
                         for: route,
                         authorizations: userAuthorizations
                     ) != nil
@@ -304,12 +268,12 @@ extension MobileShellComposite {
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
         let method = connectionMethod(for: mac)
-        // Tailscale Only on an Iroh-identified pairing rides the Iroh lane
-        // pinned to the pairing's numeric Tailscale addresses; the exact
-        // grant-gated host lane remains for pairings without an Iroh identity,
-        // so admission stays the single auth authority.
+        // Tailscale Only on an Iroh-identified pairing rides the Iroh lane when
+        // a numeric Tailscale pin exists. A MagicDNS/LAN-only user grant has no
+        // such pin, so it stays on the exact grant-gated host lane instead.
         let tailscaleRidesPinnedIroh = method == .tailscale
             && mac.routes.contains { $0.kind == .iroh }
+            && !Self.irohTailscaleDialCandidates(for: mac).isEmpty
         let routes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,

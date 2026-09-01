@@ -585,7 +585,7 @@ extension MobileShellComposite {
     ) async {
         let ticket: CmxAttachTicket
         do {
-            ticket = try Self.storedMacTicket(
+            ticket = try cmuxStoredMacTicket(
                 name: name,
                 routes: routes,
                 pairedMacDeviceID: pairedMacDeviceID
@@ -593,7 +593,7 @@ extension MobileShellComposite {
             _ = try await connect(
                 ticket: ticket,
                 legacyTailscaleRoutes: legacyTailscaleRoutes,
-                userTailscalePairingAuthorizations: Self.userTailscalePairingAuthorizations(from: userAuthorizedTailscaleRoutes),
+                userTailscalePairingAuthorizations: cmuxUserTailscalePairingAuthorizations(from: userAuthorizedTailscaleRoutes),
                 pairedMacDeviceID: pairedMacDeviceID,
                 ifStillCurrent: ifStillCurrent
             )
@@ -775,7 +775,7 @@ extension MobileShellComposite {
         }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
-        let hasAuthorizedTailscaleRoute = Self.hasAuthorizedTailscaleRoute(
+        let hasAuthorizedTailscaleRoute = cmuxHasAuthorizedTailscaleRoute(
             in: pinnedRoutes,
             macDeviceID: pairedMacDeviceID,
             legacyRoutes: legacyTailscaleRoutes,
@@ -783,7 +783,7 @@ extension MobileShellComposite {
         )
         if firstRoute.kind == .iroh || hasAuthorizedTailscaleRoute {
             do {
-                let ticket = try Self.storedMacTicket(
+                let ticket = try cmuxStoredMacTicket(
                     name: name,
                     routes: pinnedRoutes,
                     pairedMacDeviceID: pairedMacDeviceID
@@ -791,7 +791,7 @@ extension MobileShellComposite {
                 let connectResult = try await connect(
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
-                    userTailscalePairingAuthorizations: Self.userTailscalePairingAuthorizations(from: resolvedUserAuthorizedTailscaleRoutes),
+                    userTailscalePairingAuthorizations: cmuxUserTailscalePairingAuthorizations(from: resolvedUserAuthorizedTailscaleRoutes),
                     directOnlyDialCandidates: methodPinnedCandidates,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
