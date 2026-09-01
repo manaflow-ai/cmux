@@ -87,6 +87,20 @@ final class CLIBrowserEvalOutputTests {
         #expect(formatter.string(from: [String: Any]()) == "{}")
     }
 
+    @Test("browser value formatter sanitizes nested JSON format characters")
+    func browserValueFormatterSanitizesNestedJSONFormatCharacters() {
+        let formatter = BrowserValueTextFormatter()
+        let value: [String: Any] = [
+            "items": [["message": "before\u{202E}after"]],
+        ]
+
+        let output = formatter.string(from: value)
+
+        #expect(output.contains("before�after"))
+        #expect(!output.contains("\u{202E}"))
+        #expect(output.contains("\n"))
+    }
+
     @Test("browser storage text output cannot emit terminal control characters")
     func browserStorageTextOutputSanitizesTerminalControlCharacters() throws {
         let responseObject: [String: Any] = [
@@ -178,6 +192,39 @@ final class CLIBrowserEvalOutputTests {
 
         for testCase in cases {
             try assertBrowserReadOutput(testCase)
+        }
+    }
+
+    @Test("browser collection reads reject successful responses without collection fields")
+    func browserCollectionReadsRejectMissingResponseFields() throws {
+        let cases = [
+            (name: "cookies", arguments: ["browser", "surface:1", "cookies", "get"]),
+            (name: "tabs", arguments: ["browser", "surface:1", "tab", "list"]),
+        ]
+        let response = #"{"id":null,"ok":true,"result":{"surface_ref":"surface:1"}}"#
+
+        for testCase in cases {
+            let socketPath = "/tmp/cmux-browser-missing-field-\(UUID().uuidString.prefix(8)).sock"
+            let responder = try UnixSocketResponder(path: socketPath, response: response)
+
+            var environment = ProcessInfo.processInfo.environment
+            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+                environment.removeValue(forKey: key)
+            }
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = try runProcess(
+                executablePath: BundledCLITestSupport.bundledCLIPath(for: Self.self),
+                arguments: testCase.arguments,
+                environment: environment
+            )
+            responder.stop()
+
+            #expect(!result.timedOut, Comment(rawValue: "\(testCase.name): \(result.output.debugDescription)"))
+            #expect(result.status == 1, Comment(rawValue: "\(testCase.name): \(result.output.debugDescription)"))
+            #expect(result.output.contains("Error:"), Comment(rawValue: "\(testCase.name): \(result.output.debugDescription)"))
+            #expect(result.output != "[]\n", Comment(rawValue: "\(testCase.name): \(result.output.debugDescription)"))
         }
     }
 
