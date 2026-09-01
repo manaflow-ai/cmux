@@ -784,6 +784,35 @@ import Testing
             FileManager.default.fileExists(atPath: executionMarker.path),
             "a missing saved cwd must never run the agent in the caller's cwd"
         )
+
+        let recoveryDirectory = root.appendingPathComponent("chosen successor", isDirectory: true)
+        let callerDirectory = root.appendingPathComponent("different caller", isDirectory: true)
+        try FileManager.default.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: callerDirectory, withIntermediateDirectories: true)
+        let recovered = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "restore", "--cwd", recoveryDirectory.path, "cwd-agent", checkpointID,
+            ],
+            environment: environment,
+            currentDirectoryURL: callerDirectory,
+            timeout: 5
+        )
+
+        XCTAssertFalse(recovered.timedOut, recovered.diagnostics)
+        XCTAssertEqual(recovered.status, 0, recovered.diagnostics)
+        XCTAssertTrue(
+            recovered.stdout.contains("pwd=\(recoveryDirectory.path)"),
+            recovered.diagnostics
+        )
+        XCTAssertTrue(
+            recovered.stdout.contains("arg=--cwd\narg=\(recoveryDirectory.path)"),
+            recovered.diagnostics
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: executionMarker.path),
+            "an explicit recovery directory should permit the agent to run"
+        )
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
