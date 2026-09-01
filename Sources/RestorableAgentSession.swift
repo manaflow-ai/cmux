@@ -988,7 +988,7 @@ struct RestorableAgentSessionIndex: Sendable {
             lifecycle: AgentHibernationLifecycleState?,
             startedAt: TimeInterval? = nil,
             updatedAt: TimeInterval,
-            provenance: Provenance = .hookRecord,
+            provenance: Provenance,
             processLiveness: RestorableAgentProcessLiveness,
             hasRecordedProcessID: Bool = false,
             processIDs: Set<Int>,
