@@ -1032,7 +1032,10 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                                 continue;
                             }
                             let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining));
+                            mux.wait_for_journal_event(
+                                epoch,
+                                JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining),
+                            );
                             continue;
                         } else if batch[0].completion.is_none() {
                             let failure = receivers.state.fail(format!(
