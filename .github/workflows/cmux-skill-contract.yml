@@ -30,9 +30,7 @@ concurrency:
 
 jobs:
   browser-skill:
-    # The validator executes pull-request-controlled skill files; keep it on
-    # an isolated GitHub-hosted runner rather than a configurable private host.
-    runs-on: ubuntu-24.04 # github-hosted-required: browser PRs run untrusted code
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
