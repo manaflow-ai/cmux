@@ -215,6 +215,10 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
             // Notifications moved from a window-level overlay to a pane tab.
             // Never persist the retired overlay selection.
             self = .tabs
+        case .computer:
+            // Remote-computer scope is a live connection, not restorable UI
+            // state; a restored session lands back on the workspace list.
+            self = .tabs
         }
     }
 

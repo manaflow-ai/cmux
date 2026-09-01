@@ -1473,6 +1473,7 @@ class TerminalController {
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor [weak self] in
                 await self?.accountFlow?.signOut(timeout: 5)
+                await HiveComputersService.shared.disconnectAll()
                 semaphore.signal()
             }
             semaphore.wait()
@@ -15448,6 +15449,13 @@ class TerminalController {
                 message: "Terminal viewport is still resizing",
                 data: nil
             )
+        }
+        // A surface never realized this launch has no render state, so its
+        // replay frame is empty. Boot it headless so background workspaces
+        // replay real content to remote viewers (phone or Mac mirror); the
+        // render observer then streams frames as the surface comes up.
+        if MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId) == nil {
+            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0

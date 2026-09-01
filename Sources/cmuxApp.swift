@@ -1613,7 +1613,6 @@ func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     guard let identifier = window?.identifier?.rawValue else { return false }
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
-
 private enum DebugWindowConfigSnapshot {
     static func copyCombinedToPasteboard(defaults: UserDefaults = .standard) {
         GhosttyApp.terminalPasteboard.writeString(

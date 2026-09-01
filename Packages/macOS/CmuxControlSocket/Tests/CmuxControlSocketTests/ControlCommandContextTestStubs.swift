@@ -593,4 +593,7 @@ extension ControlMobileHostContext {
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTaskAttachmentUpload(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileChatSessionsDump() -> ControlCallResult { mobileHostStubResult }
+    func controlHiveOpen(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlHiveRenderProbe() -> ControlCallResult { mobileHostStubResult }
+    func controlHiveSidebarProbe() -> ControlCallResult { mobileHostStubResult }
 }

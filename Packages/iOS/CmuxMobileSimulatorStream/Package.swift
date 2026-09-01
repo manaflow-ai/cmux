@@ -19,7 +19,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CmuxSimulatorStreamKit"),
         .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../CmuxMobileRPC"),
+        .package(path: "../../Shared/CmuxMobileRPC"),
     ],
     targets: [
         .target(

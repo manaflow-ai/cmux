@@ -103,7 +103,7 @@ run_package_gate() {
 run_app_host_gate
 
 run_package_gate \
-  Packages/iOS/CmuxMobileShell \
+  Packages/Shared/CmuxMobileShell \
   'ReconnectRouteSelectionTests/(legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP|legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate|preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade|rejectedIrohReconnectNeverDowngradesToRawTailscale|storedReconnectPinsIrohAndExcludesRawFallbacks|switchToLegacySavedMacUpgradesFromRegistryWithoutRescan)' \
   6 \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP()' \
@@ -114,14 +114,14 @@ run_package_gate \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/switchToLegacySavedMacUpgradesFromRegistryWithoutRescan()'
 
 run_package_gate \
-  Packages/iOS/CmuxMobileRPC \
+  Packages/Shared/CmuxMobileRPC \
   'MobileCoreRPCClientTests/(admittedIrohRequestCarriesNoStackOrAttachCredential|hostStatusProbeNeverSendsStackTokenOnUntrustedRoute)' \
   2 \
   'CmuxMobileRPCTests.MobileCoreRPCClientTests/admittedIrohRequestCarriesNoStackOrAttachCredential()' \
   'CmuxMobileRPCTests.MobileCoreRPCClientTests/hostStatusProbeNeverSendsStackTokenOnUntrustedRoute()'
 
 run_package_gate \
-  Packages/iOS/CmuxMobileShellModel \
+  Packages/Shared/CmuxMobileShellModel \
   'MobileShellRouteAuthPolicyTests/allowsStackAuthOnlyForLoopbackRoutes' \
   1 \
   'CmuxMobileShellModelTests.MobileShellRouteAuthPolicyTests/allowsStackAuthOnlyForLoopbackRoutes()'

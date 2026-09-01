@@ -18,7 +18,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
-        .package(path: "../CmuxMobileSupport"),
+        .package(path: "../../Shared/CmuxMobileSupport"),
         .package(path: "../CmuxMobileToast"),
         .package(
             url: "https://github.com/raspu/Highlightr.git",

@@ -20,7 +20,7 @@ cd "$ROOT"
 
 BASELINE_FILE="scripts/lint-ios-package-conventions-baseline.txt"
 SCOPES=()
-for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxAgentChat Packages/iOS/CmuxAgentChatUI Packages/Shared/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxMobile* Packages/Shared/CmuxAgentChat Packages/iOS/CmuxAgentChatUI Packages/Shared/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
   [ -d "$d" ] && SCOPES+=("$d")
 done
 

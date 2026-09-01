@@ -4,6 +4,8 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxHive
+import CmuxHiveUI
 import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
@@ -1756,6 +1758,7 @@ struct ContentView: View {
             },
             observedWindowReference: observedWindowReference,
             chromeBackgroundColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor,
+            hiveScope: tabManager.hiveSidebarScopeModel,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -1895,6 +1898,21 @@ struct ContentView: View {
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
+            NotificationsPage(
+                isFocused: sidebarSelectionState.selection == .notifications,
+                isVisibleInUI: sidebarState.isVisible
+            )
+                .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
+                .allowsHitTesting(sidebarSelectionState.selection == .notifications)
+                .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+
+            if case let .computer(deviceID) = sidebarSelectionState.selection {
+                HiveEmbeddedComputerPage(
+                    deviceID: deviceID,
+                    sessionProvider: { await HiveComputersService.shared.embeddedSession(deviceID: $0) }
+                )
+                .zIndex(3)
+            }
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
@@ -10899,6 +10917,10 @@ struct VerticalTabsSidebar: View, Equatable {
     // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    // Computer scope for the workspace list (This Mac / All Computers / one
+    // device). Per-window (keyed by TabManager); scope changes are rare and
+    // user-driven, so observing here does not add churn to typing-hot paths.
+    @ObservedObject var hiveScope: HiveSidebarScopeModel
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -11365,7 +11387,21 @@ struct VerticalTabsSidebar: View, Equatable {
         // Retain the native table identity while hidden without continuing the
         // O(workspaces) projection pipeline. Reveal rebuilds one authoritative
         // snapshot from the current model before the controller applies again.
-        let tabs = isPresented ? tabManager.tabs : []
+        let scope = hiveScope.scope
+        let tabs: [Workspace]
+        if !isPresented {
+            tabs = []
+        } else if scope == .allComputers
+                    || (scope == .thisMac && !HiveComputerMirrorController.shared.hasMirrors) {
+            tabs = tabManager.tabs
+        } else {
+            tabs = tabManager.tabs.filter { workspace in
+                HiveSidebarScopeModel.isVisible(
+                    deviceID: HiveComputerMirrorController.shared.deviceID(forWorkspace: workspace.id),
+                    scope: scope
+                )
+            }
+        }
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
@@ -11458,20 +11494,50 @@ struct VerticalTabsSidebar: View, Equatable {
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
         let _ = SidebarProfilingSignposts.end(signpost)
+        // A device-scoped sidebar with zero mirrored workspaces is otherwise
+        // indistinguishable from "genuinely empty" — show why (connecting,
+        // couldn't connect, or connected-but-empty) instead of a blank list.
+        // `.allComputers` with zero tabs is left alone: that's the normal
+        // "no computers paired yet" state, not a per-device connection
+        // problem, so it keeps the existing (no message) empty area.
+        let deviceScopeStatus: (deviceID: String, deviceName: String, status: HiveSidebarConnectionStatusView.Status)? = {
+            guard case .device(let deviceID) = scope, tabs.isEmpty else { return nil }
+            let deviceName = HiveComputersService.shared.directory?.computers
+                .first(where: { $0.deviceID == deviceID })?.displayName ?? deviceID
+            let phase = HiveComputersService.shared.connectionPhase(deviceID: deviceID)
+            return (deviceID, deviceName, HiveSidebarConnectionStatusView.Status(phase: phase))
+        }()
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
+            if let deviceScopeStatus {
+                HiveSidebarConnectionStatusView(
+                    deviceName: deviceScopeStatus.deviceName,
+                    status: deviceScopeStatus.status,
+                    onRetry: {
+                        Task { @MainActor in
+                            _ = await HiveComputerMirrorController.shared.attach(
+                                deviceID: deviceScopeStatus.deviceID,
+                                into: tabManager
+                            )
+                        }
+                    }
+                )
+            } else if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
             if isPresented {
-                SidebarFooter(
-                    updateViewModel: updateViewModel,
-                    fileExplorerState: fileExplorerState,
-                    modifierKeyMonitor: modifierKeyMonitor,
-                    onSendFeedback: onSendFeedback
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    HiveSidebarScopePicker(selection: $selection, scopeModel: hiveScope)
+                        .padding(.leading, 8)
+                    SidebarFooter(
+                        updateViewModel: updateViewModel,
+                        fileExplorerState: fileExplorerState,
+                        modifierKeyMonitor: modifierKeyMonitor,
+                        onSendFeedback: onSendFeedback
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .accessibilityIdentifier("Sidebar")
@@ -17592,7 +17658,11 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     }
 }
 
-enum SidebarSelection {
+enum SidebarSelection: Equatable {
     case tabs
     case notifications
+    /// A paired remote computer presented in the main window's content area
+    /// (the `computers.presentation = sidebar` mode). Not persisted across
+    /// relaunch: sessions are live connections, so restore lands on `.tabs`.
+    case computer(deviceID: String)
 }

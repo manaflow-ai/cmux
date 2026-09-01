@@ -342,6 +342,7 @@ export async function POST(request: Request): Promise<Response> {
 type DeviceListRow = {
   id: string;
   deviceUuid: string;
+  userId: string;
   platform: string;
   displayName: string | null;
   labels: Record<string, unknown>;
@@ -375,6 +376,7 @@ export async function GET(request: Request): Promise<Response> {
     .select({
       id: devices.id,
       deviceUuid: devices.deviceUuid,
+      userId: devices.userId,
       platform: devices.platform,
       displayName: devices.displayName,
       labels: devices.labels,
@@ -407,6 +409,7 @@ export async function GET(request: Request): Promise<Response> {
     // The phone matches its stored `macDeviceID` (the cmux device UUID) against
     // this, so expose `deviceUuid`, not the internal surrogate row id.
     deviceId: device.deviceUuid,
+    isOwnedByCurrentUser: device.userId === user.id,
     platform: device.platform,
     displayName: device.displayName,
     labels: device.labels,

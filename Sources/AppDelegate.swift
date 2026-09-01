@@ -2422,11 +2422,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
             self?.computerUseUXCoordinator.presentOnboarding(startingAt: startingPoint)
         }
-        VMClient.bootstrap(auth: auth.coordinator)
-        RemotesClient.bootstrap(auth: auth.coordinator)
-        AIAccountsClient.bootstrap(auth: auth.coordinator)
-        PhonePushClient.shared.configure(auth: auth.coordinator)
-        MobileHostService.shared.configure(auth: auth.coordinator)
+        // Keep all auth-backed clients on the single composition-root helper;
+        // it also wires the Hive registry/presence and DEV backup publishers.
+        configureCloudClients(auth: auth)
         caffeineController.onStateChange = { [weak self] enabled in
             self?.menuBarExtraController?.refreshForDebugControls()
             MobileHostService.emitEvent(
@@ -2434,8 +2432,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 payload: ["enabled": enabled]
             )
         }
-        DeviceRegistryClient.shared.configure(auth: auth.coordinator)
-        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
         // Relayed phone replies type through the SAME entrypoint as the phone's
@@ -2458,10 +2454,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
-        // DEV-only: auto-publish this Mac's attach route to the signed-in user's
-        // pairedMacs backup so a fresh dev iOS build restores it (no manual host
-        // entry). No-op on Release / when the flag is off.
-        MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
         TerminalController.shared.attachCaffeineController(caffeineController)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
@@ -4486,6 +4478,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasher.combine(0)
             case .notifications:
                 hasher.combine(1)
+            case .computer(let deviceID):
+                hasher.combine(2)
+                hasher.combine(deviceID)
             }
 
             if let window = route.window {
@@ -13685,6 +13680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .computer: return "computer"
             }
         }()
         writeMultiWindowNotificationTestData([

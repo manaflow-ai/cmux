@@ -1,11 +1,193 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxHive
+import CmuxSettings
+import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarProviderKit
 import CmuxUpdater
 import CmuxWorkspaces
 import SwiftUI
+
+/// One paired remote computer as a value snapshot for the sidebar scope
+/// picker (snapshot-boundary rule: no store references in row content).
+struct HiveScopeComputer: Equatable, Identifiable {
+    let id: String
+    let name: String
+}
+
+/// Which computers' workspaces the sidebar shows — the macOS counterpart of
+/// the iOS workspace-title Mac picker's scopes.
+enum HiveSidebarScope: Equatable {
+    /// Local workspaces only (the default).
+    case thisMac
+    /// Local workspaces plus every attached computer's mirrors.
+    case allComputers
+    /// One computer's mirror workspaces only.
+    case device(String)
+}
+
+/// Per-window sidebar computer scope, registered by the window's TabManager
+/// so a computer's dedicated window can scope to that device while other
+/// windows keep their own scope.
+@MainActor
+final class HiveSidebarScopeModel: ObservableObject {
+    @Published var scope: HiveSidebarScope = .thisMac
+
+    /// Whether `workspace` is visible under the current scope, given the
+    /// device that owns it (`nil` for local workspaces).
+    nonisolated static func isVisible(deviceID: String?, scope: HiveSidebarScope) -> Bool {
+        switch scope {
+        case .thisMac: return deviceID == nil
+        case .allComputers: return true
+        case .device(let id): return deviceID == id
+        }
+    }
+}
+
+/// Bottom-of-sidebar computer scope picker, shown only in
+/// `computers.presentation = sidebar` mode when paired computers exist:
+/// switches the main window between This Mac and a remote computer's live
+/// workspaces — the macOS counterpart of the iOS workspace-title Mac picker.
+struct HiveSidebarScopePicker: View {
+    @Binding var selection: SidebarSelection
+    @EnvironmentObject var tabManager: TabManager
+    @LiveSetting(\.computers.presentation) private var presentation
+    @State private var computers: [HiveScopeComputer] = []
+
+    @ObservedObject var scopeModel: HiveSidebarScopeModel
+
+    var body: some View {
+        if presentation == .sidebar, !computers.isEmpty {
+            Menu {
+                scopeButton(scope: .thisMac, title: thisMacTitle)
+                scopeButton(scope: .allComputers, title: allComputersTitle)
+                Divider()
+                ForEach(computers) { computer in
+                    scopeButton(scope: .device(computer.id), title: computer.name)
+                }
+            } label: {
+                Label(currentTitle, systemImage: "desktopcomputer")
+                    .cmuxFont(.caption)
+                    .lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityIdentifier("SidebarComputerScopePicker")
+            .task { await observeComputers() }
+        } else {
+            // Keep the observation alive so the picker appears the moment a
+            // computer is paired while the sidebar is already visible.
+            Color.clear
+                .frame(width: 0, height: 0)
+                .task { await observeComputers() }
+        }
+    }
+
+    @ViewBuilder
+    private func scopeButton(scope: HiveSidebarScope, title: String) -> some View {
+        Button {
+            selection = .tabs
+            scopeModel.scope = scope
+            let manager = tabManager
+            // Scoping to a computer (or all) attaches its native mirrors.
+            let deviceIDs: [String]
+            switch scope {
+            case .thisMac: deviceIDs = []
+            case .allComputers: deviceIDs = computers.map(\.id)
+            case .device(let id): deviceIDs = [id]
+            }
+            if deviceIDs.isEmpty {
+                selectFirstVisibleWorkspace(scope: scope, manager: manager)
+                return
+            }
+            Task { @MainActor in
+                await attachDevices(deviceIDs, scope: scope, manager: manager)
+            }
+        } label: {
+            if scopeModel.scope == scope {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    private var thisMacTitle: String {
+        String(localized: "hive.scopePicker.thisMac", defaultValue: "This Mac")
+    }
+
+    private var allComputersTitle: String {
+        String(localized: "hive.scopePicker.allComputers", defaultValue: "All Computers")
+    }
+
+    private var currentTitle: String {
+        switch scopeModel.scope {
+        case .thisMac: return thisMacTitle
+        case .allComputers: return allComputersTitle
+        case .device(let id): return computers.first(where: { $0.id == id })?.name ?? thisMacTitle
+        }
+    }
+
+    private func observeComputers() async {
+        guard let directory = HiveComputersService.shared.directory else { return }
+        // The directory is composed before any particular settings pane is
+        // mounted. Refresh here so sidebar presentation discovers persisted
+        // pairings on a fresh launch instead of waiting for Settings ›
+        // Computers to be opened first.
+        await directory.refresh()
+        for await merged in directory.updates() {
+            let snapshot = merged
+                .filter {
+                    HiveComputersService.shared.viewerTransportAvailable
+                        && $0.isPaired && !$0.isThisComputer
+                }
+                .map { HiveScopeComputer(id: $0.deviceID, name: $0.displayName) }
+            if snapshot != computers { computers = snapshot }
+        }
+    }
+
+    private func selectFirstVisibleWorkspace(scope: HiveSidebarScope, manager: TabManager) {
+        let workspace = manager.tabs.first { workspace in
+            HiveSidebarScopeModel.isVisible(
+                deviceID: HiveComputerMirrorController.shared.deviceID(forWorkspace: workspace.id),
+                scope: scope
+            )
+        }
+        if let workspace {
+            manager.selectWorkspace(workspace)
+        }
+    }
+
+    private func attachDevices(
+        _ deviceIDs: [String],
+        scope: HiveSidebarScope,
+        manager: TabManager
+    ) async {
+        let workerCount = min(8, max(deviceIDs.count, 1))
+        await withTaskGroup(of: Void.self) { group in
+            for workerIndex in 0..<workerCount {
+                group.addTask { @MainActor in
+                    var index = workerIndex
+                    while index < deviceIDs.count {
+                        guard scopeModel.scope == scope else { return }
+                        let deviceID = deviceIDs[index]
+                        let workspaceID = await HiveComputerMirrorController.shared.attach(
+                            deviceID: deviceID,
+                            into: manager
+                        )
+                        guard scopeModel.scope == scope else { return }
+                        if let workspaceID, let workspace = manager.workspacesById[workspaceID] {
+                            manager.selectWorkspace(workspace)
+                        }
+                        index += workerCount
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// Footer debug controls and empty-area drop targets for the vertical tabs sidebar, extracted from `ContentView.swift`, which sits at its file-length budget.
 struct SidebarFooterIconButtonStyle: ButtonStyle {

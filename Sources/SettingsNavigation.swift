@@ -7,6 +7,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case computers
     case cloudMachines
     case networking
     case sidebarAppearance
@@ -38,6 +39,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .computers:
+            return String(localized: "settings.section.computers", defaultValue: "Computers")
         case .cloudMachines:
             return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking:
@@ -83,6 +86,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "moon.zzz"
         case .mobile:
             return "iphone"
+        case .computers:
+            return "desktopcomputer"
         case .cloudMachines:
             return "cloud"
         case .networking:

@@ -192,6 +192,7 @@
 		D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */; };
 		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
 		C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */; };
+		C41FE00000000000000000C3 /* AppDelegate+CloudClients.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D3 /* AppDelegate+CloudClients.swift */; };
 		C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */; };
 		C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */; };
 		C65930010000000000000003 /* AppDelegate+CrashSessionSnapshotRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000004 /* AppDelegate+CrashSessionSnapshotRemoval.swift */; };
@@ -653,6 +654,7 @@
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
 		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
+		AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
 		C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */; };
 		C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -672,6 +674,7 @@
 		A99940010000000000000001 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
 		A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
+		C41FE00000000000000000C6 /* CmuxAuxiliaryWindows.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D6 /* CmuxAuxiliaryWindows.swift */; };
 		D7032A060000000000000001 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = D7032A060000000000000002 /* CmuxBrowser */; };
 		E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000C2 /* CmuxBrowser */; };
 		947194719471947194719472 /* CmuxBundledBinPathIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947194719471947194719471 /* CmuxBundledBinPathIntegrationTests.swift */; };
@@ -828,6 +831,10 @@
 		C617000000000000000000A3 /* CmuxGit in Frameworks */ = {isa = PBXBuildFile; productRef = C617000000000000000000A2 /* CmuxGit */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
+		C41FE00000000000000000B1 /* CmuxHive in Frameworks */ = {isa = PBXBuildFile; productRef = C41FE00000000000000000A2 /* CmuxHive */; };
+		C41FE00000000000000000B2 /* CmuxHive in Frameworks */ = {isa = PBXBuildFile; productRef = C41FE00000000000000000A2 /* CmuxHive */; };
+		C41FE00000000000000000B3 /* CmuxHiveUI in Frameworks */ = {isa = PBXBuildFile; productRef = C41FE00000000000000000A4 /* CmuxHiveUI */; };
+		C41FE00000000000000000B4 /* CmuxHiveUI in Frameworks */ = {isa = PBXBuildFile; productRef = C41FE00000000000000000A4 /* CmuxHiveUI */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
 		1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */; };
 		1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */; };
@@ -1383,10 +1390,15 @@
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */; };
 		4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */; };
+		C41FE00000000000000000C9 /* HiveComputerMirrorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D9 /* HiveComputerMirrorController.swift */; };
+		C41FE00000000000000000C2 /* HiveComputersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D2 /* HiveComputersService.swift */; };
+		7DD3FE43EB968D44E5652135 /* HiveSidebarConnectionStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8D5AF4AAC86680531F2BAC /* HiveSidebarConnectionStatusView.swift */; };
+		C41FE00000000000000000C5 /* HiveViewerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D5 /* HiveViewerWindowController.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */; };
 		B1F0C0040000000000000001 /* HostedInspectorDockControlScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */; };
 		F17A00000000000000000002 /* HostLatencyTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17A00000000000000000001 /* HostLatencyTrace.swift */; };
+		C41FE00000000000000000C1 /* HostSettingsActions+Computers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D1 /* HostSettingsActions+Computers.swift */; };
 		B7F100010000000000000001 /* HostSettingsActions+NotificationSounds.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */; };
 		CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */; };
 		809100000000000000000001 /* HostSettingsShortcutNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */; };
@@ -2096,6 +2108,7 @@
 		D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */; };
 		D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
+		C41FE00000000000000000C4 /* SettingsNavigationTarget+SearchText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41FE00000000000000000D4 /* SettingsNavigationTarget+SearchText.swift */; };
 		D10000000000000000A00022 /* SettingsNetworkingBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00023 /* SettingsNetworkingBehaviorUITests.swift */; };
 		A50019B0 /* SettingsSearchAliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B1 /* SettingsSearchAliases.swift */; };
 		A50019B2 /* SettingsSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B3 /* SettingsSearchIndexTests.swift */; };
@@ -3276,6 +3289,7 @@
 		D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+BrowserDesignMode.swift"; sourceTree = "<group>"; };
 		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
+		C41FE00000000000000000D3 /* AppDelegate+CloudClients.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CloudClients.swift"; sourceTree = "<group>"; };
 		C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxNavigationDeepLinks.swift"; sourceTree = "<group>"; };
 		C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxSSHURL.swift"; sourceTree = "<group>"; };
 		C65930010000000000000004 /* AppDelegate+CrashSessionSnapshotRemoval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CrashSessionSnapshotRemoval.swift"; sourceTree = "<group>"; };
@@ -3746,6 +3760,7 @@
 		875200000000000000000002 /* cmuxApp+SurfaceNavigationMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+SurfaceNavigationMenu.swift"; sourceTree = "<group>"; };
 		80410000000000000000000E /* cmuxApp+WorkspaceCommandHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+WorkspaceCommandHelpers.swift"; sourceTree = "<group>"; };
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+		C41FE00000000000000000D6 /* CmuxAuxiliaryWindows.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxAuxiliaryWindows.swift; sourceTree = "<group>"; };
 		947194719471947194719471 /* CmuxBundledBinPathIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxBundledBinPathIntegrationTests.swift; sourceTree = "<group>"; };
 		61AD48A9E6C3F1BE2B547FFE /* CMUXCLI+AgentHookCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookCatalog.swift"; sourceTree = "<group>"; };
 		B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookDefinitions.swift"; sourceTree = "<group>"; };
@@ -4385,10 +4400,15 @@
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesFirstClassSupportTests.swift; sourceTree = "<group>"; };
 		4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenRightSidebarContentMountingTests.swift; sourceTree = "<group>"; };
+		C41FE00000000000000000D9 /* HiveComputerMirrorController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HiveComputerMirrorController.swift; sourceTree = "<group>"; };
+		C41FE00000000000000000D2 /* HiveComputersService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HiveComputersService.swift; sourceTree = "<group>"; };
+		5E8D5AF4AAC86680531F2BAC /* HiveSidebarConnectionStatusView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HiveSidebarConnectionStatusView.swift; sourceTree = "<group>"; };
+		C41FE00000000000000000D5 /* HiveViewerWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HiveViewerWindowController.swift; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HostedInspectorDockControlScript.swift; sourceTree = "<group>"; };
 		B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostedInspectorDockControlScriptTests.swift; sourceTree = "<group>"; };
 		F17A00000000000000000001 /* HostLatencyTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HostLatencyTrace.swift; sourceTree = "<group>"; };
+		C41FE00000000000000000D1 /* HostSettingsActions+Computers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "HostSettingsActions+Computers.swift"; sourceTree = "<group>"; };
 		B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostSettingsActions+NotificationSounds.swift"; sourceTree = "<group>"; };
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
 		809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSettingsShortcutNotificationTests.swift; sourceTree = "<group>"; };
@@ -5089,6 +5109,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLazyLoadHelpers.swift; sourceTree = "<group>"; };
 		D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsNavigation+TerminalScrollSpeed.swift"; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
+		C41FE00000000000000000D4 /* SettingsNavigationTarget+SearchText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SettingsNavigationTarget+SearchText.swift"; sourceTree = "<group>"; };
 		D10000000000000000A00023 /* SettingsNetworkingBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNetworkingBehaviorUITests.swift; sourceTree = "<group>"; };
 		A50019B1 /* SettingsSearchAliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchAliases.swift; sourceTree = "<group>"; };
 		A50019B3 /* SettingsSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndexTests.swift; sourceTree = "<group>"; };
@@ -6027,6 +6048,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
+				C41FE00000000000000000B1 /* CmuxHive in Frameworks */,
+				C41FE00000000000000000B3 /* CmuxHiveUI in Frameworks */,
 				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132113 /* CmuxIrxTransport in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
@@ -6106,6 +6129,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			buildActionMask = 2147483647;
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
+				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
 				A99940010000000000000001 /* CMUXAuthCore in Frameworks */,
 				A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */,
@@ -6117,6 +6141,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */,
 				CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
+				C41FE00000000000000000B2 /* CmuxHive in Frameworks */,
+				C41FE00000000000000000B4 /* CmuxHiveUI in Frameworks */,
 				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132114 /* CmuxIrxTransport in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
@@ -6370,6 +6396,16 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			path = Mobile;
 			sourceTree = "<group>";
 		};
+		C41FE00000000000000000E1 /* Hive */ = {
+			isa = PBXGroup;
+			children = (
+				C41FE00000000000000000D2 /* HiveComputersService.swift */,
+				C41FE00000000000000000D9 /* HiveComputerMirrorController.swift */,
+				C41FE00000000000000000D5 /* HiveViewerWindowController.swift */,
+				5E8D5AF4AAC86680531F2BAC /* HiveSidebarConnectionStatusView.swift */,
+			);
+			name = Hive;
+			path = Hive;
 		90813BBC44D79A5D2D0A2F09 /* Surfaces */ = {
 			isa = PBXGroup;
 			children = (
@@ -6527,7 +6563,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
+				C41FE00000000000000000D6 /* CmuxAuxiliaryWindows.swift */,
 				A50019A1 /* SettingsNavigation.swift */,
+				C41FE00000000000000000D4 /* SettingsNavigationTarget+SearchText.swift */,
 				D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */,
 				A50019B1 /* SettingsSearchAliases.swift */,
 				D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */,
@@ -7454,6 +7492,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
+				C41FE00000000000000000D3 /* AppDelegate+CloudClients.swift */,
 				C51A740000000000000000A2 /* AppDelegate+SimulatorShortcutRouting.swift */,
 				D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */,
 				D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */,
@@ -7910,6 +7949,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001222 /* WindowAccessor.swift */,
 				B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
+				C41FE00000000000000000D1 /* HostSettingsActions+Computers.swift */,
 				B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */,
 				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */,
@@ -8212,6 +8252,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */,
 				8054A0040000000000000004 /* TerminalController+BrowserAutomationRecovery.swift */,
 				C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */,
+				C41FE00000000000000000E1 /* Hive */,
 				59065015952E1B5BE5E23519 /* Mobile */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 			);
@@ -9239,6 +9280,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
+				C41FE00000000000000000A2 /* CmuxHive */,
+				C41FE00000000000000000A4 /* CmuxHiveUI */,
 				EFB18E3B3099DFE2ECA57571 /* CmuxSimulatorStreamKit */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 			);
@@ -9325,6 +9368,12 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */,
+				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
+				C41FE00000000000000000A2 /* CmuxHive */,
+				C41FE00000000000000000A4 /* CmuxHiveUI */,
+				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
@@ -9333,7 +9382,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
 				1A0B0C0D0E0F101112132112 /* CmuxIrxTransport */,
 				C1A072000000000000000002 /* CmuxMobileRPC */,
-				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				5E2701040000000000000001 /* Sentry */,
@@ -9418,6 +9466,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */,
 				5E55500000000000000000E1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */,
 				C617000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGit" */,
+				C41FE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxHive" */,
+				C41FE00000000000000000A3 /* XCLocalSwiftPackageReference "CmuxHiveUI" */,
 				C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */,
 				E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */,
 				E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */,
@@ -9781,6 +9831,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */,
 				C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */,
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
+				C41FE00000000000000000C3 /* AppDelegate+CloudClients.swift in Sources */,
 				C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
 				C65930010000000000000003 /* AppDelegate+CrashSessionSnapshotRemoval.swift in Sources */,
@@ -10072,6 +10123,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				875200000000000000000012 /* cmuxApp+SurfaceNavigationMenu.swift in Sources */,
 				80410000000000000000000D /* cmuxApp+WorkspaceCommandHelpers.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
+				C41FE00000000000000000C6 /* CmuxAuxiliaryWindows.swift in Sources */,
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				A5FB1209 /* CmuxConfigActionDefinition.swift in Sources */,
@@ -10437,9 +10489,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
 					A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */,
 					F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
+				C41FE00000000000000000C9 /* HiveComputerMirrorController.swift in Sources */,
+				C41FE00000000000000000C2 /* HiveComputersService.swift in Sources */,
+				7DD3FE43EB968D44E5652135 /* HiveSidebarConnectionStatusView.swift in Sources */,
+				C41FE00000000000000000C5 /* HiveViewerWindowController.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */,
 				F17A00000000000000000002 /* HostLatencyTrace.swift in Sources */,
+				C41FE00000000000000000C1 /* HostSettingsActions+Computers.swift in Sources */,
 				B7F100010000000000000001 /* HostSettingsActions+NotificationSounds.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				C0DEA7720000000000000001 /* InternalFlagsWindow.swift in Sources */,
@@ -10924,6 +10981,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
+				C41FE00000000000000000C4 /* SettingsNavigationTarget+SearchText.swift in Sources */,
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
 				D36090030000000000000001 /* SettingsWindowFactory.swift in Sources */,
 				D37777030000000000000001 /* SettingsWindowGeometry.swift in Sources */,
@@ -12985,6 +13043,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CMUXMobileCore;
 		};
+		C41FE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxHive" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxHive;
+		};
+		C41FE00000000000000000A3 /* XCLocalSwiftPackageReference "CmuxHiveUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxHiveUI;
+		};
 		0C69E6A5FA9B0513E68D5757 /* XCLocalSwiftPackageReference "CmuxSimulatorStreamKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxSimulatorStreamKit;
@@ -12999,11 +13065,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		};
 		1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/iOS/CmuxMobileTransport;
+			relativePath = Packages/Shared/CmuxMobileTransport;
 		};
 		C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/iOS/CmuxMobileRPC;
+			relativePath = Packages/Shared/CmuxMobileRPC;
 		};
 		28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -13531,6 +13597,16 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = 0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */;
 			productName = CMUXMobileCore;
+		};
+		C41FE00000000000000000A2 /* CmuxHive */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C41FE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxHive" */;
+			productName = CmuxHive;
+		};
+		C41FE00000000000000000A4 /* CmuxHiveUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C41FE00000000000000000A3 /* XCLocalSwiftPackageReference "CmuxHiveUI" */;
+			productName = CmuxHiveUI;
 		};
 		EFB18E3B3099DFE2ECA57571 /* CmuxSimulatorStreamKit */ = {
 			isa = XCSwiftPackageProductDependency;

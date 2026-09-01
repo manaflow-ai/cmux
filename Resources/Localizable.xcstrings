@@ -144,244 +144,6 @@
     "settings.search.alias.setting.computerUse.showInMenuBar": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computerUse.showInMenuBar menu bar menubar status item cursor agents"}},"ja":{"stringUnit":{"state":"translated","value":"computerUse.showInMenuBar menu bar menubar status item cursor agents メニューバー ステータス項目 カーソル エージェント"}}}},
     "settings.search.keywords.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding"}},"ja":{"stringUnit":{"state":"translated","value":"computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding コンピュータ操作 アクセシビリティ 画面収録 権限 カーソル エージェント メニューバー オンボーディング"}}}},
     "settings.section.computerUse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer Use"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作"}}}},
-    "caffeine.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定してください。" } }
-      }
-    },
-    "caffeine.error.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake isn't available yet." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
-      }
-    },
-    "cli.help.notify.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
-      }
-    },
-    "debug.menu.notification.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Emit All" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "すべて送信" } }
-      }
-    },
-    "debug.menu.notification.cli": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "CLI" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "CLI" } }
-      }
-    },
-    "debug.menu.notification.cliReply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "CLI Reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "CLI 返信" } }
-      }
-    },
-    "debug.menu.notification.emit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Emit Notification" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知を送信" } }
-      }
-    },
-    "debug.menu.notification.error": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Error" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
-      }
-    },
-    "debug.menu.notification.feedExitPlan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Exit Plan" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード終了プラン" } }
-      }
-    },
-    "debug.menu.notification.feedPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Permission" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード権限" } }
-      }
-    },
-    "debug.menu.notification.feedQuestion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問" } }
-      }
-    },
-    "debug.menu.notification.feedQuestion4": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (4 Options)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（4つの選択肢）" } }
-      }
-    },
-    "debug.menu.notification.feedQuestionMany": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Many Options)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（多数の選択肢）" } }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiple": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multiple)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数質問）" } }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiSelect": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multi-select)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数選択）" } }
-      }
-    },
-    "debug.menu.notification.hookFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Hook Failed" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フック失敗" } }
-      }
-    },
-    "debug.menu.notification.idle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Idle Reminder" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "アイドル通知" } }
-      }
-    },
-    "debug.menu.notification.mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug Mode" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグモード" } }
-      }
-    },
-    "debug.menu.notification.needsPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Needs Permission" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "権限が必要" } }
-      }
-    },
-    "debug.menu.notification.osc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "OSC" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "OSC" } }
-      }
-    },
-    "debug.menu.notification.turnComplete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Turn Complete" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
-      }
-    },
-    "debug.notification.error.invalidKindOrTarget": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Unknown kind or no notification target" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "不明な種類、または通知対象がありません" } }
-      }
-    },
-    "debug.notification.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。" } }
-      }
-    },
-    "debug.notification.error.missingKind": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Pass kind=<notification kind> to choose which debug notification to emit." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。" } }
-      }
-    },
-    "debug.notification.synthetic.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Synthetic %@ notification" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "合成 %@ 通知" } }
-      }
-    },
-    "debug.notification.synthetic.option": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Option %d" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "選択肢 %d" } }
-      }
-    },
-    "debug.notification.synthetic.plan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Inspect the notification and verify the actions." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知を確認し、アクションを検証します。" } }
-      }
-    },
-    "debug.notification.synthetic.question": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Choose a notification debug answer" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグの回答を選択" } }
-      }
-    },
-    "debug.notification.synthetic.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグ" } }
-      }
-    },
-    "feed.notification.exitPlan.revise": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Revise…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "修正…" } }
-      }
-    },
-    "feed.notification.question.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
-      }
-    },
-    "terminal.notification.action.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
-      }
-    },
-    "terminal.notification.action.replyPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Message the agent…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントにメッセージ…" } }
-      }
-    },
-    "terminal.notification.action.replySend": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
-      }
-    },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
@@ -272847,7 +272609,1571 @@
           }
         }
       }
-    }
-  },
+    },
+    "agent.generic.notification.body.needsAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs your attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の確認が必要です"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.sentNotification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sent a notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から通知が届きました"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.legacyCleanupWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: cmux hooks は %@ で有効ですが、従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks setup kimi` を再実行してクリーンアップを完了してください。"
+          }
+        }
+      }
+    },
+    "cli.hooks.kimi.legacyUninstallWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: 従来の hook ブロックを %@ から削除できませんでした。そのパスを確認し、`cmux hooks uninstall kimi` を再実行してクリーンアップを完了してください。"
+          }
+        }
+      }
+    },
+    "featureFlags.override.remote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート"
+          }
+        }
+      }
+    },
+    "hive.embedded.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを利用できません"
+          }
+        }
+      }
+    },
+    "hive.embedded.unavailable.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer isn't paired anymore. Pair it again in Settings › Computers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータはペアリングが解除されています。設定 › コンピュータで再度ペアリングしてください。"
+          }
+        }
+      }
+    },
+    "hive.mirror.workspaceTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "hive.scopePicker.allComputers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのコンピュータ"
+          }
+        }
+      }
+    },
+    "hive.scopePicker.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac"
+          }
+        }
+      }
+    },
+    "hive.sidebar.status.noWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No open workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているワークスペースがありません"
+          }
+        }
+      }
+    },
+    "hive.viewer.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中…"
+          }
+        }
+      }
+    },
+    "hive.viewer.error.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other Mac couldn't be reached. Check that it is online and paired, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続先の Mac に到達できませんでした。オンラインでペアリング済みか確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "hive.viewer.error.noRoute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer hasn't advertised a reachable address. Make sure Tailscale is running on both Macs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータは接続可能なアドレスを公開していません。両方の Mac で Tailscale が実行中か確認してください。"
+          }
+        }
+      }
+    },
+    "hive.viewer.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続できませんでした"
+          }
+        }
+      }
+    },
+    "hive.viewer.noTerminal.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a terminal in the sidebar to view it live."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーでターミナルを選択するとライブ表示できます。"
+          }
+        }
+      }
+    },
+    "hive.viewer.noTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルがありません"
+          }
+        }
+      }
+    },
+    "hive.viewer.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "hive.viewer.terminal.attaching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to terminal…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルに接続中…"
+          }
+        }
+      }
+    },
+    "hive.viewer.terminal.reattaching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
+          }
+        }
+      }
+    },
+    "hive.viewer.workspaces.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspaces yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースはまだありません。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.getApp.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't have it yet?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだお持ちでないですか？"
+          }
+        }
+      }
+    },
+    "mobile.pairing.needsTailscale.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には Tailscale アドレスがないため、iPhone から接続できません。この Mac と iPhone の両方に（同じアカウントで）Tailscale をインストールしてから、更新してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.signIn.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to authorize this Mac for pairing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のペアリングを許可するにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.signIn.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in to cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux にサインイン済み"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.tailscale.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac and iPhone both need Tailscale to connect over the internet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネット経由で接続するには、Mac と iPhone の両方に Tailscale が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.tailscale.reachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reachable over Tailscale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale 経由で接続できます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.req.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezivanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbinder…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung wird hergestellt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងភ្ជាប់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kobler til…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Łączenie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังเชื่อมต่อ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在連接…"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.openInBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Browser öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Browser"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en el navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans le navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri nel browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកក្នុងកម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w przeglądarce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir no navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в браузере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcıda Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити у браузері"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在浏览器中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在瀏覽器中打開"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with your cmux account to pair your iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone をペアリングするには、cmux アカウントでサインインしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.signIn.slowHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد تتوقف نافذة تسجيل الدخول في النظام عن الاستجابة. إذا لم يحدث شيء، فافتح تسجيل الدخول في المتصفح الافتراضي بدلاً من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemski prozor za prijavu može prestati odgovarati. Ako se ništa ne dogodi, otvorite prijavu u zadanom pregledniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets loginvindue kan holde op med at svare. Hvis der ikke sker noget, skal du i stedet åbne login i din standardbrowser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das System-Anmeldefenster reagiert möglicherweise nicht mehr. Wenn nichts passiert, öffne die Anmeldung stattdessen in deinem Standardbrowser."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana de inicio de sesión del sistema puede dejar de responder. Si no sucede nada, abre el inicio de sesión en tu navegador predeterminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre de connexion du système peut ne plus répondre. Si rien ne se passe, ouvrez plutôt la connexion dans votre navigateur par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra di accesso di sistema potrebbe smettere di rispondere. Se non succede nulla, apri l’accesso nel browser predefinito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムのサインインウィンドウが応答しなくなることがあります。何も起きない場合は、デフォルトのブラウザでサインインを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចចូលគណនីរបស់ប្រព័ន្ធអាចឈប់ឆ្លើយតប។ ប្រសិនបើគ្មានអ្វីកើតឡើង សូមបើកការចូលគណនីក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 로그인 창이 응답하지 않을 수 있습니다. 아무 반응이 없으면 기본 브라우저에서 로그인을 열어 주세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets påloggingsvindu kan slutte å svare. Hvis ingenting skjer, åpner du påloggingen i standardnettleseren i stedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowe okno logowania może przestać odpowiadać. Jeśli nic się nie dzieje, otwórz logowanie w domyślnej przeglądarce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela de login do sistema pode parar de responder. Se nada acontecer, abra o login no navegador padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системное окно входа может перестать отвечать. Если ничего не происходит, откройте вход в браузере по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างลงชื่อเข้าของระบบอาจหยุดตอบสนอง หากไม่มีอะไรเกิดขึ้น ให้เปิดการลงชื่อเข้าในเบราว์เซอร์เริ่มต้นแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem oturum açma penceresi yanıt vermeyi durdurabilir. Hiçbir şey olmazsa oturum açmayı varsayılan tarayıcınızda açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системне вікно входу може перестати відповідати. Якщо нічого не відбувається, відкрийте вхід у браузері за умовчанням."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统登录窗口可能会停止响应。如果没有任何反应，请改用默认浏览器打开登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統登入視窗可能會停止回應。如果沒有任何反應，請改用預設瀏覽器開啟登入。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.step.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install cmux on your iPhone and open it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone に cmux をインストールして開きます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.step.scan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap Add device, then Scan QR Code, and point the camera at the code above."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「デバイスを追加」→「QR コードをスキャン」をタップし、上のコードにカメラを向けます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.step.signIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with the same account you use on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac と同じアカウントでサインインします。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.window.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair your iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone をペアリング"
+          }
+        }
+      }
+    },
+    "mobile.pairing.window.subheading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone の cmux アプリでこのコードをスキャンして、ターミナルワークスペースを同期します。"
+          }
+        }
+      }
+    },
+    "settings.computers.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No computers registered yet. Open cmux on another device signed in to the same account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録されたコンピュータはまだありません。同じアカウントでサインインした別のデバイスで cmux を開いてください。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That computer is signed in to a different account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのコンピュータは別のアカウントでサインインしています。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.codeNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No computer is showing that code. Check the digits and that the code hasn't expired."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのコードを表示しているコンピュータが見つかりません。数字と有効期限を確認してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing failed. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングに失敗しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.invalidLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That doesn't look like a cmux pairing code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のペアリングコードではないようです。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.loopback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That code belongs to this Mac. Enter it on the other Mac instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのコードはこの Mac のものです。もう一方の Mac で入力してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.noRoutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That pairing has no trusted route. Pair from a Computers registry row and make sure Tailscale is running on both Macs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼できる接続経路がありません。Computers の登録行からペアリングし、両方の Mac で Tailscale が実行中であることを確認してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.paired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングしました。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair with Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードでペアリング"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode.pair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6-digit code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 桁のコード"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type the 6-digit code shown by “Pair This Mac” on the other Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一方の Mac の「この Mac をペアリング」に表示される 6 桁のコードを入力してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.presence.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン"
+          }
+        }
+      }
+    },
+    "settings.computers.presence.online": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンライン"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Computers In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータの表示先"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.sidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインサイドバー"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.sidebar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired computers merge into the main sidebar behind its computer picker."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのコンピュータをメインサイドバーのコンピュータピッカーに統合します。"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separate Windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別ウインドウ"
+          }
+        }
+      }
+    },
+    "settings.computers.presentation.windows.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each paired computer opens in its own window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのコンピュータをそれぞれ別のウインドウで開きます。"
+          }
+        }
+      }
+    },
+    "settings.computers.refreshFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't reach the device registry. Showing locally known computers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスレジストリに接続できませんでした。ローカルに保存されたコンピュータを表示しています。"
+          }
+        }
+      }
+    },
+    "settings.computers.row.lastSeen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last seen %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終確認 %@"
+          }
+        }
+      }
+    },
+    "settings.computers.row.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
+      }
+    },
+    "settings.computers.row.pair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング"
+          }
+        }
+      }
+    },
+    "settings.computers.row.thisMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (This Mac)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（この Mac）"
+          }
+        }
+      }
+    },
+    "settings.computers.row.unpair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpair"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング解除"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair This Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac をペアリング"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングコードを表示"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.expiresIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create a pairing code. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングコードを作成できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.needsTailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reachable address. Install and sign in to Tailscale on both Macs, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続可能なアドレスがありません。両方の Mac に Tailscale をインストールしてサインインしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux first, then show a pairing code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に cmux にサインインしてから、ペアリングコードを表示してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a 6-digit code, then type it into “Pair with Code” on another Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 桁のコードを表示し、別の Mac の「コードでペアリング」に入力してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to see and pair the computers on your account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインすると、アカウントのコンピュータを表示してペアリングできます。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.section.computers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "computers devices macs remote view control pair unpair presence online offline tailscale hive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ デバイス マック リモート 表示 操作 ペアリング 解除 プレゼンス オンライン オフライン tailscale hive"
+          }
+        }
+      }
+    },
+    "settings.section.computers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
+          }
+        }
+      }
+    }},
   "version": "1.0"
 }
