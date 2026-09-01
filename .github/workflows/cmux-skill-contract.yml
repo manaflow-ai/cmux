@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   browser-skill:
-    runs-on: ubuntu-24.04
+    # This workflow executes pull-request-controlled documentation and scripts;
+    # keep it on an isolated GitHub-hosted runner with no private network access.
+    runs-on: ubuntu-24.04 # github-hosted-required: browser skill PRs run untrusted code
     timeout-minutes: 5
     steps:
       - name: Checkout
