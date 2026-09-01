@@ -2057,7 +2057,7 @@ function processInfoResult(value: unknown): ProcessInfoResult {
   const payload = record(value, "process info result");
   strictObject(
     payload,
-    ["pid", "executable", "argv", "cwd", "children"],
+    ["pid", "executable", "argv", "cwd", "foreground_cwd", "children"],
     "process info result",
   );
   if (
@@ -2074,6 +2074,9 @@ function processInfoResult(value: unknown): ProcessInfoResult {
     ...optionalProperty("executable", optionalString(payload, "executable")),
     argv: Object.freeze([...payload.argv]),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),
+    foregroundCwd: Object.hasOwn(payload, "foreground_cwd")
+      ? requiredNullableString(payload, "foreground_cwd")
+      : null,
     children: Object.freeze(
       payload.children.map((item) =>
         requiredUnsignedInteger({ child: item }, "child")),
