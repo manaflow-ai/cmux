@@ -6106,10 +6106,22 @@ pub const AgentListOptions = struct {
     state: ?AgentState = null,
 };
 
+/// Sources accepted by the legacy `agent.report` operation. This is kept
+/// separate from `AgentSource`, which also describes plugin and detected
+/// observations in returned snapshots.
+pub const AgentReportSource = enum {
+    hook,
+    socket,
+
+    pub fn wireName(self: AgentReportSource) []const u8 {
+        return @tagName(self);
+    }
+};
+
 pub const AgentReportOptions = struct {
     terminal_id: TerminalId,
     state: AgentState,
-    source: AgentSource,
+    source: AgentReportSource,
     source_session: ?[]const u8 = null,
 };
 
@@ -10926,12 +10938,6 @@ fn HandleImpl(
         ) !AgentMutationResult {
             if (comptime !std.mem.eql(u8, scope, "session")) {
                 return error.UnsupportedHandleOperation;
-            }
-            switch (report.source) {
-                .hook, .socket => {},
-                .detected, .unknown => {
-                    return error.InvalidReportAgentSource;
-                },
             }
             var params = try Params(Id).init(
                 self.client.allocator,

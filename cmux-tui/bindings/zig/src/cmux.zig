@@ -261,6 +261,7 @@ pub const NotificationLevel = resource.NotificationLevel;
 pub const NotificationSnapshot = resource.NotificationSnapshot;
 pub const AgentState = resource.AgentState;
 pub const AgentSource = resource.AgentSource;
+pub const AgentReportSource = resource.AgentReportSource;
 pub const AgentSnapshot = resource.AgentSnapshot;
 pub const PairingStatus = resource.PairingStatus;
 pub const PairingDecision = resource.PairingDecision;
