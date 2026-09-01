@@ -83,24 +83,19 @@ final class FilePreviewEditorChromeOverlay: NSView {
                 fillCurrentLineBand(atY: origin.y, height: fallbackHeight, in: textView)
             } else if glyphCount > 0 {
                 // If the extra-line metadata has not been populated yet, use
-                // the last realized fragment and only then ask TextKit to
-                // realize that single final fragment.
+                // the last realized fragment. Do not force layout from draw:
+                // a long non-contiguous line could otherwise block the main
+                // actor while the overlay is painting.
                 var lastRange = NSRange()
                 let lastFragment = layoutManager.lineFragmentRect(
                     forGlyphAt: glyphCount - 1,
                     effectiveRange: &lastRange,
                     withoutAdditionalLayout: true
                 )
-                let fallbackFragment = Self.isUsableLineRect(lastFragment)
-                    ? lastFragment
-                    : layoutManager.lineFragmentRect(
-                        forGlyphAt: glyphCount - 1,
-                        effectiveRange: &lastRange
-                    )
-                if Self.isUsableLineRect(fallbackFragment) {
+                if Self.isUsableLineRect(lastFragment) {
                     fillCurrentLineBand(
-                        atY: fallbackFragment.maxY + origin.y,
-                        height: max(fallbackFragment.height, fallbackHeight),
+                        atY: lastFragment.maxY + origin.y,
+                        height: max(lastFragment.height, fallbackHeight),
                         in: textView
                     )
                 }
@@ -121,19 +116,13 @@ final class FilePreviewEditorChromeOverlay: NSView {
             withoutAdditionalLayout: true
         )
         // `allowsNonContiguousLayout` can leave a caret's fragment unrealized.
-        // First query without additional layout; the fallback realizes only
-        // this caret's line so the band cannot disappear or be degenerate.
-        let realizedFragment = Self.isUsableLineRect(fragment)
-            ? fragment
-            : layoutManager.lineFragmentRect(
-                forGlyphAt: glyphIndex,
-                effectiveRange: &lineRange
-            )
-        guard Self.isUsableLineRect(realizedFragment) else { return }
-        let y = realizedFragment.minY + origin.y
+        // Never force a potentially huge synchronous layout from draw; the
+        // next TextKit invalidation will repaint after that fragment is ready.
+        guard Self.isUsableLineRect(fragment) else { return }
+        let y = fragment.minY + origin.y
         fillCurrentLineBand(
             atY: y,
-            height: max(realizedFragment.height, fallbackHeight),
+            height: max(fragment.height, fallbackHeight),
             in: textView
         )
     }

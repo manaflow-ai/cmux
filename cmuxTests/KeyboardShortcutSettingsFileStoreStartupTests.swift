@@ -1453,12 +1453,13 @@ struct FileEditorSettingsFileParsingTests {
     @Test("Rejects an out-of-range tab width without dropping siblings")
     func rejectsOutOfRangeTabWidthWithoutDroppingSiblingSettings() throws {
         let defaults = UserDefaults.standard
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: defaults)
         let keys = [
-            FilePreviewEditorSettings.syntaxHighlightingKey,
-            FilePreviewEditorSettings.lineNumbersKey,
-            FilePreviewEditorSettings.indentGuidesKey,
-            FilePreviewEditorSettings.currentLineHighlightKey,
-            FilePreviewEditorSettings.tabWidthKey,
+            fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+            fileEditorSettings.catalog.lineNumbers.userDefaultsKey,
+            fileEditorSettings.catalog.indentGuides.userDefaultsKey,
+            fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey,
+            fileEditorSettings.catalog.tabWidth.userDefaultsKey,
             "cmux.settingsFile.backups.v1",
             "cmux.settingsFile.importedManagedDefaults.v1",
         ]
@@ -1488,11 +1489,11 @@ struct FileEditorSettingsFileParsingTests {
                 startWatching: false
             )
             withExtendedLifetime(store) {
-                #expect(defaults.object(forKey: FilePreviewEditorSettings.syntaxHighlightingKey) as? Bool == false)
-                #expect(defaults.object(forKey: FilePreviewEditorSettings.lineNumbersKey) as? Bool == false)
-                #expect(defaults.object(forKey: FilePreviewEditorSettings.indentGuidesKey) as? Bool == false)
-                #expect(defaults.object(forKey: FilePreviewEditorSettings.currentLineHighlightKey) as? Bool == false)
-                #expect(defaults.object(forKey: FilePreviewEditorSettings.tabWidthKey) == nil)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.lineNumbers.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.indentGuides.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.tabWidth.userDefaultsKey) == nil)
             }
         }
     }

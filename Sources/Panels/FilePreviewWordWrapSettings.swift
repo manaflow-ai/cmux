@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Persistent toggle for soft line wrapping in the plain-text file editor.
@@ -7,11 +8,13 @@ import Foundation
 /// `FilePreviewTextEditor`. `false` preserves the established no-wrap behavior
 /// (long lines extend past the viewport with a horizontal scroller).
 enum FilePreviewWordWrapSettings {
+    private static let catalog = FileEditorCatalogSection()
+
     /// UserDefaults / cmux.json key.
-    static let key = "fileEditor.wordWrap"
+    static var key: String { catalog.wordWrap.userDefaultsKey }
 
     /// Default state: wrapping off, matching the editor's prior behavior.
-    static let defaultEnabled = false
+    static var defaultEnabled: Bool { catalog.wordWrap.defaultValue }
 
     /// Whether word wrap is currently enabled, honoring the stored override
     /// and falling back to ``defaultEnabled``.

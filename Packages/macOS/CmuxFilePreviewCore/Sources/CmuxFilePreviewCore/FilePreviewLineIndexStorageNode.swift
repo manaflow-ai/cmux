@@ -1,4 +1,5 @@
 /// One block node in ``FilePreviewLineIndexStorage``'s implicit treap.
+/// `offsets` stores packed line-break offsets (separator kind in low bits).
 struct FilePreviewLineIndexStorageNode: Sendable {
     var offsets: [Int]
     var priority: UInt64

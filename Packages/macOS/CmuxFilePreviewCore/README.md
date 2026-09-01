@@ -6,10 +6,10 @@ and applies text-storage edits with lazy suffix offsets, so the AppKit gutter
 does not rescan a large document for every keystroke.
 
 The index recognizes LF, CR/CRLF, and Unicode line separators when it is built.
-The AppKit gutter rebuilds from its authoritative `NSTextStorage` for documents
-using the extended separators, because a single UTF-16 edit can split or join a
-CRLF pair without exposing the deleted code unit in an edit notification. LF-only
-documents retain the logarithmic lazy-edit path.
+It retains separator kinds in packed line-break entries, so edits that split or
+join a CRLF pair remain exact while the untouched suffix moves by a lazy delta.
+No second document-sized source copy is retained; the AppKit gutter can apply
+the same incremental edit path for every supported separator.
 
 The package has no filesystem or `UserDefaults` dependency and can be tested
 directly with SwiftPM:

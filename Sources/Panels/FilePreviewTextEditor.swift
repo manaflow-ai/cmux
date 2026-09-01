@@ -233,8 +233,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.hasVerticalRuler = lineNumbers
         scrollView.rulersVisible = lineNumbers
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        let effectiveTabWidth = FileEditorCatalogSection.supportedTabWidthRange.contains(tabWidth)
-            ? tabWidth : FileEditorCatalogSection().tabWidth.defaultValue
+        let catalog = FileEditorCatalogSection()
+        let effectiveTabWidth = catalog.tabWidthRange.contains(tabWidth)
+            ? tabWidth : catalog.tabWidth.defaultValue
         textView.applyFilePreviewTabWidth(effectiveTabWidth)
         guard let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) else { return }
         overlay.showsCurrentLine = currentLineHighlight

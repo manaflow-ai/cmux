@@ -43,7 +43,7 @@ extension CmuxSettingsFileStore {
             snapshot: &snapshot
         )
         if let value = jsonInt(section["tabWidth"]) {
-            if FileEditorCatalogSection.supportedTabWidthRange.contains(value) {
+            if fileEditorSettings.catalog.tabWidthRange.contains(value) {
                 snapshot.managedUserDefaults[fileEditorSettings.catalog.tabWidth.userDefaultsKey] = .int(value)
             } else {
                 logInvalid("fileEditor.tabWidth", sourcePath: sourcePath)

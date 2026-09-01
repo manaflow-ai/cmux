@@ -24,9 +24,6 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     private static let horizontalPadding: CGFloat = 10
 
     private var lineIndex = FilePreviewLineIndex(string: "")
-    /// Once a document uses non-LF Cocoa separators, edits rebuild from the
-    /// authoritative text storage so CRLF boundary pairing remains exact.
-    private var usesExtendedLineSeparators = false
     /// Set when edits were skipped (ruler hidden) and the index must be
     /// rebuilt before its next use.
     private var needsFullRebuild = true
@@ -71,7 +68,6 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     func reloadLineIndex(from string: String, textFont: NSFont?) {
         if needsFullRebuild || observedStorage == nil {
             lineIndex = FilePreviewLineIndex(string: string)
-            usesExtendedLineSeparators = Self.containsExtendedLineSeparators(in: string)
             needsFullRebuild = false
         }
         updateRuleThickness(for: textFont)
@@ -93,7 +89,6 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         observedStorage = storage
         if scrollView?.rulersVisible == true {
             lineIndex = FilePreviewLineIndex(string: textView.string)
-            usesExtendedLineSeparators = Self.containsExtendedLineSeparators(in: textView.string)
             needsFullRebuild = false
         } else {
             // Keep the index lazy while line numbers are disabled. A large
@@ -126,16 +121,11 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
               storage.editedMask.contains(.editedCharacters) else { return }
         let range = storage.editedRange
         let replacement = (storage.string as NSString).substring(with: range)
-        if usesExtendedLineSeparators || Self.containsExtendedLineSeparators(in: replacement) {
-            lineIndex = FilePreviewLineIndex(string: storage.string)
-            usesExtendedLineSeparators = Self.containsExtendedLineSeparators(in: storage.string)
-        } else {
-            lineIndex.applyEdit(
-                atUTF16Location: range.location,
-                replacingUTF16Length: range.length - storage.changeInLength,
-                replacement: replacement
-            )
-        }
+        lineIndex.applyEdit(
+            atUTF16Location: range.location,
+            replacingUTF16Length: range.length - storage.changeInLength,
+            replacement: replacement
+        )
         updateRuleThickness(for: (clientView as? NSTextView)?.font)
         needsDisplay = true
     }
@@ -298,12 +288,6 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         rect.minX.isFinite && rect.minY.isFinite
             && rect.width.isFinite && rect.height.isFinite
             && rect.height > 0
-    }
-
-    private static func containsExtendedLineSeparators(in string: String) -> Bool {
-        string.utf16.contains { unit in
-            unit == 13 || unit == 0x2028 || unit == 0x2029
-        }
     }
 
     private static func endsWithLineBreak(_ string: NSString) -> Bool {

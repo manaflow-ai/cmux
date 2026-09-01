@@ -3,9 +3,10 @@ import Foundation
 extension FilePreviewLineIndex {
     /// Applies one UTF-16 edit without rebuilding the untouched suffix.
     ///
-    /// Line starts before the edit remain in place. Starts covered by the old
-    /// range are removed, starts after it receive a lazy range shift, and
-    /// newline starts from `replacement` are inserted locally.
+    /// Line-break events outside the edit remain in the implicit treap and a
+    /// lazy delta moves the suffix. Only small boundary fragments are rebuilt;
+    /// edits near the start of a dense document therefore stay logarithmic in
+    /// the number of untouched lines.
     ///
     /// - Parameters:
     ///   - location: UTF-16 offset where the edit starts.
@@ -23,72 +24,89 @@ extension FilePreviewLineIndex {
             return
         }
 
+        let oldEnd = location + oldLength
         let replacementLength = replacement.utf16.count
-        let end = location + oldLength
         let delta = replacementLength - oldLength
+        let existingCount = storage.count
 
-        // Keep a line start at the edit location. A start exactly at the old
-        // end is retained as a suffix start so deletion can move it to the new
-        // boundary; max() also handles zero-length insertions at line starts.
-        let prefixEnd = storage.upperBound(location)
-        let suffixStart = max(prefixEnd, storage.lowerBound(end))
-        let prefixLast = prefixEnd > 0 ? storage.value(at: prefixEnd - 1) : nil
-        let boundaryWasLineStart = storage.value(at: suffixStart) == end
-        let replacementEndsInLineBreak = replacement.utf16.last == 10
-            || replacement.utf16.last == 13
-            || replacement.utf16.last == 0x2028
-            || replacement.utf16.last == 0x2029
-        let emptyReplacementKeepsBoundary = replacement.isEmpty
-            && location > 0
-            && prefixLast == location
-
-        storage.remove(range: prefixEnd..<suffixStart)
-        storage.add(delta, toSuffixFrom: prefixEnd)
-
-        // A suffix start that sat exactly at the old end belongs to the line
-        // after the edit only when the new text ends in a newline (or an empty
-        // edit leaves the preceding newline intact). Otherwise the suffix
-        // joins the replacement's final line and its old start is discarded.
-        if boundaryWasLineStart,
-           !replacementEndsInLineBreak,
-           !emptyReplacementKeepsBoundary,
-           prefixEnd < storage.count {
-            storage.remove(range: prefixEnd..<(prefixEnd + 1))
+        // Remove events touched by the old range and include one adjacent
+        // event on either side. The neighbors are needed when an edit joins a
+        // CR with an LF (or splits an existing CRLF pair).
+        var removeStart = storage.firstEnd(after: location)
+        var removeEnd = storage.lowerBoundStart(oldEnd)
+        if removeStart > 0,
+           let previous = storage.lineBreak(at: removeStart - 1),
+           previous.offset + previous.kind.length == location {
+            removeStart -= 1
+        }
+        if removeEnd < existingCount,
+           let next = storage.lineBreak(at: removeEnd),
+           next.offset == oldEnd {
+            removeEnd += 1
         }
 
-        // A deletion ending at a line start can move that suffix start onto
-        // the preceding line start. Keep one copy of the boundary.
-        if let prefixLast {
-            var duplicateCount = 0
-            while prefixEnd + duplicateCount < storage.count,
-                  let value = storage.value(at: prefixEnd + duplicateCount),
-                  value <= prefixLast {
-                duplicateCount += 1
+        // For a zero-length insertion inside a CRLF event, the range search
+        // above already includes the containing event. Keep this explicit
+        // guard as a contract check for future event-kind changes.
+        if oldLength == 0,
+           let containing = storage.lineBreak(at: storage.firstEnd(after: location)),
+           containing.offset < location,
+           location < containing.offset + containing.kind.length {
+            let containingIndex = storage.firstEnd(after: location)
+            removeStart = min(removeStart, containingIndex)
+            removeEnd = max(removeEnd, containingIndex + 1)
+        }
+
+        var prefixUnits: [FilePreviewLineBreakUnit] = []
+        var suffixUnits: [FilePreviewLineBreakUnit] = []
+        if removeStart < removeEnd {
+            prefixUnits.reserveCapacity((removeEnd - removeStart) * 2)
+            suffixUnits.reserveCapacity((removeEnd - removeStart) * 2)
+            for index in removeStart..<removeEnd {
+                guard let lineBreak = storage.lineBreak(at: index) else { continue }
+                for (unitIndex, rawUnit) in lineBreak.kind.rawUnits.enumerated() {
+                    let oldOffset = lineBreak.offset + unitIndex
+                    guard oldOffset < location || oldOffset >= oldEnd else { continue }
+                    let newOffset = oldOffset < location ? oldOffset : oldOffset + delta
+                    if let kind = Self.lineBreakKind(for: rawUnit) {
+                        let unit = FilePreviewLineBreakUnit(offset: newOffset, kind: kind)
+                        if oldOffset < location {
+                            prefixUnits.append(unit)
+                        } else {
+                            suffixUnits.append(unit)
+                        }
+                    }
+                }
             }
-            if duplicateCount > 0 {
-                storage.remove(range: prefixEnd..<(prefixEnd + duplicateCount))
-            }
+            storage.remove(range: removeStart..<removeEnd)
         }
 
-        var insertedStarts: [Int] = []
-        let lineBreakCount = replacement.utf16.reduce(into: 0) { count, unit in
-            if unit == 10 || unit == 13 || unit == 0x2028 || unit == 0x2029 {
-                count += 1
-            }
-        }
-        insertedStarts.reserveCapacity(lineBreakCount + 1)
-        FilePreviewLineIndexStorage.enumerateLineStarts(in: replacement, offset: location) {
-            insertedStarts.append($0)
-        }
-
-        // If the replacement ends in a newline, its final start is the same
-        // boundary represented by the first retained suffix start.
-        if let lastInserted = insertedStarts.last,
-           let suffixValue = storage.value(at: prefixEnd),
-           lastInserted == suffixValue {
-            insertedStarts.removeLast()
-        }
-        storage.insert(insertedStarts, at: prefixEnd)
+        storage.add(delta, toSuffixFrom: removeStart)
+        let replacementBreaks = FilePreviewLineIndexStorage.lineBreaks(
+            in: replacement,
+            offset: location
+        )
+        prefixUnits.append(contentsOf: replacementBreaks)
+        prefixUnits.append(contentsOf: suffixUnits)
+        storage.insert(
+            FilePreviewLineIndexStorage.mergeAdjacentLineBreaks(prefixUnits),
+            at: removeStart
+        )
         loadedUTF16Length += delta
+    }
+
+    private static func lineBreakKind(for rawUnit: UInt16) -> FilePreviewLineBreakKind? {
+        switch rawUnit {
+        case 0x0A:
+            .lineFeed
+        case 0x0D:
+            .carriageReturn
+        case 0x2028:
+            .lineSeparator
+        case 0x2029:
+            .paragraphSeparator
+        default:
+            nil
+        }
     }
 }

@@ -453,7 +453,7 @@ struct FilePreviewCodeViewTests {
         #expect(settings.catalog.currentLineHighlight.defaultValue == true)
         #expect(settings.catalog.tabWidth.id == "fileEditor.tabWidth")
         #expect(settings.catalog.tabWidth.defaultValue == 4)
-        #expect(settings.catalog.tabWidthRange == FileEditorCatalogSection.supportedTabWidthRange)
+        #expect(settings.catalog.tabWidthRange == (1...8))
     }
 
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {
