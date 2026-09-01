@@ -2514,6 +2514,49 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn process_file_setup_failure_does_not_run_command_or_leak_secret() {
+        let root = scratch("process-file-setup-failure");
+        let tmpdir_file = root.join("not-a-directory");
+        std::fs::write(&tmpdir_file, "").unwrap();
+        let marker = root.join("command-ran");
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        context.env = scrubbed_env(&HashMap::from([
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("TMPDIR".to_owned(), tmpdir_file.display().to_string()),
+        ]));
+        let secret = "process-file-secret";
+        let exec = perform_action(
+            &json!({
+                "verb": "exec",
+                "actionId": "process-file-setup-failure",
+                "allowedRoots": roots,
+                "args": {
+                    "command": format!("printf '%s' \"$MY_SECRET\" > '{}'", marker.display()),
+                },
+                "runtime": {
+                    "environment": { "MY_SECRET": secret },
+                    "files": [{
+                        "contentEnvironmentVariable": "MY_SECRET",
+                        "pathEnvironmentVariable": "MY_SECRET_PATH",
+                        "pathHint": "credentials",
+                    }],
+                },
+                "timeoutMs": 10000,
+            }),
+            &context,
+        )
+        .await;
+
+        assert_eq!(exec["ok"], true, "{exec}");
+        assert_ne!(exec["result"]["exitCode"], 0, "setup unexpectedly succeeded: {exec}");
+        assert!(!marker.exists(), "target command ran after setup failure: {exec}");
+        assert!(!exec.to_string().contains(secret), "secret leaked in action result: {exec}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn observe_trust_refuses_mutating_verbs_allows_reads() {
         let root = scratch("observe");
         std::fs::write(root.join("f.txt"), "data").unwrap();
