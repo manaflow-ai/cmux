@@ -82,14 +82,12 @@ export default async function DashboardBillingPage({
     status,
     billingTeam,
     subscription,
-    hasStripeCustomer,
   ] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.billing" }),
     getTranslations({ locale, namespace: "pricing" }),
     resolveProPlanStatus(user),
     billingTeamPromise,
     latestActiveStripeSubscription(user.id),
-    hasCustomerRow(user.id),
   ]);
   const [teamSubscription, hasTeamStripeCustomer] = await Promise.all([
     billingTeam ? latestActiveStripeSubscriptionForTeam(billingTeam.id) : Promise.resolve(null),
@@ -99,7 +97,13 @@ export default async function DashboardBillingPage({
   const interval = proBillingInterval(
     Array.isArray(query?.interval) ? query.interval[0] : query?.interval,
   );
-  const isFreePlan = !status.isPro && !teamSubscription;
+  // Use the resolver's authoritative recoverability state for the personal
+  // billing action. A customer-only or terminally canceled row must show the
+  // Upgrade flow; only a portal-recoverable subscription shows Manage billing.
+  const canManagePersonalBilling = status.billingManagement === "stripe";
+  const isFreePlan = !status.isPro && !canManagePersonalBilling && !teamSubscription;
+  const personalPaymentPastDue = subscription?.status === "past_due";
+  const teamPaymentPastDue = teamSubscription?.status === "past_due";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
@@ -118,19 +122,41 @@ export default async function DashboardBillingPage({
         </div>
       ) : null}
 
+      {personalPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
+      {teamPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal?scope=team" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
       {isFreePlan ? (
         <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} />
       ) : !status.isPro ? (
-        <FreePlan t={t} />
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       ) : subscription ? (
         <StripePlan
           t={t}
           locale={locale}
           subscription={subscription}
-          canManageBilling={hasStripeCustomer}
+          canManageBilling={canManagePersonalBilling}
         />
       ) : (
-        <FreePlan t={t} />
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
 
       {billingTeam && teamSubscription ? (
@@ -196,15 +222,6 @@ async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promi
   return rows[0] ?? null;
 }
 
-async function hasCustomerRow(stackUserId: string): Promise<boolean> {
-  const rows = await cloudDb()
-    .select({ id: stripeCustomers.id })
-    .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackUserId, stackUserId))
-    .limit(1);
-  return rows.length > 0;
-}
-
 async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
   const rows = await cloudDb()
     .select({ id: stripeCustomers.id })
@@ -214,17 +231,35 @@ async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+function FreePlan({
+  t,
+  showBillingPortal = false,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  showBillingPortal?: boolean;
+}) {
   return (
     <section className="border border-border p-3">
       <h2 className="text-sm font-medium">{t("free.name")}</h2>
       <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
-      <Link
-        href="/pricing"
-        className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-      >
-        {t("actions.viewPricing")}
-      </Link>
+      {showBillingPortal ? (
+        // The portal route creates a Stripe session and needs a full document
+        // navigation rather than a Next.js client transition.
+        // eslint-disable-next-line @next/next/no-html-link-for-pages
+        <a
+          href="/api/billing/portal"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.manageBilling")}
+        </a>
+      ) : (
+        <Link
+          href="/pricing"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.viewPricing")}
+        </Link>
+      )}
     </section>
   );
 }

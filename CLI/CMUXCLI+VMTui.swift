@@ -772,21 +772,41 @@ extension CMUXCLI {
                                                               tabs of the focused (or --pane) pane ("Open All in New Tabs").
           cmux vm workspace rename <machine> <workspace-id> <name>
                                                               Rename a machine workspace.
-          cmux vm workspace close <machine> <workspace-id>    Close a machine workspace; its terminals keep
-                                                              running and detach into the Terminals pool.
-          cmux vm workspace rm <machine> <workspace-id>       Delete a machine workspace AND kill every
-                                                              terminal in it (the sidebar's "Delete Workspace
-                                                              and Terminals…"). Permanent.
+          cmux vm workspace rm <machine> <workspace-id>       Close a machine workspace AND kill every
+                                                              terminal in it (the sidebar's "Close
+                                                              Workspace…"). Permanent.
+          cmux vm workspace close <machine> <workspace-id>    CLI-only: close the workspace but keep its
+                                                              terminals running in the Terminals pool.
 
         Workspace ids come from `cmux vm tree`. Add --json for the raw result.
         """
 
     static let vmTerminalUsage = """
         Usage:
+          cmux vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>]
+                                                              Type text into the terminal (as-is, no newline), then press
+                                                              named keys: enter, tab, escape, up, down, ctrl+c (chords join with +)… Nothing is
+                                                              attached or focused. `--keys enter` alone presses Enter.
+                                                              Put `--` before text that contains this command's own flags.
+          cmux vm terminal read <machine> <terminal-id>       Print the terminal's visible screen (--json adds cursor/size).
+          cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
+                                                              Block until the screen matches (default 30 s); exit 1 on timeout.
           cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
 
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
+        A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
         """
+
+    /// `--timeout` for `vm terminal wait`, in seconds: finite, at least one millisecond,
+    /// at most an hour (the daemon/link cap) — out of range is an error, not a silent
+    /// clamp, so the contract reads the same at every entrypoint. nil is the 30 s default.
+    static func vmTerminalWaitSeconds(_ raw: String?) throws -> Double {
+        guard let raw else { return 30 }
+        guard let seconds = Double(raw), seconds.isFinite, seconds >= 0.001, seconds <= 3600 else {
+            throw CLIError(message: "vm terminal wait: --timeout must be a number of seconds between 0.001 and 3600 (got '\(raw)')")
+        }
+        return seconds
+    }
 
     /// `cmux vm workspace new|open|rename|close|rm`: the sidebar's workspace verbs over the
     /// same socket methods (`vm.workspace_new|open|rename|close|delete`), so a row and an
@@ -864,17 +884,85 @@ extension CMUXCLI {
         }
     }
 
-    /// `cmux vm terminal close`: the sidebar's × over `vm.terminal_close`.
+    /// `cmux vm terminal close|send|read|wait`: the sidebar's × over `vm.terminal_close`,
+    /// plus the headless agent primitives (`vm.terminal_write|read|wait`) that drive a
+    /// machine terminal without projecting a pane.
     func runVMTerminalCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
             print(Self.vmTerminalUsage)
             return
         }
-        let positional = rest.filter { !$0.hasPrefix("-") }
-        guard positional.count >= 3, positional[0] == "close" else { throw CLIError(message: Self.vmTerminalUsage) }
-        let response = try client.sendV2(method: "vm.terminal_close", params: ["id": positional[1], "terminal_id": positional[2]], responseTimeout: 120)
-        if jsonOutput { print(jsonString(response)); return }
-        print("OK closed terminal \(positional[2]) on \(positional[1])")
+        let verb = rest[0]
+        let isSend = verb == "send" || verb == "write"
+        var tail = Array(rest.dropFirst())
+        // `--` ends option parsing: for `send`, everything after it is text, verbatim —
+        // including tokens that look like this command's own flags.
+        var literal: [String] = []
+        if let terminator = tail.firstIndex(of: "--") {
+            literal = Array(tail[(terminator + 1)...])
+            tail = Array(tail[..<terminator])
+        }
+        let (keysOpt, r1) = parseOption(tail, name: "--keys")
+        // `--pattern` / `--timeout` belong to `wait`; for `send` they are just text.
+        let (patternOpt, r2): (String?, [String]) = isSend ? (nil, r1) : parseOption(r1, name: "--pattern")
+        let (timeoutOpt, r3): (String?, [String]) = isSend ? (nil, r2) : parseOption(r2, name: "--timeout")
+        let args = r3.filter { $0 != "--json" }
+        // The two ids are never flags. After them, `send` types dash tokens verbatim
+        // (`ls -la`, `git log --oneline`); the other verbs reject unknown flags anywhere.
+        let misplaced = args.prefix(2).first(where: { $0.hasPrefix("-") })
+        if let unknown = misplaced ?? (isSend ? nil : args.first(where: { $0.hasPrefix("-") })) {
+            throw CLIError(message: "vm terminal: unknown flag '\(unknown)'\n\n\(Self.vmTerminalUsage)")
+        }
+        guard args.count >= 2 else { throw CLIError(message: Self.vmTerminalUsage) }
+        let machine = args[0]
+        let terminalID = args[1]
+        switch verb {
+        case "close":
+            let response = try client.sendV2(method: "vm.terminal_close", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK closed terminal \(terminalID) on \(machine)")
+        case "send", "write":
+            let text = (Array(args.dropFirst(2)) + literal).joined(separator: " ")
+            let keys = (keysOpt ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard !text.isEmpty || !keys.isEmpty else {
+                throw CLIError(message: "vm terminal send: give text and/or --keys (e.g. --keys enter)\n\n\(Self.vmTerminalUsage)")
+            }
+            var params: [String: Any] = ["id": machine, "terminal_id": terminalID]
+            if !text.isEmpty { params["text"] = text }
+            if !keys.isEmpty { params["keys"] = keys }
+            let response = try client.sendV2(method: "vm.terminal_write", params: params, responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            let wrote = (response["wrote"] as? Int) ?? 0
+            print("OK sent \(wrote) char\(wrote == 1 ? "" : "s")\(keys.isEmpty ? "" : " + keys " + keys.joined(separator: ",")) to \(terminalID) on \(machine)")
+        case "read", "screen":
+            let response = try client.sendV2(method: "vm.terminal_read", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print((response["text"] as? String) ?? "")
+        case "wait":
+            guard let pattern = patternOpt, !pattern.isEmpty else {
+                throw CLIError(message: "vm terminal wait: --pattern <regex> is required\n\n\(Self.vmTerminalUsage)")
+            }
+            let seconds = try Self.vmTerminalWaitSeconds(timeoutOpt)
+            let timeoutMs = max(1, Int((seconds * 1000).rounded()))
+            let response = try client.sendV2(
+                method: "vm.terminal_wait",
+                params: ["id": machine, "terminal_id": terminalID, "pattern": pattern, "timeout_ms": timeoutMs],
+                responseTimeout: TimeInterval(seconds + 20)
+            )
+            let matched = (response["matched"] as? Bool) ?? false
+            if jsonOutput {
+                print(jsonString(response))
+            } else if matched {
+                print("OK matched /\(pattern)/ on \(terminalID)")
+            }
+            // A timeout is a failure in every output mode: the JSON still prints, and the
+            // exit code says the pattern never appeared.
+            if !matched {
+                throw CLIError(message: "timed out after \(seconds)s waiting for /\(pattern)/ on \(terminalID) (screen: \(((response["text"] as? String) ?? "").suffix(200)))")
+            }
+        default:
+            throw CLIError(message: "vm terminal: unknown verb '\(verb)'\n\n\(Self.vmTerminalUsage)")
+        }
     }
 
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
