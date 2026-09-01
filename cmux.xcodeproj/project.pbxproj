@@ -2014,6 +2014,7 @@
 		469201000000000000000006 /* SessionDragSessionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000005 /* SessionDragSessionSource.swift */; };
 		46920100000000000000000E /* SessionDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000D /* SessionDragSource.swift */; };
 		46920100000000000000000C /* SessionDragSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000B /* SessionDragSourceView.swift */; };
+		112960000000000000000007 /* SessionEntry+VaultResumeRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000008 /* SessionEntry+VaultResumeRequest.swift */; };
 		112960000000000000000003 /* SessionEntryResumeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000004 /* SessionEntryResumeCoordinator.swift */; };
 		992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230004 /* SessionEntryResumeLaunch.swift */; };
 		992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */; };
@@ -4986,6 +4987,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		469201000000000000000005 /* SessionDragSessionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSessionSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000D /* SessionDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000B /* SessionDragSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSourceView.swift; sourceTree = "<group>"; };
+		112960000000000000000008 /* SessionEntry+VaultResumeRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionEntry+VaultResumeRequest.swift"; sourceTree = "<group>"; };
 		112960000000000000000004 /* SessionEntryResumeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeCoordinator.swift; sourceTree = "<group>"; };
 		992300019923000199230004 /* SessionEntryResumeLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunch.swift; sourceTree = "<group>"; };
 		992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunchTests.swift; sourceTree = "<group>"; };
@@ -7160,6 +7162,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9090F0019090F0019090F001 /* AgentHibernationPanelState.swift */,
 				9090F0029090F0029090F002 /* AgentHibernationResumePreparation.swift */,
 				F0ACC0E0000000000000002 /* CachedAgentProcessIdentityValidator.swift */,
+				112960000000000000000008 /* SessionEntry+VaultResumeRequest.swift */,
 				112960000000000000000004 /* SessionEntryResumeCoordinator.swift */,
 				992300019923000199230004 /* SessionEntryResumeLaunch.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
@@ -10798,6 +10801,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				469201000000000000000006 /* SessionDragSessionSource.swift in Sources */,
 				46920100000000000000000E /* SessionDragSource.swift in Sources */,
 				46920100000000000000000C /* SessionDragSourceView.swift in Sources */,
+				112960000000000000000007 /* SessionEntry+VaultResumeRequest.swift in Sources */,
 				112960000000000000000003 /* SessionEntryResumeCoordinator.swift in Sources */,
 				992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */,
 				D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */,

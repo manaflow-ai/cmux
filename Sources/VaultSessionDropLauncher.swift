@@ -19,7 +19,7 @@ struct VaultSessionDropLauncher {
         guard let launch = entry.resumeLaunch else { return false }
         if workspace.isRemoteTmuxMirror {
             guard let tabManager = workspace.owningTabManager else { return false }
-            return SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+            return SessionEntryResumeCoordinator().resume(entry, tabManager: tabManager)
         }
 
         let remoteStartupCommand = workspace.isRemoteWorkspace
@@ -31,7 +31,7 @@ struct VaultSessionDropLauncher {
         let workingDirectory = isRemoteHost ? nil : launch.workingDirectory
 
         switch destination {
-        case .insert(let paneId, _):
+        case .insert(let paneId, let targetIndex):
             guard let panel = workspace.newTerminalSurface(
                 inPane: paneId,
                 focus: true,
@@ -40,6 +40,16 @@ struct VaultSessionDropLauncher {
                 startupRestoreAgent: launch.startupRestoreAgent
             ) else {
                 return false
+            }
+            // `newTerminalSurface` inserts according to the pane's default
+            // policy. A drag request may carry an explicit tab index, so apply
+            // that placement after the panel has an authoritative surface id.
+            if let targetIndex {
+                _ = workspace.reorderSurface(
+                    panelId: panel.id,
+                    toIndex: targetIndex,
+                    focus: true
+                )
             }
             if let remoteStartupCommand,
                let launchWorkingDirectory = launch.workingDirectory {

@@ -242730,13 +242730,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+            "value": "The cmux Cloud service rejected this session. Sign out and sign in again, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud サービスがこのセッションを拒否しました。`cmux auth logout` を実行してから `cmux auth login` を実行し、再試行してください。"
+            "value": "cmux Cloud サービスがこのセッションを拒否しました。サインアウトしてから再度サインインし、再試行してください。"
           }
         }
       }

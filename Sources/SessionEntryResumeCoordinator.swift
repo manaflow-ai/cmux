@@ -8,13 +8,13 @@ import Foundation
 /// it gets an isolated local workspace instead, where the restore record and
 /// `cmux restore` selector share one owner.
 @MainActor
-enum SessionEntryResumeCoordinator {
+struct SessionEntryResumeCoordinator {
     /// Resumes `entry`, preserving the historical same-cwd split behavior for
     /// local workspaces and the new-workspace behavior for every other target.
     ///
     /// - Returns: `true` when a terminal/workspace was created, otherwise `false`.
     @discardableResult
-    static func resume(_ entry: SessionEntry, tabManager: TabManager) -> Bool {
+    func resume(_ entry: SessionEntry, tabManager: TabManager) -> Bool {
         guard let launch = entry.resumeLaunch else { return false }
         let targetCwd = launch.workingDirectory
         let selected = tabManager.selectedWorkspace
@@ -47,7 +47,8 @@ enum SessionEntryResumeCoordinator {
         return tabManager.addWorkspaceIfActive(
             workingDirectory: targetCwd,
             initialTerminalInput: startupInput,
-            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
+            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent,
+            inheritWorkingDirectory: !isRemoteSelection
         ) != nil
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxCore
 import Foundation
 import Testing
 
@@ -223,7 +224,7 @@ struct VaultRestorePathGuaranteeTests {
         mirrorWorkspace.isRemoteTmuxMirror = true
 
         let entry = Self.entry(for: "codex", cwd: workingDirectory)
-        SessionEntryResumeCoordinator.resume(entry, tabManager: manager)
+        SessionEntryResumeCoordinator().resume(entry, tabManager: manager)
 
         #expect(manager.tabs.count == 2)
         let restoredWorkspace = try #require(manager.selectedWorkspace)
@@ -237,6 +238,45 @@ struct VaultRestorePathGuaranteeTests {
             restoredWorkspace.terminalPanel(for: panelID)?.surface.debugInitialInputForTesting()
                 == entry.resumeLaunch?.initialInput
         )
+    }
+
+    @Test
+    func remoteSelectionWithoutEntryCwdUsesLocalDefaultDirectory() throws {
+        let remoteDirectory = "/tmp/vault-remote-inherited"
+        let localDefaultDirectory = "/tmp/vault-local-default"
+        let defaultsName = "cmux-vault-remote-cwd-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        settings.set(true, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
+        let manager = TabManager(
+            initialWorkingDirectory: remoteDirectory,
+            autoWelcomeIfNeeded: false,
+            settings: settings,
+            defaultWorkspaceWorkingDirectoryProvider: { localDefaultDirectory }
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let remoteWorkspace = try #require(manager.selectedWorkspace)
+        remoteWorkspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "vault-review.example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh vault-review.example.com"
+        )
+
+        let entry = Self.entry(for: "codex", cwd: nil)
+        #expect(SessionEntryResumeCoordinator().resume(entry, tabManager: manager))
+
+        let restoredWorkspace = try #require(manager.selectedWorkspace)
+        #expect(restoredWorkspace !== remoteWorkspace)
+        #expect(restoredWorkspace.currentDirectory == localDefaultDirectory)
+        #expect(restoredWorkspace.focusedTerminalPanel?.requestedWorkingDirectory == localDefaultDirectory)
     }
 
     @Test
@@ -277,6 +317,33 @@ struct VaultRestorePathGuaranteeTests {
     }
 
     @Test
+    func localPaneDropPreservesTheRequestedTabIndex() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/vault-drop-index",
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        _ = try #require(workspace.newTerminalSurface(inPane: paneID, focus: true))
+        let baselinePanelIDs = Set(workspace.panels.keys)
+
+        let handled = workspace.handleSessionDrop(
+            entry: Self.entry(for: "codex", cwd: "/tmp/vault-drop-index"),
+            destination: .insert(paneID, 0)
+        )
+
+        #expect(handled)
+        let droppedPanelID = try #require(workspace.panels.keys.first {
+            !baselinePanelIDs.contains($0)
+        })
+        let orderedPanelIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap {
+            workspace.panelIdFromSurfaceId($0.id)
+        }
+        #expect(orderedPanelIDs.first == droppedPanelID)
+    }
+
+    @Test
     func legacyFallbackUsesRemoteHostDialectWithoutLocalShellEnvelope() throws {
         let registration = CmuxVaultAgentRegistration(
             id: "legacy agent",
@@ -308,7 +375,7 @@ struct VaultRestorePathGuaranteeTests {
         )
     }
 
-    private static func entry(for rawKind: String, cwd: String = "/tmp/vault-project") -> SessionEntry {
+    private static func entry(for rawKind: String, cwd: String? = "/tmp/vault-project") -> SessionEntry {
         let sessionID = "vault-\(rawKind)-session"
         let specifics: AgentSpecifics
         let agent: SessionAgent

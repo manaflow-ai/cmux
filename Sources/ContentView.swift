@@ -2403,7 +2403,7 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+        SessionEntryResumeCoordinator().resume(entry, tabManager: tabManager)
     }
 
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {

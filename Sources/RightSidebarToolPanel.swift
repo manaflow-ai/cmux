@@ -289,7 +289,7 @@ struct RightSidebarToolPanelView: View {
                 store: panel.sessionIndexStore,
                 chromeBackgroundColor: resolvedChromeBackgroundColor,
                 onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                    SessionEntryResumeCoordinator().resume(entry, tabManager: tabManager)
                 }
             )
             .background(
