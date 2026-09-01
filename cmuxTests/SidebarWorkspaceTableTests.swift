@@ -666,6 +666,7 @@ struct SidebarWorkspaceTableTests {
             defer: false
         )
         window.contentView = container
+        window.orderFront(nil)
         defer {
             window.contentView = nil
             window.close()
