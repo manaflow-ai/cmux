@@ -682,6 +682,7 @@ class ProcessInfoResult:
     command: Union[str, None]
     cwd: Union[str, None]
     pid: Union[int, None]
+    foreground_cwd: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
