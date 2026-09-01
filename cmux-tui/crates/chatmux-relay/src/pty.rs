@@ -348,7 +348,6 @@ struct Inner {
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
-    auth: Mutex<Option<AuthSnapshot>>,
 }
 
 struct ShellStartReservation {
@@ -400,7 +399,6 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
             }),
         }
     }
@@ -426,19 +424,12 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
             }),
         }
     }
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        *self.inner.auth.lock().expect("auth lock") = Some(AuthSnapshot {
-            trust: context.trust.clone(),
-            owner_user_id: context.owner_user_id.clone(),
-            send: Arc::clone(&context.send),
-            buffered_amount: Arc::clone(&context.buffered_amount),
-        });
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
@@ -583,6 +574,15 @@ fn send_typed_pty_error(
 }
 
 impl Inner {
+    fn auth_snapshot(context: &FrameContext) -> AuthSnapshot {
+        AuthSnapshot {
+            trust: context.trust.clone(),
+            owner_user_id: context.owner_user_id.clone(),
+            send: Arc::clone(&context.send),
+            buffered_amount: Arc::clone(&context.buffered_amount),
+        }
+    }
+
     async fn open(self: Arc<Self>, frame: &Value, context: &FrameContext) {
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if pty_id.is_empty() {
@@ -822,7 +822,7 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let auth = Self::auth_snapshot(context);
         if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
             return;
         }
@@ -857,7 +857,7 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let auth = Self::auth_snapshot(context);
         if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
             return;
         }
@@ -911,7 +911,7 @@ impl Inner {
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
-        let auth = self.auth.lock().expect("auth lock").clone()?;
+        let auth = Self::auth_snapshot(context);
         self.authorize_snapshot(pty_id, &auth, context, action)
     }
 
