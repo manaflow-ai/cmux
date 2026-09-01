@@ -236,6 +236,18 @@ struct VaultCheckpointForkTests {
         #expect(!FileManager.default.fileExists(atPath: leftover.path))
     }
 
+    @Test(arguments: ["", "../escape", "nested/session", "space id", "colon:id"])
+    func rejectsPathHostileSessionIDs(_ candidate: String) {
+        #expect(throws: VaultCheckpointForkError.invalidSessionID) {
+            try VaultCheckpointForker.validateSessionID(candidate)
+        }
+    }
+
+    @Test
+    func acceptsUUIDSessionID() throws {
+        try VaultCheckpointForker.validateSessionID(newSessionID)
+    }
+
     @Test
     func forkAtFirstTurnIsRefusedAsEmpty() throws {
         let parent = try writeParent([

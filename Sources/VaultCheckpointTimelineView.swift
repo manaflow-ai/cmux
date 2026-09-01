@@ -1,4 +1,11 @@
+import Foundation
+import os
 import SwiftUI
+
+private let vaultCheckpointTimelineLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "VaultCheckpointTimeline"
+)
 
 /// Checkpoint timeline for one session, hosted in the transcript peek
 /// popover's Checkpoints tab. Derived turn checkpoints come from the
@@ -142,7 +149,14 @@ struct VaultCheckpointTimelineView: View {
                 )
             }
             .buttonStyle(.borderless)
-            .disabled(isLoading || derivation == nil)
+            .disabled(isLoading || derivation == nil || derivation?.isTruncated == true)
+            .help(
+                derivation?.isTruncated == true
+                    ? String(localized: "sessionIndex.checkpoints.truncatedSaveUnavailable",
+                             defaultValue: "Checkpoint Now is unavailable until the full transcript is read")
+                    : String(localized: "sessionIndex.checkpoints.nowHelp",
+                             defaultValue: "Save a checkpoint at the current end of the transcript")
+            )
             .accessibilityIdentifier("VaultCheckpointNowButton")
         }
         .padding(.horizontal, 12)
@@ -213,7 +227,7 @@ struct VaultCheckpointTimelineView: View {
     }
 
     private func createManualCheckpoint() {
-        guard let derivation else { return }
+        guard let derivation, !derivation.isTruncated else { return }
         let trimmedName = checkpointName.trimmingCharacters(in: .whitespacesAndNewlines)
         let agentID = entry.agent.rawValue
         let sessionID = entry.sessionId
@@ -225,6 +239,7 @@ struct VaultCheckpointTimelineView: View {
             name: trimmedName.isEmpty ? nil : trimmedName,
             turnIndex: derivation.checkpoints.count,
             anchor: derivation.lastAnchor,
+            anchorFingerprint: derivation.lastAnchorFingerprint,
             gitSHA: nil,
             promptSnippet: derivation.checkpoints.last?.promptSnippet
         )
@@ -243,6 +258,7 @@ struct VaultCheckpointTimelineView: View {
                 name: checkpoint.name,
                 turnIndex: checkpoint.turnIndex,
                 anchor: checkpoint.anchor,
+                anchorFingerprint: checkpoint.anchorFingerprint,
                 gitSHA: sha,
                 promptSnippet: checkpoint.promptSnippet
             )
@@ -258,6 +274,9 @@ struct VaultCheckpointTimelineView: View {
                 // Give the typed name back so a transient failure doesn't
                 // eat the user's input.
                 checkpointName = typedName
+                vaultCheckpointTimelineLogger.error(
+                    "Checkpoint save failed: \(String(describing: error), privacy: .private)"
+                )
                 errorText = String(
                     localized: "sessionIndex.checkpoints.saveFailed",
                     defaultValue: "Couldn't save checkpoint"
@@ -291,6 +310,9 @@ struct VaultCheckpointTimelineView: View {
                 onDismiss()
             } catch {
                 isForking = false
+                vaultCheckpointTimelineLogger.error(
+                    "Checkpoint fork failed: \(String(describing: error), privacy: .private)"
+                )
                 let detail = (error as? VaultCheckpointForkError)?.localizedSummary
                     ?? String(localized: "sessionIndex.checkpoints.error.unknown",
                               defaultValue: "An unexpected error occurred")

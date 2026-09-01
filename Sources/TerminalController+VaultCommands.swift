@@ -106,6 +106,16 @@ extension TerminalController {
                     data: nil
                 )
             }
+            guard !derivation.isTruncated else {
+                return .err(
+                    code: "too_large",
+                    message: String(
+                        localized: "sessionIndex.checkpoints.truncatedSaveUnavailable",
+                        defaultValue: "Checkpoint Now is unavailable until the full transcript is read"
+                    ),
+                    data: nil
+                )
+            }
             let sha = entry.cwd.flatMap { cwd -> String? in
                 guard !cwd.isEmpty else { return nil }
                 return VaultGitHeadReader.headSHA(workspacePath: cwd)
@@ -117,6 +127,7 @@ extension TerminalController {
                 name: name,
                 turnIndex: derivation.checkpoints.count,
                 anchor: derivation.lastAnchor,
+                anchorFingerprint: derivation.lastAnchorFingerprint,
                 gitSHA: sha,
                 promptSnippet: derivation.checkpoints.last?.promptSnippet
             )

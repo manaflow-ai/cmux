@@ -51,10 +51,29 @@ struct VaultForkPlan {
     let destinationFileURL: URL
     /// Must produce the same tokens the harness's derivation produced.
     let anchorToken: ([String: Any], Int) -> String?
+    /// Optional canonical content digest for the token's raw JSON object.
+    /// Positional anchors use it to fail closed when a transcript is edited.
+    let anchorFingerprint: (([String: Any]) -> String?)?
     let userPrompt: ([String: Any]) -> String?
     /// Returns a mutated line object to re-serialize, or nil to copy the raw
     /// line bytes verbatim.
     let rewriteLine: ([String: Any]) -> [String: Any]?
+
+    init(
+        parentFileURL: URL,
+        destinationFileURL: URL,
+        anchorToken: @escaping ([String: Any], Int) -> String?,
+        anchorFingerprint: (([String: Any]) -> String?)? = nil,
+        userPrompt: @escaping ([String: Any]) -> String?,
+        rewriteLine: @escaping ([String: Any]) -> [String: Any]?
+    ) {
+        self.parentFileURL = parentFileURL
+        self.destinationFileURL = destinationFileURL
+        self.anchorToken = anchorToken
+        self.anchorFingerprint = anchorFingerprint
+        self.userPrompt = userPrompt
+        self.rewriteLine = rewriteLine
+    }
 }
 
 /// Streams a parent transcript into a new session file, truncated at a
@@ -83,6 +102,11 @@ enum VaultCheckpointForker {
             throw VaultCheckpointForkError.parentMissing
         }
         defer { try? reader.close() }
+        let parentByteCount: UInt64? = {
+            guard let end = try? reader.seekToEnd() else { return nil }
+            try? reader.seek(toOffset: 0)
+            return end
+        }()
 
         let destinationURL = plan.destinationFileURL
         guard fileManager.createFile(atPath: destinationURL.path, contents: nil),
@@ -112,12 +136,38 @@ enum VaultCheckpointForker {
             let parsed = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
             lineIndex += 1
             let lineAnchor = parsed.flatMap { plan.anchorToken($0, lineIndex) }
+            let lineFingerprint = parsed.flatMap {
+                plan.anchorFingerprint?($0)
+                    ?? VaultSessionCheckpoints.anchorFingerprint(for: $0)
+            }
             let isUserPrompt = parsed.map { plan.userPrompt($0) != nil } ?? false
             if isUserPrompt { userLineIndex += 1 }
 
             let isAnchor: Bool
             if let anchor = checkpoint.anchor {
-                isAnchor = lineAnchor == anchor
+                let tokenMatches = lineAnchor == anchor
+                let fingerprintMatches: Bool
+                if let expectedFingerprint = checkpoint.anchorFingerprint {
+                    fingerprintMatches = lineFingerprint == expectedFingerprint
+                } else if anchor.hasPrefix("line:") {
+                    // Checkpoints written before fingerprint support cannot
+                    // prove that a positional line still contains the same
+                    // record. A turn checkpoint can use its persisted prompt
+                    // as a conservative compatibility check; a manual
+                    // positional checkpoint has no safe legacy fallback and
+                    // must refuse rather than copy a retargeted tail.
+                    if checkpoint.source == .turn,
+                       let expectedPrompt = checkpoint.promptSnippet,
+                       let parsed,
+                       let currentPrompt = plan.userPrompt(parsed) {
+                        fingerprintMatches = normalizedPrompt(currentPrompt) == normalizedPrompt(expectedPrompt)
+                    } else {
+                        fingerprintMatches = false
+                    }
+                } else {
+                    fingerprintMatches = true
+                }
+                isAnchor = tokenMatches && fingerprintMatches
             } else if checkpoint.source == .turn {
                 isAnchor = isUserPrompt && userLineIndex == checkpoint.turnIndex
             } else {
@@ -155,6 +205,10 @@ enum VaultCheckpointForker {
             if remaining <= 0 {
                 // A file that ends exactly at the cap is fully read, not a
                 // violation — only unread data past the cap is.
+                if let parentByteCount {
+                    if UInt64(bytesRead) >= parentByteCount { break }
+                    throw VaultCheckpointForkError.byteCapExceeded
+                }
                 let probe: Data?
                 do {
                     probe = try reader.read(upToCount: 1)
@@ -209,10 +263,9 @@ enum VaultCheckpointForker {
     /// The id lands in file names; callers mint UUIDs, but a future caller
     /// must not be able to escape the parent directory.
     nonisolated static func validateSessionID(_ newSessionID: String) throws {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         guard !newSessionID.isEmpty,
-              !newSessionID.contains("/"),
-              !newSessionID.contains(".."),
-              newSessionID.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+              newSessionID.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
             throw VaultCheckpointForkError.invalidSessionID
         }
     }
@@ -242,6 +295,10 @@ enum VaultCheckpointForker {
         } catch {
             throw VaultCheckpointForkError.writeFailed
         }
+    }
+
+    private static func normalizedPrompt(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

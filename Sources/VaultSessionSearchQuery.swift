@@ -22,10 +22,13 @@ struct VaultSessionSearchQuery: Equatable, Sendable {
             && workspaceTerms.isEmpty && after == nil && before == nil
     }
 
-    /// Free text re-joined for handing to the existing per-agent transcript
-    /// search paths (which take a single needle).
+    /// Most selective free-text term for per-agent transcript search paths,
+    /// which accept a single literal needle. Callers preserve AND semantics by
+    /// intersecting/filtering results for the remaining terms.
     var residualText: String {
-        textTerms.joined(separator: " ")
+        textTerms.reduce("") { longest, candidate in
+            candidate.count > longest.count ? candidate : longest
+        }
     }
 
     // MARK: Parsing

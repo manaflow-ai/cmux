@@ -52,6 +52,11 @@ enum VaultCheckpointHarness: Equatable, Sendable {
     /// harnesses scan raw JSONL (bounded) so anchors exist for forking;
     /// timeline-only harnesses project the transcript loader's turns
     /// (display value, no anchors).
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated static func derive(for entry: SessionEntry) async -> VaultSessionCheckpoints.Derivation? {
         guard let harness = resolve(for: entry) else { return nil }
         switch harness {
@@ -100,7 +105,8 @@ enum VaultCheckpointHarness: Equatable, Sendable {
         return VaultSessionCheckpoints.Derivation(
             checkpoints: checkpoints,
             isTruncated: false,
-            lastAnchor: nil
+            lastAnchor: nil,
+            lastAnchorFingerprint: nil
         )
     }
 
@@ -130,6 +136,9 @@ enum VaultCheckpointHarness: Equatable, Sendable {
                 anchorToken: { obj, _ in
                     (obj["uuid"] as? String).flatMap { $0.isEmpty ? nil : "uuid:" + $0 }
                 },
+                anchorFingerprint: { obj in
+                    VaultSessionCheckpoints.anchorFingerprint(for: obj)
+                },
                 userPrompt: VaultSessionCheckpoints.claudeUserPromptText(from:),
                 rewriteLine: { obj in
                     guard obj["sessionId"] is String else { return nil }
@@ -150,6 +159,9 @@ enum VaultCheckpointHarness: Equatable, Sendable {
                 anchorToken: { obj, index in
                     if let ordinal = obj["ordinal"] as? Int { return "ordinal:\(ordinal)" }
                     return "line:\(index)"
+                },
+                anchorFingerprint: { obj in
+                    VaultSessionCheckpoints.anchorFingerprint(for: obj)
                 },
                 userPrompt: VaultSessionCheckpoints.codexUserPromptText(from:),
                 rewriteLine: { obj in
@@ -177,6 +189,9 @@ enum VaultCheckpointHarness: Equatable, Sendable {
                 anchorToken: { obj, index in
                     if let id = obj["id"] as? String, !id.isEmpty { return "id:" + id }
                     return "line:\(index)"
+                },
+                anchorFingerprint: { obj in
+                    VaultSessionCheckpoints.anchorFingerprint(for: obj)
                 },
                 userPrompt: VaultSessionCheckpoints.piFamilyUserPromptText(from:),
                 rewriteLine: { obj in
@@ -258,6 +273,9 @@ enum VaultCheckpointHarness: Equatable, Sendable {
             parentFileURL: parentChatHistoryURL,
             destinationFileURL: newDirectory.appendingPathComponent("chat_history.jsonl"),
             anchorToken: { _, index in "line:\(index)" },
+            anchorFingerprint: { obj in
+                VaultSessionCheckpoints.anchorFingerprint(for: obj)
+            },
             userPrompt: VaultSessionCheckpoints.grokUserPromptText(from:),
             rewriteLine: { _ in nil }
         )

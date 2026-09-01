@@ -521,6 +521,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントを保存できませんでした" } }
       }
     },
+    "sessionIndex.checkpoints.truncatedSaveUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checkpoint Now is unavailable until the full transcript is read" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプト全体を読み込むまで「今すぐチェックポイント」は利用できません" } }
+      }
+    },
+    "sessionIndex.checkpoints.nowHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save a checkpoint at the current end of the transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプトの現在の末尾にチェックポイントを保存" } }
+      }
+    },
     "sessionIndex.checkpoints.restoreHint": {
       "extractionState": "manual",
       "localizations": {
@@ -668,6 +682,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "一致するセッションはありません" } }
       }
     },
+    "sessionIndex.search.providerFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Some session history could not be searched" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一部のセッション履歴を検索できませんでした" } }
+      }
+    },
     "sessionIndex.search.results": {
       "extractionState": "manual",
       "localizations": {
@@ -679,6 +700,20 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "variations": { "plural": { "one": { "stringUnit": { "state": "translated", "value": "%lld msg" } }, "other": { "stringUnit": { "state": "translated", "value": "%lld msgs" } } } } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
+      }
+    },
+    "sessionIndex.row.messageCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 msg" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1件" } }
+      }
+    },
+    "sessionIndex.row.messageCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld msgs" } },
         "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
       }
     },

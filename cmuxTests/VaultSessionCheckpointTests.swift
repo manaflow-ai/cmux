@@ -93,6 +93,7 @@ struct VaultSessionCheckpointStoreTests {
             name: name,
             turnIndex: index,
             anchor: "uuid:uuid-\(index)",
+            anchorFingerprint: "fingerprint-\(index)",
             gitSHA: nil,
             promptSnippet: nil
         )
@@ -108,6 +109,7 @@ struct VaultSessionCheckpointStoreTests {
         let loaded = await store.checkpoints(agentID: "claude", sessionID: "s1")
         #expect(loaded.map(\.id) == ["manual:1", "manual:2"])
         #expect(loaded[0].name == "before refactor")
+        #expect(loaded[0].anchorFingerprint == "fingerprint-1")
 
         // Other sessions are isolated.
         let other = await store.checkpoints(agentID: "claude", sessionID: "s2")
