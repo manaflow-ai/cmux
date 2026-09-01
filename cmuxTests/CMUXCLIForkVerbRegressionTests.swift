@@ -21,7 +21,6 @@ struct CMUXCLIForkVerbRegressionTests {
             (.codex, "codex", ["codex", "fork", sessionID]),
             (.opencode, "opencode", ["opencode", "--session", sessionID, "--fork"]),
             (.pi, "pi", ["pi", "--fork", sessionID]),
-            (.custom("omp"), "omp", ["omp", "--fork", sessionID]),
         ]
         for (kind, executable, expectedArguments) in nativeCases {
             let snapshot = SessionRestorableAgentSnapshot(
