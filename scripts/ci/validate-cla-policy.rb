@@ -11,6 +11,7 @@ require "fileutils"
 require "json"
 require "open3"
 require "tempfile"
+require "time"
 require "yaml"
 
 class PolicyError < StandardError; end
@@ -18,20 +19,31 @@ class PolicyError < StandardError; end
 SHA = /\A[0-9a-f]{40}\z/
 REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
+MAX_YAML_NODES = 10_000
+MAX_YAML_DEPTH = 64
 CLA_ACTION = "manaflow-ai/cla-github-action@482864f7296623ba4e8ddb7d6bc1836635306eb1"
 # The privileged workflow is an explicit reviewed policy, not an extensible
-# script. Its exact bytes are compared with the trusted base revision, so a
-# policy change requires trusted review without a fragile follow-up hash bump.
-EXPECTED_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
+# script. Its candidate structure is checked as data, and every policy change
+# requires trusted review without a fragile follow-up hash bump.
 EXPECTED_GUARD_WORKFLOW_DIGEST = "0f347a749f53d2e06f5b39b7a832476d39ab40a71c8634b48c029bc728f5c1d1"
-# EXPECTED_WORKFLOW_DIGEST is retained as a compatibility marker for the
-# immutable validator in the current base revision. Policy validation now
-# hashes the candidate workflow bytes after lexical YAML validation.
-EXPECTED_GUARD_SCRIPT_DIGEST = "5a786b4c997428071e9d9ea4675cdacb88b96c0ebbb943792c80d5f47b197321"
+# The guard workflow remains pinned to its reviewed immutable bytes. The CLA
+# policy itself is validated structurally, then authorized by an exact-head
+# trusted review.
+EXPECTED_GUARD_SCRIPT_DIGEST = "0489729234a5736f0e98c28c5ffcea29993fef3a3e0b74d78273cd82b4a711a3"
+# The first v3 migration is allowed only from these exact, base-controlled v2
+# bytes. This is a one-step compatibility bridge for the live main branch,
+# not a second policy vocabulary. The migration still needs trusted review,
+# and the candidate must pass every v3 check below.
+LEGACY_CLA_WORKFLOW_DIGEST = "22f4f8c4b7fb879514a5b072505877843fd94dc32b279f2aceb8fc216adde65f"
+LEGACY_CLA_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
 # Current organization administrators who may approve a trusted control-plane
 # update. IDs are used instead of names, and the review must target the exact
 # PR head. This is the human path for intentional policy maintenance.
-TRUSTED_REVIEWER_IDS = %w[54008264 38676809].freeze
+TRUSTED_REVIEWER_IDS = %w[54008264 38676809 67667005].freeze
+TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
+MAX_REVIEW_PAGES = 3
+MAX_REVIEWS_PER_PAGE = 100
+MAX_REVIEW_ID = (1 << 63) - 1
 
 # Keep the admission contract in one small, executable specification. The
 # pull-request workflow is still checked as data below, but its shell cannot be
@@ -73,7 +85,8 @@ CLA_WRITER_CONDITION = <<~'EXPRESSION'.gsub(/\s+/, " ").strip.freeze
         (
           github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA' &&
           needs.CLACommentGate.outputs.signer_authorized == 'true' &&
-          needs.CLACommentGate.outputs.head_sha != ''
+          needs.CLACommentGate.outputs.head_sha != '' &&
+          needs.CLACommentGate.outputs.base_sha != ''
         )
       )
     )
@@ -97,6 +110,66 @@ ALLOWED_ACTIONS = [
   CLA_ACTION,
   "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
 ].freeze
+
+class BoundedYamlTreeBuilder < Psych::TreeBuilder
+  def initialize
+    super
+    @node_count = 0
+    @container_depth = 0
+  end
+
+  def start_mapping(*args)
+    count_node!
+    enter_container!
+    super
+  end
+
+  def start_document(version, tag_directives, implicit)
+    has_version = version.respond_to?(:empty?) ? !version.empty? : !version.nil?
+    has_tags = tag_directives.respond_to?(:empty?) ? !tag_directives.empty? : !tag_directives.nil?
+    fail!("CLA workflow YAML directives are not allowed") if has_version || has_tags
+    super
+  end
+
+  def end_mapping(*args)
+    @container_depth -= 1
+    super
+  end
+
+  def start_sequence(*args)
+    count_node!
+    enter_container!
+    super
+  end
+
+  def end_sequence(*args)
+    @container_depth -= 1
+    super
+  end
+
+  def scalar(*args)
+    count_node!
+    super
+  end
+
+  def alias(*_args)
+    fail!("YAML aliases are not allowed")
+  end
+
+  private
+
+  def count_node!
+    @node_count += 1
+    fail!("CLA workflow YAML has too many nodes") if @node_count > MAX_YAML_NODES
+  end
+
+  def enter_container!
+    @container_depth += 1
+    fail!("CLA workflow YAML is nested too deeply") if @container_depth > MAX_YAML_DEPTH
+  end
+end
+
+YAML_KEY_SCANNER = Psych::ScalarScanner.new(Psych::ClassLoader::Restricted.new([], [])).freeze
 
 def fail!(message)
   raise PolicyError, message
@@ -140,25 +213,68 @@ rescue JSON::ParserError
   fail!("GitHub API returned malformed JSON for #{endpoint}")
 end
 
+def review_sort_key(review)
+  timestamp = review["submitted_at"]
+  fail!("trusted review timestamp is malformed") unless timestamp.is_a?(String)
+  fail!("trusted review timestamp is malformed") unless timestamp.match?(
+    /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\z/
+  )
+  review_id = review["id"]
+  fail!("pull-request review ID is malformed") unless
+    review_id.is_a?(Integer) && review_id.positive? && review_id <= MAX_REVIEW_ID
+  [Time.iso8601(timestamp).to_r, review_id]
+rescue ArgumentError
+  fail!("trusted review timestamp is malformed")
+end
+
+def collect_latest_trusted_review!(latest, seen_review_ids, review)
+  fail!("pull-request review entry is malformed") unless review.is_a?(Hash)
+  review_id = review["id"]
+  fail!("pull-request review ID is malformed") unless
+    review_id.is_a?(Integer) && review_id.positive? && review_id <= MAX_REVIEW_ID
+  fail!("pull-request review pagination repeated an entry") if seen_review_ids.key?(review_id)
+
+  seen_review_ids[review_id] = true
+  state = review["state"]
+  fail!("pull-request review state is malformed") unless TRUSTED_REVIEW_STATES.include?(state)
+  return if state == "PENDING"
+  fail!("pull-request review commit is malformed") unless review["commit_id"].is_a?(String) && review["commit_id"].match?(SHA)
+
+  user = review["user"]
+  fail!("pull-request review user is malformed") unless user.is_a?(Hash)
+  user_id = user["id"]
+  fail!("pull-request review user ID is malformed") unless user_id.is_a?(Integer) && user_id.positive?
+  reviewer_id = user_id.to_s
+  return unless TRUSTED_REVIEWER_IDS.include?(reviewer_id)
+  fail!("pull-request review user is not a human") unless user["type"] == "User"
+
+  order = review_sort_key(review)
+  previous = latest[reviewer_id]
+  latest[reviewer_id] = [order, review] if previous.nil? || (order <=> previous[0]).positive?
+end
+
 def require_trusted_review!(repository, pr_number, head_sha)
+  fail!("pull-request head SHA is malformed") unless head_sha.is_a?(String) && head_sha.match?(SHA)
   latest = {}
-  1.upto(3) do |page|
-    reviews = api_json(repository, "repos/#{repository}/pulls/#{pr_number}/reviews?per_page=100&page=#{page}")
+  seen_review_ids = {}
+  1.upto(MAX_REVIEW_PAGES) do |page|
+    reviews = api_json(
+      repository,
+      "repos/#{repository}/pulls/#{pr_number}/reviews?per_page=#{MAX_REVIEWS_PER_PAGE}&page=#{page}"
+    )
     fail!("pull-request review response is malformed") unless reviews.is_a?(Array)
-    reviews.each do |review|
-      user = review["user"]
-      next unless user.is_a?(Hash) && TRUSTED_REVIEWER_IDS.include?(user["id"].to_s)
-      next unless review["commit_id"] == head_sha
-      reviewer_id = user["id"].to_s
-      previous = latest[reviewer_id]
-      if previous.nil? || review["submitted_at"].to_s > previous["submitted_at"].to_s
-        latest[reviewer_id] = review
-      end
-    end
-    break if reviews.length < 100
-    fail!("pull-request review history is too large") if page == 3
+    fail!("pull-request review page is too large") if reviews.length > MAX_REVIEWS_PER_PAGE
+
+    reviews.each { |review| collect_latest_trusted_review!(latest, seen_review_ids, review) }
+
+    break if reviews.length < MAX_REVIEWS_PER_PAGE
+    fail!("pull-request review history is too large") if page == MAX_REVIEW_PAGES
   end
-  approved = latest.values.any? { |review| review["state"] == "APPROVED" }
+  approved = latest.values.any? do |_order, review|
+    review["state"] == "APPROVED" &&
+      review["commit_id"] == head_sha &&
+      review.fetch("dismissed_at", nil).nil?
+  end
   fail!("trusted approval for this control-plane update is required") unless approved
 end
 
@@ -189,9 +305,67 @@ def walk(value, &block)
   end
 end
 
-def parse_workflow(raw)
-  stream = Psych.parse_stream(raw)
+def reject_yaml_node_features!(node)
+  fail!("CLA workflow YAML tags are not allowed") if node.respond_to?(:tag) && node.tag
+  fail!("CLA workflow YAML anchors are not allowed") if node.respond_to?(:anchor) && node.anchor
+end
+
+def plain_yaml_key_is_string?(value)
+  YAML_KEY_SCANNER.tokenize(value).is_a?(String)
+rescue Psych::Exception
+  false
+end
+
+def validate_yaml_tree!(stream)
+  fail!("CLA workflow YAML stream is malformed") unless stream.is_a?(Psych::Nodes::Stream)
   fail!("CLA workflow must contain exactly one YAML document") unless stream.children.length == 1
+  fail!("CLA workflow YAML document is malformed") unless stream.children.first.is_a?(Psych::Nodes::Document)
+  stack = [[stream.children.first, 0]]
+  until stack.empty?
+    node, depth = stack.pop
+    fail!("CLA workflow YAML is malformed") unless node.is_a?(Psych::Nodes::Node)
+    reject_yaml_node_features!(node)
+    fail!("CLA workflow YAML is nested too deeply") if depth > MAX_YAML_DEPTH
+
+    case node
+    when Psych::Nodes::Stream, Psych::Nodes::Document
+      stack.concat(node.children.reverse_each.map { |child| [child, depth] })
+    when Psych::Nodes::Mapping
+      children = node.children
+      fail!("CLA workflow YAML mapping has an odd number of entries") unless children.length.even?
+      pairs = children.each_slice(2).to_a
+      seen_keys = {}
+      pairs.each do |key_node, _value_node|
+        fail!("CLA workflow has a non-scalar mapping key") unless key_node.is_a?(Psych::Nodes::Scalar)
+        reject_yaml_node_features!(key_node)
+        if key_node.style == Psych::Nodes::Scalar::PLAIN &&
+            !plain_yaml_key_is_string?(key_node.value) && !(depth.zero? && key_node.value == "on")
+          fail!("CLA workflow YAML mapping keys must be strings")
+        end
+        fail!("CLA workflow YAML merge keys are not allowed") if key_node.value == "<<"
+        fail!("CLA workflow YAML has duplicate mapping keys") if seen_keys.key?(key_node.value)
+
+        seen_keys[key_node.value] = true
+      end
+      stack.concat(pairs.reverse_each.map { |_key_node, value_node| [value_node, depth + 1] })
+    when Psych::Nodes::Sequence
+      stack.concat(node.children.reverse_each.map { |child| [child, depth + 1] })
+    when Psych::Nodes::Scalar
+      # Scalar anchors and tags were checked above. Their lexical values are
+      # intentionally left unchanged for the GitHub-specific `on` check.
+    when Psych::Nodes::Alias
+      fail!("CLA workflow YAML aliases are not allowed")
+    else
+      fail!("CLA workflow YAML contains an unsupported node")
+    end
+  end
+end
+
+def parse_workflow(raw)
+  builder = BoundedYamlTreeBuilder.new
+  Psych::Parser.new(builder).parse(raw)
+  stream = builder.root
+  validate_yaml_tree!(stream)
   root = stream.children.first.root
   fail!("CLA workflow is not a YAML mapping") unless root.is_a?(Psych::Nodes::Mapping)
   keys = root.children.each_slice(2).map do |key_node, _value_node|
@@ -199,7 +373,6 @@ def parse_workflow(raw)
 
     key_node.value
   end
-  fail!("CLA workflow has duplicate top-level keys") unless keys.uniq.length == keys.length
   # Psych applies YAML 1.1 boolean coercion to an unquoted `on` key. GitHub
   # uses the literal key, so accepting `true` here would validate a workflow
   # that GitHub does not trigger. Keep the lexical key check before loading.
@@ -218,6 +391,103 @@ def workflow_digest(raw)
   # digest can hide duplicate keys or YAML 1.1/GitHub parser differences.
   parse_workflow(raw)
   Digest::SHA256.hexdigest(raw)
+end
+
+def expect_policy_error(name)
+  raised = false
+  begin
+    yield
+  rescue PolicyError
+    raised = true
+  end
+  fail!("YAML regression case #{name} unexpectedly passed") unless raised
+end
+
+def run_yaml_regression_matrix!
+  valid = <<~YAML
+    name: test
+    on: {}
+    permissions: {}
+    env: {}
+    jobs: {}
+  YAML
+  parse_workflow(valid)
+  cases = {
+    "duplicate nested key" => <<~YAML,
+      name: test
+      on: {}
+      permissions: {}
+      env: {}
+      jobs:
+        duplicate: one
+        duplicate: two
+    YAML
+    "merge key" => <<~YAML,
+      name: test
+      on: {}
+      permissions: {}
+      env: {}
+      jobs:
+        merged:
+          <<: {}
+    YAML
+    "alias" => <<~YAML,
+      name: test
+      on: {}
+      permissions: {}
+      env: {}
+      jobs:
+        base: &anchor {}
+        copied: *anchor
+    YAML
+    "explicit tag" => <<~YAML,
+      name: !!str test
+      on: {}
+      permissions: {}
+      env: {}
+      jobs: {}
+    YAML
+    "multiple documents" => "---\nname: test\non: {}\n---\nname: second\non: {}\n",
+    "boolean trigger key" => <<~YAML,
+      name: test
+      true: {}
+      permissions: {}
+      env: {}
+      jobs: {}
+    YAML
+    "boolean key collision" => <<~YAML,
+      name: test
+      on: {}
+      yes: {}
+      permissions: {}
+      env: {}
+      jobs: {}
+    YAML
+    "numeric nested key" => <<~YAML
+      name: test
+      on: {}
+      permissions: {}
+      env: {}
+      jobs:
+        1: value
+    YAML
+  }
+  deep = +"name: test\non: {}\npermissions: {}\nenv: {}\njobs:\n"
+  MAX_YAML_DEPTH.times { |index| deep << "  " * (index + 1) << "k#{index}:\n" }
+  deep << "  " * (MAX_YAML_DEPTH + 1) << "value\n"
+  cases["excessive nesting"] = deep
+  cases["YAML directive"] = "%YAML 1.1\n---\nname: test\non: {}\npermissions: {}\nenv: {}\njobs: {}\n"
+  many = +"name: test\non: {}\npermissions: {}\nenv: {}\njobs:\n"
+  (MAX_YAML_NODES / 2).times { |index| many << "  k#{index}: value\n" }
+  cases["excessive nodes"] = many
+
+  cases.each { |name, raw| expect_policy_error(name) { parse_workflow(raw) } }
+  puts "PASS: bounded YAML regression matrix (#{cases.length + 1} cases)"
+end
+
+def legacy_v2_base?(base_workflow_digest:, base_script_digest:)
+  base_workflow_digest == LEGACY_CLA_WORKFLOW_DIGEST &&
+    base_script_digest == LEGACY_CLA_RERUN_DIGEST
 end
 
 def guard_script_digest(raw)
@@ -458,12 +728,82 @@ def run_trusted_cla_regression_matrix!
   end
   fail!("trusted CLA regression matrix failed: #{failures.join('; ')}") unless failures.empty?
   puts "PASS: trusted CLA regression matrix (#{cases.length} cases)"
+
+  migration_cases = [
+    ["exact legacy v2 bridge", LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, true],
+    ["different legacy workflow", "0" * 64, LEGACY_CLA_RERUN_DIGEST, false],
+    ["different legacy helper", LEGACY_CLA_WORKFLOW_DIGEST, "0" * 64, false]
+  ]
+  migration_failures = migration_cases.each_with_object([]) do |(name, workflow_digest, script_digest, expected), failures|
+    actual = legacy_v2_base?(
+      base_workflow_digest: workflow_digest,
+      base_script_digest: script_digest
+    )
+    failures << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
+  end
+  fail!("CLA migration regression matrix failed: #{migration_failures.join('; ')}") unless migration_failures.empty?
+  puts "PASS: CLA migration regression matrix (#{migration_cases.length} cases)"
 end
 
-def validate_workflow(raw, trusted_base_digest)
+def run_trusted_review_regression_matrix!
+  head = "a" * 40
+  review = lambda do |id, state, at, commit = head, user = 54008264, dismissed = nil|
+    {
+      "id" => id,
+      "user" => { "id" => user, "type" => "User" },
+      "state" => state,
+      "commit_id" => commit,
+      "submitted_at" => at,
+      "dismissed_at" => dismissed
+    }
+  end
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, review.call(2, "COMMENTED", "2026-01-02T00:00:00Z"))
+  collect_latest_trusted_review!(latest, seen, review.call(1, "APPROVED", "2026-01-01T00:00:00Z"))
+  fail!("trusted review ordering regression failed") unless latest.fetch("54008264")[1]["state"] == "COMMENTED"
+
+  latest = {}
+  seen = {}
+  timestamp = "2026-01-03T00:00:00Z"
+  collect_latest_trusted_review!(latest, seen, review.call(4, "COMMENTED", timestamp))
+  collect_latest_trusted_review!(latest, seen, review.call(3, "APPROVED", timestamp))
+  fail!("trusted review ID tie-break regression failed") unless latest.fetch("54008264")[1]["id"] == 4
+
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, review.call(5, "APPROVED", "2026-01-04T00:00:00Z", head, 38676809))
+  collect_latest_trusted_review!(latest, seen, review.call(6, "DISMISSED", "2026-01-05T00:00:00Z", head, 38676809))
+  fail!("trusted review dismissal regression failed") unless latest.fetch("38676809")[1]["state"] == "DISMISSED"
+
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, review.call(10, "APPROVED", "2026-01-05T00:00:00Z", head, 67667005))
+  fail!("Aziz trusted review regression failed") unless latest.fetch("67667005")[1]["state"] == "APPROVED"
+
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, review.call(7, "APPROVED", "2026-01-06T00:00:00Z", head, 12345))
+  fail!("untrusted review was treated as trusted") unless latest.empty?
+
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, { "id" => 8, "state" => "PENDING" })
+  fail!("pending review changed trusted state") unless latest.empty?
+
+  duplicate_failed = false
+  begin
+    collect_latest_trusted_review!(latest, seen, review.call(9, "APPROVED", "2026-01-06T00:00:00Z"))
+    collect_latest_trusted_review!(latest, seen, review.call(9, "APPROVED", "2026-01-06T00:00:01Z"))
+  rescue PolicyError
+    duplicate_failed = true
+  end
+  fail!("duplicate review regression failed") unless duplicate_failed
+  puts "PASS: trusted review state regression matrix (7 cases)"
+end
+
+def validate_workflow(raw)
   document = parse_workflow(raw)
-  candidate_digest = workflow_digest(raw)
-  require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA")) unless candidate_digest == trusted_base_digest
 
   # Keep the policy surface closed. YAML keys that are harmless in an
   # ordinary workflow, such as `defaults`, `services`, or `concurrency` at the
@@ -527,7 +867,8 @@ def validate_workflow(raw, trusted_base_digest)
     gate["outputs"] == {
       "admitted" => "${{ steps.admission.outputs.admitted }}",
       "signer_authorized" => "${{ steps.signer_preflight.outputs.signer_authorized }}",
-      "head_sha" => "${{ steps.signer_preflight.outputs.head_sha }}"
+      "head_sha" => "${{ steps.signer_preflight.outputs.head_sha }}",
+      "base_sha" => "${{ steps.signer_preflight.outputs.base_sha }}"
     }
   fail!("CLALedgerWriter outputs are not the reviewed contract") unless
     writer["outputs"] == {
@@ -662,7 +1003,8 @@ def validate_workflow(raw, trusted_base_digest)
     "allowlist-ids" => "38676809,67667005",
     "require-opener-as-author" => "true",
     "lock-pullrequest-aftermerge" => "false",
-    "expected-head-sha" => "${{ needs.CLACommentGate.outputs.head_sha }}"
+    "expected-head-sha" => "${{ needs.CLACommentGate.outputs.head_sha }}",
+    "expected-base-sha" => "${{ needs.CLACommentGate.outputs.base_sha }}"
   }
   assert_action_inputs(action_step, writer_inputs, "CLALedgerWriter action")
 
@@ -723,9 +1065,6 @@ end
 
 def validate_script(raw)
   fail!("CLA rerun script is missing a shell shebang") unless raw.start_with?("#!/usr/bin/env bash")
-  if Digest::SHA256.hexdigest(raw) != EXPECTED_RERUN_DIGEST
-    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
-  end
   Tempfile.create(["cla-rerun", ".sh"]) do |file|
     file.write(raw)
     file.close
@@ -793,15 +1132,29 @@ def validate_guard_script(raw)
   end
   [
     "def parse_workflow",
-    "Psych.parse_stream",
+    "class BoundedYamlTreeBuilder",
+    "Psych::Parser.new",
+    "MAX_YAML_NODES",
+    "MAX_YAML_DEPTH",
+    "duplicate mapping keys",
+    "merge keys",
+    "mapping keys must be strings",
+    "run_yaml_regression_matrix!",
+    "run_trusted_review_regression_matrix!",
+    "collect_latest_trusted_review!",
     "def workflow_digest",
     "Digest::SHA256.hexdigest(raw)",
     "literal on trigger key",
+    "def legacy_v2_base?",
+    "TRUSTED_REVIEW_STATES",
     "base_workflow_digest",
-    "validate_workflow(head_workflow, base_workflow_digest)",
+    "validate_workflow(head_workflow)",
+    "require_trusted_review!(repository, pr_number, head_sha) if policy_changed",
     "def validate_workflow",
     "signer-preflight",
     "CLALedgerWriter",
+    "base_sha",
+    "expected-base-sha",
     "base_workflow != head_workflow",
     "guard_changed && policy_changed",
     "pull-request revision deletes the rerun helper",
@@ -818,7 +1171,9 @@ def validate_guard_script(raw)
 end
 
 begin
+  run_yaml_regression_matrix!
   run_trusted_cla_regression_matrix!
+  run_trusted_review_regression_matrix!
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
   base_sha = required_env("BASE_SHA", SHA)
@@ -885,12 +1240,29 @@ begin
   if base_script && head_script.nil?
     fail!("the pull-request revision deletes the rerun helper used by the base workflow")
   end
+  if base_workflow == head_workflow && base_script != head_script &&
+      Digest::SHA256.hexdigest(base_workflow.to_s) == LEGACY_CLA_WORKFLOW_DIGEST &&
+      Digest::SHA256.hexdigest(base_script.to_s) == LEGACY_CLA_RERUN_DIGEST
+    fail!("the legacy v2 CLA workflow must migrate to v3 before its helper changes")
+  end
   if base_workflow != head_workflow
     fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
-    base_workflow_digest = workflow_digest(base_workflow)
-    validate_workflow(head_workflow, base_workflow_digest)
+    base_document = parse_workflow(base_workflow)
+    base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
+    base_script_digest = Digest::SHA256.hexdigest(base_script.to_s)
+    if base_document["name"] == "CLA Assistant v2" && !legacy_v2_base?(
+      base_workflow_digest: base_workflow_digest,
+      base_script_digest: base_script_digest
+    )
+      fail!("the legacy v2 CLA base is not the exact reviewed transition state")
+    end
+    validate_workflow(head_workflow)
   end
   validate_script(head_script) unless head_script.nil?
+  # Policy changes always need a current, exact-head trusted approval. The
+  # legacy digest bridge only identifies the permitted v2 base bytes. It never
+  # skips this review or any strict v3 candidate validation.
+  require_trusted_review!(repository, pr_number, head_sha) if policy_changed
 
   candidate_dir = ENV["CANDIDATE_DIR"].to_s
   unless candidate_dir.empty?
