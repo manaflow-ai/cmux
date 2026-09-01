@@ -7,21 +7,17 @@ on:
   # miss newly added resource trees.
   pull_request:
     paths-ignore:
-      - "docs/**"
       - "design/**"
       - "plans/**"
       - "ios/**"
-      - "web/**"
       - "cmux-browser/**"
       - ".github/workflows/cmux-browser.yml"
-      - "daemon/remote/**"
       - "homebrew-cmux/**"
       - "README*.md"
       - "CONTRIBUTING.md"
       - "PROJECTS.md"
       - "TODO.md"
       - "reports.md"
-      - "CHANGELOG.md"
   workflow_dispatch:
 
 permissions:

@@ -61,15 +61,19 @@ def test_ci_trigger_uses_negative_filter_for_future_app_inputs() -> None:
         "cmux.xcodeproj/project.pbxproj",
         "scripts/strip-release-bundle.sh",
         "Resources/agent-session-react/index.js",
+        "web/app/page.tsx",
+        "daemon/remote/main.go",
+        "docs/cli-contract.md",
+        "CHANGELOG.md",
     ]
     for path in app_inputs:
         assert not any(fnmatch(path, pattern) for pattern in ignored), path
 
     # Clearly non-app paths retain the cheap skip behavior.
     for path in [
-        "docs/ci.md",
+        "design/ci.png",
+        "plans/ci.md",
         "ios/cmux/ContentView.swift",
-        "web/app/page.tsx",
         "cmux-browser/src/index.ts",
         ".github/workflows/cmux-browser.yml",
     ]:
