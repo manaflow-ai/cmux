@@ -16968,6 +16968,23 @@ impl App {
         }
     }
 
+    /// Clear an invalid semantic drag result without ending the gesture. The
+    /// mode and tracked anchor stay available so a later pointer sample can
+    /// recover, while release cannot copy an older range.
+    fn clear_selection_for_semantic_gesture(&mut self, surface: SurfaceId, mode: SelectionMode) {
+        if self.selection.is_some() {
+            self.selection_generation = self.selection_generation.wrapping_add(1);
+            self.selection = None;
+        }
+        self.selection_mode = mode;
+        self.selection_mode_surface = Some(surface);
+        if let Some(sequence) = self.selection_click_sequence.as_mut()
+            && sequence.surface == surface
+        {
+            sequence.mode = mode;
+        }
+    }
+
     fn update_semantic_selection(
         &mut self,
         surface: SurfaceId,
@@ -16977,10 +16994,26 @@ impl App {
         if mode == SelectionMode::Cell {
             return;
         }
-        let Some(anchor) = self.selection_anchor_cell(surface) else { return };
-        let Some(anchor_point) = Self::selection_point(anchor) else { return };
-        let Some(current_point) = Self::selection_point(current) else { return };
-        let Some(handle) = self.session.surface(surface) else { return };
+        let Some(anchor) = self.selection_anchor_cell(surface) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(anchor_point) = Self::selection_point(anchor) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(current_point) = Self::selection_point(current) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
+        let Some(handle) = self.session.surface(surface) else {
+            self.clear_selection_for_semantic_gesture(surface, mode);
+            self.semantic_selection_cache = None;
+            return;
+        };
         let content_generation = self.terminal_content_generation(surface);
         if let Some(generation) = content_generation
             && let Some(cache) = self.semantic_selection_cache
@@ -16992,6 +17025,8 @@ impl App {
         {
             if let Some(range) = cache.range {
                 self.replace_selection(Some(Self::selection_from_range(surface, range)));
+            } else {
+                self.clear_selection_for_semantic_gesture(surface, mode);
             }
             return;
         }
@@ -17044,8 +17079,9 @@ impl App {
         } else {
             self.semantic_selection_cache = None;
         }
-        if let Some(range) = range {
-            self.replace_selection(Some(Self::selection_from_range(surface, range)));
+        match range {
+            Some(range) => self.replace_selection(Some(Self::selection_from_range(surface, range))),
+            None => self.clear_selection_for_semantic_gesture(surface, mode),
         }
     }
 
