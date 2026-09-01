@@ -29,6 +29,12 @@ producer, reads terminal process metadata and viewport text, and appends
 `cmux.agent-plugin.v1` events. A different implementation can use Python,
 another language, or a different ruleset without a cmux core change.
 
+Process identity uses executable and wrapper arguments before reading
+`CMUX_AGENT` or `HERDR_AGENT` from the host process environment. The hint is a
+fallback for wrappers that hide their executable, which keeps normal scans
+cheap and avoids treating a globally inherited hint as stronger than visible
+process evidence.
+
 When cmux supervises the process, the scanner copies
 `CMUX_PLUGIN_GENERATION` into each event. This lets the core retire an old
 process generation without removing observations from a replacement process.
