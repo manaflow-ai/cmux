@@ -19,7 +19,7 @@ use cmux_tui_core::{
     MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
     PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId, SurfaceKind,
     TerminalPointerSnapshot,
-    platform::transport,
+    platform::{restrict_directory, transport},
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -3593,6 +3593,10 @@ impl Drop for RemoteSession {
             return;
         };
         let _ = fs::create_dir_all(dir);
+        // Frame mirrors contain terminal output and may include secrets. Keep
+        // the opt-in dump directory and files private even when the process
+        // runs with a permissive umask.
+        let _ = restrict_directory(dir);
         let logs = self.frame_logs.lock().unwrap();
         let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
         for entry in &logs.entries {
@@ -3600,9 +3604,9 @@ impl Drop for RemoteSession {
         }
         for surface in self.surfaces.lock().unwrap().values() {
             let path = dir.join(format!("mirror-{}.txt", surface.id));
-            let _ = fs::write(path, dump_mirror(surface));
+            let _ = write_private_dump(&path, &dump_mirror(surface));
             let frames = dir.join(format!("frames-{}.log", surface.id));
-            if let Ok(file) = fs::File::create(frames) {
+            if let Ok(file) = private_dump_file(&frames) {
                 let mut writer = io::BufWriter::new(file);
                 for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
                     let _ = writeln!(writer, "{line}");
@@ -3610,6 +3614,23 @@ impl Drop for RemoteSession {
             }
         }
     }
+}
+
+fn private_dump_file(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    options.open(path)
+}
+
+fn write_private_dump(path: &Path, contents: &str) -> io::Result<()> {
+    let mut file = private_dump_file(path)?;
+    file.write_all(contents.as_bytes())?;
+    Ok(())
 }
 
 fn parse_kitty_image_aliases(
