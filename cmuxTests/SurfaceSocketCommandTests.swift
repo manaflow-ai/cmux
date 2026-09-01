@@ -94,12 +94,14 @@ struct SurfaceSocketCommandTests {
 
         @MainActor
         init() {
-            machineID = "sock-" + UUID().uuidString.lowercased().prefix(8)
-            machine = .cloud(machineID)
+            // Locals first: a nested helper must not capture `self` before every stored
+            // property is initialized.
+            let machineID = "sock-" + UUID().uuidString.lowercased().prefix(8)
+            let machine = SurfaceMachineID.cloud(machineID)
             let catalog = SurfaceCatalog.shared
-            provider = FakeCloudProvider(machine: machine, catalog: catalog, workspaces: [Self.wsA, Self.wsB, Self.wsEmpty])
+            let provider = FakeCloudProvider(machine: machine, catalog: catalog, workspaces: [Self.wsA, Self.wsB, Self.wsEmpty])
             catalog.register(provider)
-            func terminal(_ key: String, _ workspace: SurfaceRemoteWorkspace) -> SurfaceResource {
+            let terminal: (String, SurfaceRemoteWorkspace) -> SurfaceResource = { key, workspace in
                 var resource = SurfaceResource(
                     id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: key, detail: "/root",
                     lifecycle: .running, agent: nil, remoteWorkspace: workspace, port: nil, url: nil
@@ -117,9 +119,13 @@ struct SurfaceSocketCommandTests {
                 on: machine,
                 info: provider.info
             )
-            manager = TabManager()
-            workspaceID = manager.selectedWorkspace!.id
+            let manager = TabManager()
             TerminalController.shared.setActiveTabManager(manager)
+            self.machineID = machineID
+            self.machine = machine
+            self.provider = provider
+            self.manager = manager
+            self.workspaceID = manager.selectedWorkspace!.id
         }
 
         @MainActor
