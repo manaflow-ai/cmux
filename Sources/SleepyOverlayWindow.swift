@@ -2,7 +2,14 @@ import AppKit
 
 /// Borderless screensaver window for Sleepy Mode. Any key or click wakes it
 /// (it is deliberately not a lock); the controller wires `onExit` to deactivate.
-final class SleepyOverlayWindow: NSWindow {
+///
+/// NSPanel, not NSWindow: the window server only admits panels with
+/// `.nonactivatingPanel` onto ANOTHER app's fullscreen Space. A plain
+/// borderless NSWindow with `.canJoinAllSpaces + .fullScreenAuxiliary`
+/// reports `isVisible` but is never composited on a display whose active
+/// Space is some other app's fullscreen window, leaving that screen
+/// uncovered (found on a two-display setup with cmux fullscreen on one).
+final class SleepyOverlayWindow: NSPanel {
     /// Invoked on any key/click to dismiss the screensaver.
     var onExit: (() -> Void)?
 
