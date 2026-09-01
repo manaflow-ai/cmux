@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -1234,16 +1235,21 @@ func emptyTmuxCompatStore() tmuxCompatStore {
 
 func loadTmuxCompatStore() (tmuxCompatStore, error) {
 	path := tmuxCompatStoreURL()
-	data, err := os.ReadFile(path)
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return emptyTmuxCompatStore(), nil
 		}
 		return tmuxCompatStore{}, err
 	}
+	defer file.Close()
 	// Heal stores created by older versions even when this is a read-only
 	// command, so buffer contents are never left world-readable.
-	if err := os.Chmod(path, 0600); err != nil {
+	if err := file.Chmod(0600); err != nil {
+		return tmuxCompatStore{}, err
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
 		return tmuxCompatStore{}, err
 	}
 	var store tmuxCompatStore

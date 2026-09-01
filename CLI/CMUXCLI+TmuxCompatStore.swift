@@ -44,24 +44,40 @@ extension CMUXCLI {
 
     func loadTmuxCompatStore() throws -> TmuxCompatStore {
         let url = tmuxCompatStoreURL()
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch {
-            let nsError = error as NSError
-            let isMissing = (nsError.domain == NSCocoaErrorDomain
-                && (nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError))
-                || (nsError.domain == NSPOSIXErrorDomain && nsError.code == ENOENT)
-                || (error as? POSIXError)?.code == .ENOENT
-            if isMissing {
-                return TmuxCompatStore()
-            }
-            throw error
+        guard let data = try readTmuxCompatStoreData(at: url) else {
+            return TmuxCompatStore()
         }
-        // Heal stores created by older versions before exposing their contents
-        // to read-only commands (including malformed stores).
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         return try JSONDecoder().decode(TmuxCompatStore.self, from: data)
+    }
+
+    private func readTmuxCompatStoreData(at url: URL) throws -> Data? {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else {
+            if errno == ENOENT {
+                return nil
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return 0 }
+                return Darwin.read(descriptor, baseAddress, rawBuffer.count)
+            }
+            if count > 0 {
+                data.append(contentsOf: buffer.prefix(count))
+            } else if count == 0 {
+                return data
+            } else if errno != EINTR {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
     }
 
     func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
