@@ -13258,6 +13258,48 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn socket_start_lock_rejects_a_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let dir = TestSocketDir::create("start-lock-fifo");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let lock_path = CString::new(lock.as_os_str().as_bytes()).unwrap();
+        let result = unsafe { libc::mkfifo(lock_path.as_ptr(), 0o600) };
+        assert_eq!(result, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let acquire_socket = socket.clone();
+        let acquire = std::thread::spawn(move || {
+            sender.send(SocketStartLock::acquire(&acquire_socket, Instant::now())).unwrap();
+        });
+
+        let outcome = receiver.recv_timeout(Duration::from_secs(1));
+        if outcome.is_err() {
+            // Release a writer that used blocking open in an unfixed build so
+            // this regression test fails promptly instead of leaking a thread.
+            let reader = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&lock)
+                .unwrap();
+            let _ = receiver.recv_timeout(Duration::from_secs(1));
+            drop(reader);
+            acquire.join().unwrap();
+            panic!("opening a start-lock FIFO blocked before type validation");
+        }
+        acquire.join().unwrap();
+        let error = match outcome.unwrap() {
+            Ok(_) => panic!("FIFO start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.raw_os_error(), Some(libc::ENXIO));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn socket_start_lock_migrates_existing_lock_to_owner_only_mode() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
@@ -13271,6 +13313,29 @@ mod tests {
         let metadata = std::fs::metadata(&lock).unwrap();
         assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
         assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_start_lock_rejects_a_hard_linked_lock_without_chmod() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = TestSocketDir::create("start-lock-hard-link");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+        let alias = dir.path().join("lock-alias");
+        std::fs::write(&lock, b"").unwrap();
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::hard_link(&lock, &alias).unwrap();
+
+        let error = match SocketStartLock::acquire(&socket, Instant::now()) {
+            Ok(_) => panic!("hard-linked start lock must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        let metadata = std::fs::metadata(&lock).unwrap();
+        assert_eq!(metadata.nlink(), 2);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o644);
     }
 
     #[test]
