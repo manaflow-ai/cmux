@@ -7531,6 +7531,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
         let selectedSurfaceId = "44444444-4444-4444-4444-444444444444"
         let targetSurfaceId = "55555555-5555-5555-5555-555555555555"
+        let notificationId = "66666666-6666-6666-6666-666666666666"
 
         defer {
             Darwin.close(listenerFD)
@@ -7617,6 +7618,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     XCTFail("Unexpected surface.list params: \(params)")
                     return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected workspace"])
                 }
+            case "notification.create_for_target":
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, targetSurfaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Surface Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": targetWorkspaceId,
+                        "surface_id": targetSurfaceId,
+                        "id": notificationId,
+                    ]
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
             }
@@ -7637,9 +7651,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "OK notification:\(notificationId)\n")
         let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list"])
+        XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list", "notification.create_for_target"])
     }
 
     func testNotifyWindowSurfaceIndexUsesCurrentWorkspaceInTargetWindow() throws {
@@ -7650,6 +7664,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let windowId = "11111111-1111-1111-1111-111111111111"
         let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
         let selectedSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let notificationId = "44444444-4444-4444-4444-444444444444"
 
         defer {
             Darwin.close(listenerFD)
@@ -7700,6 +7715,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         ],
                     ]
                 )
+            case "notification.create_for_target":
+                XCTAssertEqual(params["workspace_id"] as? String, selectedWorkspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, selectedSurfaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Indexed Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": selectedWorkspaceId,
+                        "surface_id": selectedSurfaceId,
+                        "id": notificationId,
+                    ]
+                )
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
             }
@@ -7720,9 +7748,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "OK notification:\(notificationId)\n")
         let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list"])
+        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list", "notification.create_for_target"])
     }
 
     func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {
