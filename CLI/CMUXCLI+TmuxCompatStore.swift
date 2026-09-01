@@ -49,8 +49,9 @@ extension CMUXCLI {
             data = try Data(contentsOf: url)
         } catch {
             let nsError = error as NSError
-            let isMissing = nsError.domain == NSCocoaErrorDomain
-                && (nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError)
+            let isMissing = (nsError.domain == NSCocoaErrorDomain
+                && (nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError))
+                || (nsError.domain == NSPOSIXErrorDomain && nsError.code == ENOENT)
                 || (error as? POSIXError)?.code == .ENOENT
             if isMissing {
                 return TmuxCompatStore()

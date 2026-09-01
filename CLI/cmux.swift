@@ -26587,7 +26587,7 @@ struct CMUXCLI {
         // Resolve pane geometry outside the file lock. If layout state changes
         // between that RPC and the locked mutation, retry from a fresh snapshot
         // so a replacement selected for an old main pane is never persisted.
-        while true {
+        for _ in 0..<8 {
             let snapshot = try loadTmuxCompatStore()
             let snapshotLayout = snapshot.mainVerticalLayouts[workspaceId]
             let replacementWasResolved: Bool
@@ -26649,6 +26649,9 @@ struct CMUXCLI {
                 return
             }
         }
+        // A continuously changing layout should be retried by the caller rather
+        // than leaving a closed surface's metadata silently stale.
+        throw POSIXError(.EAGAIN)
     }
 
     private func runShellCommand(_ command: String, stdinText: String) throws -> (status: Int32, stdout: String, stderr: String) {
