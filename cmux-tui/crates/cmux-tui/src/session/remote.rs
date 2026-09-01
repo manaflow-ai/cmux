@@ -3526,7 +3526,16 @@ fn private_dump_file(path: &Path) -> io::Result<fs::File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    options.open(path)
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // `mode` only applies when the file is new. Set permissions through
+        // the opened descriptor so existing files are also private without a
+        // path-based symlink race.
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
 }
 
 fn write_private_dump(path: &Path, contents: &str) -> io::Result<()> {
