@@ -390,6 +390,52 @@ struct TerminalConfigurationApplySchedulerTests {
     }
 
     @Test @MainActor
+    func reentrantAbandonRollsBackEveryPendingRetry() {
+        let manualScheduler = ManualConfigurationApplyScheduler()
+        let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
+            maximumVisitsPerDrain: 2,
+            schedule: manualScheduler.schedule
+        )
+        let firstSnapshot = Snapshot(id: 1)
+        let secondSnapshot = Snapshot(id: 2)
+        var didReplace = false
+        var abandoned: [Int] = []
+        var applied: [(id: Int, snapshotID: Int)] = []
+
+        scheduler.replacePendingWork(
+            snapshot: firstSnapshot,
+            prioritizedIDs: [11, 12],
+            nextID: { .exhausted },
+            apply: { id, snapshot in
+                applied.append((id, snapshot.id))
+                return .retry
+            },
+            abandon: { id, _, _ in
+                abandoned.append(id)
+                if !didReplace {
+                    didReplace = true
+                    scheduler.replacePendingWork(
+                        snapshot: secondSnapshot,
+                        prioritizedIDs: [22],
+                        nextID: { .exhausted },
+                        apply: { id, snapshot in
+                            applied.append((id, snapshot.id))
+                            return .complete
+                        }
+                    )
+                }
+            }
+        )
+
+        scheduler.cancelPendingWork()
+
+        #expect(abandoned == [11, 12])
+        #expect(applied.map(\.id) == [11, 12, 22])
+        #expect(applied.map(\.snapshotID) == [1, 1, 2])
+        #expect(manualScheduler.pendingCount == 1)
+    }
+
+    @Test @MainActor
     func sharesOneDerivedSnapshotAcrossEverySurface() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(

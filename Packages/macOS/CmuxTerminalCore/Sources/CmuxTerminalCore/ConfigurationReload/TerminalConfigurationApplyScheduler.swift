@@ -169,7 +169,6 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
               retryIndex < retryIDs.count else {
             return
         }
-        let generation = workGeneration
         let pendingRetryIDs = Array(retryIDs[retryIndex...])
         // Mark the range consumed before invoking user-owned callbacks. An
         // abandon callback may synchronously install replacement work; leaving
@@ -178,8 +177,11 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
         var abandonedIDs: Set<ID> = []
         for id in pendingRetryIDs
         where abandonedIDs.insert(id).inserted {
+            // Continue through the copied range even if the callback installs
+            // replacement work. Each old surface still owns rollback state;
+            // the caller's generation guard prevents this pass from touching
+            // the replacement scheduler state.
             abandon(id, snapshot, .pendingWorkReplaced)
-            guard workGeneration == generation else { return }
         }
     }
 
