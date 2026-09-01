@@ -4867,7 +4867,7 @@ impl SocketStartLock {
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
         let mut options = std::fs::OpenOptions::new();
-        options.create(true).append(true).read(true);
+        options.create(true).append(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
