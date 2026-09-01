@@ -524,7 +524,7 @@ extension VerticalTabsSidebar {
         placement: WorkspaceGroupNewPlacement?,
         modifiers: NSEvent.ModifierFlags,
         tabManager: TabManager,
-        selectedTabIds: Binding<Set<UUID>>,
+        selectedTabIds: Binding<[UUID]>,
         lastSidebarSelectionIndex: Binding<Int?>
     ) {
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
