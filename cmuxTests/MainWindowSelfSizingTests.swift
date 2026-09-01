@@ -188,4 +188,42 @@ final class MainWindowSelfSizingTests: XCTestCase {
             "The hosting view accepted a frame taller than its window"
         )
     }
+
+    /// `minSize`/`contentMinSize` bound only USER resizes; a programmatic
+    /// `setFrame` (session restore math, display reconfiguration, automation)
+    /// can still deliver a frame below the layout floor, where the sidebar
+    /// footer, update pill, and tab bar overlap and clip. The window must
+    /// enforce the floor on every setFrame path, keeping the top edge (the
+    /// titlebar the user can grab) where the caller put it.
+    @MainActor
+    func testSetFrameRaisesUndersizedFrameToMinimumContentSize() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let minimum = CmuxMainWindow.minimumContentSize
+        let undersized = NSRect(x: 80, y: 500, width: 220, height: 120)
+        window.setFrame(undersized, display: false)
+
+        XCTAssertGreaterThanOrEqual(
+            window.frame.width, minimum.width - 0.5,
+            "A programmatic setFrame below the minimum width must be raised to the floor"
+        )
+        XCTAssertGreaterThanOrEqual(
+            window.frame.height, minimum.height - 0.5,
+            "A programmatic setFrame below the minimum height must be raised to the floor"
+        )
+        XCTAssertEqual(
+            window.frame.maxY, undersized.maxY, accuracy: 0.5,
+            "Raising an undersized frame must keep the top edge put and extend the window downward"
+        )
+    }
 }
