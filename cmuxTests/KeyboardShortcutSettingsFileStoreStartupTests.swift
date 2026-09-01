@@ -162,6 +162,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                     imageRequestCount += 1
                     return nil
                 },
+                imageForPath: { _ in nil },
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },

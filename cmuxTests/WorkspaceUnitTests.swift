@@ -1427,6 +1427,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                     imageRequestCount += 1
                     return nil
                 },
+                imageForPath: { _ in nil },
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
@@ -1504,6 +1505,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                     imageRequestCount += 1
                     return nil
                 },
+                imageForPath: { _ in nil },
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
