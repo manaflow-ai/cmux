@@ -129,7 +129,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .fileExplorerSearch:
             fileSearchHost = host
-        case .sessionIndex, .feed, .dock, .sourceControl, .host, .none, nil:
+        case .some(.sessionIndex), .some(.feed), .some(.dock), .some(.sourceControl), .some(.host), .some(.none), nil:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -759,7 +759,7 @@ final class MainWindowFocusController {
             return .searchField
         case .feed, .dock, .sourceControl:
             return focusFirstItem ? .firstItem : .host
-        case .sessionIndex, .host, .none, nil:
+        case .some(.sessionIndex), .some(.host), .some(.none), nil:
             return .host
         }
     }
@@ -788,7 +788,7 @@ final class MainWindowFocusController {
                 return sourceControlHost?.focusFirstItemFromCoordinator() == true
             }
             return sourceControlHost?.focusHostFromCoordinator() == true
-        case .sessionIndex, .host, .none, nil:
+        case .some(.sessionIndex), .some(.host), .some(.none), nil:
             return focusFallbackRightSidebarHost()
         }
     }

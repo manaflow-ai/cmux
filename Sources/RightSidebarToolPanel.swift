@@ -87,7 +87,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessionIndex:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock, .sourceControl, .host, .none, nil:
+        case .some(.feed), .some(.dock), .some(.sourceControl), .some(.host), .some(.none), nil:
             break
         }
     }
@@ -145,7 +145,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock, .sourceControl, .host, .none, nil:
+        case .some(.feed), .some(.dock), .some(.sourceControl), .some(.host), .some(.none), nil:
             break
         }
     }
@@ -167,7 +167,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessionIndex:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock, .sourceControl, .host, .none, nil:
+        case .some(.feed), .some(.dock), .some(.sourceControl), .some(.host), .some(.none), nil:
             return nil
         }
     }
