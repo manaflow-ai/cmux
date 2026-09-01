@@ -198,8 +198,8 @@ struct WorkspaceSwitchCoordinatorTests {
             to: targetWorkspaceID,
             targetSurfaceID: targetSurfaceID,
             targetTerminalView: nil,
-            targetRendererPresented: true,
-            targetRenderedFrameSequence: 1
+            targetRendererPresented: false,
+            targetRenderedFrameSequence: 0
         )
         #expect(protectedRequestIDs.count == 1)
         #expect(releasedRequestIDs.isEmpty)
@@ -207,7 +207,8 @@ struct WorkspaceSwitchCoordinatorTests {
             terminalTarget(
                 workspaceID: targetWorkspaceID,
                 surfaceID: targetSurfaceID,
-                renderedFrameSequence: 1,
+                rendererPresented: false,
+                renderedFrameSequence: 0,
                 portalPresented: false,
                 interactionReady: true
             ),
@@ -216,12 +217,19 @@ struct WorkspaceSwitchCoordinatorTests {
 
         coordinator.noteTerminalPortalPresented(
             surfaceID: targetSurfaceID,
-            renderedFrameSequence: 1
+            renderedFrameSequence: 0
         )
 
         #expect(releasedRequestIDs.isEmpty)
         coordinator.sourceWillRetire(workspaceID: sourceWorkspaceID)
         coordinator.sourceDidRetire(workspaceID: sourceWorkspaceID)
+
+        // Portal visibility can precede the first drawable after a renderer
+        // rebuild; protection must remain active across that gap.
+        coordinator.noteTerminalPortalPresented(
+            surfaceID: targetSurfaceID,
+            renderedFrameSequence: 1
+        )
         #expect(releasedRequestIDs == protectedRequestIDs)
         coordinator.cancel()
     }

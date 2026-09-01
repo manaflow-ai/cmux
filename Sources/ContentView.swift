@@ -2796,15 +2796,16 @@ struct ContentView: View {
             let retiringWorkspaceID = startWorkspaceHandoffIfNeeded(
                 newSelectedId: authoritativeSelection
             )
-            reconcileMountedWorkspaceIds(selectedId: authoritativeSelection)
-            // Mount state is authoritative. Presentation milestones continue
-            // as diagnostics, but never retain the source workspace.
+            // Begin the retirement interval before reconciliation writes the
+            // source portal's hidden state. The gate defers the actual unfocus
+            // until TabManager's queued focus pass has installed its target.
             if let retiringWorkspaceID {
                 completeWorkspaceHandoff(
                     retiringWorkspaceID: retiringWorkspaceID,
                     reason: "mount_reconciled"
                 )
             }
+            reconcileMountedWorkspaceIds(selectedId: authoritativeSelection)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
             guard let authoritativeSelection else { return }
             if selectedTabIds.count <= 1 {
@@ -3081,8 +3082,9 @@ struct ContentView: View {
                 return
             }
             if let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {
+                guard let selectedWorkspaceID = manager.selectedTabId else { return }
                 manager.workspaceSwitchCoordinator.noteInteractionNoLongerRequired(
-                    workspaceID: manager.selectedTabId
+                    workspaceID: selectedWorkspaceID
                 )
             }
         })

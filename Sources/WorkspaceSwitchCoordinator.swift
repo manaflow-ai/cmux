@@ -250,9 +250,10 @@ final class WorkspaceSwitchCoordinator {
         noteInteractionReady(workspaceID: workspaceID)
     }
 
-    func noteInteractionNoLongerRequired(workspaceID: UUID? = nil) {
-        guard var transaction = active, var readiness = transaction.readiness, workspaceID == nil ||
-              transaction.targetWorkspaceID == workspaceID else {
+    func noteInteractionNoLongerRequired(workspaceID: UUID) {
+        guard var transaction = active,
+              transaction.targetWorkspaceID == workspaceID,
+              var readiness = transaction.readiness else {
             return
         }
         readiness.requiresInteraction = false
@@ -291,9 +292,8 @@ final class WorkspaceSwitchCoordinator {
         transaction.portalHideInterval = nil
         transaction.sourceRetired = true
         // Source retirement is the authoritative end of the mount handoff.
-        // Keep the target's request-scoped protection and frame observation
-        // until its portal is actually presented; this covers the asynchronous
-        // layout pass that follows mount reconciliation.
+        // Keep protection until the portal and first drawable are ready; this
+        // covers the asynchronous layout pass after mount reconciliation.
         releaseRendererProtectionIfTargetIsPresented(&transaction)
         finishIfPossible(&transaction)
     }
@@ -316,12 +316,13 @@ final class WorkspaceSwitchCoordinator {
         let targetViewID = view.map(ObjectIdentifier.init)
         guard transaction.targetSurfaceID != surfaceID ||
                 transaction.targetTerminalViewID != targetViewID else {
-            transaction.warmFrameAvailable = transaction.warmFrameAvailable ||
-                (rendererPresented && renderedFrameSequence > 0)
-            transaction.frameSequenceAtSelection = max(
-                transaction.frameSequenceAtSelection,
-                renderedFrameSequence
-            )
+            // Keep the selection-time baseline: presentation can precede the
+            // first new drawable after a renderer rebuild.
+            if rendererPresented,
+               renderedFrameSequence > transaction.frameSequenceAtSelection {
+                transaction.warmFrameAvailable = true
+                transaction.observedFrameAfterSelection = true
+            }
             return
         }
 
@@ -466,12 +467,11 @@ final class WorkspaceSwitchCoordinator {
         _ transaction: inout WorkspaceSwitchActiveTransaction
     ) {
         guard transaction.sourceRetired,
-              transaction.readiness?.portalPresented == true else {
+              transaction.readiness?.presentationIsReady == true else {
             return
         }
         releaseRendererProtection(&transaction)
     }
-
     private func endAllIntervals(in transaction: WorkspaceSwitchActiveTransaction) {
         signposts.end(transaction.selectionCommitInterval)
         signposts.end(transaction.portalShowInterval)
@@ -480,7 +480,6 @@ final class WorkspaceSwitchCoordinator {
         signposts.end(transaction.firstFrameInterval)
         signposts.end(transaction.interactiveInterval)
     }
-
     private static func details(
         requestID: UUID,
         sourceWorkspaceID: UUID,

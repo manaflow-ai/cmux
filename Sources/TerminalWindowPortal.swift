@@ -1,6 +1,7 @@
 import AppKit
 import ObjectiveC
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import CmuxTerminal
 #if DEBUG
 import Bonsplit
@@ -710,6 +711,7 @@ final class WindowTerminalPortal: NSObject {
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var presentedHostedIds: Set<ObjectIdentifier> = []
+    private var presentationNotificationSchedulers: [ObjectIdentifier: MainActorDeferredActionScheduler] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
     /// Hosted views arrive from SwiftUI hosting with a flexible autoresizing
     /// mask; adoption clears it (see bind) and detach restores this saved
@@ -1468,8 +1470,11 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
-        guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
-        presentedHostedIds.remove(hostedId)
+        guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else {
+            clearPresentationNotificationState(for: hostedId)
+            return
+        }
+        clearPresentationNotificationState(for: hostedId)
 #if DEBUG
         lastPortalTargetByHostedId.removeValue(forKey: hostedId)
 #endif
@@ -1498,13 +1503,16 @@ final class WindowTerminalPortal: NSObject {
 
     /// Hide a portal entry for permanent workspace unmounts without detaching it.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
-        guard var entry = entriesByHostedId[hostedId] else { return }
+        guard var entry = entriesByHostedId[hostedId] else {
+            clearPresentationNotificationState(for: hostedId)
+            return
+        }
         entry.visibleInUI = false
         entry.hostedView?.finishPortalGeometrySettlement()
         entry.awaitingGeometrySettlement = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
-        presentedHostedIds.remove(hostedId)
+        clearPresentationNotificationState(for: hostedId)
         entry.hostedView?.isHidden = true
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
@@ -1535,7 +1543,7 @@ final class WindowTerminalPortal: NSObject {
         if becameHidden {
             // Visibility updates are coalesced. Clear the presentation edge
             // synchronously so a hide -> show in one turn can notify again.
-            presentedHostedIds.remove(hostedId)
+            clearPresentationNotificationState(for: hostedId)
         }
         // A view that just became visible may still hold the frame it was
         // born with (bind can seed from a pre-settle anchor reading, and a
@@ -1659,7 +1667,7 @@ final class WindowTerminalPortal: NSObject {
             return previousAnchor !== anchorView
         }()
         if didChangeAnchor || !visibleInUI || previousEntry?.hostedView !== hostedView {
-            presentedHostedIds.remove(hostedId)
+            clearPresentationNotificationState(for: hostedId)
         }
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
         if becameVisible || (visibleInUI && didChangeAnchor) {
@@ -1971,7 +1979,7 @@ final class WindowTerminalPortal: NSObject {
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
-            presentedHostedIds.remove(hostedId)
+            clearPresentationNotificationState(for: hostedId)
             return
         }
         defer { updatePresentationState(for: hostedId, hostedView: hostedView) }
@@ -2344,18 +2352,34 @@ final class WindowTerminalPortal: NSObject {
         hostedView: GhosttySurfaceScrollView
     ) {
         guard isPresented(hostedView, hostedId: hostedId) else {
-            presentedHostedIds.remove(hostedId)
+            clearPresentationNotificationState(for: hostedId)
             return
         }
         guard presentedHostedIds.insert(hostedId).inserted else { return }
-        Task { @MainActor [weak self, weak hostedView] in
+        // Defer delivery until the current layout pass unwinds, but keep the
+        // deferred action owned by this portal. Hides, rebinds, and teardown
+        // cancel it through `clearPresentationNotificationState`, so a stale
+        // presentation edge cannot outlive the entry that produced it.
+        let scheduler = presentationNotificationSchedulers[hostedId]
+            ?? MainActorDeferredActionScheduler()
+        presentationNotificationSchedulers[hostedId] = scheduler
+        scheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self, weak hostedView] in
             guard let self, let hostedView,
-                  self.isPresented(hostedView, hostedId: hostedId) else { return }
+                  self.isPresented(hostedView, hostedId: hostedId) else {
+                self?.clearPresentationNotificationState(for: hostedId)
+                return
+            }
+            self.presentationNotificationSchedulers.removeValue(forKey: hostedId)
             NotificationCenter.default.post(
                 name: .terminalPortalDidBecomePresentable,
                 object: hostedView
             )
         }
+    }
+
+    private func clearPresentationNotificationState(for hostedId: ObjectIdentifier) {
+        presentedHostedIds.remove(hostedId)
+        presentationNotificationSchedulers.removeValue(forKey: hostedId)?.cancel()
     }
 
     func isPresented(
@@ -2415,6 +2439,10 @@ final class WindowTerminalPortal: NSObject {
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
         }
+        for scheduler in presentationNotificationSchedulers.values {
+            scheduler.cancel()
+        }
+        presentationNotificationSchedulers.removeAll(keepingCapacity: false)
         hostView.removeFromSuperview()
         installedContainerView = nil
         installedReferenceView = nil

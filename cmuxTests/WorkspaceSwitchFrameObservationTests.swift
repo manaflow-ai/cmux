@@ -44,6 +44,8 @@ struct WorkspaceSwitchFrameObservationTests {
         observation = nil
 
         #expect(releaseProbe.didRelease)
+        // `queue: nil` delivers synchronously on this @MainActor test, so a
+        // leaked observer would record the failure before the test returns.
         notificationCenter.post(name: notificationName, object: nil)
     }
 
