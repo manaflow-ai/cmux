@@ -1,10 +1,11 @@
 import AppKit
+import CmuxAgentChat
 import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = "cmux-local-image"
-    static let remoteImageURLScheme = "cmux-remote-image"
+    static let localImageURLScheme = MarkdownWebViewerScheme.localImage
+    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage
 
     let markdown: String
     let theme: MarkdownWebTheme
@@ -22,6 +23,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let maxContentWidth: Double
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
+    /// Called after the renderer view is attached to a window. A panel can
+    /// request focus before SwiftUI mounts its WebKit view, so the panel uses
+    /// this lifecycle signal to complete that request without polling.
+    var onViewAttachedToWindow: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
@@ -33,6 +38,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onAttachToWindow = onViewAttachedToWindow
             webView.setVisibleInUI(isVisibleInUI)
             webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
                 coordinator?.handleViewLeftWindow()
@@ -66,6 +72,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.onAttachToWindow = onViewAttachedToWindow
         webView.setVisibleInUI(isVisibleInUI)
         webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
             coordinator?.handleViewLeftWindow()
@@ -118,6 +125,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onAttachToWindow = nil
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
@@ -143,6 +151,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
+        /// Fired after each successful markdown render push (initial shell
+        /// load included). Re-rendering replaces the content DOM, so an active
+        /// find-in-page search must re-run to restore its highlights.
+        var onMarkdownRendered: (() -> Void)?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -263,6 +275,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onAttachToWindow = nil
                 webView.onLeaveWindow = nil
                 webView.onReenterWindow = nil
             }
@@ -387,12 +400,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
-            webView.evaluateJavaScript(js) { _, error in
+            webView.evaluateJavaScript(js) { [weak self] _, error in
 #if DEBUG
                 if let error {
                     NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
                 }
 #endif
+                if error == nil {
+                    self?.onMarkdownRendered?()
+                }
             }
         }
 

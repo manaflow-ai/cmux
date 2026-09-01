@@ -1,73 +1,33 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { DaytonaProvider } from "../services/vms/drivers/daytona";
-import { ProviderError, type WebSocketPtyEndpoint } from "../services/vms/drivers/types";
+import { ProviderError } from "../services/vms/drivers/types";
 
-const websocketEndpoint: WebSocketPtyEndpoint = {
-  transport: "websocket",
-  url: "wss://7777-sandbox-1.proxy.daytona.works/terminal",
-  headers: { "x-daytona-preview-token": "preview-token" },
-  token: "pty-token",
-  sessionId: "pty-session",
-  attachmentId: "attachment-1",
-  expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
-};
+// Daytona machines attach exclusively through the cmux-tui remote daemon
+// (transport cmux-remote), same as Blaxel. The legacy websocket PTY and SSH
+// surfaces must refuse loudly so callers migrate instead of hanging.
 
-class TestDaytonaProvider extends DaytonaProvider {
-  websocketResult: WebSocketPtyEndpoint | Error = websocketEndpoint;
-
-  override async openWebSocketPty(_vmId: string): Promise<WebSocketPtyEndpoint> {
-    if (this.websocketResult instanceof Error) {
-      throw this.websocketResult;
-    }
-    return this.websocketResult;
-  }
-}
-
-describe("DaytonaProvider attach", () => {
-  test("requires the cmuxd RPC daemon when the caller asks for one", async () => {
-    const provider = new TestDaytonaProvider();
-    provider.websocketResult = websocketEndpoint;
-
-    await expect(provider.openAttach("sandbox-1", { requireDaemon: true })).rejects.toThrow(
-      "requires a cmuxd RPC endpoint",
-    );
+describe("DaytonaProvider session transports", () => {
+  test("cmux-remote is the only attach transport", () => {
+    const provider = new DaytonaProvider();
+    expect(provider.attachTransports).toEqual(["cmux-remote"]);
+    expect(typeof provider.openCmuxRemote).toBe("function");
+    expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("returns the WebSocket endpoint when daemon metadata is present", async () => {
-    const provider = new TestDaytonaProvider();
-    const endpointWithDaemon: WebSocketPtyEndpoint = {
-      ...websocketEndpoint,
-      daemon: {
-        url: "wss://7777-sandbox-1.proxy.daytona.works/rpc",
-        headers: { "x-daytona-preview-token": "preview-token" },
-        token: "rpc-token",
-        sessionId: "rpc-session",
-        expiresAtUnix: Math.floor(Date.now() / 1000) + 600,
-      },
-    };
-    provider.websocketResult = endpointWithDaemon;
+  test("legacy openAttach is unsupported and names the replacement", async () => {
+    const provider = new DaytonaProvider();
 
-    const endpoint = await provider.openAttach("sandbox-1", { requireDaemon: true });
-
-    expect(endpoint).toEqual(endpointWithDaemon);
+    await expect(provider.openAttach("sandbox-1")).rejects.toThrow(ProviderError);
+    await expect(provider.openAttach("sandbox-1")).rejects.toThrow("cmux-remote");
   });
 
-  test("does not fall back to SSH when the WebSocket attach fails", async () => {
-    const provider = new TestDaytonaProvider();
-    provider.websocketResult = new Error("Daytona cmuxd websocket health check returned 502");
-
-    await expect(provider.openAttach("sandbox-1")).rejects.toThrow(
-      "Daytona cmuxd websocket health check returned 502",
-    );
-  });
-});
-
-describe("DaytonaProvider SSH surface", () => {
-  test("openSSH is unsupported and points at the WebSocket attach path", async () => {
+  test("openSSH is unsupported and points at the cmux-tui daemon", async () => {
     const provider = new DaytonaProvider();
 
     await expect(provider.openSSH("sandbox-1")).rejects.toThrow(ProviderError);
-    await expect(provider.openSSH("sandbox-1")).rejects.toThrow("WebSocket-only");
+    await expect(provider.openSSH("sandbox-1")).rejects.toThrow("cmux-tui");
   });
 
   test("revokeSSHIdentity is a safe no-op", async () => {
@@ -77,3 +37,25 @@ describe("DaytonaProvider SSH surface", () => {
     await expect(provider.revokeSSHIdentity("")).resolves.toBeUndefined();
   });
 });
+
+describe("DaytonaProvider cmux-remote route", () => {
+  test("the route carries the preview token as the URL query the proxy accepts", () => {
+    // The cmux-tui dialer connects to the route verbatim (it can add no
+    // headers), so the Daytona ingress token must ride the query string.
+    // DAYTONA_SANDBOX_AUTH_KEY is the parameter the Daytona proxy reads (the
+    // Daytona SDK dials its own WebSockets the same way).
+    const driver = readDriverSource();
+    expect(driver).toContain("DAYTONA_SANDBOX_AUTH_KEY=${encodeURIComponent(token)}");
+    expect(driver).toContain("/v1/link?DAYTONA_SANDBOX_AUTH_KEY=");
+  });
+
+  test("the entrypoint supervisor is the restart story across stop/start", () => {
+    const driver = readDriverSource();
+    expect(driver).toContain('"/usr/local/bin/cmux-devbox-boot"');
+    expect(driver).toContain("pgrep -f 'cmux-tui server start'");
+  });
+});
+
+function readDriverSource(): string {
+  return readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/daytona.ts"), "utf8");
+}

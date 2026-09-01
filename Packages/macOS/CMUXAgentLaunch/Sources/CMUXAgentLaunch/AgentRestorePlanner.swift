@@ -168,6 +168,20 @@ public struct AgentRestorePlanner: Sendable {
     ) -> [String: String] {
         var captured = request.launchCommand?.environment ?? [:]
         captured.merge(request.environment) { _, binding in binding }
+        if kind == "codex",
+           let rawCodexHome = normalized(captured["CODEX_HOME"]),
+           let launchWorkingDirectory = normalized(request.launchCommand?.workingDirectory)
+               ?? normalized(request.workingDirectory) {
+            // CODEX_HOME is interpreted relative to the process cwd. Preserve
+            // the launch-time meaning when a restored surface uses a different
+            // cwd (for example, after a worktree rotation).
+            captured["CODEX_HOME"] = CodexHomeResolver().resolve(
+                launchEnvironment: ["CODEX_HOME": rawCodexHome],
+                launchWorkingDirectory: launchWorkingDirectory,
+                launchVerificationHome: request.launchCommand?.verificationHome,
+                fallbackHomeDirectory: launchWorkingDirectory
+            )
+        }
         if request.mode == .direct {
             return captured
         }

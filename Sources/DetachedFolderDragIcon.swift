@@ -113,6 +113,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
         cmuxDebugLog("folder.dragEnd dirBytes=\(directory.utf8.count) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
+        _ = session
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
