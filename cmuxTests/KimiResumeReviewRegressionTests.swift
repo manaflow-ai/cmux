@@ -229,6 +229,49 @@ struct KimiResumeReviewRegressionTests {
         #expect(launcher.contains("'custom-kimi' '--resume' '\(sessionID)'"), "\(launcher)")
         #expect(!launcher.contains("'kimi' '--resume' '\(sessionID)'"), "\(launcher)")
     }
+
+    @Test("Custom Kimi registrations preserve profile -w options during exact restore")
+    func customKimiExactRestorePreservesProfileWorkingDirectoryOption() throws {
+        let workingDirectory = "/remote/project"
+        let profile = "profile-a"
+        let registration = CmuxVaultAgentRegistration(
+            id: "kimi",
+            name: "Custom Kimi",
+            detect: CmuxVaultAgentDetectRule(processName: "custom-kimi"),
+            sessionIdSource: .argvOption("--resume"),
+            resumeCommand: "custom-kimi --resume {{sessionId}}"
+        )
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "kimi",
+            executablePath: "/Users/example/.local/bin/custom-kimi",
+            arguments: [
+                "/Users/example/.local/bin/custom-kimi",
+                "-w", profile,
+                "--model", "custom-model",
+            ],
+            workingDirectory: "/Users/example/local-project",
+            capturedAt: 1_750_000_000,
+            source: "test"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("kimi"),
+            sessionId: "custom-kimi-session",
+            workingDirectory: workingDirectory,
+            launchCommand: launchCommand,
+            registration: registration,
+            restoreWorkingDirectorySelection: .exact(workingDirectory)
+        )
+
+        let constrained = try #require(
+            snapshot.constrainedLaunchCommand(
+                launchCommand,
+                selection: .exact(workingDirectory)
+            )
+        )
+        #expect(constrained.arguments == launchCommand.arguments)
+        #expect(constrained.arguments.dropFirst().contains("-w"))
+        #expect(constrained.arguments.contains(profile))
+    }
 }
 
 extension CLINotifyProcessIntegrationRegressionTests {
