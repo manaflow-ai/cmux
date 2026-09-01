@@ -50,8 +50,8 @@ DEVICE_ONLY="${CMUX_ISH_DEVICE_ONLY:-0}"
 # expansion. Normalize once with POSIX tr instead.
 ROOTFS_SHA256="$(printf '%s' "$ROOTFS_SHA256" | tr '[:upper:]' '[:lower:]')"
 
-LOCK_DIR="$BUILD_ROOT/.ish-ios-build.lock"
-LOCK_HELD=0
+LOCK_FILE="$BUILD_ROOT/.ish-ios-build.lock"
+LOCK_FD_OPEN=0
 WORK=""
 XC_WORK=""
 
@@ -167,6 +167,7 @@ validate_tree() {
     require_command curl
     require_command meson
     require_command ninja
+    require_command lockf
     require_command python3
     require_command tar
     if ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
@@ -282,43 +283,54 @@ install_rootfs() {
     validate_rootfs_provenance
 }
 
+prepare_lock_path() {
+    # Older revisions used a directory containing pid. Do not pass that
+    # directory to lockf, and never delete an ownerless directory because its
+    # creator may still be between mkdir and pid initialization.
+    if [[ -L "$LOCK_FILE" ]]; then
+        die "iSH build lock is a symlink, refusing to follow it: $LOCK_FILE"
+    fi
+    if [[ -d "$LOCK_FILE" ]]; then
+        local legacy_owner=""
+        if [[ -f "$LOCK_FILE/pid" ]]; then
+            legacy_owner="$(<"$LOCK_FILE/pid")"
+        fi
+        if [[ -z "$legacy_owner" ]]; then
+            die "legacy iSH build lock has no owner; refusing to remove it: $LOCK_FILE"
+        fi
+        if [[ ! "$legacy_owner" =~ ^[0-9]+$ ]]; then
+            die "legacy iSH build lock has an invalid owner; refusing to remove it: $LOCK_FILE"
+        fi
+        if kill -0 "$legacy_owner" 2>/dev/null; then
+            die "legacy iSH build lock (pid $legacy_owner) is still active: $LOCK_FILE"
+        fi
+        # Remove only the protocol's pid file. rmdir then refuses any
+        # unexpected entry, so a foreign directory cannot be deleted.
+        rm -f "$LOCK_FILE/pid"
+        if ! rmdir "$LOCK_FILE" 2>/dev/null; then
+            die "legacy iSH build lock contains unexpected entries; refusing to remove it: $LOCK_FILE"
+        fi
+    elif [[ -e "$LOCK_FILE" && ! -f "$LOCK_FILE" ]]; then
+        die "iSH build lock is not a regular file: $LOCK_FILE"
+    fi
+}
+
 acquire_lock() {
     mkdir -p "$BUILD_ROOT"
-    local waited=0
-    while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-        local owner=""
-        if [[ -f "$LOCK_DIR/pid" ]]; then
-            owner="$(<"$LOCK_DIR/pid")"
-        fi
-        if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
-            if (( waited >= LOCK_WAIT_SECONDS )); then
-                die "another iSH build (pid $owner) is still running after ${LOCK_WAIT_SECONDS}s"
-            fi
-            if (( waited == 0 || waited % 30 == 0 )); then
-                echo "waiting for another iSH build (pid $owner)"
-            fi
-            waited=$((waited + 1))
-            sleep 1
-        else
-            # A killed process can leave the mkdir lock behind. Remove it
-            # only when its recorded owner is absent or no longer alive.
-            rm -f "$LOCK_DIR/pid"
-            if ! rmdir "$LOCK_DIR" 2>/dev/null; then
-                # Do not spin if an interrupted writer left another entry in
-                # the lock directory, or if a concurrent owner is finishing
-                # its PID write. Apply the same bounded wait as the live-owner
-                # path and fail with a useful error when the lock cannot be
-                # removed.
-                if (( waited >= LOCK_WAIT_SECONDS )); then
-                    die "cannot clear stale iSH build lock: $LOCK_DIR"
-                fi
-                waited=$((waited + 1))
-                sleep 1
-            fi
-        fi
-    done
-    printf '%s\n' "$$" >"$LOCK_DIR/pid"
-    LOCK_HELD=1
+    prepare_lock_path
+    # BSD lockf locks the inode, not the pathname. Keep this file forever:
+    # unlinking it while another process waits would let a later process lock
+    # a new inode and run concurrently. Opening in append mode also avoids
+    # truncating metadata while a different process owns the lock.
+    if ! exec 9>>"$LOCK_FILE"; then
+        die "could not open iSH build lock: $LOCK_FILE"
+    fi
+    LOCK_FD_OPEN=1
+    if ! lockf -s -t "$LOCK_WAIT_SECONDS" 9; then
+        exec 9>&-
+        LOCK_FD_OPEN=0
+        die "another iSH build is still running after ${LOCK_WAIT_SECONDS}s"
+    fi
 }
 
 publish_path_exists() {
@@ -466,10 +478,11 @@ cleanup() {
     if [[ "$KEEP_BUILD" != 1 && -n "$XC_WORK" && -d "$XC_WORK" ]]; then
         rm -rf "$XC_WORK"
     fi
-    if [[ "$LOCK_HELD" == 1 ]]; then
-        rm -f "$LOCK_DIR/pid"
-        rmdir "$LOCK_DIR" 2>/dev/null || true
-        LOCK_HELD=0
+    if [[ "$LOCK_FD_OPEN" == 1 ]]; then
+        # Closing the descriptor releases the advisory lock. Never unlink the
+        # persistent lock file, because a waiter may already have it open.
+        exec 9>&-
+        LOCK_FD_OPEN=0
     fi
     set -e
     exit "$exit_status"
