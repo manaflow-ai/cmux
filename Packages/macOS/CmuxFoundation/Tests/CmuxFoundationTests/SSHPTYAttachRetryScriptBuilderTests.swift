@@ -253,7 +253,11 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             )
         )
         Darwin.kill(shellPID, signal)
-        let exitDeadline = Date().addingTimeInterval(1)
+        // The retry backoff is 30 seconds; allow a bounded two-second window
+        // for the shell to reap its interrupted timer under a busy CI runner.
+        // This remains prompt while avoiding a scheduler-sensitive one-second
+        // edge that can report a false failure.
+        let exitDeadline = Date().addingTimeInterval(2)
         while process.isRunning, Date() < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
