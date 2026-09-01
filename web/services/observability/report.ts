@@ -1,6 +1,12 @@
+import { after } from "next/server";
+
 const SENSITIVE_KEY_PATTERN = /authorization|cookie|credential|dsn|key|password|providerMetadata|secret|token|webhook/i;
 
-export function reportError(error: unknown, context: Record<string, unknown>): void {
+export function reportError(
+  error: unknown,
+  context: Record<string, unknown>,
+  options: { readonly fingerprint?: readonly string[] } = {},
+): void {
   const safeContext = scrubContext(context);
   try {
     // Log a scrubbed summary, never the raw error: provider error messages can
@@ -14,16 +20,37 @@ export function reportError(error: unknown, context: Record<string, unknown>): v
 
   if (!process.env.SENTRY_DSN?.trim()) return;
 
-  void import("@sentry/nextjs")
-    .then((Sentry) => {
-      Sentry.withScope((scope) => {
-        scope.setContext("cmux", safeContext);
-        Sentry.captureException(error);
+  const fingerprint = options.fingerprint;
+  const send = () =>
+    import("@sentry/nextjs")
+      .then(async (Sentry) => {
+        Sentry.withScope((scope) => {
+          scope.setContext("cmux", safeContext);
+          // A stable fingerprint groups every occurrence of one operational
+          // condition (e.g. one misconfigured image env) into one Sentry issue,
+          // so alert rules can fire on "first seen" without per-request noise.
+          if (fingerprint && fingerprint.length > 0) {
+            scope.setFingerprint([...fingerprint]);
+          }
+          Sentry.captureException(error);
+        });
+        // The SDK queues events; without an explicit flush the serverless
+        // function freezes right after the response and the envelope never
+        // leaves the process. Zero events reached Sentry between 2026-08-06
+        // and 2026-08-27 because of this.
+        await Sentry.flush(2_000);
+      })
+      .catch(() => {
+        // Reporting must never change the caller's control flow.
       });
-    })
-    .catch(() => {
-      // Reporting must never change the caller's control flow.
-    });
+  try {
+    // Inside a request, defer past the response so the flush cannot add
+    // user-visible latency; outside one (cron bootstrap, tests) `after`
+    // throws and the send runs fire-and-forget.
+    after(send);
+  } catch {
+    void send();
+  }
 }
 
 function scrubContext(context: Record<string, unknown>): Record<string, unknown> {

@@ -91,6 +91,7 @@ extension DockSplitStore {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
         invalidatedCachedTransferAgentSessionPanelIds.remove(panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
@@ -217,7 +218,9 @@ extension DockSplitStore {
         )
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         if let resumeBinding = detached.resumeBinding {
-            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+            if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: detached.panelId) {
+                surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+            }
         }
         if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
             managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
@@ -294,10 +297,14 @@ extension DockSplitStore {
         }
         if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId] {
             if effectiveBinding == originalBinding || effectiveBinding.isSameManagedSession(as: binding) {
-                surfaceResumeBindingsByPanelId[panelId] = binding
+                if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+                    surfaceResumeBindingsByPanelId[panelId] = binding
+                }
             }
         } else {
-            surfaceResumeBindingsByPanelId[panelId] = binding
+            if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+                surfaceResumeBindingsByPanelId[panelId] = binding
+            }
         }
     }
 
@@ -712,6 +719,22 @@ extension DockSplitStore {
         return true
     }
 
+    func agentHibernationLifecycleState(
+        panelId: UUID,
+        fallback: AgentHibernationLifecycleState?
+    ) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregate(
+            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
+            fallback: fallback
+        )
+    }
+
+    func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregateForTextBoxEscape(
+            statusKeyedStates: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:]
+        )
+    }
+
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID) -> Bool {
         var didClear = false
@@ -1032,7 +1055,11 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            guard index.isComplete else {
+            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
+            guard index.isComplete(
+                forPanelId: restore.stablePanelID,
+                kind: expectedKind
+            ) else {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
@@ -1070,7 +1097,6 @@ extension DockSplitStore {
                 }
             }
             let ownershipPanelID = restore.stablePanelID
-            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
             // Deferred admission has no exact-owner snapshot that can override a
             // stable-panel tie, so structural ambiguity remains fail-closed even

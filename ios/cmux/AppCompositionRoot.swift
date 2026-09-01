@@ -22,6 +22,11 @@ final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
     let iroh: MobileIrohRuntimeComposition
+    /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
+    /// `.iroh` route; nil when the legacy runtime is active.
+    let irx: MobileIrxRuntimeComposition?
+    /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
+    let irxDiscovery: MobileIrxDiscoveryProvider?
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -83,6 +88,8 @@ final class AppCompositionRoot {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         iroh: MobileIrohRuntimeComposition,
+        irx: MobileIrxRuntimeComposition? = nil,
+        irxDiscovery: MobileIrxDiscoveryProvider? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -96,6 +103,8 @@ final class AppCompositionRoot {
         self.runtime = runtime
         self.auth = auth
         self.iroh = iroh
+        self.irx = irx
+        self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
@@ -216,6 +225,13 @@ final class AppCompositionRoot {
                             accessToken: accessToken,
                             refreshToken: refreshToken
                         )
+                    }
+                    if let irx {
+                        // Drop the device-list lease (memory, Keychain/file,
+                        // UI projection) with the account's other state.
+                        group.addTask {
+                            await irx.handleSignOut()
+                        }
                     }
                 }
                 await diagnosticLog.clear()
@@ -368,6 +384,11 @@ final class AppCompositionRoot {
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = iroh.didBecomeActive()
+            if let irx {
+                // Credential freshness re-check + engine warm-up: iOS
+                // suspension pauses the autopilot's sleep loop.
+                Task { await irx.didBecomeActive() }
+            }
             // A notification-permission prompt is itself a transient inactive
             // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }

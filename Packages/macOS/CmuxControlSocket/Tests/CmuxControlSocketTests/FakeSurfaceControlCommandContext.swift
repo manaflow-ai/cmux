@@ -8,6 +8,12 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
+    var resumeGetClaim: (
+        checkpointID: String?,
+        source: String?,
+        updatedAt: Double?
+    )?
+    var resumeClearExpectedUpdatedAt: Double?
     var resumeClearAgentSessionEnded: Bool?
     var resumeClearExpectedBindingUpdatedAt: Double?
     var resumeClearAgentMutationGuard: ControlSidebarAgentMutationGuard?
@@ -15,7 +21,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
         invalidExpectedUpdatedAt: "invalid expected updated at",
         launchCommandMustBeValid: "launch_command must be valid",
-        agentMutationGuardMustBeValid: "agent mutation guard must be valid"
+        agentMutationGuardMustBeValid: "agent mutation guard must be valid",
+        restoreClaimMustBeValid: "restore claim must be valid"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -78,9 +85,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution {
-        resumeResolution
+        resumeGetClaim = (claimCheckpointID, claimSource, claimUpdatedAt)
+        return resumeResolution
     }
 
     func controlSurfaceResumeClear(
@@ -91,11 +102,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         expectedSource: String?,
         agentSessionEnded: Bool,
         expectedBindingUpdatedAt: Double?,
+        expectedUpdatedAt: Double?,
         agentMutationGuard: ControlSidebarAgentMutationGuard?
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded
         resumeClearExpectedBindingUpdatedAt = expectedBindingUpdatedAt
         resumeClearAgentMutationGuard = agentMutationGuard
+        resumeClearExpectedUpdatedAt = expectedUpdatedAt
         return resumeResolution
     }
 

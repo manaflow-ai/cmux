@@ -385,7 +385,9 @@ extension Workspace {
             return
         }
         binding.autoResume = false
-        surfaceResumeBindingsByPanelId[panelId] = binding
+        if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+            surfaceResumeBindingsByPanelId[panelId] = binding
+        }
     }
 
     /// Keep an in-flight restored launch tied to the same structured binding
@@ -865,7 +867,11 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            guard index.isComplete else {
+            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
+            guard index.isComplete(
+                forPanelId: restore.stablePanelID,
+                kind: expectedKind
+            ) else {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
@@ -903,7 +909,6 @@ extension Workspace {
                 }
             }
             let ownershipPanelID = restore.stablePanelID
-            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
             // Deferred admission has no exact-owner snapshot that can override a
             // stable-panel tie, so structural ambiguity remains fail-closed even
@@ -1172,6 +1177,13 @@ extension Workspace {
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
         return fallback ?? .unknown
+    }
+
+    func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
+        AgentHibernationLifecycleState.aggregateForTextBoxEscape(
+            statusKeyedStates: (agentLifecycleRecordsByPanelId[panelId] ?? [:])
+                .mapValues(\.state)
+        )
     }
 
     func agentWaitSurfaceSnapshot(surfaceID: UUID) -> AgentWaitSurfaceSnapshot? {
