@@ -327,6 +327,7 @@ private struct MobileIPadPrimaryBar: View {
         .frame(minHeight: 64)
         .padding(.vertical, 4)
         .background(.bar)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobilePrimaryTabBar")
     }
 

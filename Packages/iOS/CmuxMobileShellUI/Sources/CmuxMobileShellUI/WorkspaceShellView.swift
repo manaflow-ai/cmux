@@ -175,9 +175,7 @@ private struct WorkspaceSplitSidebarWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        let next = nextValue()
-        guard next > 0 else { return }
-        value = next
+        value = max(0, nextValue())
     }
 }
 
