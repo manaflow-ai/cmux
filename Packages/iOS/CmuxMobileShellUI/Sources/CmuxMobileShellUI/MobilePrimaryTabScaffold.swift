@@ -338,8 +338,11 @@ private struct MobileIPadPrimaryBar: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(minHeight: 64)
-        .padding(.vertical, 4)
+        // `safeAreaInset` uses the child's ideal height. A bare
+        // `GeometryReader` has no useful ideal height and can expand to the
+        // entire screen, starving the destination and centering the rail.
+        // Keep the rail a compact, explicit bottom band.
+        .frame(height: 72)
         .background(.bar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobilePrimaryTabBar")
