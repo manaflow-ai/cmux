@@ -24,19 +24,25 @@ fi
 # an older image (other ble version dir, or entries stale against a newer
 # lib/init-term.sh — ble.sh regenerates and prints unless the cache file is
 # NEWER than that file), so copy each seed entry that is missing or stale.
-# Plain cp (not -a) stamps now, which always beats init-term.sh.
+# Copy through a same-directory temporary so a concurrent shell never reads a
+# partially-written cache file.
 if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
   __cmux_cache_base="${XDG_CACHE_HOME:-$HOME/.cache}"
   for __cmux_seed in /etc/cmux/blesh-cache-seed/blesh/*/term.*; do
     [ -f "$__cmux_seed" ] || continue
     __cmux_dst="$__cmux_cache_base/${__cmux_seed#/etc/cmux/blesh-cache-seed/}"
     if [ ! -f "$__cmux_dst" ] || [ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]; then
-      mkdir -p "${__cmux_dst%/*}" 2>/dev/null \
-        && cp "$__cmux_seed" "$__cmux_dst" 2>/dev/null \
-        || true
+      __cmux_tmp="${__cmux_dst}.tmp.$$"
+      if mkdir -p "${__cmux_dst%/*}" 2>/dev/null \
+        && cp "$__cmux_seed" "$__cmux_tmp" 2>/dev/null \
+        && mv -f "$__cmux_tmp" "$__cmux_dst" 2>/dev/null; then
+        :
+      else
+        rm -f "$__cmux_tmp" 2>/dev/null || true
+      fi
     fi
   done
-  unset __cmux_cache_base __cmux_seed __cmux_dst
+  unset __cmux_cache_base __cmux_seed __cmux_dst __cmux_tmp
 fi
 
 if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then

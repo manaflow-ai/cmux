@@ -151,6 +151,8 @@ def _bash_candidates() -> list[tuple[str, Path, tuple[int, int, int]]]:
             f"{path} ({version[0]}.{version[1]}.{version[2]})"
             for _, path, version in candidates
         ) or "none"
+        if configured_legacy is None and os.environ.get("GITHUB_ACTIONS") != "true":
+            return []
         raise AssertionError(
             "the regression requires distinct Bash 3.2 and newer Bash executables; "
             f"found {versions}. Set CMUX_BASH_32_BIN and CMUX_BASH_NEW_BIN explicitly."
@@ -230,6 +232,9 @@ def test_prompt_command_is_not_exported_to_nested_bash() -> None:
     assert (GHOSTTY_RESOURCES_DIR / "shell-integration" / "bash" / "ghostty.bash").exists()
 
     bash_bins = _bash_candidates()
+    if not bash_bins:
+        print("SKIP: Bash 3.2 and newer Bash are unavailable outside CI")
+        return
 
     for label, bash_bin, version in bash_bins:
         proc = _run_driver(bash_bin)
