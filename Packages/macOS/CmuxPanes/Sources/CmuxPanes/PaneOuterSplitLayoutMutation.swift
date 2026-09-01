@@ -76,10 +76,13 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             }
         }
 
-        var leaves: [LayoutPane] {
+        func appendLeaves(to result: inout [LayoutPane]) {
             switch self {
-            case .pane(let pane): [pane]
-            case .split(let split): split.first.leaves + split.second.leaves
+            case .pane(let pane):
+                result.append(pane)
+            case .split(let split):
+                split.first.appendLeaves(to: &result)
+                split.second.appendLeaves(to: &result)
             }
         }
     }
@@ -116,7 +119,7 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         // Every normal cmux pane owns at least one live surface. Refuse a
         // transient empty tree rather than risk collapsing a pane while the
         // live tabs are being redistributed.
-        guard layout.leaves.allSatisfy({ !$0.tabIds.isEmpty }) else {
+        guard leaves(of: layout).allSatisfy({ !$0.tabIds.isEmpty }) else {
             return false
         }
 
@@ -218,7 +221,7 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
         // deliberately left with its desired tabs until the end so Bonsplit's
         // automatic empty-source collapse cannot remove the preserved source
         // pane identity.
-        let desiredLeaves = desiredLayout.leaves
+        let desiredLeaves = leaves(of: desiredLayout)
         var nextInsertionIndexByPane: [PaneID: Int] = [:]
         for layoutPane in desiredLeaves where layoutPane.id != paneId {
             guard let targetPane = generatedPaneByOriginalPane[layoutPane.id] else {
@@ -273,6 +276,13 @@ public struct PaneOuterSplitLayoutMutation: PaneOuterSplitLayoutMutating {
             controller.selectTab(selectedTabId)
         }
         return true
+    }
+
+    private func leaves(of node: LayoutNode) -> [LayoutPane] {
+        var result: [LayoutPane] = []
+        result.reserveCapacity(node.paneCount)
+        node.appendLeaves(to: &result)
+        return result
     }
 
     private func captureLayout(
