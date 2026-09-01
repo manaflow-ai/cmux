@@ -8,8 +8,9 @@ const fitDimensions = { cols: 80, rows: 24 };
 type TerminalMock = {
   options: Record<string, unknown>;
   writes: Array<string | Uint8Array>;
-  customKeyEventHandler?: (event: KeyboardEvent) => boolean;
-};
+  disableStdinDuringWrites: boolean[];
+    customKeyEventHandler?: (event: KeyboardEvent) => boolean;
+  };
 const terminalMocks = vi.hoisted(() => ({
   instances: [] as TerminalMock[],
 }));
@@ -31,6 +32,7 @@ vi.mock("@xterm/xterm", () => ({
     constructor(options: Record<string, unknown>) {
       this.options = options;
       terminalMocks.instances.push(this);
+      this.disableStdinDuringWrites = [];
     }
 
     loadAddon() {}
@@ -42,6 +44,7 @@ vi.mock("@xterm/xterm", () => ({
     resize() {}
     write(data: string | Uint8Array, callback?: () => void) {
       this.writes.push(data);
+      this.disableStdinDuringWrites.push(this.options.disableStdin === true);
       if (data instanceof Uint8Array && data.length > 0) {
         this.options.theme = {
           ...(this.options.theme as Record<string, unknown>),
@@ -279,6 +282,47 @@ describe("attached terminal sizing", () => {
     expect(handler(event)).toBe(false);
     expect(event.defaultPrevented).toBe(true);
     expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it("blocks editing input while a resize replay replaces the terminal buffer", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const client = {
+      attachSurface: vi.fn(async () => new TestStream([
+        {
+          event: "vt-state",
+          surface: 7n,
+          cols: 80,
+          rows: 24,
+          data: new Uint8Array([1]),
+          colors: {},
+        },
+        {
+          event: "resized",
+          surface: 7n,
+          cols: 100,
+          rows: 30,
+          data: new Uint8Array([2]),
+          replay: new Uint8Array([2]),
+          colors: {},
+        },
+      ])),
+      resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
+      releaseSurfaceSize: vi.fn(async () => ({})),
+      send: vi.fn(async () => ({})),
+    } as unknown as CmuxClient;
+
+    const view = render(<Harness client={client} />);
+    await waitFor(() => expect(terminalMocks.instances[0]?.writes).toHaveLength(2));
+
+    const terminal = terminalMocks.instances[0];
+    if (terminal === undefined) throw new Error("xterm terminal was not created");
+    expect(terminal.disableStdinDuringWrites).toEqual([true, true]);
+    expect(terminal.options.disableStdin).toBe(false);
+    view.unmount();
   });
 
   it("applies sparse palette overrides after replay and on color changes", async () => {
