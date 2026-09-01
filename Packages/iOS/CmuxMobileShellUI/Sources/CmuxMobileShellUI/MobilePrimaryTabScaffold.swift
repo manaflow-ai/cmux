@@ -348,8 +348,19 @@ private struct MobileIPadPrimaryBar: View {
 
     var body: some View {
         GeometryReader { geometry in
+            // NavigationSplitView can report its sidebar preference one
+            // layout pass after the rail mounts. Keep the first frame wide
+            // enough for the two tab buttons and align it with the split's
+            // balanced 320...440pt sidebar until the live measurement arrives.
+            let fallbackSidebarWidth = min(
+                440,
+                max(360, geometry.size.width * 0.43)
+            )
+            let measuredSidebarWidth = sidebarWidth > 0
+                ? sidebarWidth
+                : fallbackSidebarWidth
             let controlsWidth = sidebarVisible
-                ? min(geometry.size.width, max(sidebarWidth, 280))
+                ? min(geometry.size.width, max(measuredSidebarWidth, 360))
                 : min(geometry.size.width, 420)
 
             HStack(spacing: 8) {
