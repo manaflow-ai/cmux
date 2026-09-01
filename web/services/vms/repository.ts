@@ -165,6 +165,11 @@ export type VmRepositoryShape = {
     readonly before: Date;
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly recentReaperReportKeys: (input: {
+    readonly eventType: string;
+    readonly keys: readonly string[];
+    readonly since: Date;
+  }) => Effect.Effect<string[], VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -411,6 +416,16 @@ function boundedReaperVolumeNames(names: readonly string[]): string[] {
   if (normalized.length > VM_REAPER_REFERENCE_NAME_LIMIT) {
     throw new Error(
       `VM reaper reference query has ${normalized.length} names; maximum is ${VM_REAPER_REFERENCE_NAME_LIMIT}`,
+    );
+  }
+  return normalized;
+}
+
+function boundedReaperKeys(keys: readonly string[]): string[] {
+  const normalized = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+  if (normalized.length > VM_REAPER_REFERENCE_NAME_LIMIT) {
+    throw new Error(
+      `VM reaper report key query has ${normalized.length} keys; maximum is ${VM_REAPER_REFERENCE_NAME_LIMIT}`,
     );
   }
   return normalized;
@@ -1204,6 +1219,30 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .filter((name): name is string => !!name);
     }),
 
+  recentReaperReportKeys: (input) =>
+    dbEffect("recentReaperReportKeys", async () => {
+      const keys = boundedReaperKeys(input.keys);
+      // An empty key list must never become an unbounded usage-event scan.
+      if (keys.length === 0) return [];
+      const db = cloudDb();
+      const reportKey = input.eventType === "vm.reaper.orphan_volume"
+        ? sql<string | null>`${cloudVmUsageEvents.metadata}->>'volumeName'`
+        : sql<string | null>`${cloudVmUsageEvents.vmId}::text`;
+      const rows = await db
+        .select({ key: reportKey })
+        .from(cloudVmUsageEvents)
+        .where(and(
+          eq(cloudVmUsageEvents.eventType, input.eventType),
+          gt(cloudVmUsageEvents.createdAt, input.since),
+          inArray(reportKey, keys),
+        ));
+      return [...new Set(
+        rows
+          .map((row) => row.key?.trim())
+          .filter((key): key is string => !!key),
+      )];
+    }),
+
   stuckProvisioningCandidates: (input) =>
     dbEffect("stuckProvisioningCandidates", async () => {
       const db = cloudDb();
@@ -1212,9 +1251,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .from(cloudVms)
         .where(and(
           eq(cloudVms.status, "provisioning"),
-          lt(cloudVms.createdAt, input.before),
+          lt(cloudVms.updatedAt, input.before),
         ))
-        .orderBy(asc(cloudVms.createdAt), asc(cloudVms.id))
+        .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(input.limit);
     }),
 

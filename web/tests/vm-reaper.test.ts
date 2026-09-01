@@ -57,6 +57,7 @@ function baseRepository(): VmRepositoryShape {
     upsertVmSession: () => Effect.die("unused"),
     activeIdentityLeases: () => Effect.succeed([]),
     markLeasesRevoked: () => Effect.die("unexpected lifecycle write"),
+    recentReaperReportKeys: () => Effect.succeed([]),
     recordUsageEvent: () => Effect.void,
     recordUsageEvents: () => Effect.void,
   } as unknown as VmRepositoryShape;
@@ -204,7 +205,11 @@ describe("Cloud VM reaper report", () => {
 
   test("reports stale provisioning rows without provider reads or repository status writes", async () => {
     const usage: Array<Record<string, unknown>> = [];
-    const row = vmRow({ providerVmId: null });
+    const row = vmRow({
+      providerVmId: null,
+      createdAt: new Date(NOW.getTime() - 8 * 60 * 60 * 1000),
+      updatedAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1000),
+    });
     let statusReads = 0;
     const repo = repository({
       stuckProvisioningCandidates: () => Effect.succeed([row]),
@@ -229,7 +234,123 @@ describe("Cloud VM reaper report", () => {
     expect(usage).toContainEqual(expect.objectContaining({
       eventType: "vm.reaper.stuck_provisioning",
       vmId: row.id,
-      metadata: expect.objectContaining({ reason: "age_over_threshold" }),
+      metadata: expect.objectContaining({ reason: "age_over_threshold", ageMinutes: 120 }),
+    }));
+  });
+
+  test("excludes recent reports before applying each report limit", async () => {
+    const usage: Array<Record<string, unknown>> = [];
+    const firstVolumeName = "cmux-home-aaaaaaaaaaaa-first-volume";
+    const laterVolumeName = "cmux-home-bbbbbbbbbbbb-later-volume";
+    const firstRow = vmRow({
+      id: "00000000-0000-4000-8000-000000000011",
+      createdAt: new Date(NOW.getTime() - 6 * 60 * 60 * 1000),
+      updatedAt: new Date(NOW.getTime() - 4 * 60 * 60 * 1000),
+    });
+    const laterRow = vmRow({
+      id: "00000000-0000-4000-8000-000000000012",
+      createdAt: new Date(NOW.getTime() - 5 * 60 * 60 * 1000),
+      updatedAt: new Date(NOW.getTime() - 3 * 60 * 60 * 1000),
+    });
+    const recentLookups: Array<{ eventType: string; keys: string[]; since: Date }> = [];
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      stuckProvisioningCandidates: () => Effect.succeed([firstRow, laterRow]),
+      recentReaperReportKeys: (input) => Effect.sync(() => {
+        recentLookups.push({ ...input, keys: [...input.keys] });
+        return input.eventType === "vm.reaper.orphan_volume"
+          ? [firstVolumeName]
+          : [firstRow.id];
+      }),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
+    const provider = {
+      ...baseProvider(),
+      listVolumes: () => Effect.succeed([
+        oldVolume(firstVolumeName, { createdAt: NOW.getTime() - 4 * 60 * 60 * 1000 }),
+        oldVolume(laterVolumeName, { createdAt: NOW.getTime() - 3 * 60 * 60 * 1000 }),
+      ]),
+    } as unknown as VmProviderGatewayShape;
+
+    const result = await runReaper(repo, provider, {
+      volumeLimit: 1,
+      volumeScanLimit: 2,
+      provisioningLimit: 1,
+    });
+
+    expect(result.orphanVolumes.candidates).toBe(1);
+    expect(result.orphanVolumes.reported).toBe(1);
+    expect(result.orphanVolumes.skipped).toBe(1);
+    expect(result.stuckProvisioning.candidates).toBe(1);
+    expect(result.stuckProvisioning.reported).toBe(1);
+    expect(result.stuckProvisioning.skipped).toBe(1);
+    expect(recentLookups).toHaveLength(2);
+    expect(usage).toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.orphan_volume",
+      metadata: expect.objectContaining({ volumeName: laterVolumeName }),
+    }));
+    expect(usage).not.toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.orphan_volume",
+      metadata: expect.objectContaining({ volumeName: firstVolumeName }),
+    }));
+    expect(usage).toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.stuck_provisioning",
+      vmId: laterRow.id,
+    }));
+    expect(usage).not.toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.stuck_provisioning",
+      vmId: firstRow.id,
+    }));
+  });
+
+  test("skips orphan volumes that are younger than the grace period or have unknown age", async () => {
+    const usage: Array<Record<string, unknown>> = [];
+    const repo = repository({
+      listLiveHomeVolumeNames: () => Effect.succeed([]),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
+    const provider = {
+      ...baseProvider(),
+      listVolumes: () => Effect.succeed([
+        oldVolume("cmux-home-cccccccccccc-young", {
+          createdAt: new Date(NOW.getTime() - 30 * 60 * 1000),
+        } as unknown as Partial<VMVolume>),
+        oldVolume("cmux-home-dddddddddddd-unknown", {
+          createdAt: "not-a-date",
+        } as unknown as Partial<VMVolume>),
+      ]),
+    } as unknown as VmProviderGatewayShape;
+
+    const result = await runReaper(repo, provider, { volumeScanLimit: 10 });
+
+    expect(result.orphanVolumes.candidates).toBe(0);
+    expect(result.orphanVolumes.reported).toBe(0);
+    expect(result.orphanVolumes.skipped).toBe(2);
+    expect(usage).toHaveLength(0);
+  });
+
+  test("does not report a provisioning row with a fresh updatedAt", async () => {
+    const usage: Array<Record<string, unknown>> = [];
+    const row = vmRow({
+      createdAt: new Date(NOW.getTime() - 8 * 60 * 60 * 1000),
+      updatedAt: new Date(NOW.getTime() - 5 * 60 * 1000),
+    });
+    const repo = repository({
+      stuckProvisioningCandidates: () => Effect.succeed([row]),
+      recordUsageEvent: (event) => Effect.sync(() => usage.push(event as Record<string, unknown>)),
+    });
+    const provider = {
+      ...baseProvider(),
+      listVolumes: () => Effect.succeed([]),
+    } as unknown as VmProviderGatewayShape;
+
+    const result = await runReaper(repo, provider);
+
+    expect(result.stuckProvisioning.candidates).toBe(0);
+    expect(result.stuckProvisioning.reported).toBe(0);
+    expect(usage).not.toContainEqual(expect.objectContaining({
+      eventType: "vm.reaper.stuck_provisioning",
+      vmId: row.id,
     }));
   });
 
