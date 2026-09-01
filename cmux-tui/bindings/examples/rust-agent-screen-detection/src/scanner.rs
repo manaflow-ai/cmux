@@ -79,10 +79,17 @@ impl ScannerState {
     }
 
     fn retain_terminals(&mut self, live: &HashSet<String>) {
-        self.tracker.retain_terminals(|terminal_id| live.contains(terminal_id));
-        self.process_cache.retain_terminals(|terminal_id| live.contains(terminal_id));
-        self.process_info_cache.retain_terminals(|terminal_id| live.contains(terminal_id));
-        self.pending_appends.retain(|terminal_id, _| live.contains(terminal_id));
+        // Keep the in-memory tracker and probe caches for an uncertain
+        // envelope until replay settles it. Otherwise a later successful
+        // replay would be followed by a duplicate identity edge.
+        let mut retained = live.clone();
+        retained.extend(self.pending_appends.keys().cloned());
+        self.tracker.retain_terminals(|terminal_id| retained.contains(terminal_id));
+        self.process_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
+        self.process_info_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
+        // Pending appends are exact journal envelopes. They can have been
+        // committed even when this catalog snapshot briefly omits a terminal,
+        // so the replay path owns their lifetime instead of catalog pruning.
     }
 }
 
@@ -238,6 +245,12 @@ fn scan_connection(
             .iter()
             .map(|snapshot| snapshot.id.as_str().to_string())
             .collect::<HashSet<_>>();
+        retry_pending_appends_without_live_terminal(
+            session,
+            &live_ids,
+            &mut state.tracker,
+            &mut state.pending_appends,
+        );
         state.retain_terminals(&live_ids);
         for snapshot in snapshots {
             let terminal = session.terminal(snapshot.id.clone());
@@ -478,8 +491,12 @@ fn scan_terminal(
     // A transport failure after dispatch leaves the mutation outcome
     // uncertain. Replay the retained envelope before taking a new process or
     // screen sample, otherwise a newer edge could overtake the old one.
-    if retry_pending_append(terminal, &terminal_id, &mut state.tracker, &mut state.pending_appends)?
-    {
+    if retry_pending_append(
+        terminal.session(),
+        &terminal_id,
+        &mut state.tracker,
+        &mut state.pending_appends,
+    )? {
         return Ok(());
     }
     let now = Instant::now();
@@ -699,20 +716,18 @@ fn prepare_emission(
 }
 
 fn append_prepared(
-    terminal: &Terminal,
+    session: &Session,
     pending: &PendingAppend,
 ) -> Result<JournalAppendResult, AppendError> {
     let mutation = MutationOptions::new(pending.idempotency_key.clone())
         .map_err(|error| AppendError::Definite(error.to_string()))?;
-    terminal
-        .session()
-        .append_journal_event(&pending.ingress, mutation)
-        .map(|result| result.value)
-        .map_err(|error| {
+    session.append_journal_event(&pending.ingress, mutation).map(|result| result.value).map_err(
+        |error| {
             let uncertain = matches!(&error, cmux::Error::MutationTransport { .. });
             let message = error.to_string();
             if uncertain { AppendError::Uncertain(message) } else { AppendError::Definite(message) }
-        })
+        },
+    )
 }
 
 fn retry_backoff(attempts: u32) -> Duration {
@@ -728,7 +743,7 @@ fn retry_backoff(attempts: u32) -> Duration {
 /// Retry one retained envelope before the scanner observes a newer state.
 /// Returns `true` while the terminal remains blocked on that retry.
 fn retry_pending_append(
-    terminal: &Terminal,
+    session: &Session,
     terminal_id: &str,
     tracker: &mut ScreenDetectTracker,
     pending_appends: &mut HashMap<String, PendingAppend>,
@@ -739,7 +754,7 @@ fn retry_pending_append(
     if Instant::now() < pending.retry_not_before {
         return Ok(true);
     }
-    match append_prepared(terminal, &pending) {
+    match append_prepared(session, &pending) {
         Ok(_) => {
             pending_appends.remove(terminal_id);
             tracker.commit_emission(&pending.emission);
@@ -760,6 +775,30 @@ fn retry_pending_append(
             pending_appends.remove(terminal_id);
             tracker.discard_emission(&pending.emission);
             Err(error.message().to_string())
+        }
+    }
+}
+
+/// Retry exact envelopes for terminals absent from one catalog snapshot. A
+/// terminal list can race with PTY closure or recreation; dropping the
+/// envelope here would either lose a committed edge or publish a duplicate
+/// edge with a new idempotency key when the terminal returns.
+fn retry_pending_appends_without_live_terminal(
+    session: &Session,
+    live_ids: &HashSet<String>,
+    tracker: &mut ScreenDetectTracker,
+    pending_appends: &mut HashMap<String, PendingAppend>,
+) {
+    let absent_ids = pending_appends
+        .keys()
+        .filter(|terminal_id| !live_ids.contains(*terminal_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    for terminal_id in absent_ids {
+        if let Err(error) = retry_pending_append(session, &terminal_id, tracker, pending_appends) {
+            eprintln!(
+                "cmux-agent-screen-detection: dropping pending journal append for {terminal_id}: {error}"
+            );
         }
     }
 }
@@ -806,7 +845,7 @@ fn publish_emission(
         .get(&terminal_id)
         .cloned()
         .expect("pending emission was inserted above");
-    match append_prepared(terminal, &pending) {
+    match append_prepared(terminal.session(), &pending) {
         Ok(_) => {
             state.pending_appends.remove(&terminal_id);
             state.tracker.commit_emission(emission);
@@ -1034,6 +1073,11 @@ mod tests {
     fn terminal_retention_keeps_uncertain_appends_for_replay() {
         let terminal_id = "terminal-1".to_string();
         let mut state = ScannerState::new();
+        let now = Instant::now();
+        state.tracker.note_foreground_agent_at(&terminal_id, Some("codex"), now);
+        let emission =
+            state.tracker.record_identity_presence_at(&terminal_id, "codex", now).unwrap();
+        state.tracker.commit_emission(&emission);
         state.pending_appends.insert(
             terminal_id.clone(),
             PendingAppend {
@@ -1067,5 +1111,6 @@ mod tests {
         state.retain_terminals(&HashSet::new());
 
         assert!(state.pending_appends.contains_key(&terminal_id));
+        assert!(state.tracker.has_live_emission(&terminal_id));
     }
 }
