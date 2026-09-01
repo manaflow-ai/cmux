@@ -383,7 +383,7 @@ impl RestoreReducer {
             return Ok(false);
         };
         if !self.validate_resource_changes(changes)
-            || !self.cursor_accepts(record.resource_revision)?
+            || !self.cursor_accepts(record.resource_revision, record.previous_resource_revision)?
         {
             return Ok(false);
         }
@@ -538,16 +538,49 @@ impl RestoreReducer {
         Ok(true)
     }
 
-    fn cursor_accepts(&self, revision: Option<u64>) -> anyhow::Result<bool> {
-        if revision.is_none() {
-            return Ok(true);
-        }
+    fn cursor_accepts(
+        &self,
+        revision: Option<u64>,
+        previous_revision: Option<u64>,
+    ) -> anyhow::Result<bool> {
+        let Some(revision) = revision else {
+            return Ok(previous_revision.is_none());
+        };
         let snapshot = self
             .state
             .get("session_snapshot")
             .and_then(Value::as_object)
             .context("checkpoint session_snapshot is not an object")?;
-        Ok(snapshot.get("cursor").is_none_or(|cursor| cursor.is_null() || cursor.is_object()))
+        let Some(cursor) = snapshot.get("cursor") else {
+            return Ok(previous_revision.is_some_and(|previous| {
+                previous.checked_add(1) == Some(revision)
+            }));
+        };
+        if cursor.is_null() {
+            return Ok(previous_revision.is_some_and(|previous| {
+                previous.checked_add(1) == Some(revision)
+            }));
+        }
+        let Some(cursor) = cursor.as_object() else {
+            anyhow::bail!("checkpoint cursor is not an object");
+        };
+        let Some(cursor_revision) = cursor.get("revision") else { return Ok(false) };
+        let cursor_revision = match cursor_revision {
+            Value::String(value) => value
+                .parse::<u64>()
+                .context("checkpoint cursor revision is not an unsigned integer")?,
+            Value::Number(value) => {
+                value.as_u64().context("checkpoint cursor revision is not an unsigned integer")?
+            }
+            _ => anyhow::bail!("checkpoint cursor revision is not an unsigned integer"),
+        };
+        let expected_revision = cursor_revision.checked_add(1);
+        Ok(match previous_revision {
+            Some(previous_revision) => {
+                previous_revision == cursor_revision && expected_revision == Some(revision)
+            }
+            None => expected_revision == Some(revision),
+        })
     }
 
     fn validate_resource_changes(&self, changes: &[Value]) -> bool {
@@ -872,16 +905,45 @@ mod tests {
             sha256: "00".repeat(32),
             created_at_ms: 1,
         };
-        let records = vec![
-            resource_record(4, 2, 1, "workspace_one"),
-            resource_record(5, 3, 2, "workspace_two"),
-        ];
+        let mut first = resource_record(4, 2, 1, "workspace_one");
+        first.previous_resource_revision = None;
+        let records = vec![first, resource_record(5, 3, 2, "workspace_two")];
 
         let preview = restore_preview(&checkpoint, &records, 5).unwrap();
 
         assert_eq!(preview["fully_reducible"], true);
         assert_eq!(preview["unsupported_required_record_count"], "0");
         assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "3");
+    }
+
+    #[test]
+    fn reducer_accepts_resource_revisions_without_checkpoint_cursor() {
+        let mut checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_missing_resource_cursor".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({
+                "session_snapshot":{
+                    "workspaces":[],
+                },
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let record = resource_record(4, 3, 2, "workspace_new");
+
+        let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
+
+        assert_eq!(preview["fully_reducible"], true);
+        assert_eq!(preview["unsupported_required_record_count"], "0");
+        assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "3");
+
+        checkpoint.state["session_snapshot"]["cursor"] = Value::Null;
+        let preview = restore_preview(&checkpoint, &[resource_record(4, 3, 2, "workspace_new")], 4)
+            .unwrap();
+        assert_eq!(preview["fully_reducible"], true);
     }
 
     #[test]
