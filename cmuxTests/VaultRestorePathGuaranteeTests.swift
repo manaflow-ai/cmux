@@ -25,6 +25,15 @@ struct VaultRestorePathGuaranteeTests {
         #expect(launch.startupRestoreAgent?.workingDirectory == entry.cwd)
     }
 
+    @Test(arguments: ["claude", "codex", "grok", "opencode", "rovodev", "hermes-agent"])
+    func everyBuiltInEntryUsesTheSameSelectorForRemoteHost(_ rawKind: String) throws {
+        let launch = try #require(Self.entry(for: rawKind).resumeLaunch)
+
+        #expect(launch.startupInput(for: .loginShell) == launch.initialInput)
+        #expect(launch.startupInput(for: .remoteHost) == launch.initialInput)
+        #expect(launch.initialInput.contains(" restore \(rawKind) "))
+    }
+
     @Test
     func rovodevRestoreRecordKeepsTheProviderRestoreSelector() throws {
         let entry = Self.entry(for: "rovodev")
@@ -171,6 +180,35 @@ struct VaultRestorePathGuaranteeTests {
         )
 
         #expect(entry.resumeLaunch == nil)
+    }
+
+    @Test
+    func compatibilityInputIsBoundedWhenItIsAdmitted() throws {
+        let registration = CmuxVaultAgentRegistration(
+            id: "legacy boundary agent",
+            name: "Legacy boundary agent",
+            detect: CmuxVaultAgentDetectRule(processName: "legacy-boundary-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "legacy-boundary-agent --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let entry = SessionEntry(
+            id: "legacy boundary agent:boundary-session",
+            agent: .registered(RegisteredSessionAgent(registration: registration)),
+            sessionId: "boundary-session",
+            title: "Legacy boundary session",
+            cwd: "/tmp/legacy-boundary-project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_106),
+            fileURL: nil,
+            specifics: .registered(registration)
+        )
+        let launch = try #require(entry.resumeLaunch)
+
+        #expect(launch.strategy == .legacyCommand)
+        #expect(launch.legacyFallbackReason == .unrepresentableRegistration)
+        #expect(launch.initialInput.utf8.count <= SessionEntryResumeLaunch.maximumLegacyResumeInputBytes)
     }
 
     @Test
