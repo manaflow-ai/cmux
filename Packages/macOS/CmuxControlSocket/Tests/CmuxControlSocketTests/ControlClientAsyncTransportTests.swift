@@ -1,10 +1,25 @@
 import CmuxControlSocket
 import Darwin
 import Foundation
+import os
 import Testing
 
 @Suite("Async control-client transport")
 struct ControlClientAsyncTransportTests {
+    /// Test-only counter used by the partial-line budget scenario. The
+    /// reader's continuation is `@Sendable`, so the counter needs a small
+    /// synchronous gate even though only the reader task mutates it.
+    private final class CallCounter: @unchecked Sendable {
+        private let value = OSAllocatedUnfairLock(initialState: 0)
+
+        func incrementAndRead() -> Int {
+            value.withLock {
+                $0 += 1
+                return $0
+            }
+        }
+    }
+
     @Test func asyncReaderFramesUtf8WithoutBlockingTheCaller() async throws {
         let pair = try UnixSocketFixture.makeSocketPair()
         defer {
@@ -99,21 +114,66 @@ struct ControlClientAsyncTransportTests {
             maximumBufferedBytes: 64 * 1024
         )
         var expected = ""
+        let deadline = Date().addingTimeInterval(5)
+        var drainedEveryWrite = true
         for index in 0..<200 {
             let byte: [UInt8] = [UInt8(65 + (index % 26))]
             expected.append(Character(UnicodeScalar(byte[0])))
-            #expect(writeFully(byte, to: pair.writer))
+            guard writeFully(byte, to: pair.writer) else {
+                drainedEveryWrite = false
+                break
+            }
             // Deadline-poll the drain's byte accounting so every write is
             // drained (one queued chunk each) before the next one, keeping
             // the many-short-chunks shape deterministic under load.
-            let deadline = Date().addingTimeInterval(5)
             while reader.queuedUnconsumedBytesForTesting < index + 1, Date() < deadline {
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
-            #expect(reader.queuedUnconsumedBytesForTesting == index + 1)
+            guard reader.queuedUnconsumedBytesForTesting == index + 1 else {
+                drainedEveryWrite = false
+                break
+            }
         }
+        try #require(drainedEveryWrite)
         #expect(writeFully([0x0A], to: pair.writer))
         #expect(await reader.nextLine(shouldContinueReading: { true }) == expected)
+    }
+
+    /// The byte cap covers both parser-owned partial lines and chunks waiting
+    /// in the stream; a queued chunk must be rejected when the combined budget
+    /// would exceed the connection limit.
+    @Test func asyncReaderSharesTheByteCapWithPendingPartialLines() async throws {
+        let pair = try UnixSocketFixture.makeSocketPair()
+        defer {
+            close(pair.reader)
+            close(pair.writer)
+        }
+
+        let reader = ControlClientAsyncLineReader(
+            socket: pair.reader,
+            maximumBufferedBytes: 8
+        )
+        let shouldContinueCounter = CallCounter()
+        let firstRead = Task {
+            return await reader.nextLine {
+                let shouldContinueCalls = shouldContinueCounter.incrementAndRead()
+                // Consume the first partial chunk, then leave it in the
+                // parser so the next write competes for the same byte budget.
+                return shouldContinueCalls == 1
+            }
+        }
+        #expect(writeFully(Array("abcd".utf8), to: pair.writer))
+        #expect(await firstRead.value == nil)
+
+        // Five queued bytes plus the four pending bytes exceed the eight-byte
+        // cap. The drain must close before yielding those five bytes; the old
+        // split queue/pending limits incorrectly retained them.
+        #expect(writeFully(Array("12345".utf8), to: pair.writer))
+        let deadline = Date().addingTimeInterval(5)
+        while reader.queuedUnconsumedBytesForTesting < 5, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(reader.queuedUnconsumedBytesForTesting == 0)
     }
 
     /// `maximumBufferedBytes` is caller-provided; an `Int.max` cap must not
