@@ -27587,6 +27587,53 @@ mod tests {
     }
 
     #[test]
+    fn failed_semantic_drag_does_not_keep_a_stale_selection() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("failed-semantic-drag-selection-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 1,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((0, 0), (4, 0))),
+            "the second press must establish the semantic selection before the drag"
+        );
+
+        // Leave the rendered pane geometry unchanged, but shrink Ghostty's
+        // grid so the next pointer cell is no longer a valid semantic point.
+        surface
+            .with_terminal(|terminal| terminal.resize(2, 8, 8, 16).unwrap())
+            .expect("selection fixture surface must remain a PTY");
+        let invalid_drag = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(invalid_drag).unwrap();
+        assert!(
+            app.selection.is_none(),
+            "a failed semantic drag must clear the old selection before release"
+        );
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            ..invalid_drag
+        })
+        .unwrap();
+        assert!(app.selection.is_none(), "release must not copy or retain stale semantic text");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn single_click_drag_does_not_seed_a_double_click() {
         let (mut app, mux, surface, content) =
             selection_fixture("single-click-drag-repeat-test", b"alpha beta gamma");
