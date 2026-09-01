@@ -79,6 +79,41 @@ struct CmuxValidatedImageAssetTests {
     }
 
     @Test
+    func rejectsLargerReplacementAfterMetadataCheckWithBoundedRead() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-validated-image-replacement-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let imageURL = directory.appendingPathComponent("icon.png")
+        try Data(repeating: 0x01, count: 1).write(to: imageURL)
+        var replacementPerformed = false
+        var bytesRead: Int?
+
+        let result = CmuxValidatedImageAsset.prepare(
+            imageURL.path,
+            relativeToConfig: nil,
+            globalConfigPath: directory.appendingPathComponent("cmux.json").path,
+            readContents: { path in
+                // Replace the file after metadata validation, modeling the
+                // TOCTOU window that must not trigger an unbounded read.
+                replacementPerformed = true
+                try? Data(
+                    repeating: 0x02,
+                    count: CmuxValidatedImageAsset.maxImageBytes + 1
+                ).write(to: URL(fileURLWithPath: path), options: .atomic)
+                let data = CmuxValidatedImageAsset.boundedImageContents(atPath: path)
+                bytesRead = data?.count
+                return data
+            }
+        )
+
+        #expect(replacementPerformed)
+        #expect(bytesRead == CmuxValidatedImageAsset.maxImageBytes + 1)
+        #expect(result == .failure(.tooLarge))
+    }
+
+    @Test
     func rejectsNamespacedAndEscapedSVGContent() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-validated-image-svg-\(UUID().uuidString)", isDirectory: true)

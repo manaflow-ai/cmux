@@ -106,13 +106,15 @@ public struct CmuxValidatedImageAsset {
     ///   - configSourcePath: Config file used to resolve relative paths.
     ///   - globalConfigPath: Canonical global config path used to distinguish
     ///     project-local confinement from global settings.
-    ///   - readContents: Bounded read seam; the default reads from disk.
+    ///   - readContents: Optional read seam for focused tests. When omitted,
+    ///     validation opens one descriptor and reads at most ``maxImageBytes``
+    ///     + 1 bytes.
     /// - Returns: Prepared image data, or a path-free validation failure.
     public static func prepare(
         _ path: String,
         relativeToConfig configSourcePath: String?,
         globalConfigPath: String,
-        readContents: (String) -> Data? = { FileManager.default.contents(atPath: $0) }
+        readContents: ((String) -> Data?)? = nil
     ) -> Result<Prepared, Failure> {
         guard let resolvedPath = safeResolvedImagePath(
             path,
@@ -141,7 +143,13 @@ public struct CmuxValidatedImageAsset {
               fileSize.int64Value <= Int64(maxImageBytes) else {
             return .failure(.tooLarge)
         }
-        guard let data = readContents(resolvedPath) else {
+        let data: Data?
+        if let readContents {
+            data = readContents(resolvedPath)
+        } else {
+            data = boundedImageContents(atPath: resolvedPath)
+        }
+        guard let data else {
             return .failure(.unreadableFile)
         }
         guard data.count <= maxImageBytes else {
@@ -173,6 +181,42 @@ public struct CmuxValidatedImageAsset {
             return (configDir as NSString).deletingLastPathComponent
         }
         return configDir
+    }
+
+    /// Reads at most ``maxBytes`` + 1 bytes from one opened file descriptor.
+    ///
+    /// The extra byte lets the caller distinguish an accepted payload from an
+    /// oversized one without ever materializing an unbounded replacement file.
+    ///
+    /// - Parameters:
+    ///   - path: Regular-file path to read.
+    ///   - maxBytes: Maximum payload size to accept.
+    /// - Returns: Up to `maxBytes + 1` bytes, or `nil` when the descriptor/read
+    ///   cannot be opened.
+    static func boundedImageContents(atPath path: String, maxBytes: Int = maxImageBytes) -> Data? {
+        guard maxBytes >= 0, maxBytes < Int.max,
+              let handle = try? FileHandle(
+                forReadingFrom: URL(fileURLWithPath: path, isDirectory: false)
+              ) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        let readLimit = maxBytes + 1
+        var data = Data()
+        data.reserveCapacity(readLimit)
+        while data.count < readLimit {
+            let remaining = readLimit - data.count
+            let chunk: Data?
+            do {
+                chunk = try handle.read(upToCount: remaining)
+            } catch {
+                return nil
+            }
+            guard let chunk, !chunk.isEmpty else { break }
+            data.append(chunk)
+        }
+        return data
     }
 
     private static func safeResolvedImagePath(
