@@ -30,14 +30,14 @@ public import CmuxTestSupport
 public struct PreferredEditorService: FileOpening {
     /// Executables that require a terminal and cannot be presented by the
     /// GUI process with the preferred-editor launch path.
-    static let terminalEditorNames: Set<String> = [
+    nonisolated static let terminalEditorNames: Set<String> = [
         "vi", "vim", "nvim", "nano", "hx", "helix", "kak",
         "kakoune", "less"
     ]
 
     /// Detects a known terminal editor at the executable position of a
     /// command, including common env wrappers and assignments.
-    static func isTerminalEditorCommand(_ command: String) -> Bool {
+    nonisolated static func isTerminalEditorCommand(_ command: String) -> Bool {
         var tokens = shellWords(command)
         guard !tokens.isEmpty else { return false }
 
@@ -54,10 +54,6 @@ public struct PreferredEditorService: FileOpening {
                         executableIndex += 1
                         break
                     }
-                    if value.contains("=") {
-                        executableIndex += 1
-                        continue
-                    }
                     if value == "-S" || value == "--split-string" {
                         // `env -S` parses its next argument as a fresh
                         // whitespace-delimited command string. Re-tokenize
@@ -70,6 +66,16 @@ public struct PreferredEditorService: FileOpening {
                         }
                         let payload = shellWords(tokens[executableIndex + 1])
                         tokens.replaceSubrange((executableIndex + 1)...(executableIndex + 1), with: payload)
+                        executableIndex += 1
+                        continue
+                    }
+                    if value.hasPrefix("--split-string=") {
+                        let payload = String(value.dropFirst("--split-string=".count))
+                        let splitTokens = shellWords(payload)
+                        tokens.replaceSubrange(executableIndex...executableIndex, with: splitTokens)
+                        continue
+                    }
+                    if value.contains("=") {
                         executableIndex += 1
                         continue
                     }
@@ -92,10 +98,12 @@ public struct PreferredEditorService: FileOpening {
                 while executableIndex < tokens.count, tokens[executableIndex].hasPrefix("-") {
                     let option = tokens[executableIndex]
                     executableIndex += 1
-                    if basename == "nice", option == "-n", executableIndex < tokens.count {
+                    if basename == "exec", option == "-a", executableIndex < tokens.count {
+                        executableIndex += 1
+                    } else if basename == "nice", option == "-n", executableIndex < tokens.count {
                         executableIndex += 1
                     } else if basename == "sudo",
-                              ["-u", "--user", "-g", "--group", "-C", "--chdir", "-D", "--role", "--type"].contains(option),
+                              ["-u", "--user", "-g", "--group", "-C", "--chdir", "-D", "--role", "--type", "-p", "--prompt"].contains(option),
                               executableIndex < tokens.count {
                         executableIndex += 1
                     }
@@ -117,10 +125,15 @@ public struct PreferredEditorService: FileOpening {
         if terminalEditorNames.contains(executable) { return true }
         // Emacs is graphical by default. Only its explicit terminal mode
         // requires a controlling terminal.
-        return executable == "emacs" && tokens.dropFirst(executableIndex + 1).contains("-nw")
+        return executable == "emacs"
+            && tokens.dropFirst(executableIndex + 1).contains {
+                $0 == "-nw" || $0 == "--no-window-system"
+            }
     }
 
-    private static func shellWords(_ command: String) -> [String] {
+    /// Tokenizes the command syntax needed to identify its executable without
+    /// invoking a shell.
+    private nonisolated static func shellWords(_ command: String) -> [String] {
         var words: [String] = [], current = "", quote: Character?, escaped = false
         for character in command {
             if escaped { current.append(character); escaped = false; continue }
