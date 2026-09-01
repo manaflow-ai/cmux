@@ -4441,6 +4441,50 @@ struct CMUXCLI {
 
     private static let claudeCodeStatusKey = "claude_code"
 
+    private static func agentNotificationMeta(
+        category: AgentHookNotifyCategory,
+        isError: Bool,
+        pending: Bool,
+        agentID: String,
+        isSubagent: Bool? = nil,
+        correlationKey: String? = nil
+    ) -> String? {
+        let metadataCategory: AgentHookNotifyCategory = isError ? .other : category
+        let alertType: NotificationSoundAlertType? = isError ? .errorStalled : {
+            switch metadataCategory {
+            case .turnComplete:
+                return .turnDone
+            case .needsPermission, .idleReminder:
+                return .needsInput
+            case .other:
+                return nil
+            }
+        }()
+        return metadataCategory.metaSegment(
+            pending: pending,
+            agentID: agentID,
+            alertType: alertType,
+            isSubagent: isSubagent,
+            correlationKey: correlationKey
+        )
+    }
+
+    private static func feedWorkstreamID(
+        source: String,
+        sessionID: String
+    ) -> String? {
+        FeedWorkstreamIdentifier(
+            agentID: source,
+            sessionID: sessionID
+        )?.rawValue
+    }
+
+    private static var allowedAgentLifecycleStatusKeys: Set<String> {
+        var keys = Set(agentDefs.map(\.statusKey))
+        keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
+        keys.insert(claudeCodeStatusKey)
+        return keys
+    }
     init(
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
@@ -27670,7 +27714,7 @@ struct CMUXCLI {
                         body: completion.body,
                         meta: AgentHookNotifyCategory.turnComplete.metaSegment(
                             pending: hasPendingBackgroundWork,
-                            agentKind: "claude",
+                            agentID: "claude",
                             isSubagent: isNestedAgentSession
                         )
                     )
@@ -28030,17 +28074,22 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
 
-            // `.other` means "ungated, always deliver" — identical to an untagged
-            // payload, so don't put it on the wire: the app parser accepts only
-            // the three known category literals, keeping the reserved suffix
-            // grammar as narrow as possible.
+            // `.other` remains ungated. Error alerts carry a contextual
+            // `errorStalled` sound type; other uncategorized alerts omit the
+            // metadata and retain the legacy payload shape.
+            // Error status has precedence over any notification-type hint. A
+            // few older Claude clients attach a stale permission/idle type to
+            // an error payload; serializing that category would reject the
+            // `errorStalled` context and silently lose the sound override.
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory.metaSegment(
+                meta: Self.agentNotificationMeta(
+                    category: notifyCategory,
+                    isError: classifiedSubtitle == "Error",
                     pending: notifyPending,
-                    agentKind: "claude",
+                    agentID: "claude",
                     isSubagent: isNestedAgentSession
                 )
             )
@@ -28409,7 +28458,7 @@ struct CMUXCLI {
                         body: needsInputBody,
                         meta: AgentHookNotifyCategory.needsPermission.metaSegment(
                             pending: false,
-                            agentKind: "claude",
+                            agentID: "claude",
                             isSubagent: isNestedAgentSession
                         )
                     )
@@ -30443,8 +30492,21 @@ struct CMUXCLI {
             localized: "agent.codex.input.body.needsInput",
             defaultValue: "Codex is asking a question"
         )
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+            let payload = notificationPayload(
+                title: String(
+                    localized: "cli.codexMonitor.notification.title",
+                    defaultValue: "Codex",
+                    bundle: bundle
+                ),
+                subtitle: subtitle,
+                body: body,
+                meta: AgentHookNotifyCategory.needsPermission.metaSegment(
+                    pending: false,
+                    agentID: "codex"
+                )
+            )
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
@@ -30461,8 +30523,22 @@ struct CMUXCLI {
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            let payload = notificationPayload(
+                title: String(
+                    localized: "cli.codexMonitor.notification.title",
+                    defaultValue: "Codex",
+                    bundle: bundle
+                ),
+                subtitle: summary.subtitle,
+                body: summary.body,
+                meta: AgentHookNotifyCategory.other.metaSegment(
+                    pending: false,
+                    agentID: "codex",
+                    alertType: .errorStalled
+                )
+            )
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(
@@ -34488,7 +34564,8 @@ export default CMUXSessionRestore;
                     )
                     let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
                         pending: false,
-                        agentKind: def.name,
+                        agentID: def.name,
+                        alertType: .needsInput,
                         isSubagent: false,
                         correlationKey: resolution.remainingNotificationCorrelationKey
                     )
@@ -35733,13 +35810,13 @@ export default CMUXSessionRestore;
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag successful turn-end pings; error alerts always deliver.
-                let stopMeta: String? = stopNotificationStatus == .idle
-                    ? AgentHookNotifyCategory.turnComplete.metaSegment(
-                        pending: hasActiveBackgroundWork,
-                        agentKind: def.name,
-                        isSubagent: isNestedAgentSession
-                    )
-                    : nil
+                let stopMeta = Self.agentNotificationMeta(
+                    category: stopNotificationStatus == .idle ? .turnComplete : .other,
+                    isError: stopNotificationStatus == .error,
+                    pending: stopNotificationStatus == .idle && hasActiveBackgroundWork,
+                    agentID: def.name,
+                    isSubagent: isNestedAgentSession
+                )
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
                     subtitle: subtitle,
@@ -36316,14 +36393,20 @@ export default CMUXSessionRestore;
                 // "Agent Needs Permission", waiting-for-input cues under "Agent
                 // Waiting for Input", turn-boundary completions (grok and
                 // antigravity route them through this hook) under "Agent
-                // Finished". Errors and unclassified alerts stay untagged.
+                // Finished". Errors carry the `errorStalled` sound type;
+                // unclassified alerts stay untagged.
                 // Completions AND waiting nags are both "pending" while
                 // background work is live, so a fullyIdle=false Antigravity
                 // waiting cue doesn't deliver a false "waiting for input".
-                let notificationMeta = summary.notifyCategory.metaSegment(
+                // Error status wins over a classifier category so every
+                // error carries the contextual error sound tag, even if an
+                // integration supplied an inconsistent category.
+                let notificationMeta = Self.agentNotificationMeta(
+                    category: summary.notifyCategory,
+                    isError: summary.status == .error,
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                         && hasActiveAntigravityBackgroundWork(),
-                    agentKind: def.name,
+                    agentID: def.name,
                     isSubagent: isNestedAgentSession,
                     correlationKey: cursorShellNeedsApproval
                         ? cursorApprovalNotificationCorrelationKey
@@ -36620,8 +36703,12 @@ export default CMUXSessionRestore;
             rawObject: fallbackObject,
             agentPid: agentPid
         )
+        guard let workstreamID = Self.feedWorkstreamID(
+            source: source,
+            sessionID: sessionId
+        ) else { return }
         var event: [String: Any] = [
-            "session_id": "\(source)-\(sessionId)",
+            "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
             "_ppid": agentPid,
@@ -38709,7 +38796,9 @@ export default CMUXSessionRestore;
             displayName: Self.agentDef(named: source)?.displayName ?? source,
             toolName: toolName,
             workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
-            surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId
+            surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId,
+            agentID: source,
+            includeAgentContext: true
         ) else { return }
         _ = try? activeClient.send(
             command: attentionLine,
@@ -38906,6 +38995,13 @@ export default CMUXSessionRestore;
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        guard let workstreamID = Self.feedWorkstreamID(
+            source: source,
+            sessionID: sessionId
+        ) else {
+            print("{}")
+            return
+        }
         var validatedCodexFeedTarget: (workspaceId: String, surfaceId: String)?
 
         // Native Codex child events are committed before their telemetry frame
@@ -39062,7 +39158,7 @@ export default CMUXSessionRestore;
         }
 
         var eventDict: [String: Any] = [
-            "session_id": "\(source)-\(sessionId)",
+            "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
             "_ppid": agentPid,
