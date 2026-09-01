@@ -118,20 +118,35 @@ fn read_crossterm_event(
     // Keep the input thread interruptible even when no graphics response is
     // pending. A single normalized poll avoids separate timed and untimed
     // branches drifting apart as the reader evolves.
+    const MAX_INTERRUPTED_RETRIES: u8 = 8;
     let poll_timeout =
         timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
+    let deadline = Instant::now() + poll_timeout;
+    let mut interrupted = 0;
     loop {
-        match poll(poll_timeout) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match poll(remaining) {
             Ok(false) => return Ok(None),
             Ok(true) => break,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES || remaining.is_zero() {
+                    return Err(error);
+                }
+            }
             Err(error) => return Err(error),
         }
     }
+    interrupted = 0;
     loop {
         match read() {
             Ok(event) => return Ok(Some(event)),
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
             Err(error) => return Err(error),
         }
     }
