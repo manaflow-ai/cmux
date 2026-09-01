@@ -105,6 +105,19 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         }
     }
 
+    private static func sameSessionIdentity(
+        _ lhs: AgentChatOwnedServerSession,
+        _ rhs: AgentChatOwnedServerSession
+    ) -> Bool {
+        // Launch IDs are canonical; legacy sessions without one only match
+        // when their complete snapshots are identical.
+        guard let lhsLaunchId = lhs.launchId,
+              let rhsLaunchId = rhs.launchId else {
+            return lhs == rhs
+        }
+        return lhsLaunchId == rhsLaunchId
+    }
+
     private struct OwnedServerSnapshot: Sendable {
         let session: AgentChatOwnedServerSession?
         let process: AgentChatSidecarProcessHandle?
@@ -115,31 +128,18 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         case process(AgentChatSidecarProcessHandle)
         case server(session: AgentChatOwnedServerSession, process: AgentChatSidecarProcessHandle)
 
-        private static func sameSessionIdentity(
-            _ lhs: AgentChatOwnedServerSession,
-            _ rhs: AgentChatOwnedServerSession
-        ) -> Bool {
-            // Launch IDs are canonical; legacy sessions without one only match
-            // when their complete snapshots are identical.
-            guard let lhsLaunchId = lhs.launchId,
-                  let rhsLaunchId = rhs.launchId else {
-                return lhs == rhs
-            }
-            return lhsLaunchId == rhsLaunchId
-        }
-
         func needsPreviousTermination(in state: State) -> Bool {
             let previousSessionNeedsTermination: Bool
             if let previousSession = state.ownedServerSession {
                 switch self {
                 case .session(let session):
-                    previousSessionNeedsTermination = !Self.sameSessionIdentity(
+                    previousSessionNeedsTermination = !AgentChatActionInFlightGate.sameSessionIdentity(
                         previousSession,
                         session
                     )
                 case .server(let session, let process):
                     previousSessionNeedsTermination =
-                        !Self.sameSessionIdentity(previousSession, session)
+                        !AgentChatActionInFlightGate.sameSessionIdentity(previousSession, session)
                         || previousSession.launchId != process.launchId
                 case .process(let process):
                     previousSessionNeedsTermination = previousSession.launchId != process.launchId
@@ -291,7 +291,7 @@ nonisolated final class AgentChatActionInFlightGate: @unchecked Sendable {
         case .session(let session):
             let isOwned = lock.withLock { state in
                 if let ownedSession = state.ownedServerSession,
-                   OwnershipReplacement.sameSessionIdentity(ownedSession, session) {
+                   Self.sameSessionIdentity(ownedSession, session) {
                     return true
                 }
                 return state.ownedServerProcess?.launchId == session.launchId
