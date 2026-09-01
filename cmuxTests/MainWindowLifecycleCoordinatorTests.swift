@@ -317,6 +317,62 @@ struct MainWindowLifecycleCoordinatorTests {
         #expect(coordinator.orphanedRoutes().map(\.windowId) == [windowIds[1], windowIds[0]])
     }
 
+    @Test("Freezing an older live orphan retains the captured replacement")
+    func freezingOlderLiveOrphanRetainsCapturedReplacement() {
+        let coordinator = MainWindowLifecycleCoordinator(maximumFrozenOrphanRecords: 1)
+        let olderWindowId = UUID()
+        let newerWindowId = UUID()
+        let olderManager = TabManager(autoWelcomeIfNeeded: false)
+        let newerManager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            tearDown(olderManager)
+            tearDown(newerManager)
+        }
+
+        let olderContext = makeContext(windowId: olderWindowId, manager: olderManager)
+        let newerContext = makeContext(windowId: newerWindowId, manager: newerManager)
+        coordinator.register(
+            olderContext,
+            lookupKey: ObjectIdentifier(olderManager)
+        )
+        coordinator.register(
+            newerContext,
+            lookupKey: ObjectIdentifier(newerManager)
+        )
+
+        let olderLiveRoute = RecoverableMainWindowRoute(
+            windowId: olderWindowId,
+            tabManager: olderManager,
+            window: nil,
+            sidebar: olderContext.sidebarState,
+            sidebarSelection: olderContext.sidebarSelectionState,
+            frozenWindowDockSnapshot: nil,
+            retainTabManager: true
+        )
+        #expect(coordinator.transitionToOrphaned(olderLiveRoute, from: olderContext))
+
+        let newerFrozenRoute = RecoverableMainWindowRoute(
+            windowId: newerWindowId,
+            frozenWindowSnapshot: emptyWindowSnapshot(windowId: newerWindowId)
+        )
+        #expect(coordinator.transitionToOrphaned(newerFrozenRoute, from: newerContext))
+
+        // The older live route can finish its asynchronous freeze after the
+        // newer frozen record already occupies the one-slot retention budget.
+        let capturedReplacement = RecoverableMainWindowRoute(
+            windowId: olderWindowId,
+            frozenWindowSnapshot: emptyWindowSnapshot(windowId: olderWindowId)
+        )
+        #expect(
+            coordinator.replaceOrphanedRoute(
+                windowId: olderWindowId,
+                with: capturedReplacement
+            )
+        )
+        #expect(coordinator.orphanedRoute(windowId: olderWindowId) === capturedReplacement)
+        #expect(coordinator.orphanedRoute(windowId: newerWindowId) == nil)
+    }
+
     @Test("Inactive pruning preserves frozen persistence routes")
     func inactivePruningPreservesFrozenPersistenceRoutes() {
         let app = AppDelegate()

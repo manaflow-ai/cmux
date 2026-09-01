@@ -1710,7 +1710,7 @@ struct AppDelegateIssue2907RoutingTests {
         let browserPanel = try assertions.require(
             browserOnlyWorkspace.newBrowserSurface(
                 inPane: browserPaneId,
-                url: URL(string: "https://example.com/browser-only"),
+                url: nil,
                 focus: true,
                 creationPolicy: .restoration
             )
