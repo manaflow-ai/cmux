@@ -8592,6 +8592,9 @@ impl MachineActionWorker {
 impl Drop for MachineActionWorker {
     fn drop(&mut self) {
         self.shutdown();
+        if let Some(reaper) = self.reaper.take() {
+            let _ = reaper.join();
+        }
     }
 }
 
