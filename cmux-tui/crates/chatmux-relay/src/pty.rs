@@ -447,6 +447,11 @@ struct Attachment {
     actor_id: String,
     /// Transport that opened this attachment (see FrameContext::transport_id).
     transport_id: Option<String>,
+    /// Monotonic identity for the callback route associated with this
+    /// attachment. A PTY source can outlive a detach and later invoke its old
+    /// sink after the same `ptyId` has been reopened; the route prevents that
+    /// stale callback from addressing the replacement attachment.
+    route_id: u64,
 }
 
 struct Inner {
@@ -565,7 +570,9 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) = self.inner.authorize_snapshot(pty_id, &auth, context, "input") {
+                if let Some(attachment) =
+                    self.inner.authorize_snapshot(pty_id, &auth, context, "input", None)
+                {
                     attachment.control.write(&data);
                 }
             }
@@ -579,7 +586,9 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) = self.inner.authorize_snapshot(pty_id, &auth, context, "resize") {
+                if let Some(attachment) =
+                    self.inner.authorize_snapshot(pty_id, &auth, context, "resize", None)
+                {
                     attachment.control.resize(cols, rows);
                 }
             }
@@ -589,7 +598,9 @@ impl PtyManager {
                     return;
                 }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
-                if let Some(attachment) = self.inner.authorize_snapshot(pty_id, &auth, context, "flow") {
+                if let Some(attachment) =
+                    self.inner.authorize_snapshot(pty_id, &auth, context, "flow", None)
+                {
                     if pause {
                         attachment.control.pause();
                     } else {
@@ -602,7 +613,7 @@ impl PtyManager {
                 if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
                     return;
                 }
-                if self.inner.authorize_snapshot(pty_id, &auth, context, "close").is_some() {
+                if self.inner.authorize_snapshot(pty_id, &auth, context, "close", None).is_some() {
                     self.inner.close(pty_id);
                 }
             }
@@ -882,6 +893,7 @@ impl Inner {
                 control: opened.control,
                 actor_id: actor.to_owned(),
                 transport_id: context.transport_id.clone(),
+                route_id: opened.route_id,
             },
         );
         if let Some(previous) = previous {
@@ -910,28 +922,50 @@ impl Inner {
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
-    fn sinks(self: &Arc<Self>, pty_id: &str, context: &FrameContext) -> (DataSink, ExitSink) {
+    fn sinks(self: &Arc<Self>, pty_id: &str, context: &FrameContext) -> (DataSink, ExitSink, u64) {
+        let route_id = next_attachment_route_id();
         let on_data = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            let auth = AuthSnapshot { trust: context.trust.clone(), owner_user_id: context.owner_user_id.clone(), send: Arc::clone(&context.send), buffered_amount: Arc::clone(&context.buffered_amount) };
-            Arc::new(move |chunk: Bytes| inner.emit_output(&pty_id, &chunk, &context, &auth))
-                as Arc<dyn Fn(Bytes) + Send + Sync>
+            let auth = AuthSnapshot {
+                trust: context.trust.clone(),
+                owner_user_id: context.owner_user_id.clone(),
+                send: Arc::clone(&context.send),
+                buffered_amount: Arc::clone(&context.buffered_amount),
+            };
+            Arc::new(move |chunk: Bytes| {
+                inner.emit_output(&pty_id, &chunk, &context, &auth, route_id)
+            }) as Arc<dyn Fn(Bytes) + Send + Sync>
         };
         let on_exit = {
             let inner = Arc::clone(self);
             let context = context.clone();
             let pty_id = pty_id.to_owned();
-            let auth = AuthSnapshot { trust: context.trust.clone(), owner_user_id: context.owner_user_id.clone(), send: Arc::clone(&context.send), buffered_amount: Arc::clone(&context.buffered_amount) };
-            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context, &auth))
+            let auth = AuthSnapshot {
+                trust: context.trust.clone(),
+                owner_user_id: context.owner_user_id.clone(),
+                send: Arc::clone(&context.send),
+                buffered_amount: Arc::clone(&context.buffered_amount),
+            };
+            Arc::new(move |code: i64| inner.emit_exit(&pty_id, code, &context, &auth, route_id))
                 as Arc<dyn Fn(i64) + Send + Sync>
         };
-        (on_data, on_exit)
+        (on_data, on_exit, route_id)
     }
 
-    fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext, auth: &AuthSnapshot) {
-        if self.authorize_snapshot(pty_id, auth, context, "output").is_none() {
+    fn emit_output(
+        &self,
+        pty_id: &str,
+        chunk: &Bytes,
+        context: &FrameContext,
+        auth: &AuthSnapshot,
+        route_id: u64,
+    ) {
+        if !self.route_is_current(pty_id, route_id) {
+            return;
+        }
+        if self.authorize_snapshot(pty_id, auth, context, "output", Some(route_id)).is_none() {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -944,16 +978,22 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            self.close(pty_id);
-            send_pty_error(
-                context,
-                pty_id,
-                "failed",
-                &format!(
-                    "dropped: {buffered} bytes buffered toward the server (cap {})",
-                    self.output_cap
-                ),
-            );
+            if self.close_route(pty_id, route_id) {
+                send_pty_error(
+                    context,
+                    pty_id,
+                    "failed",
+                    &format!(
+                        "dropped: {buffered} bytes buffered toward the server (cap {})",
+                        self.output_cap
+                    ),
+                );
+            }
+            return;
+        }
+        // Re-check after the backpressure probe. A concurrent replacement may
+        // have invalidated this route while the probe ran.
+        if !self.route_is_current(pty_id, route_id) {
             return;
         }
         (auth.send)(json!({
@@ -964,13 +1004,25 @@ impl Inner {
         }));
     }
 
-    fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext, auth: &AuthSnapshot) {
-        if self.authorize_snapshot(pty_id, auth, context, "exit").is_none() {
+    fn emit_exit(
+        &self,
+        pty_id: &str,
+        code: i64,
+        context: &FrameContext,
+        auth: &AuthSnapshot,
+        route_id: u64,
+    ) {
+        if !self.route_is_current(pty_id, route_id) {
+            return;
+        }
+        if self.authorize_snapshot(pty_id, auth, context, "exit", Some(route_id)).is_none() {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
         match attachments.get(pty_id) {
-            Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
+            Some(attachment)
+                if attachment.route_id == route_id
+                    && !attachment.closing.load(Ordering::SeqCst) => {}
             _ => return,
         }
         attachments.remove(pty_id);
@@ -1003,6 +1055,33 @@ impl Inner {
         }
     }
 
+    /// Remove and release an attachment only when the caller still owns its
+    /// callback route. This keeps an old PTY source from closing a replacement
+    /// that reused the same protocol id.
+    fn close_route(&self, pty_id: &str, route_id: u64) -> bool {
+        let attachment = {
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            if attachments.get(pty_id).is_some_and(|attachment| attachment.route_id == route_id) {
+                attachments.remove(pty_id)
+            } else {
+                None
+            }
+        };
+        if let Some(attachment) = attachment {
+            attachment.closing.store(true, Ordering::SeqCst);
+            attachment.control.kill();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn route_is_current(&self, pty_id: &str, route_id: u64) -> bool {
+        self.attachments.lock().expect("attach lock").get(pty_id).is_some_and(|attachment| {
+            attachment.route_id == route_id && !attachment.closing.load(Ordering::SeqCst)
+        })
+    }
+
     /// Frame-level transport fence. Unknown ids retain the protocol's silent
     /// no-op behavior; once an id is reserved or attached, a different
     /// transport may not act on it. A `None` caller owns everything (legacy).
@@ -1023,8 +1102,14 @@ impl Inner {
         auth: &AuthSnapshot,
         context: &FrameContext,
         action: &str,
+        route_id: Option<u64>,
     ) -> Option<Attachment> {
         let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
+        if route_id.is_some_and(|route_id| attachment.route_id != route_id) {
+            // A callback from a detached source is stale. It must not emit an
+            // error through its old transport or touch the replacement.
+            return None;
+        }
         let owner = auth.owner_user_id.as_deref();
         let allowed = !auth.trust.is_empty()
             && (auth.trust != "observe"
@@ -1033,7 +1118,11 @@ impl Inner {
             Some(attachment)
         } else {
             if action != "close" {
-                self.close(pty_id);
+                if let Some(route_id) = route_id {
+                    self.close_route(pty_id, route_id);
+                } else {
+                    self.close(pty_id);
+                }
             }
             send_pty_error(
                 context,
@@ -1044,7 +1133,6 @@ impl Inner {
             None
         }
     }
-
 }
 
 /// A resolved open: what to echo, plus a deferred `start` that begins output.
@@ -1053,6 +1141,7 @@ struct Opened {
     surface: Option<String>,
     control: Arc<dyn PtyControl>,
     closing: Arc<AtomicBool>,
+    route_id: u64,
     start: Box<dyn FnOnce() + Send>,
 }
 
@@ -1192,12 +1281,13 @@ impl Inner {
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
         let banner = handle.banner.clone();
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let (on_data, on_exit, route_id) = self.sinks(pty_id, context);
         Ok(Opened {
             created: ensured.created,
             surface: None,
             control,
             closing: Arc::new(AtomicBool::new(false)),
+            route_id,
             start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
         })
     }
@@ -1337,7 +1427,7 @@ impl Inner {
         let viewer_id = next_viewer_id();
         let released = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let (on_data, on_exit) = self.sinks(pty_id, context);
+        let (on_data, on_exit, route_id) = self.sinks(pty_id, context);
 
         // The per-attachment control proxies onto the session pty but its
         // kill() only unhooks this viewer (release), never the session.
@@ -1376,7 +1466,7 @@ impl Inner {
             }
         });
 
-        Ok(Opened { created, surface: None, control: proxy, closing, start })
+        Ok(Opened { created, surface: None, control: proxy, closing, route_id, start })
     }
 }
 
@@ -1413,6 +1503,11 @@ impl PtyControl for ShellViewerControl {
 }
 
 fn next_viewer_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+fn next_attachment_route_id() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
@@ -1909,22 +2004,36 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
-        let (on_data, _) = self.sinks(pty_id, context);
+        let (on_data, _, route_id) = self.sinks(pty_id, context);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
         let pty_id_for_exit = pty_id.to_owned();
         let stream_for_exit = Arc::clone(&stream);
+        let route_id_for_exit = route_id;
         let on_exit: ExitSink = Arc::new(move |code| {
             if stream_for_exit.overflowed() {
-                relay.close(&pty_id_for_exit);
-                send_pty_error(
-                    &context_for_exit,
-                    &pty_id_for_exit,
-                    "overflow",
-                    "pty output backlog overflowed; reattach to continue receiving output",
-                );
+                if relay.close_route(&pty_id_for_exit, route_id_for_exit) {
+                    send_pty_error(
+                        &context_for_exit,
+                        &pty_id_for_exit,
+                        "overflow",
+                        "pty output backlog overflowed; reattach to continue receiving output",
+                    );
+                }
             } else {
-                relay.emit_exit(&pty_id_for_exit, code, &context_for_exit);
+                let auth = AuthSnapshot {
+                    trust: context_for_exit.trust.clone(),
+                    owner_user_id: context_for_exit.owner_user_id.clone(),
+                    send: Arc::clone(&context_for_exit.send),
+                    buffered_amount: Arc::clone(&context_for_exit.buffered_amount),
+                };
+                relay.emit_exit(
+                    &pty_id_for_exit,
+                    code,
+                    &context_for_exit,
+                    &auth,
+                    route_id_for_exit,
+                );
             }
         });
         let start_stream = Arc::clone(&stream);
@@ -1933,6 +2042,7 @@ impl Inner {
             surface: Some(surface_ref.to_owned()),
             control: proxy,
             closing: Arc::new(AtomicBool::new(false)),
+            route_id,
             start: Box::new(move || start_stream.go_live(on_data, on_exit)),
         }))
     }
